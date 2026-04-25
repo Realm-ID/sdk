@@ -9,7 +9,8 @@ language-idiomatic SDK that targets the same API surface
 | Path | Status | Package | Runtime |
 |------|--------|---------|---------|
 | [`ts/`](./ts) | Released | `@realmid/sdk` (npm) | Node ≥ 20, Deno, Bun, Cloudflare Workers, modern browsers |
-| `go/` | Planned | `github.com/Realm-ID/sdk/go` | Go ≥ 1.22 |
+| [`go/`](./go) | Released | `github.com/Realm-ID/sdk/go` | Go ≥ 1.22 |
+| [`java/`](./java) | Released | `dev.realmid:sdk` (Maven Central, planned) | Java ≥ 17 |
 | `components/` | Planned | `@realmid/components` | React |
 
 ## Why one repo
@@ -25,6 +26,7 @@ Each SDK ships independently. Tags are prefixed by language:
 
 - `ts-v0.1.0`, `ts-v0.2.0`, …
 - `go-v0.1.0`, …
+- `java-v0.1.0`, …
 
 CI picks the right subdirectory from the tag prefix.
 

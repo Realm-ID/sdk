@@ -8,3 +8,17 @@ dist/
 coverage/
 .idea/
 .vscode/
+
+# Go
+*.test
+*.out
+
+# Java / Gradle
+.gradle/
+build/
+**/build/
+out/
+*.class
+*.jar
+!**/gradle/wrapper/gradle-wrapper.jar
+hs_err_pid*
