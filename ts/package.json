@@ -1,0 +1,49 @@
+{
+  "name": "@realmid/sdk",
+  "version": "0.1.0",
+  "description": "Partner SDK for RealmID JWT verification (Web Crypto, edge-friendly)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx src/verifier.test.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "realmid",
+    "jwt",
+    "auth",
+    "verifier",
+    "jwks",
+    "web-crypto"
+  ],
+  "homepage": "https://realmid.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Realm-ID/sdk.git",
+    "directory": "ts"
+  },
+  "bugs": {
+    "url": "https://github.com/Realm-ID/sdk/issues"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
