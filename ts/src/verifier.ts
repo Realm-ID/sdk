@@ -1,12 +1,24 @@
 /**
- * Verifier: parses, resolves kid -> public key, verifies signature and claims.
+ * Verifier: parses a Realm-ID-issued JWT, resolves kid -> public key from the
+ * realm's JWKS, validates the RSA signature, and checks issuer/audience/exp.
+ *
+ * SPEC §5: only JWKS are cached (10 min TTL, unknown-kid forces refetch).
+ * Audience can be auto-discovered (realm metadata) when not pinned in config.
  */
 
-export interface Config {
-  /** e.g. "https://auth.realmid.dev" — no trailing slash */
+import { RealmError, type ErrorCode } from "./errors.js";
+import type { Claims } from "./claims.js";
+
+export interface VerifierConfig {
+  /** Issuer host, no trailing slash. e.g. "https://auth.realmid.dev" */
   baseUrl: string;
-  /** Expected aud value, e.g. "example.com" */
-  audience: string;
+  /**
+   * Pinned audience. Optional — if omitted, the verifier calls
+   * `audienceResolver` lazily on first verify (and caches per realm).
+   */
+  audience?: string;
+  /** Resolver invoked when no audience is pinned. Result is cached. */
+  audienceResolver?: (realmId: string) => Promise<string>;
   /** Optional fetch override. Default: globalThis.fetch */
   fetch?: typeof fetch;
   /** JWKS cache TTL in ms. Default 10m. */
@@ -17,38 +29,9 @@ export interface Config {
   now?: () => Date;
 }
 
-export interface Claims {
-  iss: string;
-  sub: string;
-  aud: string;
-  exp: number;
-  iat: number;
-  nbf?: number;
-  jti?: string;
-  azp?: string;
-  tenant_id?: string;
-  role?: string;
-  [k: string]: unknown;
-}
-
-export type VerifyErrorCode =
-  | "malformed"
-  | "wrong_algorithm"
-  | "bad_signature"
-  | "wrong_issuer"
-  | "wrong_audience"
-  | "expired"
-  | "not_yet_valid"
-  | "unknown_kid"
-  | "jwks_fetch_failed";
-
-export class VerifyError extends Error {
-  code: VerifyErrorCode;
-  constructor(code: VerifyErrorCode, message: string) {
-    super(message);
-    this.code = code;
-    this.name = "VerifyError";
-  }
+export interface VerifyOptions {
+  /** Per-call audience override (skips resolver/pinned aud). */
+  audience?: string;
 }
 
 interface CachedKeys {
@@ -57,33 +40,38 @@ interface CachedKeys {
 }
 
 export class Verifier {
-  private readonly cfg: Required<Omit<Config, "fetch" | "now">> & {
-    fetch: typeof fetch;
-    now: () => Date;
-  };
+  private readonly baseUrl: string;
+  private readonly audiencePinned?: string;
+  private readonly resolver?: (realmId: string) => Promise<string>;
+  private readonly fetchImpl: typeof fetch;
+  private readonly cacheTtlMs: number;
+  private readonly leewaySeconds: number;
+  private readonly now: () => Date;
   private readonly cache = new Map<string, CachedKeys>();
+  private readonly audCache = new Map<string, string>();
 
-  constructor(cfg: Config) {
+  constructor(cfg: VerifierConfig) {
     if (!cfg.baseUrl) throw new Error("realmid: baseUrl required");
-    if (!cfg.audience) throw new Error("realmid: audience required");
-    this.cfg = {
-      baseUrl: cfg.baseUrl.replace(/\/+$/, ""),
-      audience: cfg.audience,
-      fetch: cfg.fetch ?? globalThis.fetch,
-      cacheTtlMs: cfg.cacheTtlMs ?? 10 * 60 * 1000,
-      leewaySeconds: cfg.leewaySeconds ?? 30,
-      now: cfg.now ?? (() => new Date()),
-    };
+    if (!cfg.audience && !cfg.audienceResolver) {
+      throw new Error("realmid: audience or audienceResolver required");
+    }
+    this.baseUrl = cfg.baseUrl.replace(/\/+$/, "");
+    this.audiencePinned = cfg.audience;
+    this.resolver = cfg.audienceResolver;
+    this.fetchImpl = cfg.fetch ?? globalThis.fetch.bind(globalThis);
+    this.cacheTtlMs = cfg.cacheTtlMs ?? 10 * 60 * 1000;
+    this.leewaySeconds = cfg.leewaySeconds ?? 30;
+    this.now = cfg.now ?? (() => new Date());
   }
 
-  async verify(token: string): Promise<Claims> {
+  async verify(token: string, opts?: VerifyOptions): Promise<Claims> {
     const { header, claims, signedInput, signature } = parseToken(token);
 
     if (header.alg !== "RS256") {
-      throw new VerifyError("wrong_algorithm", `unexpected alg: ${header.alg}`);
+      throw rerr("wrong_algorithm", `unexpected alg: ${header.alg}`);
     }
     if (typeof claims.iss !== "string") {
-      throw new VerifyError("malformed", "iss missing");
+      throw rerr("malformed", "iss missing");
     }
 
     const realmId = extractRealmId(claims.iss);
@@ -95,50 +83,71 @@ export class Verifier {
       signature as BufferSource,
       signedInput as BufferSource,
     );
-    if (!ok) throw new VerifyError("bad_signature", "signature invalid");
+    if (!ok) throw rerr("bad_signature", "signature invalid");
 
-    const issuerPrefix = this.cfg.baseUrl + "/";
+    const issuerPrefix = this.baseUrl + "/";
     if (!claims.iss.startsWith(issuerPrefix)) {
-      throw new VerifyError("wrong_issuer", `iss mismatch: ${claims.iss}`);
-    }
-    if (claims.aud !== this.cfg.audience) {
-      throw new VerifyError("wrong_audience", `aud mismatch: ${claims.aud}`);
+      throw rerr("wrong_issuer", `iss mismatch: ${claims.iss}`);
     }
 
-    const now = Math.floor(this.cfg.now().getTime() / 1000);
-    const leeway = this.cfg.leewaySeconds;
+    const expectedAud = await this.expectedAudience(realmId, opts?.audience);
+    if (claims.aud !== expectedAud) {
+      throw rerr("wrong_audience", `aud mismatch: ${claims.aud}`);
+    }
+
+    const now = Math.floor(this.now().getTime() / 1000);
+    const leeway = this.leewaySeconds;
     if (typeof claims.exp === "number" && now - leeway >= claims.exp) {
-      throw new VerifyError("expired", "token expired");
+      throw rerr("expired", "token expired");
     }
     if (typeof claims.nbf === "number" && now + leeway < claims.nbf) {
-      throw new VerifyError("not_yet_valid", "token not yet valid");
+      throw rerr("not_yet_valid", "token not yet valid");
     }
 
     return claims as Claims;
   }
 
+  private async expectedAudience(realmId: string, override?: string): Promise<string> {
+    if (override) return override;
+    if (this.audiencePinned) return this.audiencePinned;
+    const cached = this.audCache.get(realmId);
+    if (cached) return cached;
+    if (!this.resolver) {
+      throw rerr("wrong_audience", "no audience configured and no resolver");
+    }
+    const aud = await this.resolver(realmId);
+    this.audCache.set(realmId, aud);
+    return aud;
+  }
+
   private async resolveKey(realmId: string, kid: string): Promise<CryptoKey> {
     const cached = this.cache.get(realmId);
-    const now = this.cfg.now().getTime();
-    if (cached && cached.keys.has(kid) && now - cached.fetchedAt < this.cfg.cacheTtlMs) {
+    const now = this.now().getTime();
+    if (cached && cached.keys.has(kid) && now - cached.fetchedAt < this.cacheTtlMs) {
       return cached.keys.get(kid)!;
     }
 
     const keys = await this.fetchJwks(realmId);
     this.cache.set(realmId, { keys, fetchedAt: now });
     const key = keys.get(kid);
-    if (!key) throw new VerifyError("unknown_kid", `kid ${kid} not in JWKS`);
+    if (!key) throw rerr("unknown_kid", `kid ${kid} not in JWKS`);
     return key;
   }
 
   private async fetchJwks(realmId: string): Promise<Map<string, CryptoKey>> {
-    const url = `${this.cfg.baseUrl}/${realmId}/.well-known/jwks.json`;
-    const resp = await this.cfg.fetch(url);
+    const url = `${this.baseUrl}/${realmId}/.well-known/jwks.json`;
+    let resp: Response;
+    try {
+      resp = await this.fetchImpl(url);
+    } catch (e) {
+      throw new RealmError({
+        code: "jwks_fetch_failed",
+        message: `jwks fetch network error: ${(e as Error).message}`,
+        cause: e,
+      });
+    }
     if (!resp.ok) {
-      throw new VerifyError(
-        "jwks_fetch_failed",
-        `jwks fetch returned ${resp.status}`,
-      );
+      throw rerr("jwks_fetch_failed", `jwks fetch returned ${resp.status}`);
     }
     const doc = (await resp.json()) as { keys: JWK[] };
     const out = new Map<string, CryptoKey>();
@@ -157,12 +166,16 @@ export class Verifier {
   }
 }
 
-/** Convenience factory that mirrors the Go SDK's `NewVerifier`. */
-export function createVerifier(cfg: Config): Verifier {
+/** Convenience factory mirroring the Go SDK's `NewVerifier`. */
+export function createVerifier(cfg: VerifierConfig): Verifier {
   return new Verifier(cfg);
 }
 
 // ---- helpers ----
+
+function rerr(code: ErrorCode, message: string): RealmError {
+  return new RealmError({ code, message });
+}
 
 interface JWK {
   kty: string;
@@ -182,7 +195,7 @@ interface Header {
 function parseToken(token: string) {
   const parts = token.split(".");
   if (parts.length !== 3) {
-    throw new VerifyError("malformed", "expected 3 dot-separated parts");
+    throw rerr("malformed", "expected 3 dot-separated parts");
   }
   const [h, p, s] = parts as [string, string, string];
 
@@ -194,11 +207,11 @@ function parseToken(token: string) {
     claims = JSON.parse(decodeUtf8(b64urlDecode(p))) as Record<string, unknown>;
     signature = b64urlDecode(s);
   } catch (e) {
-    throw new VerifyError("malformed", `could not parse: ${(e as Error).message}`);
+    throw rerr("malformed", `could not parse: ${(e as Error).message}`);
   }
 
   if (!header.kid) {
-    throw new VerifyError("malformed", "kid missing from header");
+    throw rerr("malformed", "kid missing from header");
   }
 
   const signedInput = new TextEncoder().encode(`${h}.${p}`);
@@ -206,7 +219,6 @@ function parseToken(token: string) {
 }
 
 function b64urlDecode(s: string): Uint8Array {
-  // base64url -> base64
   const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -221,7 +233,7 @@ function decodeUtf8(bytes: Uint8Array): string {
 function extractRealmId(iss: string): string {
   const idx = iss.lastIndexOf("/");
   if (idx < 0 || idx === iss.length - 1) {
-    throw new VerifyError("wrong_issuer", "iss has no realm segment");
+    throw rerr("wrong_issuer", "iss has no realm segment");
   }
   return iss.slice(idx + 1);
 }

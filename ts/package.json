@@ -1,7 +1,7 @@
 {
   "name": "@realmid/sdk",
   "version": "0.1.0",
-  "description": "Partner SDK for RealmID JWT verification (Web Crypto, edge-friendly)",
+  "description": "Partner SDK for Realm ID — login, refresh, MFA, verify, and management",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "node --test --import tsx src/verifier.test.ts",
+    "test": "node --test --import tsx --test-reporter=spec src/errors.test.ts src/verifier.test.ts src/auth.test.ts src/tenants.test.ts src/middleware.test.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
