@@ -331,7 +331,8 @@ func (a *AuthClient) MintMFAChallenge(ctx context.Context, accessToken string) (
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/mfa/challenge",
-		Body:   map[string]string{"access_token": accessToken},
+		// Empty body — the bearer identifies user, session, and realm.
+		Body:   map[string]string{},
 		Bearer: accessToken,
 	}, &resp); err != nil {
 		return "", nil, err

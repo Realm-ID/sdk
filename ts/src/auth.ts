@@ -252,7 +252,8 @@ export class AuthClient {
         method: "POST",
         path: "/auth/mfa/challenge",
         bearer: req.accessToken,
-        body: { realm_id: this.realmId },
+        // Empty body — the bearer identifies user, session, and realm.
+        body: {},
       });
     } catch (e) {
       if (e instanceof RealmError && (e.httpStatus === 404 || e.httpStatus === 501)) {

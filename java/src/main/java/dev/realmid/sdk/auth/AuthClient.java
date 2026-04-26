@@ -110,8 +110,8 @@ public final class AuthClient {
      * semantics as the TS/Go SDKs.
      */
     public MfaChallengeMint mintMfaChallenge(String accessToken) {
+        // Empty body — the bearer identifies user, session, and realm.
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("access_token", accessToken);
         JsonNode raw;
         try {
             raw = http.request(HttpTransport.Request.of("POST", "/auth/mfa/challenge")
