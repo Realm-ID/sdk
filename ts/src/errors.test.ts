@@ -63,14 +63,20 @@ test("HttpClient: 204 returns undefined", async () => {
   assert.equal(out, undefined);
 });
 
-test("HttpClient: api key sent as bearer", async () => {
+test("HttpClient: platform-token manager bearer is sent on every request (SPEC §4.0)", async () => {
   let seenAuth: string | undefined;
   const f: typeof fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
     const h = new Headers(init?.headers);
     seenAuth = h.get("authorization") ?? undefined;
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const c = new HttpClient({ baseUrl: "https://x.example", fetch: f, apiKey: "rk_live_abc" });
+  // Stub platform-token manager that hands out a fixed token without ever
+  // hitting the network. Confirms HttpClient never bypasses it.
+  const stubMgr = {
+    getToken: async () => "pt_stub_value",
+    invalidate: () => {},
+  } as unknown as import("./platform-token-manager.js").PlatformTokenManager;
+  const c = new HttpClient({ baseUrl: "https://x.example", fetch: f, platformTokens: stubMgr });
   await c.request({ path: "/anything" });
-  assert.equal(seenAuth, "Bearer rk_live_abc");
+  assert.equal(seenAuth, "Bearer pt_stub_value");
 });

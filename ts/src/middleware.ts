@@ -1,28 +1,46 @@
 /**
- * Connect-style middleware — SPEC §11.
+ * Connect-style middleware — SPEC §10.
  *
  * One handler that routes the four auth ingress paths
  * (login/logout/refresh/mfa-verify) to the SDK and falls through to bearer
  * verification for everything else. Designed to mount on Express, Polka, or
  * raw http with no extra dependencies.
+ *
+ * Two SPEC §10 features wire here:
+ *  - `tokenDelivery: "cookie" | "body"` controls how the refresh token
+ *    flows back to the client. `body` mode is for native / mobile apps
+ *    that can't use cookies; the refresh token appears in the JSON body
+ *    instead, and logout/refresh read it from `req.body.refresh_token`.
+ *  - `mfaProtectedPaths` is a glob list. On a verified-but-no-MFA token
+ *    hitting one of those paths, the middleware responds 412 with a
+ *    challenge-token envelope so the client can prompt and re-mint.
  */
 
 import type { Realm } from "./realm.js";
 import { RealmError } from "./errors.js";
 import type { Claims } from "./claims.js";
 import type { LoginRequest } from "./auth.js";
+import type { Logger } from "./logger.js";
+import { NOOP_LOGGER } from "./logger.js";
 
 export interface MiddlewareConfig {
   exemptPaths?: string[];
+  /** Globs for paths that require an MFA-marked access token. */
+  mfaProtectedPaths?: string[];
   loginPath?: string;
   logoutPath?: string;
   refreshPath?: string;
   mfaVerifyPath?: string;
+  /** "cookie" (default, browser SPAs) or "body" (native/mobile clients). */
+  tokenDelivery?: "cookie" | "body";
   cookieName?: string;
   cookieDomain?: string;
   cookieSecure?: boolean;
-  /** Override the default 401 response. */
+  cookieSameSite?: "lax" | "strict" | "none";
+  /** Override the default 401/412 response. */
   onAuthFailure?: (req: ConnectReq, err: RealmError) => void | Promise<void>;
+  /** Logger override; falls back to the realm handle's logger. */
+  logger?: Logger;
 }
 
 interface IncomingMessageLike {
@@ -52,20 +70,36 @@ export type ConnectMiddleware = (
   next: NextFn,
 ) => void | Promise<void>;
 
-const DEFAULTS: Required<Omit<MiddlewareConfig, "cookieDomain" | "onAuthFailure">> = {
-  exemptPaths: ["/health", "/public/*"],
-  loginPath: "/login",
-  logoutPath: "/logout",
-  refreshPath: "/token",
-  mfaVerifyPath: "/mfa/verify",
-  cookieName: "realmid_refresh",
-  cookieSecure: true,
-};
+interface Resolved {
+  exemptPaths: string[];
+  mfaProtectedPaths: string[];
+  loginPath: string;
+  logoutPath: string;
+  refreshPath: string;
+  mfaVerifyPath: string;
+  tokenDelivery: "cookie" | "body";
+  cookieName: string;
+  cookieDomain?: string;
+  cookieSecure: boolean;
+  cookieSameSite: "lax" | "strict" | "none";
+}
 
 export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): ConnectMiddleware {
-  const merged = { ...DEFAULTS, ...cfg };
-  const cookieDomain = cfg.cookieDomain;
+  const merged: Resolved = {
+    exemptPaths: cfg.exemptPaths ?? ["/health", "/public/*"],
+    mfaProtectedPaths: cfg.mfaProtectedPaths ?? [],
+    loginPath: cfg.loginPath ?? "/login",
+    logoutPath: cfg.logoutPath ?? "/logout",
+    refreshPath: cfg.refreshPath ?? "/token",
+    mfaVerifyPath: cfg.mfaVerifyPath ?? "/mfa/verify",
+    tokenDelivery: cfg.tokenDelivery ?? realm.tokenDelivery,
+    cookieName: cfg.cookieName ?? "realmid_refresh",
+    cookieDomain: cfg.cookieDomain,
+    cookieSecure: cfg.cookieSecure ?? true,
+    cookieSameSite: cfg.cookieSameSite ?? "lax",
+  };
   const onFail = cfg.onAuthFailure;
+  const logger: Logger = cfg.logger ?? NOOP_LOGGER;
 
   return async function realmidMiddleware(req, res, next) {
     try {
@@ -81,16 +115,16 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
 
       // 2-5. Auth ingress routes.
       if (method === "POST" && path === merged.loginPath) {
-        return void await handleLogin(realm, req, res, merged, cookieDomain);
+        return void await handleLogin(realm, req, res, merged);
       }
       if (method === "POST" && path === merged.logoutPath) {
-        return void await handleLogout(realm, req, res, merged, cookieDomain);
+        return void await handleLogout(realm, req, res, merged);
       }
       if (method === "POST" && path === merged.refreshPath) {
-        return void await handleRefresh(realm, req, res, merged, cookieDomain);
+        return void await handleRefresh(realm, req, res, merged);
       }
       if (method === "POST" && path === merged.mfaVerifyPath) {
-        return void await handleMfaVerify(realm, req, res, merged, cookieDomain);
+        return void await handleMfaVerify(realm, req, res, merged);
       }
 
       // 6. Bearer verification fall-through.
@@ -101,19 +135,31 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
           message: "missing bearer token",
           httpStatus: 401,
         });
+        logger.warn("realmid: auth failure", { path, code: err.code });
         return void await respondAuthFailure(res, err, req, onFail);
       }
       const token = auth.slice("bearer ".length).trim();
+      let claims: Claims;
       try {
-        const claims = await realm.verify(token);
-        req.realmid = claims;
-        return next();
+        claims = await realm.verify(token);
       } catch (e) {
         const err = e instanceof RealmError
           ? e
           : new RealmError({ code: "unauthorized", message: (e as Error).message ?? "verify failed", cause: e });
+        logger.warn("realmid: auth failure", { path, code: err.code });
         return void await respondAuthFailure(res, err, req, onFail);
       }
+
+      // MFA gating (SPEC §10.1).
+      if (merged.mfaProtectedPaths.length > 0 && pathRequiresMfa(merged.mfaProtectedPaths, path)) {
+        if (!claimsCarryMfa(claims)) {
+          await respondMfaRequired(realm, res, token, logger);
+          return;
+        }
+      }
+
+      req.realmid = claims;
+      return next();
     } catch (e) {
       next(e);
     }
@@ -122,22 +168,15 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
 
 // ---- route handlers ----
 
-async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: typeof DEFAULTS, cookieDomain?: string) {
+async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const body = await readJsonBody(req);
   const loginReq: LoginRequest = {
     method: (body["method"] as LoginRequest["method"]) ?? "firebase",
     providerToken: String(body["provider_token"] ?? body["providerToken"] ?? ""),
-    customClaims: (body["custom_claims"] ?? body["customClaims"]) as Record<string, unknown> | undefined,
   };
   try {
     const out = await realm.auth.login(loginReq);
-    setRefreshCookie(res, cfg.cookieName, out.refreshToken, cfg.cookieSecure, cookieDomain);
-    sendJson(res, 200, {
-      access_token: out.accessToken,
-      expires_in: out.expiresIn,
-      user: out.user,
-      tenants: out.tenants,
-    });
+    finishSession(res, cfg, out);
   } catch (e) {
     if (e instanceof RealmError && e.code === "mfa_required") {
       const d = e.details ?? {};
@@ -152,59 +191,136 @@ async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: 
   }
 }
 
-async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: typeof DEFAULTS, cookieDomain?: string) {
-  const refreshToken = readCookie(req, cfg.cookieName);
+async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
+  const refreshToken = readRefreshToken(req, cfg);
   try {
     await realm.auth.logout({ refreshToken });
   } catch {
     // best-effort logout — clear cookie regardless
   }
-  clearRefreshCookie(res, cfg.cookieName, cfg.cookieSecure, cookieDomain);
+  if (cfg.tokenDelivery === "cookie") {
+    clearRefreshCookie(res, cfg);
+  }
   sendJson(res, 200, { status: "ok" });
 }
 
-async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: typeof DEFAULTS, cookieDomain?: string) {
-  const refreshToken = readCookie(req, cfg.cookieName);
+async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
+  const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>));
+  const refreshToken = readRefreshToken(req, cfg, body);
   if (!refreshToken) {
-    sendError(res, new RealmError({ code: "unauthorized", message: "refresh cookie missing", httpStatus: 401 }));
+    sendError(res, new RealmError({
+      code: "unauthorized",
+      message: cfg.tokenDelivery === "cookie" ? "refresh cookie missing" : "refresh_token missing from body",
+      httpStatus: 401,
+    }));
     return;
   }
-  const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>));
-  const tenantId = String((body as Record<string, unknown>)["tenant_id"] ?? (body as Record<string, unknown>)["tenantId"] ?? "");
+  const tenantId = String(body["tenant_id"] ?? body["tenantId"] ?? "");
   if (!tenantId) {
     sendError(res, new RealmError({ code: "tenant_required", message: "tenant_id required", httpStatus: 400 }));
     return;
   }
+  const customClaims = (body["custom_claims"] ?? body["customClaims"]) as Record<string, unknown> | undefined;
   try {
-    const out = await realm.auth.token({ refreshToken, tenantId });
-    setRefreshCookie(res, cfg.cookieName, out.refreshToken, cfg.cookieSecure, cookieDomain);
-    sendJson(res, 200, {
-      access_token: out.accessToken,
-      expires_in: out.expiresIn,
-      tenant_id: out.tenantId,
-      role: out.role,
-    });
+    const out = await realm.auth.token({ refreshToken, tenantId, customClaims });
+    if (cfg.tokenDelivery === "cookie") {
+      setRefreshCookie(res, cfg, out.refreshToken);
+      sendJson(res, 200, {
+        access_token: out.accessToken,
+        expires_in: out.expiresIn,
+        tenant_id: out.tenantId,
+        role: out.role,
+      });
+    } else {
+      sendJson(res, 200, {
+        access_token: out.accessToken,
+        refresh_token: out.refreshToken,
+        expires_in: out.expiresIn,
+        tenant_id: out.tenantId,
+        role: out.role,
+      });
+    }
   } catch (e) {
     sendError(res, e);
   }
 }
 
-async function handleMfaVerify(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: typeof DEFAULTS, cookieDomain?: string) {
+async function handleMfaVerify(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const body = await readJsonBody(req);
   const challengeToken = String(body["challenge_token"] ?? body["challengeToken"] ?? "");
   const code = String(body["code"] ?? "");
   try {
     const out = await realm.auth.mfaVerify({ challengeToken, code });
-    setRefreshCookie(res, cfg.cookieName, out.refreshToken, cfg.cookieSecure, cookieDomain);
+    finishSession(res, cfg, out);
+  } catch (e) {
+    sendError(res, e);
+  }
+}
+
+interface SessionEnvelope {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: unknown;
+  tenants: unknown;
+}
+
+function finishSession(res: ConnectRes, cfg: Resolved, out: SessionEnvelope): void {
+  if (cfg.tokenDelivery === "cookie") {
+    setRefreshCookie(res, cfg, out.refreshToken);
     sendJson(res, 200, {
       access_token: out.accessToken,
       expires_in: out.expiresIn,
       user: out.user,
       tenants: out.tenants,
     });
-  } catch (e) {
-    sendError(res, e);
+  } else {
+    sendJson(res, 200, {
+      access_token: out.accessToken,
+      refresh_token: out.refreshToken,
+      expires_in: out.expiresIn,
+      user: out.user,
+      tenants: out.tenants,
+    });
   }
+}
+
+function readRefreshToken(req: ConnectReq, cfg: Resolved, body?: Record<string, unknown>): string | undefined {
+  if (cfg.tokenDelivery === "cookie") return readCookie(req, cfg.cookieName);
+  if (body && typeof body["refresh_token"] === "string") return body["refresh_token"] as string;
+  if (body && typeof body["refreshToken"] === "string") return body["refreshToken"] as string;
+  return undefined;
+}
+
+function pathRequiresMfa(patterns: string[], path: string): boolean {
+  for (const p of patterns) {
+    if (globMatch(p, path)) return true;
+  }
+  return false;
+}
+
+function claimsCarryMfa(claims: Claims): boolean {
+  const amr = (claims as Record<string, unknown>)["amr"];
+  if (Array.isArray(amr) && amr.includes("mfa")) return true;
+  const acr = (claims as Record<string, unknown>)["acr"];
+  if (acr === "urn:realmid:mfa") return true;
+  return false;
+}
+
+async function respondMfaRequired(realm: Realm, res: ConnectRes, accessToken: string, logger: Logger): Promise<void> {
+  let challenge: { mfaChallengeToken: string; methods: string[] } | undefined;
+  try {
+    challenge = await realm.auth.mintMfaChallenge({ accessToken });
+  } catch (e) {
+    logger.warn("realmid: mfa challenge mint unavailable", {
+      message: (e as Error).message,
+    });
+  }
+  sendJson(res, 412, {
+    error: { code: "mfa_required", message: "MFA required for this resource" },
+    mfa_challenge_token: challenge?.mfaChallengeToken,
+    methods: challenge?.methods ?? ["totp"],
+  });
 }
 
 // ---- response helpers ----
@@ -240,30 +356,36 @@ function sendError(res: ConnectRes, err: unknown): void {
 
 // ---- cookie helpers ----
 
-function setRefreshCookie(res: ConnectRes, name: string, value: string, secure: boolean, domain?: string) {
+function setRefreshCookie(res: ConnectRes, cfg: Resolved, value: string) {
   const parts = [
-    `${name}=${encodeURIComponent(value)}`,
+    `${cfg.cookieName}=${encodeURIComponent(value)}`,
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSiteToken(cfg.cookieSameSite)}`,
     "Path=/",
   ];
-  if (secure) parts.push("Secure");
-  if (domain) parts.push(`Domain=${domain}`);
+  if (cfg.cookieSecure) parts.push("Secure");
+  if (cfg.cookieDomain) parts.push(`Domain=${cfg.cookieDomain}`);
   appendSetCookie(res, parts.join("; "));
 }
 
-function clearRefreshCookie(res: ConnectRes, name: string, secure: boolean, domain?: string) {
+function clearRefreshCookie(res: ConnectRes, cfg: Resolved) {
   const parts = [
-    `${name}=`,
+    `${cfg.cookieName}=`,
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSiteToken(cfg.cookieSameSite)}`,
     "Path=/",
     "Max-Age=0",
     "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
   ];
-  if (secure) parts.push("Secure");
-  if (domain) parts.push(`Domain=${domain}`);
+  if (cfg.cookieSecure) parts.push("Secure");
+  if (cfg.cookieDomain) parts.push(`Domain=${cfg.cookieDomain}`);
   appendSetCookie(res, parts.join("; "));
+}
+
+function sameSiteToken(s: "lax" | "strict" | "none"): string {
+  if (s === "strict") return "Strict";
+  if (s === "none") return "None";
+  return "Lax";
 }
 
 function appendSetCookie(res: ConnectRes, cookie: string) {

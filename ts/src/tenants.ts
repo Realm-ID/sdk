@@ -4,7 +4,7 @@
  */
 
 import type { HttpClient } from "./http.js";
-import { paginate, type Paginated, type Page, type PageOpts } from "./pagination.js";
+import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 export interface Tenant {
   id: string;
@@ -55,32 +55,17 @@ export interface User {
 
 export type UserStatus = "active" | "suspended" | "deactivated";
 
-interface PageEnv<T> {
-  items?: T[];
-  data?: T[];
-  next_cursor?: string;
-  cursor?: string;
-}
-
-function readPage<T>(raw: PageEnv<T> | T[]): Page<T> {
-  if (Array.isArray(raw)) return { items: raw };
-  return {
-    items: raw.items ?? raw.data ?? [],
-    nextCursor: raw.next_cursor ?? raw.cursor,
-  };
-}
-
 export class InvitationsClient {
   constructor(private readonly http: HttpClient) {}
 
   list(tenantId: string, opts?: PageOpts): Paginated<Invitation> {
     return paginate<Invitation>(async (po) => {
-      const raw = await this.http.request<PageEnv<Invitation> | Invitation[]>({
+      const raw = await this.http.request<unknown>({
         method: "GET",
         path: `/tenants/${encodeURIComponent(tenantId)}/invitations`,
         query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
       });
-      return readPage(raw);
+      return readPage<Invitation>(raw);
     });
   }
 
@@ -105,12 +90,12 @@ export class UsersClient {
 
   list(tenantId: string, opts?: PageOpts): Paginated<User> {
     return paginate<User>(async (po) => {
-      const raw = await this.http.request<PageEnv<User> | User[]>({
+      const raw = await this.http.request<unknown>({
         method: "GET",
         path: `/tenants/${encodeURIComponent(tenantId)}/users`,
         query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
       });
-      return readPage(raw);
+      return readPage<User>(raw);
     });
   }
 
@@ -163,12 +148,12 @@ export class TenantsClient {
 
   list(opts?: PageOpts): Paginated<Tenant> {
     return paginate<Tenant>(async (po) => {
-      const raw = await this.http.request<PageEnv<Tenant> | Tenant[]>({
+      const raw = await this.http.request<unknown>({
         method: "GET",
         path: "/tenants",
         query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
       });
-      return readPage(raw);
+      return readPage<Tenant>(raw);
     });
   }
 

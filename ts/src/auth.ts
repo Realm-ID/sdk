@@ -1,10 +1,21 @@
 /**
  * Authentication surface — `realm.auth.*` per SPEC §4.
- * Maps directly onto POST /auth/{login,token,mfa/verify,logout} and the
- * /auth/sessions management endpoints.
+ * Maps directly onto POST /auth/{login,token,mfa/verify,mfa/challenge,logout}
+ * and the /auth/sessions management endpoints.
+ *
+ * Authorization on every call is the short-lived platform token — the raw
+ * API key never travels on login traffic (SPEC §4.0). The HttpClient
+ * injects that automatically; this module does not have to think about it.
+ *
+ * Origin auto-attach (SPEC §8): every auth call (login, logout, token,
+ * mfa/verify, mfa/challenge) carries an `Origin` header. The value is
+ * derived in priority order: per-call `origin` arg → handle-level
+ * `createRealm({ origin })` → `realm.info().audience` (prefixed
+ * `https://`). Callers never need to set it manually.
  */
 
 import type { HttpClient } from "./http.js";
+import { RealmError } from "./errors.js";
 
 export type LoginMethod = "firebase" | "google";
 
@@ -13,8 +24,9 @@ export interface LoginRequest {
   providerToken: string;
   /** Optional Origin header override (server resolves realm by host if set). */
   origin?: string;
-  /** Custom claims to merge into the minted access token (subject to allowlist). */
-  customClaims?: Record<string, unknown>;
+  // NOTE: customClaims intentionally NOT accepted here. Per SPEC §4.1 the
+  // refresh token carries identity only; access-token claims are minted via
+  // `auth.token({ customClaims })`.
 }
 
 export interface TenantRef {
@@ -42,8 +54,16 @@ export interface LoginResponse {
 export interface TokenRequest {
   refreshToken: string;
   tenantId: string;
-  /** Roadmap: ignored by server today. SPEC §4.2. */
+  /**
+   * v0.1.0 — custom claims merged into the minted **access token**,
+   * subject to a per-realm server-side allowlist. Use this for app-state
+   * fields (e.g. `outlet_ids`) that downstream services need to authorize
+   * without a database lookup. The SDK is a pass-through; allowlist
+   * enforcement is the server's responsibility.
+   */
   customClaims?: Record<string, unknown>;
+  /** Optional Origin header override. */
+  origin?: string;
 }
 
 export interface TokenResponse {
@@ -59,10 +79,24 @@ export interface MfaVerifyRequest {
   code: string;
   /** Defaults to "totp". */
   method?: string;
+  /** Optional Origin header override. */
+  origin?: string;
 }
 
 export interface LogoutRequest {
   refreshToken?: string;
+  /** Optional Origin header override. */
+  origin?: string;
+}
+
+export interface MfaChallengeMintRequest {
+  /** The user's current access token. */
+  accessToken: string;
+}
+
+export interface MfaChallengeMintResponse {
+  mfaChallengeToken: string;
+  methods: string[];
 }
 
 export interface SessionInfo {
@@ -91,10 +125,14 @@ interface RawTokenResponse {
   role: string;
 }
 
+/** Resolves the Origin header for an auth call. Returns undefined when neither override, handle config, nor info() yields a value. */
+export type OriginResolver = (perCall?: string) => Promise<string | undefined>;
+
 export class AuthClient {
   constructor(
     private readonly http: HttpClient,
     private readonly realmId: string,
+    private readonly resolveOrigin: OriginResolver,
   ) {}
 
   /**
@@ -103,8 +141,7 @@ export class AuthClient {
    * the server demands an MFA challenge.
    */
   async login(req: LoginRequest): Promise<LoginResponse> {
-    const headers: Record<string, string> = {};
-    if (req.origin) headers["origin"] = req.origin;
+    const headers = await this.originHeaders(req.origin);
     const raw = await this.http.request<RawAuthResponse>({
       method: "POST",
       path: "/auth/login",
@@ -113,22 +150,26 @@ export class AuthClient {
         realm_id: this.realmId,
         method: req.method,
         provider_token: req.providerToken,
-        custom_claims: req.customClaims,
       },
     });
     return mapAuthResp(raw);
   }
 
-  /** SPEC §4.2 — refresh-token rotation + tenant switch. */
+  /**
+   * SPEC §4.2 — refresh-token rotation + tenant switch + custom-claim
+   * injection on the minted access token. `customClaims` is a v0.1.0
+   * feature; the server enforces a per-realm allowlist.
+   */
   async token(req: TokenRequest): Promise<TokenResponse> {
+    const headers = await this.originHeaders(req.origin);
     const raw = await this.http.request<RawTokenResponse>({
       method: "POST",
       path: "/auth/token",
+      headers,
       body: {
         realm_id: this.realmId,
         refresh_token: req.refreshToken,
         tenant_id: req.tenantId,
-        // custom_claims accepted for forward-compat; server ignores today.
         custom_claims: req.customClaims,
       },
     });
@@ -143,9 +184,11 @@ export class AuthClient {
 
   /** SPEC §4.3 — complete an MFA challenge. Same response shape as login. */
   async mfaVerify(req: MfaVerifyRequest): Promise<LoginResponse> {
+    const headers = await this.originHeaders(req.origin);
     const raw = await this.http.request<RawAuthResponse>({
       method: "POST",
       path: "/auth/mfa/verify",
+      headers,
       body: {
         realm_id: this.realmId,
         challenge_token: req.challengeToken,
@@ -158,9 +201,11 @@ export class AuthClient {
 
   /** SPEC §4.4 — revoke the supplied (or current) refresh token. */
   async logout(req?: LogoutRequest): Promise<{ status: string }> {
+    const headers = await this.originHeaders(req?.origin);
     return this.http.request<{ status: string }>({
       method: "POST",
       path: "/auth/logout",
+      headers,
       body: {
         realm_id: this.realmId,
         refresh_token: req?.refreshToken,
@@ -186,6 +231,54 @@ export class AuthClient {
     });
     if (Array.isArray(raw)) return raw;
     return raw.sessions ?? [];
+  }
+
+  /**
+   * SPEC §10.1 — mint an MFA challenge token from an already-issued
+   * access token. The middleware uses this to issue 412 envelopes on
+   * `mfaProtectedPaths` without forcing the partner app to round-trip
+   * through `auth.login` again.
+   *
+   * The server endpoint (`POST /auth/mfa/challenge`) is tracked as a TODO
+   * in the auth-monorepo. Until the server lands it, this helper throws
+   * RealmError({ code: "server_error" }) on any non-2xx response and
+   * surfaces network errors normally.
+   */
+  async mintMfaChallenge(req: MfaChallengeMintRequest): Promise<MfaChallengeMintResponse> {
+    interface Wire { mfa_challenge_token?: string; methods?: string[] }
+    let raw: Wire;
+    try {
+      raw = await this.http.request<Wire>({
+        method: "POST",
+        path: "/auth/mfa/challenge",
+        bearer: req.accessToken,
+        body: { realm_id: this.realmId },
+      });
+    } catch (e) {
+      if (e instanceof RealmError && (e.httpStatus === 404 || e.httpStatus === 501)) {
+        throw new RealmError({
+          code: "server_error",
+          message: "mfa challenge mint not yet supported by server",
+          cause: e,
+        });
+      }
+      throw e;
+    }
+    if (!raw || typeof raw.mfa_challenge_token !== "string") {
+      throw new RealmError({
+        code: "server_error",
+        message: "mfa challenge mint not yet supported by server",
+      });
+    }
+    return {
+      mfaChallengeToken: raw.mfa_challenge_token,
+      methods: raw.methods ?? ["totp"],
+    };
+  }
+
+  private async originHeaders(perCall?: string): Promise<Record<string, string>> {
+    const o = await this.resolveOrigin(perCall);
+    return o ? { origin: o } : {};
   }
 }
 

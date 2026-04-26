@@ -2,13 +2,13 @@
  * @realmid/sdk — Partner SDK for Realm ID.
  *
  * Covers login, refresh, MFA, verify, and management (tenants, users,
- * invitations, domains, platform admin, API keys). Stdlib-only: uses
- * globalThis.fetch and Web Crypto, runs in Node >= 20, Deno, Bun, edge
- * runtimes, and modern browsers.
+ * invitations, domains, API keys). Stdlib-only: uses globalThis.fetch
+ * and Web Crypto, runs in Node >= 20, Deno, Bun, edge runtimes, and
+ * modern browsers.
  *
  * Quick start:
  *   import { createRealm } from "@realmid/sdk";
- *   const realm = createRealm({ realmId, apiKey });
+ *   const realm = createRealm({ realmId, apiKey: "rk_live_..." });
  *   const claims = await realm.verify(accessToken);
  */
 
@@ -23,12 +23,16 @@ export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";
 
+export type { Logger } from "./logger.js";
+
 export type {
   LoginRequest,
   LoginResponse,
   TokenRequest,
   TokenResponse,
   MfaVerifyRequest,
+  MfaChallengeMintRequest,
+  MfaChallengeMintResponse,
   LogoutRequest,
   SessionInfo,
   TenantRef,
@@ -47,8 +51,8 @@ export type {
 } from "./tenants.js";
 
 export type { DomainClaim, DomainVerifyResult } from "./domains.js";
-export type { Platform, PlatformCreate, PlatformTenant } from "./platforms.js";
-export type { RealmInfo, ApiKey, ApiKeyCreate } from "./realm-self.js";
+export type { RealmInfo } from "./info.js";
+export type { ApiKey, ApiKeyCreate } from "./api-keys.js";
 
 export type { Paginated, Page, PageOpts } from "./pagination.js";
 

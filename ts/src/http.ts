@@ -3,16 +3,28 @@
  * failures into RealmError. Server error envelopes are expected in the shape:
  *   { error: { code, message }, ...siblings }
  * where siblings (e.g. mfa_challenge_token) flow into RealmError.details.
+ *
+ * Authorization is sourced from a platform-token manager (SPEC §4.0):
+ * every outbound request — including `auth.login` — uses the
+ * short-lived platform token. The raw API key only travels on the
+ * `POST /auth/platform-token` call inside `PlatformTokenManager`.
  */
 
 import { RealmError, statusToCode, isKnownCode, type ErrorCode } from "./errors.js";
+import type { Logger } from "./logger.js";
+import { NOOP_LOGGER, redactCredential } from "./logger.js";
+import type { PlatformTokenManager } from "./platform-token-manager.js";
 
 export interface HttpClientOptions {
   baseUrl: string;
   fetch?: typeof fetch;
-  apiKey?: string;
-  /** Default authorization for every request unless overridden in opts.headers. */
-  defaultAuth?: () => string | undefined;
+  /**
+   * Source of the platform token used for normal management/auth calls.
+   * When omitted, requests go out unauthenticated (e.g. JWKS, public
+   * info routes). Per-call `bearer` always wins.
+   */
+  platformTokens?: PlatformTokenManager;
+  logger?: Logger;
 }
 
 export interface RequestOptions {
@@ -24,17 +36,24 @@ export interface RequestOptions {
   bearer?: string;
   /** Extra headers (e.g. Origin) merged after defaults. */
   headers?: Record<string, string>;
+  /**
+   * Skip the platform-token mint for this call (used internally so the
+   * manager itself doesn't recurse). Defaults to false.
+   */
+  skipPlatformToken?: boolean;
 }
 
 export class HttpClient {
   private readonly baseUrl: string;
   private readonly fetch: typeof fetch;
-  private readonly apiKey?: string;
+  private readonly platformTokens?: PlatformTokenManager;
+  private readonly logger: Logger;
 
   constructor(opts: HttpClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.fetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
-    this.apiKey = opts.apiKey;
+    this.platformTokens = opts.platformTokens;
+    this.logger = opts.logger ?? NOOP_LOGGER;
   }
 
   async request<T = unknown>(opts: RequestOptions): Promise<T> {
@@ -43,7 +62,11 @@ export class HttpClient {
       "content-type": "application/json",
       "accept": "application/json",
     };
-    const bearer = opts.bearer ?? this.apiKey;
+
+    let bearer = opts.bearer;
+    if (!bearer && !opts.skipPlatformToken && this.platformTokens) {
+      bearer = await this.platformTokens.getToken();
+    }
     if (bearer) headers["authorization"] = `Bearer ${bearer}`;
     if (opts.headers) Object.assign(headers, opts.headers);
 
@@ -55,10 +78,21 @@ export class HttpClient {
       init.body = JSON.stringify(opts.body);
     }
 
+    this.logger.debug("realmid: outbound request", {
+      method: init.method,
+      path: opts.path,
+      bearer: bearer ? redactCredential(bearer) : "<none>",
+    });
+
     let resp: Response;
     try {
       resp = await this.fetch(url, init);
     } catch (e) {
+      this.logger.error("realmid: network error", {
+        method: init.method,
+        path: opts.path,
+        message: (e as Error).message,
+      });
       throw new RealmError({
         code: "network",
         message: `network error calling ${opts.method ?? "GET"} ${opts.path}: ${(e as Error).message}`,
@@ -67,6 +101,7 @@ export class HttpClient {
     }
 
     if (resp.status === 204) {
+      this.logger.debug("realmid: response 204", { path: opts.path });
       return undefined as T;
     }
 
@@ -83,8 +118,20 @@ export class HttpClient {
     }
 
     if (!resp.ok) {
-      throw mapErrorResponse(resp.status, body, opts.method ?? "GET", opts.path);
+      const err = mapErrorResponse(resp.status, body, opts.method ?? "GET", opts.path);
+      this.logger.error("realmid: request failed", {
+        method: init.method,
+        path: opts.path,
+        status: resp.status,
+        code: err.code,
+      });
+      throw err;
     }
+    this.logger.debug("realmid: response ok", {
+      method: init.method,
+      path: opts.path,
+      status: resp.status,
+    });
     return body as T;
   }
 

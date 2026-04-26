@@ -1,8 +1,13 @@
 /**
- * Pagination helper. Every list method returns a `Paginated<T>` which is both
- * an `AsyncIterable<T>` (for natural `for await` loops) and exposes a `.page()`
- * method for callers that want manual cursor control.
+ * Pagination — SPEC §7.
+ *
+ * Wire shape is locked to exactly `{ items: T[], next_cursor: string | null,
+ * total?: number }`. Anything else (legacy `data`, bare arrays, alternate
+ * cursor names) is rejected with a `server_error` — the cross-language
+ * contract doesn't allow per-endpoint variation.
  */
+
+import { RealmError } from "./errors.js";
 
 export interface PageOpts {
   cursor?: string;
@@ -12,10 +17,46 @@ export interface PageOpts {
 export interface Page<T> {
   items: T[];
   nextCursor?: string;
+  total?: number;
 }
 
 export interface Paginated<T> extends AsyncIterable<T> {
   page(opts?: PageOpts): Promise<Page<T>>;
+}
+
+/**
+ * Validate and normalise the wire envelope for a paginated response.
+ * Throws RealmError({ code: "server_error" }) when the shape doesn't
+ * match SPEC §7.
+ */
+export function readPage<T>(raw: unknown): Page<T> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new RealmError({
+      code: "server_error",
+      message: "unexpected paginated response shape",
+    });
+  }
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj["items"])) {
+    throw new RealmError({
+      code: "server_error",
+      message: "unexpected paginated response shape",
+    });
+  }
+  const out: Page<T> = { items: obj["items"] as T[] };
+  const nc = obj["next_cursor"];
+  if (typeof nc === "string" && nc.length > 0) {
+    out.nextCursor = nc;
+  } else if (nc !== null && nc !== undefined) {
+    throw new RealmError({
+      code: "server_error",
+      message: "unexpected paginated response shape",
+    });
+  }
+  if (typeof obj["total"] === "number") {
+    out.total = obj["total"] as number;
+  }
+  return out;
 }
 
 /**

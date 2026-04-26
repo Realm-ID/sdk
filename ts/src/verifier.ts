@@ -8,6 +8,8 @@
 
 import { RealmError, type ErrorCode } from "./errors.js";
 import type { Claims } from "./claims.js";
+import type { Logger } from "./logger.js";
+import { NOOP_LOGGER } from "./logger.js";
 
 export interface VerifierConfig {
   /** Issuer host, no trailing slash. e.g. "https://auth.realmid.dev" */
@@ -27,6 +29,8 @@ export interface VerifierConfig {
   leewaySeconds?: number;
   /** Clock override for tests. Default () => new Date(). */
   now?: () => Date;
+  /** Optional logger. Default no-op. */
+  logger?: Logger;
 }
 
 export interface VerifyOptions {
@@ -49,6 +53,7 @@ export class Verifier {
   private readonly now: () => Date;
   private readonly cache = new Map<string, CachedKeys>();
   private readonly audCache = new Map<string, string>();
+  private readonly logger: Logger;
 
   constructor(cfg: VerifierConfig) {
     if (!cfg.baseUrl) throw new Error("realmid: baseUrl required");
@@ -62,9 +67,21 @@ export class Verifier {
     this.cacheTtlMs = cfg.cacheTtlMs ?? 10 * 60 * 1000;
     this.leewaySeconds = cfg.leewaySeconds ?? 30;
     this.now = cfg.now ?? (() => new Date());
+    this.logger = cfg.logger ?? NOOP_LOGGER;
   }
 
   async verify(token: string, opts?: VerifyOptions): Promise<Claims> {
+    try {
+      return await this.verifyInner(token, opts);
+    } catch (e) {
+      if (e instanceof RealmError) {
+        this.logger.error("realmid: verify failed", { code: e.code, message: e.message });
+      }
+      throw e;
+    }
+  }
+
+  private async verifyInner(token: string, opts?: VerifyOptions): Promise<Claims> {
     const { header, claims, signedInput, signature } = parseToken(token);
 
     if (header.alg !== "RS256") {

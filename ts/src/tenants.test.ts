@@ -1,15 +1,27 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
+import { RealmError } from "./errors.js";
+
+function mkFetch(handler: (url: string) => Response): typeof fetch {
+  return (async (input: RequestInfo | URL): Promise<Response> => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/platform-token")) {
+      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    return handler(url);
+  }) as typeof fetch;
+}
 
 test("tenants.list: pages through cursor", async () => {
   const pages = [
     { items: [{ id: "t1" }, { id: "t2" }], next_cursor: "c2" },
-    { items: [{ id: "t3" }] },
+    { items: [{ id: "t3" }], next_cursor: null },
   ];
   let i = 0;
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const url = typeof input === "string" ? input : input.toString();
+  const fetch = mkFetch((url) => {
     if (i === 0) {
       assert.ok(!url.includes("cursor="), `first request must not carry cursor: ${url}`);
     } else {
@@ -17,7 +29,7 @@ test("tenants.list: pages through cursor", async () => {
     }
     const body = pages[i++]!;
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
-  }) as typeof fetch;
+  });
 
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const seen: string[] = [];
@@ -28,12 +40,24 @@ test("tenants.list: pages through cursor", async () => {
 });
 
 test("tenants.list: manual page() exposes nextCursor", async () => {
-  const fetch: typeof fetch = (async () => new Response(
+  const fetch = mkFetch(() => new Response(
     JSON.stringify({ items: [{ id: "t1" }], next_cursor: "ck" }),
     { status: 200, headers: { "content-type": "application/json" } },
-  )) as typeof fetch;
+  ));
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const p = await realm.tenants.list().page({ limit: 50 });
   assert.equal(p.items.length, 1);
   assert.equal(p.nextCursor, "ck");
+});
+
+test("tenants.list: rejects unexpected paginated wire shape (SPEC §7)", async () => {
+  // Server returns the legacy `{ data, cursor }` envelope. SDK must reject.
+  const fetch = mkFetch(() => new Response(
+    JSON.stringify({ data: [{ id: "t1" }], cursor: "ck" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  ));
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await assert.rejects(() => realm.tenants.list().page(), (e: Error) => {
+    return e instanceof RealmError && e.code === "server_error";
+  });
 });
