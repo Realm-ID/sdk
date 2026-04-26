@@ -1,6 +1,7 @@
 package realmid
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -55,7 +56,10 @@ func mintKey(t *testing.T, kid string) (signFn, jwk) {
 	return sign, publicJwk
 }
 
-func jwksServer(t *testing.T, perRealm map[string][]jwk) *httptest.Server {
+// fakeServer wires JWKS endpoints + a stub /platforms/mine + a stub
+// /auth/platform-token so a fully-configured *Realm can exercise the
+// verifier end-to-end without the live API.
+func fakeServer(t *testing.T, perRealm map[string][]jwk, audience string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	for realm, keys := range perRealm {
@@ -65,6 +69,23 @@ func jwksServer(t *testing.T, perRealm map[string][]jwk) *httptest.Server {
 			_ = json.NewEncoder(w).Encode(jwksDoc{Keys: keys})
 		})
 	}
+	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"platform_token": "ptok_test_" + testRealmID,
+			"expires_in":     300,
+		})
+	})
+	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"id":       testRealmID,
+					"audience": audience,
+					"domain":   audience,
+				},
+			},
+		})
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})
@@ -86,28 +107,32 @@ func baseClaims(srv string, opts ...func(map[string]any)) map[string]any {
 	return c
 }
 
-func mustVerifier(t *testing.T, srv string) *Verifier {
+func mustRealm(t *testing.T, srv string) *Realm {
 	t.Helper()
-	v, err := NewVerifier(Config{BaseURL: srv, Audience: testAud})
+	r, err := NewRealm(Config{
+		RealmID: testRealmID,
+		APIKey:  "rk_live_test",
+		BaseURL: srv,
+	})
 	if err != nil {
-		t.Fatalf("NewVerifier: %v", err)
+		t.Fatalf("NewRealm: %v", err)
 	}
-	return v
+	return r
 }
 
 func TestVerify_HappyPath(t *testing.T) {
 	sign, pub := mintKey(t, "kid-1")
-	srv := jwksServer(t, map[string][]jwk{testRealmID: {pub}})
+	srv := fakeServer(t, map[string][]jwk{testRealmID: {pub}}, testAud)
 	defer srv.Close()
 
-	v := mustVerifier(t, srv.URL)
+	r := mustRealm(t, srv.URL)
 	tok := sign(baseClaims(srv.URL, func(c map[string]any) {
 		c["tenant_id"] = "01HTENANT"
 		c["role"] = "owner"
 		c["jti"] = "01HJTI"
 		c["custom_field"] = "x"
 	}))
-	claims, err := v.Verify(tok)
+	claims, err := r.Verify(context.Background(), tok, nil)
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
@@ -124,16 +149,15 @@ func TestVerify_HappyPath(t *testing.T) {
 
 func TestVerify_Errors(t *testing.T) {
 	sign, pub := mintKey(t, "kid-1")
-	srv := jwksServer(t, map[string][]jwk{testRealmID: {pub}})
+	srv := fakeServer(t, map[string][]jwk{testRealmID: {pub}}, testAud)
 	defer srv.Close()
-	v := mustVerifier(t, srv.URL)
+	r := mustRealm(t, srv.URL)
 
-	type tc struct {
+	cases := []struct {
 		name  string
 		token string
 		want  ErrorCode
-	}
-	cases := []tc{
+	}{
 		{"malformed-not-3-parts", "a.b", ErrCodeMalformed},
 		{"wrong-aud", sign(baseClaims(srv.URL, func(c map[string]any) { c["aud"] = "other" })), ErrCodeWrongAudience},
 		{"wrong-iss", sign(baseClaims(srv.URL, func(c map[string]any) { c["iss"] = "https://evil.example/" + testRealmID })), ErrCodeWrongIssuer},
@@ -142,13 +166,13 @@ func TestVerify_Errors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := v.Verify(c.token)
+			_, err := r.Verify(context.Background(), c.token, nil)
 			if err == nil {
 				t.Fatalf("expected error")
 			}
-			var verr *Error
+			var verr *RealmError
 			if !errors.As(err, &verr) {
-				t.Fatalf("expected *Error, got %T", err)
+				t.Fatalf("expected *RealmError, got %T", err)
 			}
 			if verr.Code != c.want {
 				t.Errorf("code: got %s, want %s", verr.Code, c.want)
@@ -158,17 +182,15 @@ func TestVerify_Errors(t *testing.T) {
 }
 
 func TestVerify_UnknownKID_RefetchesAndStillFails(t *testing.T) {
-	signKnown, pubKnown := mintKey(t, "kid-known")
-	_ = signKnown
-	srv := jwksServer(t, map[string][]jwk{testRealmID: {pubKnown}})
+	_, pubKnown := mintKey(t, "kid-known")
+	srv := fakeServer(t, map[string][]jwk{testRealmID: {pubKnown}}, testAud)
 	defer srv.Close()
-	v := mustVerifier(t, srv.URL)
+	r := mustRealm(t, srv.URL)
 
-	// Sign with a different kid not in JWKS.
 	signUnknown, _ := mintKey(t, "kid-unknown")
 	tok := signUnknown(baseClaims(srv.URL))
-	_, err := v.Verify(tok)
-	var verr *Error
+	_, err := r.Verify(context.Background(), tok, nil)
+	var verr *RealmError
 	if !errors.As(err, &verr) || verr.Code != ErrCodeUnknownKID {
 		t.Fatalf("expected unknown_kid, got %v", err)
 	}
@@ -176,43 +198,44 @@ func TestVerify_UnknownKID_RefetchesAndStillFails(t *testing.T) {
 
 func TestVerify_BadSignature(t *testing.T) {
 	sign, pub := mintKey(t, "kid-1")
-	srv := jwksServer(t, map[string][]jwk{testRealmID: {pub}})
+	srv := fakeServer(t, map[string][]jwk{testRealmID: {pub}}, testAud)
 	defer srv.Close()
-	v := mustVerifier(t, srv.URL)
+	r := mustRealm(t, srv.URL)
 	tok := sign(baseClaims(srv.URL))
 
-	// Mangle signature.
 	parts := strings.Split(tok, ".")
 	mangled := parts[0] + "." + parts[1] + "." + base64.RawURLEncoding.EncodeToString([]byte("not-a-real-sig"))
-	_, err := v.Verify(mangled)
-	var verr *Error
+	_, err := r.Verify(context.Background(), mangled, nil)
+	var verr *RealmError
 	if !errors.As(err, &verr) || verr.Code != ErrCodeBadSignature {
 		t.Fatalf("expected bad_signature, got %v", err)
 	}
 }
 
 func TestVerify_JWKSFetchFailed(t *testing.T) {
-	v, _ := NewVerifier(Config{BaseURL: "http://127.0.0.1:1", Audience: testAud})
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://127.0.0.1:1"})
 	sign, _ := mintKey(t, "kid-1")
+	// Stub audience cache so the verifier does not block on info().
+	r.info.cached = &RealmInfo{ID: testRealmID, Audience: testAud}
 	tok := sign(map[string]any{
 		"iss": "http://127.0.0.1:1/" + testRealmID,
 		"sub": "x", "aud": testAud, "exp": time.Now().Unix() + 600,
 	})
-	_, err := v.Verify(tok)
-	var verr *Error
+	_, err := r.Verify(context.Background(), tok, nil)
+	var verr *RealmError
 	if !errors.As(err, &verr) || verr.Code != ErrCodeJWKSFetchFailed {
 		t.Fatalf("expected jwks_fetch_failed, got %v", err)
 	}
 }
 
-func TestNewVerifier_Validation(t *testing.T) {
-	if _, err := NewVerifier(Config{Audience: "x"}); err == nil {
-		t.Fatal("expected error for missing BaseURL")
+func TestNewRealm_Validation(t *testing.T) {
+	if _, err := NewRealm(Config{APIKey: "x"}); err == nil {
+		t.Fatal("expected error for missing RealmID")
 	}
-	if _, err := NewVerifier(Config{BaseURL: "x"}); err == nil {
-		t.Fatal("expected error for missing Audience")
+	if _, err := NewRealm(Config{RealmID: "x"}); err == nil {
+		t.Fatal("expected error for missing APIKey")
 	}
 }
 
-// Compile-time check that fmt is used (it is — newErr uses fmt.Sprintf).
+// Compile-time check that fmt is used.
 var _ = fmt.Sprintf
