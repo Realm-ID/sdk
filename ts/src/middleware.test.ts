@@ -294,3 +294,150 @@ test("middleware: mfaProtectedPaths lets through tokens carrying amr=mfa", async
   assert.equal(nextCalled, true);
   assert.equal(res.headersSent, false);
 });
+
+test("middleware: mfaProtectedPaths accepts fresh mfa_at", async () => {
+  const realmId = "r1";
+  const baseUrl = "https://auth.test";
+  const aud = "example.com";
+  const nowSec = Math.floor(Date.now() / 1000);
+  const { token, publicJwk } = await mintSignedToken({
+    realmId, baseUrl, aud, extraClaims: { mfa_at: nowSec - 60 }, // 1 min ago
+  });
+
+  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/platform-token")) {
+      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    }
+    if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const mw = realm.middleware({
+    mfaProtectedPaths: [{ path: "/admin/*", maxAgeSeconds: 900 }],
+  });
+  const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
+  const res = new MockRes();
+  let nextCalled = false;
+  await new Promise<void>((resolve) => {
+    mw(req as never, res as unknown as never, () => { nextCalled = true; resolve(); });
+    setTimeout(resolve, 200);
+  });
+  assert.equal(nextCalled, true);
+  assert.equal(res.headersSent, false);
+});
+
+test("middleware: stale mfa_at returns 412 stale_mfa", async () => {
+  const realmId = "r1";
+  const baseUrl = "https://auth.test";
+  const aud = "example.com";
+  const nowSec = Math.floor(Date.now() / 1000);
+  const { token, publicJwk } = await mintSignedToken({
+    realmId, baseUrl, aud, extraClaims: { mfa_at: nowSec - 1800 }, // 30 min ago
+  });
+
+  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/platform-token")) {
+      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    }
+    if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
+    }
+    if (url.endsWith("/auth/mfa/challenge")) {
+      return new Response(JSON.stringify({ mfa_challenge_token: "ch_stale", methods: ["totp"] }), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const mw = realm.middleware({
+    mfaProtectedPaths: [{ path: "/admin/*", maxAgeSeconds: 900 }],
+  });
+  const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
+  const res = new MockRes();
+  await new Promise<void>((resolve) => {
+    mw(req as never, res as unknown as never, () => resolve());
+    setTimeout(resolve, 200);
+  });
+  assert.equal(res.statusCode, 412);
+  const parsed = JSON.parse(res.body);
+  assert.equal(parsed.error.code, "mfa_required");
+  assert.equal(parsed.reason, "stale_mfa");
+  assert.equal(parsed.max_age_seconds, 900);
+});
+
+test("middleware: requireFresh rejects amr-only token (no mfa_at)", async () => {
+  const realmId = "r1";
+  const baseUrl = "https://auth.test";
+  const aud = "example.com";
+  const { token, publicJwk } = await mintSignedToken({
+    realmId, baseUrl, aud, extraClaims: { amr: ["pwd", "mfa"] }, // legacy marker only
+  });
+
+  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/platform-token")) {
+      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    }
+    if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
+    }
+    if (url.endsWith("/auth/mfa/challenge")) {
+      return new Response(JSON.stringify({ mfa_challenge_token: "ch_fresh", methods: ["totp"] }), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const mw = realm.middleware({
+    mfaProtectedPaths: [{ path: "/billing/*", requireFresh: true }],
+  });
+  const req = mkReq({ url: "/billing/charge", headers: { authorization: `Bearer ${token}` } });
+  const res = new MockRes();
+  await new Promise<void>((resolve) => {
+    mw(req as never, res as unknown as never, () => resolve());
+    setTimeout(resolve, 200);
+  });
+  assert.equal(res.statusCode, 412);
+  const parsed = JSON.parse(res.body);
+  assert.equal(parsed.reason, "fresh_required");
+  assert.equal(parsed.max_age_seconds, 0);
+});
+
+test("middleware: requireFresh accepts mfa_at within 30s", async () => {
+  const realmId = "r1";
+  const baseUrl = "https://auth.test";
+  const aud = "example.com";
+  const nowSec = Math.floor(Date.now() / 1000);
+  const { token, publicJwk } = await mintSignedToken({
+    realmId, baseUrl, aud, extraClaims: { mfa_at: nowSec - 5 }, // 5 sec ago
+  });
+
+  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/platform-token")) {
+      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    }
+    if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const mw = realm.middleware({
+    mfaProtectedPaths: [{ path: "/billing/*", requireFresh: true }],
+  });
+  const req = mkReq({ url: "/billing/charge", headers: { authorization: `Bearer ${token}` } });
+  const res = new MockRes();
+  let nextCalled = false;
+  await new Promise<void>((resolve) => {
+    mw(req as never, res as unknown as never, () => { nextCalled = true; resolve(); });
+    setTimeout(resolve, 200);
+  });
+  assert.equal(nextCalled, true);
+});

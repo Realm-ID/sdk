@@ -23,10 +23,40 @@ import type { LoginRequest } from "./auth.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
 
+/**
+ * One entry in {@link MiddlewareConfig.mfaProtectedPaths}.
+ *
+ * Per-route MFA freshness policy (SPEC §10.4):
+ *  - `maxAgeSeconds` — accept any token whose `mfa_at` claim is at most
+ *    that old. Omit to inherit the realm-default (`mfaDefaultMaxAgeSeconds`).
+ *    `0` is equivalent to `requireFresh: true` (no stale proof allowed).
+ *  - `requireFresh` — require `mfa_at` within ~30 s. Use for irreversible /
+ *    high-risk operations.
+ */
+export interface MFARule {
+  path: string;
+  maxAgeSeconds?: number;
+  requireFresh?: boolean;
+}
+
+/** Reason the gate rejected. Mirrors the wire `reason` field. */
+export type MFAGateReason = "no_mfa" | "stale_mfa" | "fresh_required";
+
 export interface MiddlewareConfig {
   exemptPaths?: string[];
-  /** Globs for paths that require an MFA-marked access token. */
-  mfaProtectedPaths?: string[];
+  /**
+   * Paths that require MFA. A bare string is sugar for
+   * `{ path, maxAgeSeconds: undefined }` — inherits the realm-default
+   * window. Use the {@link MFARule} object form for per-route overrides.
+   */
+  mfaProtectedPaths?: Array<string | MFARule>;
+  /**
+   * Realm-wide default freshness window (in seconds) applied to bare-string
+   * entries in `mfaProtectedPaths` and to `MFARule` entries that omit
+   * `maxAgeSeconds`. Default 900 (15 min). Mirrors
+   * `realms.config.mfa_session_ttl_seconds` server-side.
+   */
+  mfaDefaultMaxAgeSeconds?: number;
   loginPath?: string;
   logoutPath?: string;
   refreshPath?: string;
@@ -42,6 +72,17 @@ export interface MiddlewareConfig {
   /** Logger override; falls back to the realm handle's logger. */
   logger?: Logger;
 }
+
+interface NormalizedMFARule {
+  path: string;
+  maxAgeSeconds?: number;
+  requireFresh: boolean;
+}
+
+/** Window (seconds) within which a `requireFresh: true` route accepts mfa_at. */
+const REQUIRE_FRESH_WINDOW_SECONDS = 30;
+/** Default freshness window when neither rule nor config specifies one. */
+const DEFAULT_MFA_MAX_AGE_SECONDS = 900;
 
 interface IncomingMessageLike {
   url?: string | undefined;
@@ -72,7 +113,8 @@ export type ConnectMiddleware = (
 
 interface Resolved {
   exemptPaths: string[];
-  mfaProtectedPaths: string[];
+  mfaRules: NormalizedMFARule[];
+  mfaDefaultMaxAgeSeconds: number;
   loginPath: string;
   logoutPath: string;
   refreshPath: string;
@@ -84,10 +126,22 @@ interface Resolved {
   cookieSameSite: "lax" | "strict" | "none";
 }
 
+function normalizeMfaRule(entry: string | MFARule): NormalizedMFARule {
+  if (typeof entry === "string") {
+    return { path: entry, requireFresh: false };
+  }
+  return {
+    path: entry.path,
+    maxAgeSeconds: entry.maxAgeSeconds,
+    requireFresh: entry.requireFresh ?? false,
+  };
+}
+
 export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): ConnectMiddleware {
   const merged: Resolved = {
     exemptPaths: cfg.exemptPaths ?? ["/health", "/public/*"],
-    mfaProtectedPaths: cfg.mfaProtectedPaths ?? [],
+    mfaRules: (cfg.mfaProtectedPaths ?? []).map(normalizeMfaRule),
+    mfaDefaultMaxAgeSeconds: cfg.mfaDefaultMaxAgeSeconds ?? DEFAULT_MFA_MAX_AGE_SECONDS,
     loginPath: cfg.loginPath ?? "/login",
     logoutPath: cfg.logoutPath ?? "/logout",
     refreshPath: cfg.refreshPath ?? "/token",
@@ -150,11 +204,15 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
         return void await respondAuthFailure(res, err, req, onFail);
       }
 
-      // MFA gating (SPEC §10.1).
-      if (merged.mfaProtectedPaths.length > 0 && pathRequiresMfa(merged.mfaProtectedPaths, path)) {
-        if (!claimsCarryMfa(claims)) {
-          await respondMfaRequired(realm, res, token, logger);
-          return;
+      // MFA gating (SPEC §10.1, §10.4).
+      if (merged.mfaRules.length > 0) {
+        const rule = findMfaRule(merged.mfaRules, path);
+        if (rule) {
+          const verdict = evaluateMfaFreshness(claims, rule, merged.mfaDefaultMaxAgeSeconds);
+          if (verdict !== null) {
+            await respondMfaRequired(realm, res, token, verdict.reason, verdict.maxAgeSeconds, logger);
+            return;
+          }
         }
       }
 
@@ -292,22 +350,98 @@ function readRefreshToken(req: ConnectReq, cfg: Resolved, body?: Record<string, 
   return undefined;
 }
 
-function pathRequiresMfa(patterns: string[], path: string): boolean {
-  for (const p of patterns) {
-    if (globMatch(p, path)) return true;
+function findMfaRule(rules: NormalizedMFARule[], path: string): NormalizedMFARule | undefined {
+  for (const r of rules) {
+    if (globMatch(r.path, path)) return r;
   }
-  return false;
+  return undefined;
 }
 
-function claimsCarryMfa(claims: Claims): boolean {
+/** Source of the MFA proof: explicit timestamp, legacy marker, or absent. */
+type MfaProofSource = "mfa_at" | "marker_fallback" | "none";
+
+interface MfaProof {
+  /** Effective mfa_at (unix-seconds). Set to "now" when only the legacy marker is present. */
+  at: number;
+  source: MfaProofSource;
+}
+
+/**
+ * Read MFA proof from claims, with a backward-compat fallback:
+ *  - explicit `mfa_at` → use it (source "mfa_at").
+ *  - legacy `amr` ⊇ `["mfa"]` or `acr === "urn:realmid:mfa"` → treat as
+ *    if minted now (source "marker_fallback"). Lets pre-mfa_at servers
+ *    keep passing maxAge gates; `requireFresh` still rejects because we
+ *    don't know how fresh the MFA actually was.
+ *  - neither → source "none".
+ */
+function readMfaProof(claims: Claims): MfaProof {
+  const v = (claims as Record<string, unknown>)["mfa_at"];
+  let at = 0;
+  if (typeof v === "number" && Number.isFinite(v)) at = v;
+  else if (typeof v === "string") {
+    const n = Number(v);
+    if (Number.isFinite(n)) at = n;
+  }
+  if (at > 0) return { at, source: "mfa_at" };
+
   const amr = (claims as Record<string, unknown>)["amr"];
-  if (Array.isArray(amr) && amr.includes("mfa")) return true;
   const acr = (claims as Record<string, unknown>)["acr"];
-  if (acr === "urn:realmid:mfa") return true;
-  return false;
+  const hasMarker =
+    (Array.isArray(amr) && amr.includes("mfa")) ||
+    acr === "urn:realmid:mfa";
+  if (hasMarker) return { at: Math.floor(Date.now() / 1000), source: "marker_fallback" };
+
+  return { at: 0, source: "none" };
 }
 
-async function respondMfaRequired(realm: Realm, res: ConnectRes, accessToken: string, logger: Logger): Promise<void> {
+interface MfaVerdict {
+  reason: MFAGateReason;
+  maxAgeSeconds: number;
+}
+
+/**
+ * Evaluate whether `claims` carries fresh-enough MFA proof for `rule`.
+ * Returns `null` when the gate passes; an `MfaVerdict` describing the
+ * failure mode and the window the client has to satisfy when it fails.
+ */
+function evaluateMfaFreshness(
+  claims: Claims,
+  rule: NormalizedMFARule,
+  defaultMaxAgeSeconds: number,
+): MfaVerdict | null {
+  const proof = readMfaProof(claims);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const age = nowSec - proof.at;
+
+  // requireFresh requires an explicit mfa_at claim — the legacy marker
+  // carries no timestamp, so we can't prove freshness from it.
+  if (rule.requireFresh) {
+    if (proof.source === "mfa_at" && age <= REQUIRE_FRESH_WINDOW_SECONDS) return null;
+    return { reason: "fresh_required", maxAgeSeconds: 0 };
+  }
+
+  const maxAge = rule.maxAgeSeconds ?? defaultMaxAgeSeconds;
+  // maxAge of 0 collapses to "fresh required" semantics.
+  if (maxAge <= 0) {
+    if (proof.source === "mfa_at" && age <= REQUIRE_FRESH_WINDOW_SECONDS) return null;
+    return { reason: proof.source === "none" ? "no_mfa" : "stale_mfa", maxAgeSeconds: 0 };
+  }
+
+  if (proof.source === "none") return { reason: "no_mfa", maxAgeSeconds: maxAge };
+  // marker_fallback yields age = 0; mfa_at within window also passes.
+  if (age > maxAge) return { reason: "stale_mfa", maxAgeSeconds: maxAge };
+  return null;
+}
+
+async function respondMfaRequired(
+  realm: Realm,
+  res: ConnectRes,
+  accessToken: string,
+  reason: MFAGateReason,
+  maxAgeSeconds: number,
+  logger: Logger,
+): Promise<void> {
   let challenge: { mfaChallengeToken: string; methods: string[] } | undefined;
   try {
     challenge = await realm.auth.mintMfaChallenge({ accessToken });
@@ -320,6 +454,8 @@ async function respondMfaRequired(realm: Realm, res: ConnectRes, accessToken: st
     error: { code: "mfa_required", message: "MFA required for this resource" },
     mfa_challenge_token: challenge?.mfaChallengeToken,
     methods: challenge?.methods ?? ["totp"],
+    max_age_seconds: maxAgeSeconds,
+    reason,
   });
 }
 

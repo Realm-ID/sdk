@@ -400,18 +400,33 @@ For every inbound request, the middleware:
    On verify failure (bad signature, expired, malformed, unknown kid,
    missing header): respond **`401`** with `{ error: { code, message } }`.
 
-   On a path that requires MFA (declared via `mfaProtectedPaths` glob
-   list) where the token verifies but lacks the MFA marker (`amr`
-   missing `"mfa"`, or no `acr` claim): respond **`412`** with
-   `{ error: { code: "mfa_required", message }, mfa_challenge_token,
-   methods }` so the client can prompt and re-mint.
+   On a path that requires MFA (declared via `mfaProtectedPaths`),
+   evaluate **MFA freshness** (see §10.4). On miss, respond **`412`**
+   with the standard envelope:
+   ```json
+   {
+     "error":              { "code": "mfa_required", "message": "..." },
+     "mfa_challenge_token": "...",
+     "methods":            ["totp"],
+     "max_age_seconds":     900,
+     "reason":              "no_mfa" | "stale_mfa" | "fresh_required"
+   }
+   ```
 
 ### 10.2 Configuration
 
 ```ts
 const middleware = realm.middleware({
   exemptPaths: ["/health", "/public/*", "/webhooks/*"],
-  mfaProtectedPaths: ["/admin/*", "/billing/*"],   // optional
+
+  // Sugar — strings inherit the realm-default freshness window.
+  // Use the object form for per-route overrides.
+  mfaProtectedPaths: [
+    "/admin/*",                                          // realm default (typically 15 min)
+    { path: "/account/email",  maxAgeSeconds: 300 },     // 5-min freshness window
+    { path: "/billing/charge", requireFresh: true },     // every operation requires a fresh challenge
+  ],
+
   loginPath: "/login",                              // default
   logoutPath: "/logout",                            // default
   refreshPath: "/token",                            // default
@@ -430,9 +445,68 @@ const middleware = realm.middleware({
 ```
 
 Same fields exist in the Go and Java configurations using
-language-idiomatic types (`time.Duration`, `Predicate<Request>`, etc.).
+language-idiomatic types (`time.Duration` for `MaxAge`,
+`Predicate<Request>`, etc.).
 
-### 10.3 Single-shot helpers
+### 10.4 MFA freshness model
+
+A middle-ground between "MFA once per session" and "MFA on every
+operation" — partner picks per route.
+
+**Token claim.** Access tokens carry `mfa_at` (unix-seconds) — the
+timestamp of the user's most recent successful MFA challenge.
+Absent or `0` means MFA never verified for this session.
+
+**Server source of truth.** `sessions.mfa_verified_at` (TIMESTAMPTZ).
+- `POST /auth/mfa/verify` → `UPDATE sessions SET mfa_verified_at = now()`.
+- `POST /auth/login` → set if the login flow itself completed MFA;
+  otherwise NULL.
+- `POST /auth/token` (refresh-mint) → reads `sessions.mfa_verified_at`
+  and projects into the next access token's `mfa_at` claim.
+- Logout / session revoke → row dropped; freshness vanishes with it.
+- `DELETE /auth/mfa` (disable MFA for the current user) → NULLs
+  `mfa_verified_at` for **all** sessions of that user, forcing re-MFA
+  on the next protected operation.
+
+**Per-route policy.** Each entry in `mfaProtectedPaths` is either a
+string (sugar for the realm default) or an object:
+```ts
+{
+  path: string;           // glob: "*" matches a segment, "**" matches any
+  maxAgeSeconds?: number; // freshness window. Omitted → realm default.
+                          // 0 → reject any non-fresh proof (≈ requireFresh).
+  requireFresh?: boolean; // true → require mfa_at within ~30 s.
+                          // Use for irreversible / high-risk operations.
+}
+```
+Realm-wide default lives at
+`realms.config.mfa_session_ttl_seconds` (suggested 900 = 15 min).
+
+**Gate logic** (run after `realm.verify(token)` succeeds):
+1. Find the matching `mfaProtectedPaths` entry. If none, pass.
+2. If `requireFresh: true`: require `now - mfa_at ≤ 30 s` (small grace
+   so the client has time to retry the original op after `mfaVerify`).
+3. Else: require `now - mfa_at ≤ maxAgeSeconds` (or the realm default
+   if unspecified).
+4. On miss: respond `412 mfa_required` with the envelope above. The
+   `reason` field distinguishes:
+   - `no_mfa` — `mfa_at` missing or `0`.
+   - `stale_mfa` — `mfa_at` present but older than `maxAgeSeconds`.
+   - `fresh_required` — route demanded a fresh challenge regardless.
+
+**SDK middleware enforces locally.** The middleware reads `mfa_at`
+from the verified claims it already holds and applies the policy
+without an extra round trip. The server's `RequireMFA(pattern, opts)`
+registry is the backstop for non-SDK callers.
+
+**Step-down semantics (advanced).** Some workflows want "after this
+op, fall back to non-MFA" (require fresh MFA next time). Expose a
+`session.clearMFA()` helper for protected handlers — the gate itself
+does not auto-clear. Combined with `requireFresh: true`, this
+enforces "fresh MFA per operation" without coupling the gate to the
+handler.
+
+### 10.5 Single-shot helpers
 
 For applications that don't want the full middleware (e.g. CLI scripts,
 webhooks worker), every operation is also exposed directly on the
