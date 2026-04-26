@@ -54,6 +54,16 @@ export type { DomainClaim, DomainVerifyResult } from "./domains.js";
 export type { RealmInfo } from "./info.js";
 export type { ApiKey, ApiKeyCreate } from "./api-keys.js";
 
+export { OWNER, MEMBER } from "./roles.js";
+export type {
+  Role,
+  RoleObject,
+  RoleListPage,
+  RoleListOpts,
+  RoleCreate,
+  RolePatch,
+} from "./roles.js";
+
 export type { Paginated, Page, PageOpts } from "./pagination.js";
 
 export { createMiddleware, globMatch } from "./middleware.js";
