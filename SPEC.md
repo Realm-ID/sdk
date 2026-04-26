@@ -184,20 +184,73 @@ list endpoint (see §7).
 
 ### 6.1 Tenants — `realm.tenants.*`
 
-`list(opts?)`, `get(id)`, `create({ displayName, ... })`, `update(id, patch)`,
-`updateConfig(id, patch)`, `delete(id)`, `transferOwner(id, newOwnerUserId)`.
+- `list(opts?)` — paginated. `opts: { cursor?, limit? }`.
+- `get(id)`
+- `create({ displayName, allowedDomains?, openSignup? })` — creates a
+  tenant under the calling platform. The realm is implicit (the API
+  key's realm); there is no separate "platform" parameter because a
+  partner has one platform per realm.
+- `update(id, { displayName? })` — top-level mutable fields.
+- `updateConfig(id, patch)` — patches `tenants.config`. Honoured keys:
+  `allowedDomains: string[]` (auto-provision domain allowlist),
+  `openSignup: boolean` (let users at allowed domains self-provision
+  without an invite). Server enforces an allowlist of accepted keys;
+  unknown keys → `RealmError(bad_request)`.
+- `delete(id)` — soft delete.
+- `transferOwner(id, newOwnerUserId)` — atomic owner swap; the previous
+  owner becomes a `member`.
 
 ### 6.2 Tenant invitations — `realm.tenants.invitations.*`
 
-`list(tenantId)`, `create(tenantId, { email, ... })`,
-`delete(tenantId, invitationId)`.
+This is the **only** path for user creation in a tenant.
+
+- `list(tenantId, opts?)` — paginated. `opts: { status?, cursor?, limit? }`.
+- `create(tenantId, { email, role? })` — sends an invitation. `role`
+  defaults to `"member"`; only an `owner` may invite at `"admin"` or
+  `"owner"`.
+- `delete(tenantId, invitationId)` — revoke a pending invite.
 
 ### 6.3 Users — `realm.tenants.users.*`
 
-`list(tenantId, opts?)`, `get(tenantId, userId)`,
-`updateStatus(tenantId, userId, status)`,
-`enrollMfa(tenantId, userId)`, `confirmMfa(tenantId, userId, code)`,
-`resetMfa(tenantId, userId)`.
+User **creation** is invite-only — there is no `users.create` method.
+The path is `tenants.invitations.create(tenantId, { email, role })` →
+the invitee accepts → user record is provisioned.
+
+- `list(tenantId, opts?)` — paginated, filterable. `opts` shape:
+  ```ts
+  {
+    role?:    Role,                    // exact match
+    status?:  "active" | "suspended" | "deactivated",
+    q?:       string,                  // case-insensitive substring on email
+    cursor?:  string,
+    limit?:   number,                  // 1..200, default 50
+  }
+  ```
+- `get(tenantId, userId)`
+- `updateStatus(tenantId, userId, status)` —
+  `"active" | "suspended" | "deactivated"`.
+- `updateRole(tenantId, userId, role)` — change the user's role within
+  the tenant. Cannot demote the last owner; use `tenants.transferOwner`
+  for an owner handover. Caller must hold a role of `owner` (or
+  realm-admin via API key).
+- `enrollMfa(tenantId, userId)`, `confirmMfa(tenantId, userId, code)`,
+  `resetMfa(tenantId, userId)` — admin-initiated MFA flows. The
+  self-service equivalents on `auth.mfa.*` are roadmap (§11).
+
+#### Roles (v0.1.0)
+
+A fixed enum — same value across all tenants in the realm:
+
+| Wire value | Meaning                                                                 |
+|------------|-------------------------------------------------------------------------|
+| `owner`    | Full tenant control. Can change roles, delete the tenant, transfer ownership. Each tenant has at least one owner. |
+| `admin`    | Manage users + invitations + tenant config; cannot delete the tenant or change owners.                            |
+| `member`   | Default role for invited users. Can use the application; no admin operations.                                     |
+| `viewer`   | Read-only access. Useful for stakeholders / observers.                                                            |
+
+Custom platform-defined roles + a permissions matrix are roadmap
+(§11). Until they ship, partners should map their concept of "role"
+onto this enum.
 
 ### 6.4 Domains — `realm.domains.*`
 
@@ -391,6 +444,11 @@ implementation.
 
 Detailed proposals tracked in repo `TODO.md`. Headlines:
 
+- **Platform-defined custom roles + permissions matrix** — replace the
+  fixed v0.1.0 enum (§6.3) with platform-authored role definitions
+  bound to a permissions list. Needs an ADR (storage shape, default
+  roles per platform, migration of existing `owner`/`admin`/`member`/
+  `viewer` users, RI-UI surface for role definition).
 - Webhooks (`realm.webhooks.verify(payload, signature)`)
 - Service-to-service tokens (`auth.serviceToken()`)
 - OpenID Connect discovery (`/.well-known/openid-configuration`)
