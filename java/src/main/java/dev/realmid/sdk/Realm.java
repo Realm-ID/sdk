@@ -10,6 +10,7 @@ import dev.realmid.sdk.info.RealmInfo;
 import dev.realmid.sdk.info.RealmInfoClient;
 import dev.realmid.sdk.middleware.MiddlewareConfig;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
+import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
 import dev.realmid.sdk.verifier.Verifier;
 
@@ -35,6 +36,7 @@ public final class Realm {
     private final TenantsClient tenants;
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
+    private final RolesClient roles;
     private final RealmInfoClient info;
     private final ConfigClient config;
     private final PlatformTokenManager platformTokens;
@@ -75,6 +77,7 @@ public final class Realm {
         this.tenants = new TenantsClient(this.http);
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
+        this.roles = new RolesClient(this.http, this.realmId);
         this.config = new ConfigClient(this.http, this.realmId);
     }
 
@@ -92,6 +95,7 @@ public final class Realm {
     public TenantsClient tenants() { return tenants; }
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }
+    public RolesClient roles() { return roles; }
     public ConfigClient config() { return config; }
     public RealmInfo info() { return info.info(); }
 
