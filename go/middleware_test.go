@@ -156,7 +156,7 @@ func TestMiddleware_MFAProtected412(t *testing.T) {
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	mw := r.Middleware(MiddlewareOptions{MFAProtectedPaths: []string{"/admin/*"}})
+	mw := r.Middleware(MiddlewareOptions{MFAProtectedPaths: []MFARule{{Path: "/admin/*"}}})
 
 	now := time.Now().Unix()
 	tok := sign(map[string]any{
@@ -228,3 +228,114 @@ func newCapturingLogger(w io.Writer) *slogLogger {
 }
 
 type slogLogger = slog.Logger
+
+func TestMiddleware_MFAFresh_AcceptsWithinMaxAge(t *testing.T) {
+	sign, pub := mintTestKey(t, "kid-1")
+	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	mw := r.Middleware(MiddlewareOptions{
+		MFAProtectedPaths: []MFARule{{Path: "/admin/*", MaxAge: 15 * time.Minute}},
+	})
+	now := time.Now().Unix()
+	tok := sign(map[string]any{
+		"iss": srv.URL + "/" + testRealmID,
+		"sub": "u1", "aud": testAud, "iat": now, "exp": now + 600,
+		"mfa_at": now - 60, // 1 minute ago
+	})
+	called := false
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true; w.WriteHeader(200) }))
+	req := httptest.NewRequest("GET", "/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !called {
+		t.Fatalf("handler not called: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMiddleware_MFAStale_Returns412StaleReason(t *testing.T) {
+	sign, pub := mintTestKey(t, "kid-1")
+	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	mw := r.Middleware(MiddlewareOptions{
+		MFAProtectedPaths: []MFARule{{Path: "/admin/*", MaxAge: 15 * time.Minute}},
+	})
+	now := time.Now().Unix()
+	tok := sign(map[string]any{
+		"iss": srv.URL + "/" + testRealmID,
+		"sub": "u1", "aud": testAud, "iat": now, "exp": now + 600,
+		"mfa_at": now - 1800, // 30 minutes ago — stale
+	})
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+	req := httptest.NewRequest("GET", "/admin/users", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["reason"] != "stale_mfa" {
+		t.Errorf("reason: %v", out["reason"])
+	}
+	if out["max_age_seconds"] != float64(900) {
+		t.Errorf("max_age_seconds: %v", out["max_age_seconds"])
+	}
+}
+
+func TestMiddleware_RequireFresh_RejectsLegacyMarker(t *testing.T) {
+	sign, pub := mintTestKey(t, "kid-1")
+	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	mw := r.Middleware(MiddlewareOptions{
+		MFAProtectedPaths: []MFARule{{Path: "/billing/*", RequireFresh: true}},
+	})
+	now := time.Now().Unix()
+	tok := sign(map[string]any{
+		"iss": srv.URL + "/" + testRealmID,
+		"sub": "u1", "aud": testAud, "iat": now, "exp": now + 600,
+		"amr": []string{"pwd", "mfa"}, // legacy marker, no mfa_at
+	})
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+	req := httptest.NewRequest("POST", "/billing/charge", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusPreconditionFailed {
+		t.Fatalf("status: %d", rec.Code)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["reason"] != "fresh_required" {
+		t.Errorf("reason: %v", out["reason"])
+	}
+}
+
+func TestMiddleware_RequireFresh_AcceptsRecentMfaAt(t *testing.T) {
+	sign, pub := mintTestKey(t, "kid-1")
+	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	mw := r.Middleware(MiddlewareOptions{
+		MFAProtectedPaths: []MFARule{{Path: "/billing/*", RequireFresh: true}},
+	})
+	now := time.Now().Unix()
+	tok := sign(map[string]any{
+		"iss": srv.URL + "/" + testRealmID,
+		"sub": "u1", "aud": testAud, "iat": now, "exp": now + 600,
+		"mfa_at": now - 5, // 5 sec ago — within RequireFresh window
+	})
+	called := false
+	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { called = true; w.WriteHeader(200) }))
+	req := httptest.NewRequest("POST", "/billing/charge", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if !called {
+		t.Fatalf("handler not called: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

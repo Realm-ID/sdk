@@ -16,17 +16,25 @@ type Claims struct {
 	Role            string         `json:"role,omitempty"`
 	AMR             []string       `json:"amr,omitempty"`
 	ACR             string         `json:"acr,omitempty"`
-	Extra           map[string]any `json:"-"`
+	// MFAAt is the unix-seconds timestamp of the user's most recent
+	// successful MFA challenge in this session. Zero means absent — the
+	// session never completed MFA, or the server hasn't been upgraded
+	// yet to emit this claim. SPEC §10.4.
+	MFAAt int64          `json:"mfa_at,omitempty"`
+	Extra map[string]any `json:"-"`
 }
 
 // reservedClaimKeys must stay in sync with the Claims struct fields above.
 var reservedClaimKeys = map[string]struct{}{
 	"iss": {}, "sub": {}, "aud": {}, "iat": {}, "nbf": {}, "exp": {},
 	"jti": {}, "azp": {}, "tenant_id": {}, "role": {}, "amr": {}, "acr": {},
+	"mfa_at": {},
 }
 
 // HasMFA reports whether the verified claims indicate the user passed an
 // MFA challenge — either via amr containing "mfa" or any non-empty acr.
+// This is a shape check; for freshness-aware gating, the middleware uses
+// the mfa_at claim per SPEC §10.4.
 func (c *Claims) HasMFA() bool {
 	if c == nil {
 		return false

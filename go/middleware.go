@@ -12,16 +12,50 @@ import (
 	"time"
 )
 
+// MFARule is one entry in MiddlewareOptions.MFAProtectedPaths.
+//
+// Per-route MFA freshness policy (SPEC §10.4):
+//   - MaxAge — accept any token whose mfa_at claim is at most that old.
+//     Zero means "use the realm-default freshness window"
+//     (MiddlewareOptions.MFADefaultMaxAge). Negative is treated as zero.
+//   - RequireFresh — require mfa_at within ~30s. Use for irreversible
+//     operations. Strict: a legacy amr/acr-only token (no mfa_at)
+//     cannot satisfy this — the gate has no way to prove freshness.
+type MFARule struct {
+	Path         string
+	MaxAge       time.Duration
+	RequireFresh bool
+}
+
+// MFAGateReason mirrors the wire `reason` field on the 412 envelope.
+type MFAGateReason string
+
+const (
+	MFAReasonNoMFA          MFAGateReason = "no_mfa"
+	MFAReasonStaleMFA       MFAGateReason = "stale_mfa"
+	MFAReasonFreshRequired  MFAGateReason = "fresh_required"
+)
+
+// requireFreshWindow is the grace window on RequireFresh routes — gives
+// the client time to retry the original op after /auth/mfa/verify.
+const requireFreshWindow = 30 * time.Second
+
 // MiddlewareOptions configures Realm.Middleware (SPEC §10).
 type MiddlewareOptions struct {
 	// ExemptPaths is a list of glob patterns that bypass the
 	// middleware entirely. Defaults to ["/health", "/public/*"].
 	ExemptPaths []string
 
-	// MFAProtectedPaths is a list of glob patterns that require an MFA
-	// marker on the verified claims (amr containing "mfa", or any
-	// non-empty acr). Defaults to none.
-	MFAProtectedPaths []string
+	// MFAProtectedPaths declares paths that require MFA. Each entry is
+	// either a bare path string (sugar for {Path: s} — inherits the
+	// realm-default freshness window) or a full MFARule for per-route
+	// override. SPEC §10.4.
+	MFAProtectedPaths []MFARule
+
+	// MFADefaultMaxAge is the realm-wide default freshness window
+	// applied to MFARule entries that omit MaxAge. Default 15 min.
+	// Mirrors realms.config.mfa_session_ttl_seconds server-side.
+	MFADefaultMaxAge time.Duration
 
 	// LoginPath, LogoutPath, RefreshPath, MFAVerifyPath are the routes
 	// the middleware handles directly (POST). Empty strings disable
@@ -51,6 +85,9 @@ type MiddlewareOptions struct {
 func (o *MiddlewareOptions) applyDefaults() {
 	if len(o.ExemptPaths) == 0 {
 		o.ExemptPaths = []string{"/health", "/public/*"}
+	}
+	if o.MFADefaultMaxAge <= 0 {
+		o.MFADefaultMaxAge = 15 * time.Minute
 	}
 	if o.LoginPath == "" {
 		o.LoginPath = "/login"
@@ -92,11 +129,138 @@ func ClaimsFrom(ctx context.Context) (*Claims, bool) {
 	return c, ok
 }
 
+// compiledMFARule is an MFARule paired with its compiled glob matcher.
+type compiledMFARule struct {
+	re           *regexp.Regexp
+	maxAge       time.Duration
+	requireFresh bool
+}
+
+func compileMFARules(rules []MFARule) []compiledMFARule {
+	out := make([]compiledMFARule, 0, len(rules))
+	for _, r := range rules {
+		if r.Path == "" {
+			continue
+		}
+		out = append(out, compiledMFARule{
+			re:           globToRegex(r.Path),
+			maxAge:       r.MaxAge,
+			requireFresh: r.RequireFresh,
+		})
+	}
+	return out
+}
+
+// mfaProofSource describes how an MFA proof was sourced — explicit
+// mfa_at claim, legacy amr/acr marker, or absent entirely. Only the
+// explicit timestamp can satisfy a RequireFresh policy; the legacy
+// marker carries no proof of freshness.
+type mfaProofSource int
+
+const (
+	mfaProofNone mfaProofSource = iota
+	mfaProofMarkerFallback
+	mfaProofTimestamp
+)
+
+type mfaProof struct {
+	at     time.Time
+	source mfaProofSource
+}
+
+func readMFAProof(c *Claims, now time.Time) mfaProof {
+	if c == nil {
+		return mfaProof{source: mfaProofNone}
+	}
+	if c.MFAAt > 0 {
+		return mfaProof{at: time.Unix(c.MFAAt, 0), source: mfaProofTimestamp}
+	}
+	// Legacy fallback — token has the marker but no timestamp. Servers
+	// that haven't started emitting mfa_at land here. Treat as freshly
+	// minted so existing maxAge gates pass; RequireFresh still rejects.
+	if c.HasMFA() {
+		return mfaProof{at: now, source: mfaProofMarkerFallback}
+	}
+	return mfaProof{source: mfaProofNone}
+}
+
+// mfaVerdict carries a 412-response payload when the gate rejects.
+type mfaVerdict struct {
+	Reason MFAGateReason
+	MaxAge time.Duration
+}
+
+func evaluateMFAFreshness(c *Claims, rule *compiledMFARule, defaultMaxAge time.Duration) *mfaVerdict {
+	now := time.Now()
+	proof := readMFAProof(c, now)
+	age := now.Sub(proof.at)
+
+	// RequireFresh — must have an explicit mfa_at claim within the grace window.
+	if rule.requireFresh {
+		if proof.source == mfaProofTimestamp && age <= requireFreshWindow {
+			return nil
+		}
+		return &mfaVerdict{Reason: MFAReasonFreshRequired, MaxAge: 0}
+	}
+
+	maxAge := rule.maxAge
+	if maxAge <= 0 {
+		maxAge = defaultMaxAge
+	}
+	// MaxAge of 0 collapses to RequireFresh semantics.
+	if maxAge <= 0 {
+		if proof.source == mfaProofTimestamp && age <= requireFreshWindow {
+			return nil
+		}
+		reason := MFAReasonNoMFA
+		if proof.source != mfaProofNone {
+			reason = MFAReasonStaleMFA
+		}
+		return &mfaVerdict{Reason: reason, MaxAge: 0}
+	}
+
+	if proof.source == mfaProofNone {
+		return &mfaVerdict{Reason: MFAReasonNoMFA, MaxAge: maxAge}
+	}
+	if age > maxAge {
+		return &mfaVerdict{Reason: MFAReasonStaleMFA, MaxAge: maxAge}
+	}
+	return nil
+}
+
+// mintMFAChallenge calls /auth/mfa/challenge to mint a challenge token
+// for the verified access token. Best-effort: if the server doesn't
+// support the endpoint yet, returns ("", ["totp"]) so the 412 envelope
+// still tells the client which methods are available.
+func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (string, []string) {
+	ct, methods, err := r.Auth.MintMFAChallenge(reqCtx, accessToken)
+	if err != nil {
+		r.logger.Warn("realmid mfa challenge mint unavailable", slog.String("error", err.Error()))
+		return "", []string{"totp"}
+	}
+	if len(methods) == 0 {
+		methods = []string{"totp"}
+	}
+	return ct, methods
+}
+
+
+
+func findMFARule(rules []compiledMFARule, path string) *compiledMFARule {
+	for i := range rules {
+		if rules[i].re.MatchString(path) {
+			return &rules[i]
+		}
+	}
+	return nil
+}
+
 // Middleware returns an http.Handler middleware implementing SPEC §10.
 func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handler {
 	opts.applyDefaults()
 	exempt := compileGlobs(opts.ExemptPaths)
-	mfaProtected := compileGlobs(opts.MFAProtectedPaths)
+	mfaRules := compileMFARules(opts.MFAProtectedPaths)
+	defaultMaxAge := opts.MFADefaultMaxAge
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -145,21 +309,27 @@ func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handl
 				return
 			}
 
-			// MFA-protected path check.
-			if matchAny(mfaProtected, path) && !claims.HasMFA() {
-				r.logger.Warn("realmid mfa required",
-					slog.String("path", path),
-					slog.String("sub", claims.Subject),
-				)
-				writeJSON(w, http.StatusPreconditionFailed, map[string]any{
-					"error": map[string]any{
-						"code":    string(ErrCodeMFARequired),
-						"message": "MFA required for this resource",
-					},
-					"mfa_challenge_token": "",
-					"methods":             []string{"totp"},
-				})
-				return
+			// MFA-protected path check (SPEC §10.4).
+			if rule := findMFARule(mfaRules, path); rule != nil {
+				if verdict := evaluateMFAFreshness(claims, rule, defaultMaxAge); verdict != nil {
+					r.logger.Warn("realmid mfa required",
+						slog.String("path", path),
+						slog.String("sub", claims.Subject),
+						slog.String("reason", string(verdict.Reason)),
+					)
+					ct, methods := r.mintMFAChallenge(req.Context(), token)
+					writeJSON(w, http.StatusPreconditionFailed, map[string]any{
+						"error": map[string]any{
+							"code":    string(ErrCodeMFARequired),
+							"message": "MFA required for this resource",
+						},
+						"mfa_challenge_token": ct,
+						"methods":             methods,
+						"max_age_seconds":     int(verdict.MaxAge / time.Second),
+						"reason":              string(verdict.Reason),
+					})
+					return
+				}
 			}
 
 			ctx := context.WithValue(req.Context(), claimsKey, claims)

@@ -316,3 +316,25 @@ func inferOrigin(info *RealmInfo) string {
 	}
 	return "https://" + host
 }
+
+// MintMFAChallenge calls POST /auth/mfa/challenge to mint a step-up
+// challenge token for the verified access token. Used by the middleware
+// when an MFA-protected route receives a token that lacks fresh MFA
+// proof. Returns ("", nil, error) when the server hasn't shipped the
+// endpoint yet — the middleware downgrades to a generic 412 envelope
+// without a pre-minted challenge.
+func (a *AuthClient) MintMFAChallenge(ctx context.Context, accessToken string) (string, []string, error) {
+	var resp struct {
+		MFAChallengeToken string   `json:"mfa_challenge_token"`
+		Methods           []string `json:"methods"`
+	}
+	if err := a.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/auth/mfa/challenge",
+		Body:   map[string]string{"access_token": accessToken},
+		Bearer: accessToken,
+	}, &resp); err != nil {
+		return "", nil, err
+	}
+	return resp.MFAChallengeToken, resp.Methods, nil
+}
