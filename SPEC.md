@@ -16,8 +16,11 @@ The SDK exposes a single handle. Configuration is minimal:
 | Field      | Required | Description                                                                 |
 |------------|----------|-----------------------------------------------------------------------------|
 | `realmId`  | **yes**  | Your realm's id (UUID-ish string).                                          |
-| `apiKey`   | no       | Realm API key (`rk_live_...`). Required for every management operation; not needed if the handle is used only for `verify()` or `auth.login()`. |
+| `apiKey`   | **yes**  | Realm API key (`rk_live_...`). Used for every operation, including login. The SDK exchanges it for short-lived platform tokens internally — your raw API key never crosses login traffic (see §4.0). |
 | `baseUrl`  | no       | Override the issuer host. Default: `https://auth.realmid.dev`.              |
+| `origin`   | no       | Origin host the SDK announces on auth calls. If unset, derived from the realm's claimed domain via `realm.info()`. Override per-call on `auth.login()`. |
+| `logger`   | no       | A `Logger` instance (see §9). No-op by default.                             |
+| `tokenDelivery` | no  | `"cookie" \| "body"`. How the middleware returns refresh tokens (see §11.2). Default `"cookie"`. |
 | `httpClient` / `cacheTtl` / `leeway` / `clock` | no | Standard infrastructure overrides for tests and tuning. |
 
 ```ts
@@ -25,10 +28,9 @@ const realm = createRealm({ realmId: "01HXYZ...", apiKey: "rk_live_..." });
 ```
 
 > **Audience auto-discovery:** at first use of `verify()`, the SDK calls
-> `GET /platforms/mine` (with the API key) — or, if no API key is
-> available, falls back to a per-realm metadata endpoint — to learn the
-> realm's canonical audience (its domain). The result is cached for the
-> lifetime of the handle. Override per-call via `verify(token, { audience })`.
+> `GET /platforms/mine` to learn the realm's canonical audience (its
+> domain). The result is cached for the lifetime of the handle.
+> Override per-call via `verify(token, { audience })`.
 
 ## 2. Caching
 
@@ -77,17 +79,37 @@ second round trip to fetch context.
 
 ## 4. Authentication surface (`realm.auth.*`)
 
+### 4.0 Dual-token login (defense in depth)
+
+Login is a **two-step exchange** internal to the SDK; partners see one
+call. The raw API key is **never** sent on login traffic.
+
+1. **Platform token mint** — SDK calls `POST /auth/platform-token` with
+   `Authorization: Bearer <api-key>`. Response is a short-lived
+   (default 5 min) platform JWT scoped to the realm.
+2. **User session mint** — SDK calls `POST /auth/login` with the
+   platform token in `Authorization: Bearer <platform-token>` and the
+   user's provider token in the body. The server validates **both** —
+   the platform token authorizes the *caller*; the provider token
+   authenticates the *user*.
+
+The platform token is cached per-handle until 30 s before its `exp`,
+then re-minted automatically. Caller gets one method,
+`realm.auth.login(...)`, that handles both legs.
+
+This is a marketing talking point: API keys never travel over login
+traffic, and a leaked login-route capture cannot be replayed past the
+platform token's TTL.
+
 ### 4.1 `login(req)`
 
 Exchanges a provider token for a realm-scoped session.
 
-Request: `{ method, providerToken, origin?, customClaims? }`
+Request: `{ method, providerToken, origin? }`
 - `method`: `"firebase" | "google"`. Other methods are roadmap.
 - `providerToken`: opaque string from the upstream IdP.
-- `origin`: optional override. If unset, the SDK does not attach an
-  Origin header (server resolves by `realm_id` body field).
-- `customClaims`: object of extra claims to merge into the minted access
-  token, subject to the realm's server-side allowlist (ADR-005).
+- `origin`: optional override. If unset, the SDK auto-attaches the
+  Origin derived from the realm's claimed domain (see §1).
 
 Response: `{ accessToken, refreshToken, expiresIn, expiresAt, user, tenants }`
 - `tenants`: array of `{ id, role, displayName }` the user belongs to.
@@ -95,15 +117,20 @@ Response: `{ accessToken, refreshToken, expiresIn, expiresAt, user, tenants }`
   `RealmError` with `code: "mfa_required"` and
   `details.mfa_challenge_token` set. Caller follows up with `mfaVerify()`.
 
+> Custom claims are **not** accepted on login. The refresh token carries
+> identity only. Custom claims belong on the access token (see §4.2).
+
 ### 4.2 `token(req)`
 
-Refresh-token rotation and tenant switch.
+Refresh-token rotation, tenant switch, and **custom claim injection on
+the minted access token**.
 
 Request: `{ refreshToken, tenantId, customClaims? }`
 - `tenantId`: required (server contract — even single-tenant calls supply it).
-- `customClaims`: **roadmap.** Server today does not accept custom
-  claims on `/auth/token`; SDK will silently ignore until server support
-  lands (tracked in TODO).
+- `customClaims`: object of extra claims to merge into the minted
+  **access token**, subject to a per-realm server-side allowlist. Use
+  this to carry app-state fields (e.g. `outlet_ids`) that downstream
+  services need to authorize without a database lookup.
 
 Response: `{ accessToken, refreshToken, expiresIn, tenantId, role }`
 
@@ -143,8 +170,17 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 
 ## 6. Management surface
 
-All management calls authenticate with the API key. Pagination on every
+All management calls authenticate via the dual-token mechanism (§4.0):
+SDK exchanges the API key for a short-lived platform token, then sends
+the platform token as `Authorization: Bearer ...`. Pagination on every
 list endpoint (see §7).
+
+> **Why no `realm.platforms.*`?** A partner has exactly one platform
+> (themselves) and exactly one realm. The cross-platform admin surface
+> (creating new platforms, listing all platforms) is a RealmID
+> operations concern, not a partner concern, and lives in a separate
+> `realmid-admin` CLI. The partner SDK exposes only what a partner
+> integration actually uses.
 
 ### 6.1 Tenants — `realm.tenants.*`
 
@@ -167,24 +203,28 @@ list endpoint (see §7).
 
 `claim({ hostname })`, `verify({ claimToken })`.
 
-### 6.5 Platform admin — `realm.platforms.*`
+### 6.5 Realm self — top-level
 
-For callers with platform-admin role on their API key.
+Promoted from a nested namespace for ergonomics:
 
-`list()` (alias of `mine()`), `mine()`, `create({ ... })`,
-`tenants.list(platformId)`, `tenants.create(platformId, { ... })`,
-`tenants.invitations.create(platformId, tenantId, { ... })`.
-
-### 6.6 Realm self — `realm.realm.*`
-
-`info()` (cached metadata used for audience discovery; expose to caller
-for convenience), `apiKeys.create({ ... })`,
-`apiKeys.list()`, `apiKeys.revoke(id)`.
+- `realm.info()` — cached metadata (id, domain/audience, signing key
+  rotation status). Backs §1's audience auto-discovery; callers can
+  read it for diagnostics.
+- `realm.apiKeys.{create, list, revoke}` — manage the realm's own API
+  keys.
+- `realm.config.update(patch)` — patch realm-level config (TTL
+  overrides, default audience, etc., subject to the server's
+  configurable-keys allowlist).
 
 ## 7. Pagination
 
 Every list endpoint returns a paginated iterator. The SDK fetches one
 page at a time and yields items lazily.
+
+**Wire shape (server contract):** every paginated response is
+`{ items: [...], next_cursor: "..." | null, total?: number }`. SDKs
+**reject** any other shape — surfaces hidden behind that uniformity
+must not vary across endpoints.
 
 - **TypeScript:** returns an `AsyncIterable<T>`. Idiomatic usage:
   ```ts
@@ -207,28 +247,52 @@ page at a time and yields items lazily.
 
 ## 8. HTTP wire conventions
 
-- API key auth: `Authorization: Bearer <api-key>`. Same header is used
-  for user JWTs in calls that need user context (e.g. `listSessions`).
-- Origin header: SDK does **not** auto-attach an Origin. Callers pass
-  `origin` to `auth.login()` if they want the server to resolve realm
-  by hostname; otherwise the explicit `realmId` is used.
-- Content type: `application/json` on all request and response bodies.
-- Idempotency: SDK does not insert idempotency keys; partners may
+- **Auth header:** `Authorization: Bearer <token>`. The token is a
+  short-lived platform token (§4.0) for management calls, the user's
+  bearer JWT for user-context calls (e.g. `listSessions`), or the
+  raw API key for the **single** call to `POST /auth/platform-token`.
+- **Origin header:** SDK auto-attaches `Origin` on every auth call,
+  derived from the realm's claimed domain via `realm.info()`. Override
+  per-call (`auth.login({ origin })`) or globally
+  (`createRealm({ origin })`).
+- **Content type:** `application/json` on all request and response bodies.
+- **Idempotency:** SDK does not insert idempotency keys; partners may
   pass-through via a future `requestOptions.idempotencyKey` (deferred).
 
 ## 9. Logging / observability
 
-The SDK does not log by default. A debug hook is exposed:
+The SDK accepts a **logger interface** at construction. No-op by
+default. Idiomatic per language:
 
-```ts
-createRealm({ ..., debug: (event) => console.log(event) });
-```
+- **TypeScript:**
+  ```ts
+  interface Logger {
+    debug(msg: string, meta?: Record<string, unknown>): void;
+    info(msg: string, meta?: Record<string, unknown>): void;
+    warn(msg: string, meta?: Record<string, unknown>): void;
+    error(msg: string, meta?: Record<string, unknown>): void;
+  }
+  createRealm({ ..., logger: console });           // works
+  createRealm({ ..., logger: pino() });            // works
+  ```
+- **Go:** `*slog.Logger` (Go 1.21+). `logger: slog.Default()` typical.
+- **Java:** `java.lang.System.Logger` (built-in, JDK 9+). No SLF4J dep
+  forced on consumers.
 
-Events are typed (`http_request`, `http_response`, `cache_hit`,
-`cache_miss`, `verify_ok`, `verify_fail`). The Go SDK accepts a
-`Debug func(Event)`; Java exposes `Config.Builder.debug(Consumer<Event>)`.
+Events the SDK emits at each level:
 
-## 11. Middleware
+| Level | Event                                       |
+|-------|---------------------------------------------|
+| debug | every outbound HTTP request + response      |
+| debug | JWKS cache hit / miss / refresh             |
+| info  | platform-token mint and refresh             |
+| warn  | retry-after responses, cache eviction       |
+| error | verify failure, network failure (with code) |
+
+Raw API keys, refresh tokens, and access tokens are **never** logged.
+Only the first 6 chars of any bearer credential appear in messages.
+
+## 10. Middleware
 
 Each SDK ships an HTTP middleware adapter for the language's standard
 web stack. The middleware is the recommended way to integrate Realm ID
@@ -241,7 +305,7 @@ or `verify` directly; the middleware does that for them.
 | Go          | `func(http.Handler) http.Handler`        |
 | Java        | `jakarta.servlet.Filter` (with a Spring Security adapter as a sibling artifact). |
 
-### 11.1 Behavior
+### 10.1 Behavior
 
 For every inbound request, the middleware:
 
@@ -250,24 +314,26 @@ For every inbound request, the middleware:
 
 2. **Login route?** If `method + path` matches the configured login
    endpoint (default `POST /login`), the middleware **handles the
-   request** — it reads `{ method, providerToken, customClaims? }` from
-   the body, calls `realm.auth.login(...)`, sets the refresh token as
-   an `HttpOnly; Secure; SameSite=Lax` cookie named `realmid_refresh`,
-   and returns `{ access_token, expires_in, user, tenants }` as JSON.
-   On a 412 `mfa_required`, the response body carries
-   `{ status: "mfa_required", mfa_challenge_token, methods }` with a 200
-   so the client can branch — the SDK never surfaces the upstream 412.
+   request** — it reads `{ method, providerToken }` from the body
+   (custom claims are NOT accepted on login; see §4.1), calls
+   `realm.auth.login(...)`, returns the refresh token per
+   `tokenDelivery` (cookie or body — see §10.2), and the access token
+   in the JSON body along with `{ expires_in, user, tenants }`.
+   On a 412 `mfa_required`, the response is `200` with body
+   `{ status: "mfa_required", mfa_challenge_token, methods }` so SPAs
+   can branch without `fetch` rejecting on the 4xx.
 
 3. **Logout route?** If `method + path` matches the logout endpoint
-   (default `POST /logout`), middleware reads the refresh cookie, calls
-   `realm.auth.logout({ refreshToken })`, clears the cookie, returns
-   `{ status: "ok" }`.
+   (default `POST /logout`), middleware reads the refresh token (cookie
+   or body per `tokenDelivery`), calls `realm.auth.logout(...)`, clears
+   the cookie if applicable, returns `{ status: "ok" }`.
 
 4. **Refresh route?** If `method + path` matches the refresh endpoint
-   (default `POST /token` or `POST /refresh` — pick one default per
-   language idiom), middleware reads the refresh cookie + body
-   `{ tenant_id }`, calls `realm.auth.token(...)`, rotates the cookie,
-   returns `{ access_token, expires_in, tenant_id, role }`.
+   (default `POST /token`), middleware reads the refresh token + body
+   `{ tenant_id, custom_claims? }`, calls `realm.auth.token(...)`, and
+   returns `{ access_token, expires_in, tenant_id, role }` (refresh
+   rotated via cookie or body per `tokenDelivery`). `custom_claims` is
+   the documented place for partner-supplied access-token claims.
 
 5. **MFA verify route?** Default `POST /mfa/verify`. Body
    `{ challenge_token, code }`; behaves like login on success.
@@ -276,29 +342,44 @@ For every inbound request, the middleware:
    call `realm.verify(token)`. On success, attach the verified `Claims`
    to the request context (`req.realmid` in TS, `r.Context()` value
    under a typed key in Go, request attribute `realmid.claims` in
-   Java). On failure, respond `401` with the SDK's standard error
-   envelope: `{ error: { code, message } }`.
+   Java).
 
-### 11.2 Configuration
+   On verify failure (bad signature, expired, malformed, unknown kid,
+   missing header): respond **`401`** with `{ error: { code, message } }`.
+
+   On a path that requires MFA (declared via `mfaProtectedPaths` glob
+   list) where the token verifies but lacks the MFA marker (`amr`
+   missing `"mfa"`, or no `acr` claim): respond **`412`** with
+   `{ error: { code: "mfa_required", message }, mfa_challenge_token,
+   methods }` so the client can prompt and re-mint.
+
+### 10.2 Configuration
 
 ```ts
 const middleware = realm.middleware({
   exemptPaths: ["/health", "/public/*", "/webhooks/*"],
-  loginPath: "/login",                    // default
-  logoutPath: "/logout",                  // default
-  refreshPath: "/token",                  // default
-  mfaVerifyPath: "/mfa/verify",           // default
-  cookieName: "realmid_refresh",          // default
-  cookieDomain?: ".acme.com",             // optional
-  cookieSecure: true,                     // default true in production, false otherwise
-  onAuthFailure?: (req, err) => Response, // optional override of the 401 response
+  mfaProtectedPaths: ["/admin/*", "/billing/*"],   // optional
+  loginPath: "/login",                              // default
+  logoutPath: "/logout",                            // default
+  refreshPath: "/token",                            // default
+  mfaVerifyPath: "/mfa/verify",                     // default
+
+  // Token delivery — inherited from createRealm({ tokenDelivery }) but
+  // overridable per middleware instance.
+  tokenDelivery: "cookie",  // "cookie" (browser SPA, default) | "body" (mobile / native client)
+  cookieName: "realmid_refresh",                    // when tokenDelivery="cookie"
+  cookieDomain?: ".acme.com",                       // optional
+  cookieSecure: true,                               // default true in prod
+  cookieSameSite: "lax",                            // "lax" | "strict" | "none"
+
+  onAuthFailure?: (req, err) => Response,           // optional override of the 401/412 response
 });
 ```
 
 Same fields exist in the Go and Java configurations using
 language-idiomatic types (`time.Duration`, `Predicate<Request>`, etc.).
 
-### 11.3 Single-shot helpers
+### 10.3 Single-shot helpers
 
 For applications that don't want the full middleware (e.g. CLI scripts,
 webhooks worker), every operation is also exposed directly on the
@@ -306,19 +387,23 @@ webhooks worker), every operation is also exposed directly on the
 The middleware is sugar over those primitives, not a parallel
 implementation.
 
-## 12. Roadmap (v0.2.0+)
+## 11. Roadmap (deferred)
 
-- **Custom claims on refresh** — `auth.token()` will carry
-  `customClaims` once the server supports the allowlist on
-  `/auth/token`. Today it is only honored on `/auth/login`.
-- **Webhooks** — `realm.webhooks.verify(payload, signature)` for
-  signed event delivery. Requires a server-side webhook story.
-- **Service-to-service tokens** — `auth.serviceToken()` for M2M flows.
-- **OpenID Connect discovery** — `realm.info()` will read the
-  per-realm `.well-known/openid-configuration` document for issuer /
-  jwks_uri / token_endpoint discovery.
+Detailed proposals tracked in repo `TODO.md`. Headlines:
 
-## 13. Versioning
+- Webhooks (`realm.webhooks.verify(payload, signature)`)
+- Service-to-service tokens (`auth.serviceToken()`)
+- OpenID Connect discovery (`/.well-known/openid-configuration`)
+- Impersonation (`auth.impersonate({ targetUserId, reason })`)
+- WebAuthn / passkeys
+- Custom domains for hosted UIs
+- Bulk user import
+- CSRF protection layer in the middleware (double-submit-cookie pattern)
+- Self-service MFA flows for the current user
+  (`realm.auth.mfa.{enroll, confirm, reset}`)
+- Idempotency-key pass-through on mutations
+
+## 12. Versioning
 
 The repository tags per SDK with a language prefix
 (`ts-v0.1.0`, `go-v0.1.0`, `java-v0.1.0`). Surface changes that break
