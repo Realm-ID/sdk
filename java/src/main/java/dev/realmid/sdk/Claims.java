@@ -20,7 +20,7 @@ public final class Claims {
     private final String role;
     private final Map<String, Object> extra;
 
-    Claims(
+    public Claims(
             String issuer,
             String subject,
             String audience,
@@ -56,9 +56,6 @@ public final class Claims {
     public String tenantId() { return tenantId; }
     public String role() { return role; }
 
-    /**
-     * Custom (non-reserved) claims as a read-only map. Useful for
-     * partner-supplied keys like {@code outlet_ids}.
-     */
+    /** Custom (non-reserved) claims as a read-only map. */
     public Map<String, Object> extra() { return extra; }
 }

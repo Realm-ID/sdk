@@ -1,11 +1,10 @@
 # @realmid/sdk — Java
 
-Java SDK for verifying RealmID-issued JWTs. Sibling TypeScript SDK at
-[`../ts/`](../ts), Go SDK at [`../go/`](../go).
+Java SDK for the [Realm ID](https://realmid.dev) authentication service.
+Sibling TypeScript SDK at [`../ts/`](../ts), Go SDK at [`../go/`](../go).
+The shared cross-language contract lives in [`../SPEC.md`](../SPEC.md).
 
 ## Install
-
-Available on Maven Central (planned):
 
 ```xml
 <!-- Maven -->
@@ -24,43 +23,84 @@ implementation("dev.realmid:sdk:0.1.0")
 ## Usage
 
 ```java
-import dev.realmid.sdk.Claims;
-import dev.realmid.sdk.Config;
-import dev.realmid.sdk.ErrorCode;
-import dev.realmid.sdk.Verifier;
-import dev.realmid.sdk.VerifyException;
+import dev.realmid.sdk.*;
+import dev.realmid.sdk.auth.*;
 
-Verifier verifier = Verifier.create(
-    Config.builder()
-        .baseUrl("https://auth.realmid.dev")
-        .audience("your-partner-audience")
-        .build()
-);
+Realm realm = Realm.builder()
+    .realmId("01HXYZ...")
+    .apiKey("rk_live_...")
+    // .baseUrl("https://auth.realmid.dev")  // override for staging
+    // .origin("https://app.acme.com")        // optional; auto-discovered
+    // .logger(System.getLogger("realmid"))
+    .build();
 
+// Verify an access token
+Claims claims = realm.verify(accessToken);
+
+// Auth flow
+Session session = realm.auth().login(LoginRequest.of("firebase", providerToken));
+TokenResponse refreshed = realm.auth().token(
+    TokenRequest.withClaims(refreshToken, "tenant-id",
+        java.util.Map.of("outlet_ids", java.util.List.of("o1"))));
+
+// Management
+realm.tenants().list().stream().forEach(t -> System.out.println(t.id()));
+realm.tenants().users().list("tenant-id").stream().forEach(u -> System.out.println(u.email()));
+```
+
+## Servlet middleware
+
+```java
+import dev.realmid.sdk.middleware.RealmFilter;
+import dev.realmid.sdk.middleware.TokenDelivery;
+
+RealmFilter filter = realm.middleware()
+    .exemptPaths(java.util.List.of("/health", "/public/*"))
+    .mfaProtectedPaths(java.util.List.of("/admin/*"))
+    .tokenDelivery(TokenDelivery.COOKIE)
+    .cookieName("realmid_refresh")
+    .buildFilter();
+```
+
+The filter handles login/logout/refresh/mfa-verify routes in-process and
+falls through to bearer verification on every other route, attaching the
+verified `Claims` to the request as attribute `realmid.claims`.
+
+`jakarta.servlet:jakarta.servlet-api` is `compileOnly` — apps that don't
+use the filter never pick up a servlet jar.
+
+## Errors
+
+Every failure is a `RealmException`. Branch on `getCode()`:
+
+```java
 try {
-    Claims claims = verifier.verify(accessToken);
-    // claims.subject(), claims.tenantId(), claims.role(), claims.extra().get("...")
-} catch (VerifyException e) {
-    // e.getCode() in {MALFORMED, WRONG_ALGORITHM, BAD_SIGNATURE,
-    //   WRONG_ISSUER, WRONG_AUDIENCE, EXPIRED, NOT_YET_VALID,
-    //   UNKNOWN_KID, JWKS_FETCH_FAILED}
+    realm.auth().login(LoginRequest.of("firebase", token));
+} catch (RealmException e) {
+    if (e.getCode() == ErrorCode.MFA_REQUIRED) {
+        String challenge = (String) e.getDetails().get("mfa_challenge_token");
+        // prompt user, then call realm.auth().mfaVerify(...)
+    }
 }
 ```
+
+Full error taxonomy: see [`SPEC.md` §3.1](../SPEC.md#3-errors).
 
 ## Runtime
 
 - Java 17+
-- Single dependency: `com.fasterxml.jackson.core:jackson-databind`
+- Single runtime dependency: `com.fasterxml.jackson.core:jackson-databind`
+- `jakarta.servlet:jakarta.servlet-api` is `compileOnly` (only required if
+  you mount `RealmFilter`)
 - HTTP via `java.net.http.HttpClient` (built-in)
 - RSA via `java.security.Signature` (built-in)
+- Logging via `java.lang.System.Logger` (built-in)
 
-Thread-safe — share one `Verifier` per process.
+Thread-safe — share one `Realm` per process.
 
-## What's in scope
+## Example
 
-Just `verify()`. Other partner-facing operations (login, logout, refresh
-rotation) are HTTP — call them with `HttpClient` directly. See the
-[partner integration guide](https://realmid.dev/docs).
+See [`examples/server/`](examples/server) for a runnable HTTP server.
 
 ## Tests
 

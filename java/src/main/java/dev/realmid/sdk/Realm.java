@@ -1,0 +1,163 @@
+package dev.realmid.sdk;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.realmid.sdk.apikeys.APIKeysClient;
+import dev.realmid.sdk.auth.AuthClient;
+import dev.realmid.sdk.domains.DomainsClient;
+import dev.realmid.sdk.http.HttpTransport;
+import dev.realmid.sdk.info.ConfigClient;
+import dev.realmid.sdk.info.RealmInfo;
+import dev.realmid.sdk.info.RealmInfoClient;
+import dev.realmid.sdk.middleware.MiddlewareConfig;
+import dev.realmid.sdk.platformtoken.PlatformTokenManager;
+import dev.realmid.sdk.tenants.TenantsClient;
+import dev.realmid.sdk.verifier.Verifier;
+
+import java.lang.System.Logger;
+import java.net.http.HttpClient;
+import java.time.Clock;
+import java.time.Duration;
+
+/**
+ * Top-level handle (SPEC §1). Construct with {@link #builder()}.
+ */
+public final class Realm {
+
+    static final String DEFAULT_BASE_URL = "https://auth.realmid.dev";
+
+    private final String realmId;
+    private final String baseUrl;
+    private final String origin;
+    private final Logger logger;
+    private final HttpTransport http;
+    private final Verifier verifier;
+    private final AuthClient auth;
+    private final TenantsClient tenants;
+    private final DomainsClient domains;
+    private final APIKeysClient apiKeys;
+    private final RealmInfoClient info;
+    private final ConfigClient config;
+    private final PlatformTokenManager platformTokens;
+
+    private Realm(Builder b) {
+        if (b.realmId == null || b.realmId.isEmpty()) {
+            throw new RealmException(ErrorCode.BAD_REQUEST, "realmid: realmId required");
+        }
+        if (b.apiKey == null || b.apiKey.isEmpty()) {
+            throw new RealmException(ErrorCode.BAD_REQUEST, "realmid: apiKey required");
+        }
+        this.realmId = b.realmId;
+        this.baseUrl = stripSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
+        this.origin = b.origin;
+        this.logger = b.logger == null ? Logging.NOOP : b.logger;
+        ObjectMapper mapper = b.mapper == null ? new ObjectMapper() : b.mapper;
+        HttpClient httpClient = b.httpClient == null
+                ? HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
+                : b.httpClient;
+        Clock clock = b.clock == null ? Clock.systemUTC() : b.clock;
+
+        this.platformTokens = new PlatformTokenManager(
+                b.apiKey, this.baseUrl, httpClient, mapper, this.logger, clock,
+                b.refreshSkew == null ? Duration.ofSeconds(30) : b.refreshSkew);
+        this.http = new HttpTransport(this.baseUrl, httpClient, mapper, this.logger, this.platformTokens);
+
+        this.info = new RealmInfoClient(this.http, this.realmId, true);
+        this.verifier = new Verifier(
+                this.baseUrl,
+                b.audience,
+                b.audience != null ? null : (rid -> {
+                    RealmInfo i = this.info.info();
+                    return i == null ? null : i.audience();
+                }),
+                httpClient, mapper,
+                b.cacheTtl, b.leeway, clock, this.logger);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin);
+        this.tenants = new TenantsClient(this.http);
+        this.domains = new DomainsClient(this.http);
+        this.apiKeys = new APIKeysClient(this.http, this.realmId);
+        this.config = new ConfigClient(this.http, this.realmId);
+    }
+
+    public String realmId() { return realmId; }
+    public String baseUrl() { return baseUrl; }
+    public Logger logger() { return logger; }
+
+    /** SPEC §5 — verify. */
+    public Claims verify(String token) { return verifier.verify(token); }
+    public Claims verify(String token, VerifyOptions opts) {
+        return verifier.verify(token, opts == null ? null : opts.audience());
+    }
+
+    public AuthClient auth() { return auth; }
+    public TenantsClient tenants() { return tenants; }
+    public DomainsClient domains() { return domains; }
+    public APIKeysClient apiKeys() { return apiKeys; }
+    public ConfigClient config() { return config; }
+    public RealmInfo info() { return info.info(); }
+
+    /** Test-only / advanced: clear the cached realm info and audience. */
+    public void invalidateInfo() { info.invalidate(); }
+
+    /** Internal accessor for the middleware. */
+    public HttpTransport http() { return http; }
+    public PlatformTokenManager platformTokens() { return platformTokens; }
+
+    /** SPEC §10 — middleware config builder. */
+    public MiddlewareConfig.Builder middleware() {
+        return new MiddlewareConfig.Builder(this);
+    }
+
+    private String resolveOrigin() {
+        if (origin != null && !origin.isEmpty()) return origin;
+        try {
+            RealmInfo i = info.info();
+            if (i == null || i.audience() == null || i.audience().isEmpty()) return null;
+            String aud = i.audience();
+            if (aud.startsWith("http://") || aud.startsWith("https://")) return aud;
+            return "https://" + aud;
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    public static Builder builder() { return new Builder(); }
+
+    private static String stripSlash(String s) {
+        int end = s.length();
+        while (end > 0 && s.charAt(end - 1) == '/') end--;
+        return s.substring(0, end);
+    }
+
+    /** SPEC §5 — verify options (per-call audience override). */
+    public record VerifyOptions(String audience) {}
+
+    public static final class Builder {
+        private String realmId;
+        private String apiKey;
+        private String baseUrl;
+        private String origin;
+        private String audience;
+        private Logger logger;
+        private HttpClient httpClient;
+        private ObjectMapper mapper;
+        private Clock clock;
+        private Duration cacheTtl;
+        private Duration leeway;
+        private Duration refreshSkew;
+
+        public Builder realmId(String v) { this.realmId = v; return this; }
+        public Builder apiKey(String v) { this.apiKey = v; return this; }
+        public Builder baseUrl(String v) { this.baseUrl = v; return this; }
+        public Builder origin(String v) { this.origin = v; return this; }
+        public Builder audience(String v) { this.audience = v; return this; }
+        public Builder logger(Logger v) { this.logger = v; return this; }
+        public Builder httpClient(HttpClient v) { this.httpClient = v; return this; }
+        public Builder mapper(ObjectMapper v) { this.mapper = v; return this; }
+        public Builder clock(Clock v) { this.clock = v; return this; }
+        public Builder cacheTtl(Duration v) { this.cacheTtl = v; return this; }
+        public Builder leeway(Duration v) { this.leeway = v; return this; }
+        public Builder refreshSkew(Duration v) { this.refreshSkew = v; return this; }
+
+        public Realm build() { return new Realm(this); }
+    }
+}

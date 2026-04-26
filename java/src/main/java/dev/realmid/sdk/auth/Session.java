@@ -1,0 +1,33 @@
+package dev.realmid.sdk.auth;
+
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Login / mfa-verify response (SPEC §4). Also doubles as the session record
+ * returned by {@code listSessions} (sessions may have only id/createdAt).
+ */
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record Session(
+        @JsonProperty("access_token") @JsonAlias("accessToken") String accessToken,
+        @JsonProperty("refresh_token") @JsonAlias("refreshToken") String refreshToken,
+        @JsonProperty("expires_in") @JsonAlias("expiresIn") long expiresIn,
+        @JsonProperty("expires_at") @JsonAlias("expiresAt") String expiresAt,
+        Map<String, Object> user,
+        List<TenantRef> tenants,
+        String id,
+        @JsonProperty("created_at") @JsonAlias("createdAt") String createdAt,
+        @JsonProperty("last_used_at") @JsonAlias("lastUsedAt") String lastUsedAt,
+        @JsonProperty("user_agent") @JsonAlias("userAgent") String userAgent,
+        String ip
+) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TenantRef(
+            String id,
+            String role,
+            @JsonProperty("display_name") @JsonAlias("displayName") String displayName) {}
+}
