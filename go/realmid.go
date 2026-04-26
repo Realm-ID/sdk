@@ -84,7 +84,12 @@ type Realm struct {
 	Domains *DomainsClient
 	APIKeys *APIKeysClient
 	Config  *ConfigClient
+	Roles   *RolesClient
 }
+
+// Version is the published SDK version (semver). Bumped per ADR-040
+// for the platform-defined custom roles surface.
+const Version = "0.3.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -118,6 +123,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Domains = &DomainsClient{realm: r}
 	r.APIKeys = &APIKeysClient{realm: r}
 	r.Config = &ConfigClient{realm: r}
+	r.Roles = &RolesClient{realm: r}
 
 	return r, nil
 }
