@@ -7,9 +7,9 @@ import dev.realmid.sdk.ErrorCode;
 import dev.realmid.sdk.Logging;
 import dev.realmid.sdk.Realm;
 import dev.realmid.sdk.RealmException;
+import dev.realmid.sdk.auth.AuthClient;
 import dev.realmid.sdk.auth.LoginRequest;
 import dev.realmid.sdk.auth.LogoutRequest;
-import dev.realmid.sdk.auth.MFAChallenge;
 import dev.realmid.sdk.auth.MFAVerifyRequest;
 import dev.realmid.sdk.auth.Session;
 import dev.realmid.sdk.auth.TokenRequest;
@@ -28,6 +28,8 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.lang.System.Logger.Level;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +43,9 @@ import java.util.Map;
 public class RealmFilter implements Filter {
 
     public static final String CLAIMS_ATTR = "realmid.claims";
+
+    /** Grace window on a {@code requireFresh} route — gives the client time to retry the original op after MFA verify. */
+    static final Duration REQUIRE_FRESH_WINDOW = Duration.ofSeconds(30);
 
     private final MiddlewareConfig cfg;
     private final ObjectMapper mapper;
@@ -96,19 +101,12 @@ public class RealmFilter implements Filter {
             sendError(res, 401, e.getCode().wire(), e.getMessage(), null);
             return;
         }
-        // MFA-protected?
-        for (String pat : cfg.mfaProtectedPaths) {
-            if (GlobMatcher.match(pat, path) && !hasMfa(claims)) {
-                Map<String, Object> sib = new LinkedHashMap<>();
-                try {
-                    MFAChallenge ch = cfg.realm.auth().mintMfaChallenge(token);
-                    sib.put("mfa_challenge_token", ch.mfaChallengeToken());
-                    sib.put("methods", ch.methods());
-                } catch (RealmException ex) {
-                    warnAuth(req, "mint mfa challenge failed: " + ex.getCode().wire());
-                    // best-effort: return 412 without challenge token
-                }
-                sendError(res, 412, ErrorCode.MFA_REQUIRED.wire(), "mfa required", sib);
+        // MFA-protected? (SPEC §10.4)
+        MFARule rule = findMfaRule(path);
+        if (rule != null) {
+            MfaVerdict verdict = evaluateMfaFreshness(claims, rule, cfg.mfaDefaultMaxAge);
+            if (verdict != null) {
+                respondMfaRequired(req, res, token, verdict);
                 return;
             }
         }
@@ -116,15 +114,103 @@ public class RealmFilter implements Filter {
         if (chain != null) chain.doFilter(req, res);
     }
 
-    private boolean hasMfa(Claims c) {
-        Object amr = c.extra().get("amr");
-        if (amr instanceof List<?> list) {
-            for (Object x : list) {
-                if ("mfa".equals(String.valueOf(x))) return true;
+    private MFARule findMfaRule(String path) {
+        for (MFARule r : cfg.mfaProtectedPaths) {
+            if (GlobMatcher.match(r.path(), path)) return r;
+        }
+        return null;
+    }
+
+    /** Source of the MFA proof — only {@code TIMESTAMP} can satisfy {@code requireFresh}. */
+    private enum MfaProofSource { NONE, MARKER_FALLBACK, TIMESTAMP }
+
+    private record MfaProof(long at, MfaProofSource source) {}
+
+    private record MfaVerdict(MFAGateReason reason, long maxAgeSeconds) {}
+
+    /**
+     * Read MFA proof from claims, with a backward-compat fallback:
+     *  - explicit {@code mfa_at} -> source {@code TIMESTAMP}.
+     *  - legacy {@code amr ⊇ ["mfa"]} or {@code acr == "urn:realmid:mfa"}
+     *    -> source {@code MARKER_FALLBACK}, treated as freshly minted so
+     *    pre-{@code mfa_at} servers still pass {@code maxAge} gates.
+     *    {@code requireFresh} still rejects it (no timestamp = no proof).
+     *  - neither -> source {@code NONE}.
+     */
+    static MfaProof readMfaProof(Claims claims, long nowSec) {
+        if (claims == null) return new MfaProof(0L, MfaProofSource.NONE);
+        if (claims.mfaAt() > 0) return new MfaProof(claims.mfaAt(), MfaProofSource.TIMESTAMP);
+        if (claims.hasMfa()) return new MfaProof(nowSec, MfaProofSource.MARKER_FALLBACK);
+        return new MfaProof(0L, MfaProofSource.NONE);
+    }
+
+    /**
+     * Evaluate whether {@code claims} carries fresh-enough MFA proof for
+     * {@code rule}. Returns {@code null} when the gate passes; an
+     * {@link MfaVerdict} describing the failure mode when it doesn't.
+     */
+    static MfaVerdict evaluateMfaFreshness(Claims claims, MFARule rule, Duration defaultMaxAge) {
+        long nowSec = Instant.now().getEpochSecond();
+        MfaProof proof = readMfaProof(claims, nowSec);
+        long age = nowSec - proof.at();
+
+        // requireFresh — must have an explicit mfa_at within the grace window.
+        if (rule.requireFresh()) {
+            if (proof.source() == MfaProofSource.TIMESTAMP && age <= REQUIRE_FRESH_WINDOW.getSeconds()) {
+                return null;
+            }
+            return new MfaVerdict(MFAGateReason.FRESH_REQUIRED, 0L);
+        }
+
+        Duration maxAge = rule.maxAge();
+        long maxAgeSec = maxAge == null ? 0L : maxAge.getSeconds();
+        if (maxAgeSec <= 0) {
+            // null/zero -> use the realm-default.
+            maxAgeSec = defaultMaxAge == null ? 0L : defaultMaxAge.getSeconds();
+        }
+
+        // maxAge of 0 collapses to requireFresh semantics.
+        if (maxAgeSec <= 0) {
+            if (proof.source() == MfaProofSource.TIMESTAMP && age <= REQUIRE_FRESH_WINDOW.getSeconds()) {
+                return null;
+            }
+            MFAGateReason reason = proof.source() == MfaProofSource.NONE
+                    ? MFAGateReason.NO_MFA : MFAGateReason.STALE_MFA;
+            return new MfaVerdict(reason, 0L);
+        }
+
+        if (proof.source() == MfaProofSource.NONE) {
+            return new MfaVerdict(MFAGateReason.NO_MFA, maxAgeSec);
+        }
+        if (age > maxAgeSec) {
+            return new MfaVerdict(MFAGateReason.STALE_MFA, maxAgeSec);
+        }
+        return null;
+    }
+
+    private void respondMfaRequired(HttpServletRequest req, HttpServletResponse res,
+                                    String accessToken, MfaVerdict verdict) throws IOException {
+        String challengeToken = "";
+        List<String> methods = List.of("totp");
+        try {
+            AuthClient.MfaChallengeMint ch = cfg.realm.auth().mintMfaChallenge(accessToken);
+            if (ch != null) {
+                if (ch.challengeToken() != null) challengeToken = ch.challengeToken();
+                if (ch.methods() != null && !ch.methods().isEmpty()) methods = ch.methods();
+            }
+        } catch (RuntimeException ex) {
+            var logger = cfg.realm.logger();
+            if (logger != null && logger.isLoggable(Level.WARNING)) {
+                logger.log(Level.WARNING, "realmid: mfa challenge mint unavailable path={0} reason={1}",
+                        req.getRequestURI(), ex.getMessage());
             }
         }
-        Object acr = c.extra().get("acr");
-        return acr != null && !"".equals(acr);
+        Map<String, Object> sib = new LinkedHashMap<>();
+        sib.put("mfa_challenge_token", challengeToken);
+        sib.put("methods", methods);
+        sib.put("max_age_seconds", verdict.maxAgeSeconds());
+        sib.put("reason", verdict.reason().wire());
+        sendError(res, 412, ErrorCode.MFA_REQUIRED.wire(), "MFA required for this resource", sib);
     }
 
     private void handleLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {

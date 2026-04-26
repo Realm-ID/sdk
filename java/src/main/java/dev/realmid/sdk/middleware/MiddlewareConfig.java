@@ -2,6 +2,7 @@ package dev.realmid.sdk.middleware;
 
 import dev.realmid.sdk.Realm;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -12,7 +13,8 @@ public final class MiddlewareConfig {
 
     final Realm realm;
     final List<String> exemptPaths;
-    final List<String> mfaProtectedPaths;
+    final List<MFARule> mfaProtectedPaths;
+    final Duration mfaDefaultMaxAge;
     final String loginPath;
     final String logoutPath;
     final String refreshPath;
@@ -27,6 +29,7 @@ public final class MiddlewareConfig {
         this.realm = b.realm;
         this.exemptPaths = Collections.unmodifiableList(new ArrayList<>(b.exemptPaths));
         this.mfaProtectedPaths = Collections.unmodifiableList(new ArrayList<>(b.mfaProtectedPaths));
+        this.mfaDefaultMaxAge = b.mfaDefaultMaxAge;
         this.loginPath = b.loginPath;
         this.logoutPath = b.logoutPath;
         this.refreshPath = b.refreshPath;
@@ -40,7 +43,8 @@ public final class MiddlewareConfig {
 
     public Realm realm() { return realm; }
     public List<String> exemptPaths() { return exemptPaths; }
-    public List<String> mfaProtectedPaths() { return mfaProtectedPaths; }
+    public List<MFARule> mfaProtectedPaths() { return mfaProtectedPaths; }
+    public Duration mfaDefaultMaxAge() { return mfaDefaultMaxAge; }
     public String loginPath() { return loginPath; }
     public String logoutPath() { return logoutPath; }
     public String refreshPath() { return refreshPath; }
@@ -54,7 +58,8 @@ public final class MiddlewareConfig {
     public static final class Builder {
         private final Realm realm;
         private List<String> exemptPaths = new ArrayList<>(Arrays.asList("/health", "/public/*"));
-        private List<String> mfaProtectedPaths = new ArrayList<>();
+        private List<MFARule> mfaProtectedPaths = new ArrayList<>();
+        private Duration mfaDefaultMaxAge = Duration.ofMinutes(15);
         private String loginPath = "/login";
         private String logoutPath = "/logout";
         private String refreshPath = "/token";
@@ -71,10 +76,37 @@ public final class MiddlewareConfig {
             this.exemptPaths = v == null ? new ArrayList<>() : new ArrayList<>(v);
             return this;
         }
-        public Builder mfaProtectedPaths(List<String> v) {
+
+        /** SPEC §10.4 — per-route MFA freshness policies. */
+        public Builder mfaProtectedPaths(List<MFARule> v) {
             this.mfaProtectedPaths = v == null ? new ArrayList<>() : new ArrayList<>(v);
             return this;
         }
+
+        /**
+         * Backward-compat sugar: bare path strings, each wrapped into a
+         * default {@link MFARule} that inherits the realm-default
+         * freshness window.
+         */
+        public Builder mfaProtectedPaths(String... paths) {
+            ArrayList<MFARule> rules = new ArrayList<>();
+            if (paths != null) {
+                for (String p : paths) rules.add(MFARule.of(p));
+            }
+            this.mfaProtectedPaths = rules;
+            return this;
+        }
+
+        /**
+         * Realm-wide default freshness window applied to {@link MFARule}
+         * entries that omit {@code maxAge}. Default 15 min. Mirrors
+         * {@code realms.config.mfa_session_ttl_seconds} server-side.
+         */
+        public Builder mfaDefaultMaxAge(Duration v) {
+            this.mfaDefaultMaxAge = v == null ? Duration.ofMinutes(15) : v;
+            return this;
+        }
+
         public Builder loginPath(String v) { this.loginPath = v; return this; }
         public Builder logoutPath(String v) { this.logoutPath = v; return this; }
         public Builder refreshPath(String v) { this.refreshPath = v; return this; }

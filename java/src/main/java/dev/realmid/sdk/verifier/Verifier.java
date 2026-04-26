@@ -38,7 +38,7 @@ import java.util.function.Function;
 public final class Verifier {
 
     private static final Set<String> RESERVED = Set.of(
-            "iss", "sub", "aud", "iat", "nbf", "exp", "jti", "azp", "tenant_id", "role"
+            "iss", "sub", "aud", "iat", "nbf", "exp", "jti", "azp", "tenant_id", "role", "mfa_at"
     );
 
     private final String baseUrl;
@@ -185,6 +185,7 @@ public final class Verifier {
                 strOrNull(payload, "azp"),
                 strOrNull(payload, "tenant_id"),
                 strOrNull(payload, "role"),
+                longOrZero(payload, "mfa_at"),
                 extra
         );
     }

@@ -33,6 +33,7 @@ import java.security.KeyPairGenerator;
 import java.security.Signature;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -177,7 +178,7 @@ class RealmFilterTest {
                 Map.of("keys", List.of(jwk))));
 
         Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
-        RealmFilter f = r2.middleware().mfaProtectedPaths(List.of("/admin/*")).buildFilter();
+        RealmFilter f = r2.middleware().mfaProtectedPaths("/admin/*").buildFilter();
         String token = signToken(baseClaims(), kid);
         FakeReq req = new FakeReq("GET", "/admin/things");
         req.headers.put("Authorization", List.of("Bearer " + token));
@@ -187,6 +188,117 @@ class RealmFilterTest {
         Map<?, ?> resp = M.readValue(res.bytes(), Map.class);
         assertEquals("mfa_required", ((Map<?, ?>) resp.get("error")).get("code"));
         assertEquals("ch-mfa", resp.get("mfa_challenge_token"));
+        // SPEC §10.4 envelope siblings
+        assertEquals("no_mfa", resp.get("reason"));
+        assertEquals(900, ((Number) resp.get("max_age_seconds")).intValue());
+    }
+
+    @Test
+    void mfaProtectedPaths_acceptsFreshMfaAt() throws Exception {
+        configureMfaApi();
+        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        RealmFilter f = r2.middleware()
+                .mfaProtectedPaths(List.of(MFARule.of("/admin/*", Duration.ofMinutes(15))))
+                .buildFilter();
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("mfa_at", Instant.now().getEpochSecond() - 60);
+        String token = signToken(claims, kid);
+        FakeReq req = new FakeReq("GET", "/admin/things");
+        req.headers.put("Authorization", List.of("Bearer " + token));
+        FakeRes res = new FakeRes();
+        AtomicBoolean ran = new AtomicBoolean(false);
+        f.doFilter(req, res, (rq, rs) -> ran.set(true));
+        assertTrue(ran.get());
+    }
+
+    @Test
+    void mfaProtectedPaths_returns412Stale() throws Exception {
+        configureMfaApi();
+        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        RealmFilter f = r2.middleware()
+                .mfaProtectedPaths(List.of(MFARule.of("/admin/*", Duration.ofMinutes(15))))
+                .buildFilter();
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("mfa_at", Instant.now().getEpochSecond() - 1800); // 30 min stale
+        String token = signToken(claims, kid);
+        FakeReq req = new FakeReq("GET", "/admin/things");
+        req.headers.put("Authorization", List.of("Bearer " + token));
+        FakeRes res = new FakeRes();
+        f.doFilter(req, res, (rq, rs) -> { throw new AssertionError(); });
+        assertEquals(412, res.status);
+        Map<?, ?> resp = M.readValue(res.bytes(), Map.class);
+        assertEquals("stale_mfa", resp.get("reason"));
+        assertEquals(900, ((Number) resp.get("max_age_seconds")).intValue());
+    }
+
+    @Test
+    void mfaProtectedPaths_requireFreshRejectsLegacyMarker() throws Exception {
+        configureMfaApi();
+        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        RealmFilter f = r2.middleware()
+                .mfaProtectedPaths(List.of(MFARule.requireFresh("/billing/charge")))
+                .buildFilter();
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("amr", List.of("pwd", "mfa")); // legacy marker only
+        String token = signToken(claims, kid);
+        FakeReq req = new FakeReq("POST", "/billing/charge");
+        req.headers.put("Authorization", List.of("Bearer " + token));
+        FakeRes res = new FakeRes();
+        f.doFilter(req, res, (rq, rs) -> { throw new AssertionError(); });
+        assertEquals(412, res.status);
+        Map<?, ?> resp = M.readValue(res.bytes(), Map.class);
+        assertEquals("fresh_required", resp.get("reason"));
+        assertEquals(0, ((Number) resp.get("max_age_seconds")).intValue());
+    }
+
+    @Test
+    void mfaProtectedPaths_requireFreshAcceptsRecent() throws Exception {
+        configureMfaApi();
+        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        RealmFilter f = r2.middleware()
+                .mfaProtectedPaths(List.of(MFARule.requireFresh("/billing/charge")))
+                .buildFilter();
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("mfa_at", Instant.now().getEpochSecond() - 5);
+        String token = signToken(claims, kid);
+        FakeReq req = new FakeReq("POST", "/billing/charge");
+        req.headers.put("Authorization", List.of("Bearer " + token));
+        FakeRes res = new FakeRes();
+        AtomicBoolean ran = new AtomicBoolean(false);
+        f.doFilter(req, res, (rq, rs) -> ran.set(true));
+        assertTrue(ran.get());
+    }
+
+    @Test
+    void mfaProtectedPaths_legacyMarkerPassesUnderMaxAge() throws Exception {
+        configureMfaApi();
+        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        RealmFilter f = r2.middleware().mfaProtectedPaths("/admin/*").buildFilter();
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("amr", List.of("mfa")); // legacy marker, no mfa_at
+        String token = signToken(claims, kid);
+        FakeReq req = new FakeReq("GET", "/admin/things");
+        req.headers.put("Authorization", List.of("Bearer " + token));
+        FakeRes res = new FakeRes();
+        AtomicBoolean ran = new AtomicBoolean(false);
+        f.doFilter(req, res, (rq, rs) -> ran.set(true));
+        assertTrue(ran.get(), "legacy amr=[mfa] marker should satisfy MaxAge gate (marker_fallback)");
+    }
+
+    /** Wire the API fakes used by every MFA-gate test. */
+    private void configureMfaApi() {
+        api.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("platform_token", "pt", "expires_in", 300)));
+        api.on("POST /auth/mfa/challenge", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("mfa_challenge_token", "ch-mfa", "methods", List.of("totp"))));
+        Map<String, Object> jwk = jwkFor((RSAPublicKey) keyPair.getPublic(), kid);
+        api.on("GET /" + REALM_ID + "/.well-known/jwks.json", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("keys", List.of(jwk))));
     }
 
     // ----- helpers / fakes -----

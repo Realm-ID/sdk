@@ -51,16 +51,32 @@ realm.tenants().users().list("tenant-id").stream().forEach(u -> System.out.print
 ## Servlet middleware
 
 ```java
+import dev.realmid.sdk.middleware.MFARule;
 import dev.realmid.sdk.middleware.RealmFilter;
 import dev.realmid.sdk.middleware.TokenDelivery;
+import java.time.Duration;
 
 RealmFilter filter = realm.middleware()
     .exemptPaths(java.util.List.of("/health", "/public/*"))
-    .mfaProtectedPaths(java.util.List.of("/admin/*"))
+    .mfaProtectedPaths(java.util.List.of(
+        MFARule.of("/admin/*"),                       // realm-default freshness window
+        MFARule.of("/billing/*", Duration.ofMinutes(5)),
+        MFARule.requireFresh("/billing/charge")        // step-up MFA per op
+    ))
+    .mfaDefaultMaxAge(Duration.ofMinutes(15))
     .tokenDelivery(TokenDelivery.COOKIE)
     .cookieName("realmid_refresh")
     .buildFilter();
 ```
+
+Per-route MFA freshness follows SPEC §10.4. Each `MFARule` accepts a
+`maxAge` (or inherits `mfaDefaultMaxAge`) and an optional `requireFresh`
+flag for irreversible operations. Tokens carry an `mfa_at` claim
+(unix-seconds) that the filter compares against the rule. On a miss the
+filter responds `412` with envelope siblings `mfa_challenge_token`,
+`methods`, `max_age_seconds`, and `reason` (`no_mfa` / `stale_mfa` /
+`fresh_required`). Bare-string sugar still works:
+`mfaProtectedPaths("/admin/*")`.
 
 The filter handles login/logout/refresh/mfa-verify routes in-process and
 falls through to bearer verification on every other route, attaching the

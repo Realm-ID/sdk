@@ -98,19 +98,24 @@ public final class AuthClient {
         });
     }
 
-    /** SPEC §10.1 — mint an MFA challenge token from an access token. */
-    public MFAChallenge mintMfaChallenge(String accessToken) {
+    /**
+     * SPEC §10.1 / §10.4 — mint an MFA challenge token from an access
+     * token. The middleware uses this to issue 412 envelopes on
+     * MFA-protected paths without forcing the partner app to round-trip
+     * through {@link #login} again.
+     *
+     * The server endpoint may not exist yet. On 404/501, this throws
+     * {@link RealmException} with {@link ErrorCode#SERVER_ERROR} and the
+     * message "mfa challenge mint not yet supported by server" — same
+     * semantics as the TS/Go SDKs.
+     */
+    public MfaChallengeMint mintMfaChallenge(String accessToken) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("realm_id", realmId);
+        body.put("access_token", accessToken);
+        JsonNode raw;
         try {
-            JsonNode raw = http.request(HttpTransport.Request.of("POST", "/auth/mfa/challenge")
+            raw = http.request(HttpTransport.Request.of("POST", "/auth/mfa/challenge")
                     .bearer(accessToken).body(body));
-            MFAChallenge c = http.mapper().convertValue(raw, MFAChallenge.class);
-            if (c == null || c.mfaChallengeToken() == null) {
-                throw new RealmException(ErrorCode.SERVER_ERROR,
-                        "mfa challenge mint not yet supported by server");
-            }
-            return c;
         } catch (RealmException e) {
             if (e.getHttpStatus() == 404 || e.getHttpStatus() == 501) {
                 throw new RealmException(ErrorCode.SERVER_ERROR,
@@ -118,7 +123,18 @@ public final class AuthClient {
             }
             throw e;
         }
+        MFAChallenge c = http.mapper().convertValue(raw, MFAChallenge.class);
+        if (c == null || c.mfaChallengeToken() == null || c.mfaChallengeToken().isEmpty()) {
+            throw new RealmException(ErrorCode.SERVER_ERROR,
+                    "mfa challenge mint not yet supported by server");
+        }
+        java.util.List<String> methods = c.methods();
+        if (methods == null || methods.isEmpty()) methods = java.util.List.of("totp");
+        return new MfaChallengeMint(c.mfaChallengeToken(), methods);
     }
+
+    /** Result of {@link #mintMfaChallenge(String)} (SPEC §10.4). */
+    public record MfaChallengeMint(String challengeToken, java.util.List<String> methods) {}
 
     private void attachOrigin(HttpTransport.Request r, String perCall) {
         String o = perCall != null && !perCall.isEmpty() ? perCall
