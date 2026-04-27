@@ -81,6 +81,12 @@ type MFAVerifyRequest struct {
 // RefreshToken is empty, the server uses the cookie / current session.
 type LogoutRequest struct {
 	RefreshToken string
+	// AccessToken, when set, is pushed to the SDK's RevocationCache (if
+	// configured) so the JWT's jti is rejected by Verify until natural
+	// expiry. Bridges the gap between user logout and the access token's
+	// stateless natural expiry per ADR-041 follow-up. The server-side
+	// refresh revocation is independent and always happens.
+	AccessToken string
 }
 
 // SessionInfo is one entry in realm.Auth.ListSessions.
@@ -194,6 +200,13 @@ func (a *AuthClient) MFAVerify(ctx context.Context, req MFAVerifyRequest) (*Sess
 
 // Logout revokes a refresh token. If req.RefreshToken is empty, the
 // caller's cookie / current session is used (server-side).
+//
+// When req.AccessToken is set AND a RevocationCache is configured on the
+// Realm, the access token's jti is added to the cache on successful
+// logout — bridging the gap between user logout and the access token's
+// stateless natural expiry (ADR-041 follow-up). Failure to push to the
+// cache does NOT fail the logout call; the server-side refresh
+// revocation is the load-bearing operation.
 func (a *AuthClient) Logout(ctx context.Context, req *LogoutRequest) error {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
@@ -203,12 +216,20 @@ func (a *AuthClient) Logout(ctx context.Context, req *LogoutRequest) error {
 	if req != nil && req.RefreshToken != "" {
 		body["refresh_token"] = req.RefreshToken
 	}
-	return a.realm.http.do(ctx, requestOptions{
+	if err := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/logout",
 		Bearer: tok,
 		Body:   body,
-	}, nil)
+	}, nil); err != nil {
+		return err
+	}
+	if req != nil && req.AccessToken != "" && a.realm.revocation != nil {
+		if jti, exp, perr := peekJWTRevokeFields(req.AccessToken); perr == nil && jti != "" {
+			_ = a.realm.revocation.Revoke(ctx, jti, exp)
+		}
+	}
+	return nil
 }
 
 // RevokeSession removes a session by id. Uses the user's bearer token

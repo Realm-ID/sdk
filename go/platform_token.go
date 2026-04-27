@@ -139,6 +139,33 @@ func peekJWTIssuer(jwt string) (string, error) {
 	return c.Iss, nil
 }
 
+// peekJWTRevokeFields decodes the JWT payload (no signature check) and
+// returns its `jti` and `exp` claims. Used by AuthClient.Logout's
+// RevocationCache integration. Returns ("", zero time, error) on
+// malformed input. Signature verification stays the verifier's job.
+func peekJWTRevokeFields(jwt string) (string, time.Time, error) {
+	parts := strings.Split(jwt, ".")
+	if len(parts) != 3 {
+		return "", time.Time{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: expected 3 parts"}
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", time.Time{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
+	}
+	var c struct {
+		JTI string `json:"jti"`
+		Exp int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return "", time.Time{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not json"}
+	}
+	exp := time.Time{}
+	if c.Exp > 0 {
+		exp = time.Unix(c.Exp, 0)
+	}
+	return c.JTI, exp, nil
+}
+
 // invalidate clears the cached token. Used after an auth failure to
 // force a remint on the next call.
 func (m *platformTokenManager) invalidate() {
@@ -146,4 +173,89 @@ func (m *platformTokenManager) invalidate() {
 	m.token = ""
 	m.expiresAt = time.Time{}
 	m.mu.Unlock()
+}
+
+// ---- Shared revocation cache (ADR-041 follow-up) ----
+//
+// RealmID's refresh-token revocation is server-tracked and instant. But
+// access tokens are stateless RS256 JWTs — once minted, they verify on
+// signature + exp alone until they naturally expire (default 15min).
+//
+// Partners that want stop-the-bleed semantics on stolen access tokens
+// between "user clicks logout" and "JWT naturally expires" can wire a
+// shared RevocationCache. The verifier checks it after signature verify;
+// cache hit on the JWT's jti → reject as revoked.
+//
+// Pluggable: in-process LRU shipped as default; partners running multi-
+// instance backends supply Redis/memcached/etc. OPT-IN: nil by default;
+// verify() and Logout() behave as before when not configured.
+
+// RevocationCache is the partner-pluggable JTI denylist. Cheap reads
+// matter — IsRevoked is on the hot path of every authenticated request.
+type RevocationCache interface {
+	// Revoke marks jti as revoked. expiresAt is the JWT's exp, used as
+	// the cache entry TTL — partners' implementations should evict on
+	// expiry so the cache never grows unboundedly.
+	Revoke(ctx context.Context, jti string, expiresAt time.Time) error
+	// IsRevoked returns true when jti has been revoked and the TTL has
+	// not elapsed. Errors propagate to the verifier which fails closed
+	// (request rejected).
+	IsRevoked(ctx context.Context, jti string) (bool, error)
+}
+
+// MemRevocationCache is a single-process implementation suitable for a
+// single partner-API replica or for tests. Multi-replica deployments
+// should wire a shared backend (Redis, etc.) by implementing the
+// RevocationCache interface directly. Lazily evicts expired entries.
+type MemRevocationCache struct {
+	mu      sync.RWMutex
+	entries map[string]time.Time
+	now     func() time.Time
+}
+
+// NewMemRevocationCache returns an empty MemRevocationCache. now is the
+// clock; pass nil to default to time.Now.
+func NewMemRevocationCache(now func() time.Time) *MemRevocationCache {
+	if now == nil {
+		now = time.Now
+	}
+	return &MemRevocationCache{entries: map[string]time.Time{}, now: now}
+}
+
+// Revoke implements RevocationCache.
+func (m *MemRevocationCache) Revoke(_ context.Context, jti string, expiresAt time.Time) error {
+	if jti == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[jti] = expiresAt
+	return nil
+}
+
+// IsRevoked implements RevocationCache.
+func (m *MemRevocationCache) IsRevoked(_ context.Context, jti string) (bool, error) {
+	if jti == "" {
+		return false, nil
+	}
+	m.mu.RLock()
+	exp, ok := m.entries[jti]
+	m.mu.RUnlock()
+	if !ok {
+		return false, nil
+	}
+	if !exp.IsZero() && m.now().After(exp) {
+		m.mu.Lock()
+		delete(m.entries, jti)
+		m.mu.Unlock()
+		return false, nil
+	}
+	return true, nil
+}
+
+// Len returns the current entry count. Useful for tests + instrumentation.
+func (m *MemRevocationCache) Len() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.entries)
 }

@@ -18,6 +18,9 @@ export type { Realm, RealmConfig } from "./realm.js";
 export { createVerifier, Verifier } from "./verifier.js";
 export type { VerifierConfig, VerifyOptions } from "./verifier.js";
 
+export { MemRevocationCache } from "./revocation.js";
+export type { RevocationCache } from "./revocation.js";
+
 export { RealmError } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 

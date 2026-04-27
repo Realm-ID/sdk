@@ -31,6 +31,12 @@ export interface VerifierConfig {
   now?: () => Date;
   /** Optional logger. Default no-op. */
   logger?: Logger;
+  /**
+   * Optional shared revocation cache consulted after signature + claim
+   * checks (ADR-041 follow-up). Cache hit on the JWT's `jti` → reject
+   * as `unauthorized`. Nil → no-op.
+   */
+  revocation?: import("./revocation.js").RevocationCache;
 }
 
 export interface VerifyOptions {
@@ -54,6 +60,7 @@ export class Verifier {
   private readonly cache = new Map<string, CachedKeys>();
   private readonly audCache = new Map<string, string>();
   private readonly logger: Logger;
+  private readonly revocation?: import("./revocation.js").RevocationCache;
 
   constructor(cfg: VerifierConfig) {
     if (!cfg.baseUrl) throw new Error("realmid: baseUrl required");
@@ -68,6 +75,7 @@ export class Verifier {
     this.leewaySeconds = cfg.leewaySeconds ?? 30;
     this.now = cfg.now ?? (() => new Date());
     this.logger = cfg.logger ?? NOOP_LOGGER;
+    this.revocation = cfg.revocation;
   }
 
   async verify(token: string, opts?: VerifyOptions): Promise<Claims> {
@@ -119,6 +127,22 @@ export class Verifier {
     }
     if (typeof claims.nbf === "number" && now + leeway < claims.nbf) {
       throw rerr("not_yet_valid", "token not yet valid");
+    }
+
+    // ADR-041 follow-up: shared revocation cache check. Runs AFTER
+    // signature + claim verification so a junk JTI never reaches the
+    // cache. Opt-in: nil cache → no-op. Cache errors fail closed
+    // (request rejected).
+    if (this.revocation && typeof claims.jti === "string" && claims.jti) {
+      let revoked = false;
+      try {
+        revoked = await this.revocation.isRevoked(claims.jti);
+      } catch (e) {
+        throw rerr("unauthorized", "revocation cache: " + (e as Error).message);
+      }
+      if (revoked) {
+        throw rerr("unauthorized", "token revoked");
+      }
     }
 
     return claims as Claims;

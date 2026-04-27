@@ -169,6 +169,19 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 		}
 		claims.Extra[k] = x
 	}
+	// ADR-041 follow-up: shared revocation cache check. Runs AFTER signature
+	// + claim verification so a junk JTI never reaches the cache. Opt-in:
+	// nil cache → no-op. Cache errors fail closed (request rejected) so
+	// partner-supplied caches with reliability issues degrade safely.
+	if v.realm.revocation != nil && claims.JWTID != "" {
+		revoked, rerr := v.realm.revocation.IsRevoked(ctx, claims.JWTID)
+		if rerr != nil {
+			return nil, v.fail(ErrCodeUnauthorized, "revocation cache: %v", rerr)
+		}
+		if revoked {
+			return nil, v.fail(ErrCodeUnauthorized, "token revoked")
+		}
+	}
 	return claims, nil
 }
 

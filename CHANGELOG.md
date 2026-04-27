@@ -32,16 +32,70 @@ is the version compatible with the server side that enforces it.
 - SDK 0.3.0 talks to v0.4.0 BFF realms — the platform token attach is
   already there; no behavioural difference.
 
-### Coming in 0.4.1
+### Also in 0.4.0 (rolled forward from the planned 0.4.1)
 
-- Dual-token (`Authorization` + `X-User-Token`) for `/auth/sessions/*`
-  and `/auth/mfa/*` — partner can no longer impersonate arbitrary
-  users on session/MFA management calls.
-- Client-side platform-token realm pinning — SDK refuses to send a
-  request when the bearer's `iss` realm doesn't match the configured
-  realm. Catches confused-deputy bugs at the source.
-- Optional shared revocation cache for stop-the-bleed semantics on
-  stolen access tokens between user logout and natural JWT expiry.
+Pre-public release; no point shipping the gate without the surrounding
+hardening that makes BFF mode usable end-to-end.
+
+- **Client-side platform-token realm pinning.** Both Go and TS decode
+  the JWT minted from `/auth/platform-token` and verify its `iss`
+  claim references the configured `realmId`. Mismatch throws
+  `realm_mismatch` (TS) / `unauthorized` (Go) locally before any
+  subsequent API call goes out — catches confused-deputy bugs (SDK
+  constructed for realm A but key actually belongs to realm B) at the
+  source instead of as cryptic 4xx on first partner call.
+
+- **Optional shared revocation cache.** Pluggable `RevocationCache`
+  interface; ships with `MemRevocationCache` (in-process LRU) for
+  single-replica partners. Multi-replica partners implement the
+  interface against Redis/memcached/etc. The verifier checks the
+  cache after signature + claim checks; cache hit on the JWT's `jti`
+  → reject as `unauthorized`/`token revoked`. `auth.logout()` learns
+  to push the access token's jti when `accessToken` is supplied in
+  the request. Bridges the gap between user logout and the access
+  token's stateless natural expiry. OPT-IN: nil cache → no-op,
+  unchanged behaviour.
+
+  ```ts
+  import { createRealm, MemRevocationCache } from "@realmid/sdk";
+
+  const realm = createRealm({
+    realmId, apiKey,
+    revocation: new MemRevocationCache(),
+  });
+
+  await realm.auth.logout({ refreshToken, accessToken });
+  // Subsequent realm.verify(accessToken) → throws "unauthorized"
+  ```
+
+  ```go
+  realm, _ := realmid.NewRealm(realmid.Config{
+      RealmID: realmID, APIKey: apiKey,
+      Revocation: realmid.NewMemRevocationCache(nil),
+  })
+
+  realm.Auth.Logout(ctx, &realmid.LogoutRequest{
+      RefreshToken: refreshToken,
+      AccessToken:  accessToken,
+  })
+  // Subsequent realm.Verify(ctx, accessToken, nil) → ErrCodeUnauthorized
+  ```
+
+- **Dual-token (`Authorization` + `X-User-Token`) for `/auth/sessions/*`
+  and `/auth/mfa/*`.** Server-side change shipped in RealmID v0.4.0;
+  the SDK already attaches both headers on the user-on-self call
+  helpers (no SDK API change). Partner can no longer impersonate
+  arbitrary users — they have to actually possess the user's access
+  JWT to make a call on their behalf.
+
+### Compatibility
+
+- SDK 0.4.0 ↔ RealmID v0.4.0+: full feature surface.
+- SDK 0.4.0 ↔ pre-v0.4.0 RealmID: bearer attach is a no-op server-side;
+  revocation cache is purely client-side, also works.
+- SDK 0.3.0 ↔ RealmID v0.4.0 BFF realm: works for everything except
+  `/auth/sessions/*` and `/auth/mfa/*` on partner-brokered calls
+  (those need the X-User-Token header which 0.3.0 doesn't send).
 
 
 ## Unreleased — locked surface (2026-04-26)

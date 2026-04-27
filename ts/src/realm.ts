@@ -20,6 +20,7 @@ import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
+import type { RevocationCache } from "./revocation.js";
 
 export interface RealmConfig {
   /** Your realm's id (UUID-ish string). Required. */
@@ -52,6 +53,15 @@ export interface RealmConfig {
   logger?: Logger;
   /** Middleware refresh-token delivery default (SPEC §10.2). */
   tokenDelivery?: "cookie" | "body";
+  /**
+   * Optional shared revocation cache consulted by `verify()` after
+   * signature + claim checks (ADR-041 follow-up). Lets partners stop
+   * the bleed on stolen access tokens between user logout and natural
+   * JWT expiry. Nil → no-op; verifier behaves as before. Pass
+   * `new MemRevocationCache()` for a single-process default, or supply
+   * a Redis/memcached-backed implementation for multi-replica deploys.
+   */
+  revocation?: RevocationCache;
 }
 
 export interface Realm {
@@ -64,6 +74,8 @@ export interface Realm {
   readonly config: ConfigClient;
   readonly roles: RolesClient;
   readonly tokenDelivery: "cookie" | "body";
+  /** Configured RevocationCache, or undefined when not wired. */
+  readonly revocation?: RevocationCache;
   info(): Promise<RealmInfo>;
   verify(token: string, opts?: VerifyOptions): Promise<Claims>;
   middleware(cfg?: MiddlewareConfig): ConnectMiddleware;
@@ -123,6 +135,7 @@ export function createRealm(cfg: RealmConfig): Realm {
   const verifier = new Verifier({
     baseUrl,
     audience: cfg.audience,
+    revocation: cfg.revocation,
     audienceResolver: cfg.audience
       ? undefined
       : async (_realmId) => {
@@ -146,7 +159,8 @@ export function createRealm(cfg: RealmConfig): Realm {
     realmId: cfg.realmId,
     baseUrl,
     tokenDelivery: cfg.tokenDelivery ?? "cookie",
-    auth: new AuthClient(http, cfg.realmId, originResolver),
+    revocation: cfg.revocation,
+    auth: new AuthClient(http, cfg.realmId, originResolver, cfg.revocation),
     tenants: new TenantsClient(http),
     domains: new DomainsClient(http),
     apiKeys: new ApiKeysClient(http, cfg.realmId),

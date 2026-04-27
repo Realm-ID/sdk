@@ -64,6 +64,14 @@ type Config struct {
 
 	// Clock overrides time.Now. Useful in tests.
 	Clock func() time.Time
+
+	// Revocation is an optional JTI denylist consulted by Verify after
+	// signature + claim checks (ADR-041 follow-up). Lets partners stop
+	// the bleed on stolen access tokens between user logout and natural
+	// JWT expiry. Nil → no-op; verifier behaves as before. Pass
+	// NewMemRevocationCache(nil) for a single-process default, or supply
+	// a Redis/memcached-backed implementation for multi-replica deploys.
+	Revocation RevocationCache
 }
 
 // Realm is the SDK handle. Construct with NewRealm; safe for concurrent
@@ -78,6 +86,7 @@ type Realm struct {
 	platformToken *platformTokenManager
 	info          *infoClient
 	verifier      *verifier
+	revocation    RevocationCache
 
 	Auth    *AuthClient
 	Tenants *TenantsClient
@@ -118,6 +127,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	}
 	r.http = newHTTPClient(cfg.BaseURL, cfg.HTTPClient, cfg.Logger)
 	r.platformToken = newPlatformTokenManager(cfg.APIKey, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
+	r.revocation = cfg.Revocation
 	r.info = &infoClient{realm: r}
 	r.verifier = newVerifier(r)
 
@@ -133,6 +143,12 @@ func NewRealm(cfg Config) (*Realm, error) {
 
 // RealmID returns the configured realm id.
 func (r *Realm) RealmID() string { return r.realmID }
+
+// Revocation returns the configured shared revocation cache, or nil when
+// the SDK was constructed without one. Partner code can push directly to
+// the cache (e.g., on detected token theft outside the normal Logout
+// path) by calling cache.Revoke(ctx, jti, exp).
+func (r *Realm) Revocation() RevocationCache { return r.revocation }
 
 // BaseURL returns the configured issuer host.
 func (r *Realm) BaseURL() string { return r.baseURL }

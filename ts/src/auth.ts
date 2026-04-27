@@ -85,6 +85,14 @@ export interface MfaVerifyRequest {
 
 export interface LogoutRequest {
   refreshToken?: string;
+  /**
+   * When set AND a RevocationCache is configured on the Realm, the
+   * access token's `jti` is added to the cache on successful logout —
+   * bridging the gap between user logout and the access token's
+   * stateless natural expiry per ADR-041 follow-up. The server-side
+   * refresh revocation is independent and always happens.
+   */
+  accessToken?: string;
   /** Optional Origin header override. */
   origin?: string;
 }
@@ -133,6 +141,7 @@ export class AuthClient {
     private readonly http: HttpClient,
     private readonly realmId: string,
     private readonly resolveOrigin: OriginResolver,
+    private readonly revocation?: import("./revocation.js").RevocationCache,
   ) {}
 
   /**
@@ -199,10 +208,15 @@ export class AuthClient {
     return mapAuthResp(raw);
   }
 
-  /** SPEC §4.4 — revoke the supplied (or current) refresh token. */
+  /** SPEC §4.4 — revoke the supplied (or current) refresh token.
+   *  When req.accessToken is set AND the Realm has a RevocationCache
+   *  wired, the access token's jti is added to the cache on success
+   *  (ADR-041 follow-up). Failure to push to the cache does NOT fail
+   *  the logout call; the server-side refresh revocation is the
+   *  load-bearing operation. */
   async logout(req?: LogoutRequest): Promise<{ status: string }> {
     const headers = await this.originHeaders(req?.origin);
-    return this.http.request<{ status: string }>({
+    const out = await this.http.request<{ status: string }>({
       method: "POST",
       path: "/auth/logout",
       headers,
@@ -211,6 +225,19 @@ export class AuthClient {
         refresh_token: req?.refreshToken,
       },
     });
+    if (req?.accessToken && this.revocation) {
+      const { peekJwtRevokeFields } = await import("./revocation.js");
+      const { jti, expMs } = peekJwtRevokeFields(req.accessToken);
+      if (jti) {
+        try {
+          await this.revocation.revoke(jti, expMs);
+        } catch {
+          // Cache failure does not fail logout; server-side refresh
+          // revocation is the load-bearing operation.
+        }
+      }
+    }
+    return out;
   }
 
   /** SPEC §4.5 — server-side revoke of a specific session id. */
