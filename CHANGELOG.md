@@ -5,6 +5,45 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## 0.4.0 — BFF login enforcement (2026-04-27)
+
+Cross-cutting bump aligning with RealmID v0.4.0 (ADR-041).
+
+### What changed on the wire
+
+RealmID v0.4.0 ships a per-realm flag `realms.config.require_bff_login`.
+When true, every `/auth/*` call against the realm MUST carry an
+`Authorization: Bearer <platform_token>` minted from an API key bound
+to a `platform_api`/`owner` user in the realm's admin tenant. Direct
+browser → RealmID `/auth/login` is rejected with `bff_bearer_required`.
+
+### What changes in your SDK code
+
+Nothing. Both `@realmid/sdk` (TS) and `realmid-go` already attach the
+platform token to every `/auth/*` call as Bearer — that's been the
+SDK's wire shape since the dual-token surface locked. The 0.4.0 bump
+is the version compatible with the server side that enforces it.
+
+### Compatibility
+
+- SDK 0.4.0 talks to RealmID v0.4.0+ realms (BFF or non-BFF).
+- SDK 0.4.0 talks to pre-v0.4.0 realms unchanged (those realms ignore
+  the bearer; the gate isn't enforced server-side).
+- SDK 0.3.0 talks to v0.4.0 BFF realms — the platform token attach is
+  already there; no behavioural difference.
+
+### Coming in 0.4.1
+
+- Dual-token (`Authorization` + `X-User-Token`) for `/auth/sessions/*`
+  and `/auth/mfa/*` — partner can no longer impersonate arbitrary
+  users on session/MFA management calls.
+- Client-side platform-token realm pinning — SDK refuses to send a
+  request when the bearer's `iss` realm doesn't match the configured
+  realm. Catches confused-deputy bugs at the source.
+- Optional shared revocation cache for stop-the-bleed semantics on
+  stolen access tokens between user logout and natural JWT expiry.
+
+
 ## Unreleased — locked surface (2026-04-26)
 
 The cross-language SDK contract was finalized in

@@ -87,9 +87,12 @@ type Realm struct {
 	Roles   *RolesClient
 }
 
-// Version is the published SDK version (semver). Bumped per ADR-040
-// for the platform-defined custom roles surface.
-const Version = "0.3.0"
+// Version is the published SDK version (semver). 0.4.0 corresponds to
+// RealmID v0.4.0 — the BFF login pattern from ADR-041. The SDK already
+// attached the platform token to every /auth/* call as Bearer; v0.4.0
+// just makes that the server-required path when the realm sets
+// realms.config.require_bff_login=true. No API breakage.
+const Version = "0.4.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
