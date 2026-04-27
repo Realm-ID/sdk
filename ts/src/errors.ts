@@ -25,6 +25,7 @@ export type ErrorCode =
   | "account_suspended"
   | "account_deactivated"
   | "realm_origin_mismatch"
+  | "realm_mismatch"
   | "missing_origin"
   // management / generic
   | "unauthorized"

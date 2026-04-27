@@ -88,6 +88,7 @@ export function createRealm(cfg: RealmConfig): Realm {
   const platformTokens = new PlatformTokenManager({
     apiKey: cfg.apiKey,
     baseUrl,
+    realmId: cfg.realmId,
     fetch: fetchImpl,
     logger,
   });

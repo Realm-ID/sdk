@@ -16,6 +16,14 @@ import { redactCredential } from "./logger.js";
 export interface PlatformTokenManagerOptions {
   apiKey: string;
   baseUrl: string;
+  /**
+   * Configured realm id. When set, the minted platform token's `iss`
+   * claim is cross-checked against this on every refresh — mismatch
+   * throws `realm_mismatch` locally before any subsequent API call
+   * (ADR-041). Optional only for backwards compatibility with callers
+   * that haven't been updated; createRealm always sets it.
+   */
+  realmId?: string;
   fetch: typeof fetch;
   logger: Logger;
   /** Override clock for tests. Returns ms since epoch. */
@@ -134,11 +142,48 @@ export class PlatformTokenManager {
         message: "platform-token response missing platform_token or expires_in",
       });
     }
+    // ADR-041: client-side realm pinning. Decode the JWT (no signature
+    // check — we just got it from RI over TLS) and confirm its iss claim
+    // references the configured realm. Catches confused-deputy bugs where
+    // the SDK was constructed for realm A but the API key actually
+    // belongs to realm B; surfaces as a clear local error instead of a
+    // cryptic 4xx on the next partner-level call.
+    if (this.opts.realmId) {
+      const iss = peekJwtIssuer(w.platform_token);
+      if (iss && !iss.endsWith("/" + this.opts.realmId)) {
+        throw new RealmError({
+          code: "realm_mismatch",
+          message:
+            "platform token iss does not match configured realm: got " +
+            iss +
+            ", configured realm " +
+            this.opts.realmId,
+        });
+      }
+    }
     const expiresAt = this.now() + w.expires_in * 1000;
     this.opts.logger.info("realmid: platform token minted", {
       token: redactCredential(w.platform_token),
       expiresInSec: w.expires_in,
     });
     return { token: w.platform_token, expiresAt };
+  }
+}
+
+/** Decode a JWT payload without signature verification and return its
+ *  `iss` claim. Returns "" on malformed input. Used by the realm-pinning
+ *  check; signature verification stays the verifier's job. */
+function peekJwtIssuer(jwt: string): string {
+  const parts = jwt.split(".");
+  if (parts.length !== 3) return "";
+  const payload = parts[1];
+  if (payload === undefined) return "";
+  try {
+    const padded = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+    const c = JSON.parse(json) as { iss?: unknown };
+    return typeof c.iss === "string" ? c.iss : "";
+  } catch {
+    return "";
   }
 }

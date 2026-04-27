@@ -2,7 +2,10 @@ package realmid
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 )
@@ -82,6 +85,21 @@ func (m *platformTokenManager) refresh(ctx context.Context) (string, error) {
 		return "", &RealmError{Code: ErrCodeServerError, Message: "platform token mint returned empty token"}
 	}
 
+	// ADR-041: client-side realm pinning. Decode the minted JWT (no
+	// signature check — we just got it from RI over TLS) and confirm its
+	// iss claim references the configured realm. Catches confused-deputy
+	// bugs where the SDK was constructed with realm A but the API key
+	// actually belongs to realm B; the bug would otherwise surface much
+	// later as cryptic 4xx on partner-level operations.
+	if iss, perr := peekJWTIssuer(resp.PlatformToken); perr == nil {
+		if !strings.HasSuffix(iss, "/"+m.realmID) {
+			return "", &RealmError{
+				Code:    ErrCodeUnauthorized,
+				Message: "platform token's iss does not match configured realm: got " + iss + ", configured realm " + m.realmID,
+			}
+		}
+	}
+
 	exp := m.now().Add(time.Duration(resp.ExpiresIn) * time.Second)
 	if resp.ExpiresIn == 0 {
 		exp = m.now().Add(5 * time.Minute) // SPEC §4.0 default
@@ -98,6 +116,27 @@ func (m *platformTokenManager) refresh(ctx context.Context) (string, error) {
 		slog.String("token", redactCredential(resp.PlatformToken)),
 	)
 	return resp.PlatformToken, nil
+}
+
+// peekJWTIssuer decodes the JWT payload (no signature check) and returns
+// its `iss` claim. Returns "" + error on malformed input. Used by the
+// realm-pinning check; signature verification stays the verifier's job.
+func peekJWTIssuer(jwt string) (string, error) {
+	parts := strings.Split(jwt, ".")
+	if len(parts) != 3 {
+		return "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: expected 3 parts"}
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
+	}
+	var c struct {
+		Iss string `json:"iss"`
+	}
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not json"}
+	}
+	return c.Iss, nil
 }
 
 // invalidate clears the cached token. Used after an auth failure to
