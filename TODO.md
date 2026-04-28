@@ -1,1 +1,0 @@
-- [ ] `ts/src/verifier.test.ts` — "verify: tampered signature rejected" assertion fails (Missing expected rejection); pre-existing, surfaced during ADR-040 SDK 0.3 work
