@@ -161,7 +161,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     tokenDelivery: cfg.tokenDelivery ?? "cookie",
     revocation: cfg.revocation,
     auth: new AuthClient(http, cfg.realmId, originResolver, cfg.revocation),
-    tenants: new TenantsClient(http),
+    tenants: new TenantsClient(http, cfg.realmId),
     domains: new DomainsClient(http),
     apiKeys: new ApiKeysClient(http, cfg.realmId),
     config: new ConfigClient(http, cfg.realmId),

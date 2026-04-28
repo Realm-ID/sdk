@@ -61,6 +61,11 @@ app.use(realm.middleware({
   mfaProtectedPaths: ["/admin/*"],
   tokenDelivery: "cookie", // or "body" for native / mobile clients
 }));
+// In "cookie" mode (default) the middleware sets the refresh token as
+// HttpOnly; Secure; SameSite=Lax — browser JS never sees it, so XSS
+// can't exfiltrate the refresh credential. Use "body" only when a
+// cookie isn't viable (native apps, CLIs, truly cross-origin SPAs);
+// see SPEC §10.2 for the full decision table.
 
 app.get("/me", (req, res) => {
   res.json({ claims: (req as any).realmid });
@@ -98,7 +103,7 @@ The full contract is in [`../SPEC.md`](../SPEC.md). Summary:
 
 - `realm.verify(token, opts?)` — verify a Realm-issued JWT.
 - `realm.auth.{login, token, mfaVerify, logout, listSessions, revokeSession, mintMfaChallenge}`
-- `realm.tenants.{list, get, create, update, updateConfig, delete, transferOwner}`
+- `realm.tenants.{list, get, create, update, updateConfig, delete, transferOwner, updateUserRole}`
 - `realm.tenants.invitations.{list, create, delete}`
 - `realm.tenants.users.{list, get, updateStatus, enrollMfa, confirmMfa, resetMfa}`
 - `realm.domains.{claim, verify}`

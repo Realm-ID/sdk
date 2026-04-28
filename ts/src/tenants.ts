@@ -18,9 +18,16 @@ export interface Tenant {
 
 export interface TenantCreate {
   displayName: string;
-  ownerUserId?: string;
-  config?: Record<string, unknown>;
+  allowedDomains?: string[];
+  openSignup?: boolean;
   [k: string]: unknown;
+}
+
+export interface UpdateUserRoleResult {
+  id: string;
+  role: string;
+  tenant_id: string;
+  updated_at: number;
 }
 
 export interface TenantPatch {
@@ -141,7 +148,7 @@ export class TenantsClient {
   readonly invitations: InvitationsClient;
   readonly users: UsersClient;
 
-  constructor(private readonly http: HttpClient) {
+  constructor(private readonly http: HttpClient, private readonly realmId: string) {
     this.invitations = new InvitationsClient(http);
     this.users = new UsersClient(http);
   }
@@ -165,14 +172,17 @@ export class TenantsClient {
   }
 
   async create(body: TenantCreate): Promise<Tenant> {
+    // SPEC §6.1: realm is implicit (the API key's realm). Routes to
+    // POST /platforms/{realmId}/tenants — the platform-token caller is
+    // accepted via the service-JWT branch of requireTenantMaintenance.
     return this.http.request<Tenant>({
       method: "POST",
-      path: "/tenants",
+      path: `/platforms/${encodeURIComponent(this.realmId)}/tenants`,
       body: {
         display_name: body.displayName,
-        owner_user_id: body.ownerUserId,
-        config: body.config,
-        ...rest(body, ["displayName", "ownerUserId", "config"]),
+        allowed_domains: body.allowedDomains,
+        open_signup: body.openSignup,
+        ...rest(body, ["displayName", "allowedDomains", "openSignup"]),
       },
     });
   }
@@ -208,6 +218,22 @@ export class TenantsClient {
       method: "PUT",
       path: `/tenants/${encodeURIComponent(id)}/owner`,
       body: { owner_user_id: newOwnerUserId },
+    });
+  }
+
+  /**
+   * Set a user's role within a tenant. Role name must exist in the
+   * realm's role catalog (see RolesClient.create). Setting role=owner
+   * is rejected — use transferOwner for the explicit handover.
+   * Demoting the last owner returns RealmError(last_owner).
+   *
+   * Wraps PATCH /tenants/{id}/users/{uid}/role.
+   */
+  async updateUserRole(tenantId: string, userId: string, role: string): Promise<UpdateUserRoleResult> {
+    return this.http.request<UpdateUserRoleResult>({
+      method: "PATCH",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/role`,
+      body: { role },
     });
   }
 }

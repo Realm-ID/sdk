@@ -20,7 +20,7 @@ The SDK exposes a single handle. Configuration is minimal:
 | `baseUrl`  | no       | Override the issuer host. Default: `https://auth.realmid.dev`.              |
 | `origin`   | no       | Origin host the SDK announces on auth calls. If unset, derived from the realm's claimed domain via `realm.info()`. Override per-call on `auth.login()`. |
 | `logger`   | no       | A `Logger` instance (see §9). No-op by default.                             |
-| `tokenDelivery` | no  | `"cookie" \| "body"`. How the middleware returns refresh tokens (see §11.2). Default `"cookie"`. |
+| `tokenDelivery` | no  | `"cookie" \| "body"`. How the middleware returns refresh tokens (see §10.2). Default `"cookie"`. |
 | `httpClient` / `cacheTtl` / `leeway` / `clock` | no | Standard infrastructure overrides for tests and tuning. |
 
 ```ts
@@ -189,7 +189,7 @@ list endpoint (see §7).
 - `create({ displayName, allowedDomains?, openSignup? })` — creates a
   tenant under the calling platform. The realm is implicit (the API
   key's realm); there is no separate "platform" parameter because a
-  partner has one platform per realm.
+  partner has one platform per realm. Wire call: `POST /platforms/{realmId}/tenants`.
 - `update(id, { displayName? })` — top-level mutable fields.
 - `updateConfig(id, patch)` — patches `tenants.config`. Honoured keys:
   `allowedDomains: string[]` (auto-provision domain allowlist),
@@ -229,10 +229,12 @@ the invitee accepts → user record is provisioned.
 - `get(tenantId, userId)`
 - `updateStatus(tenantId, userId, status)` —
   `"active" | "suspended" | "deactivated"`.
-- `updateRole(tenantId, userId, role)` — change the user's role within
-  the tenant. Cannot demote the last owner; use `tenants.transferOwner`
-  for an owner handover. Caller must hold a role of `owner` (or
-  realm-admin via API key).
+- Role updates live on the tenant surface (so they sit alongside
+  `transferOwner`): use `tenants.updateUserRole(tenantId, userId, role)`
+  / Go `Tenants.UpdateUserRole(ctx, tenantID, userID, role)`. Cannot
+  demote the last owner; use `tenants.transferOwner` for an owner
+  handover. Caller must hold a role of `owner` (or realm-admin via API
+  key).
 - `enrollMfa(tenantId, userId)`, `confirmMfa(tenantId, userId, code)`,
   `resetMfa(tenantId, userId)` — admin-initiated MFA flows. The
   self-service equivalents on `auth.mfa.*` are roadmap (§11).
@@ -447,6 +449,27 @@ const middleware = realm.middleware({
 Same fields exist in the Go and Java configurations using
 language-idiomatic types (`time.Duration` for `MaxAge`,
 `Predicate<Request>`, etc.).
+
+#### Cookie vs body — when to pick which
+
+- **`"cookie"` (default).** Refresh token is set as `HttpOnly; Secure;
+  SameSite=Lax` on the BFF response, so browser JS can never read it
+  and XSS cannot exfiltrate it. This is the right choice for **any
+  browser SPA whose API requests go through a same-site BFF** — i.e.
+  the partner's frontend and backend share an eTLD+1. The SDK's
+  middleware reads/writes the cookie; the SPA only sees the
+  short-lived access token.
+- **`"body"`.** Refresh token is returned inline in the JSON response
+  and the client is responsible for storing it. Pick this only when a
+  cookie is not viable: native iOS/Android apps, CLIs, server-to-server
+  agents, or cross-origin SPAs that genuinely cannot front their API
+  through a same-site BFF. Treat the refresh token as a credential —
+  store it in the platform secure store (Keychain / Keystore), not in
+  `localStorage`.
+
+If you are unsure, you almost certainly want `"cookie"`. A "SPA on
+`app.example.com` calling `api.example.com`" deployment is still
+same-site and should use cookie mode with `cookieDomain: ".example.com"`.
 
 ### 10.4 MFA freshness model
 

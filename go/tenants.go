@@ -16,11 +16,19 @@ type Tenant struct {
 	UpdatedAt   string         `json:"updated_at,omitempty"`
 }
 
-// TenantCreate is the create payload.
+// TenantCreate is the create payload (SPEC §6.1).
 type TenantCreate struct {
-	DisplayName string         `json:"display_name"`
-	OwnerUserID string         `json:"owner_user_id,omitempty"`
-	Config      map[string]any `json:"config,omitempty"`
+	DisplayName    string   `json:"display_name"`
+	AllowedDomains []string `json:"allowed_domains,omitempty"`
+	OpenSignup     bool     `json:"open_signup,omitempty"`
+}
+
+// UpdateUserRoleResult is the response shape returned by Tenants.UpdateUserRole.
+type UpdateUserRoleResult struct {
+	ID        string `json:"id"`
+	Role      string `json:"role"`
+	TenantID  string `json:"tenant_id"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // TenantPatch patches mutable tenant fields.
@@ -117,7 +125,7 @@ func (c *TenantsClient) Create(ctx context.Context, body TenantCreate) (*Tenant,
 	var t Tenant
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/tenants",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/tenants",
 		Bearer: tok,
 		Body:   body,
 	}, &t); err != nil {
