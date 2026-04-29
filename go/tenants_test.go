@@ -99,7 +99,7 @@ func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 	tnt, err := r.Tenants.Create(context.Background(), TenantCreate{
 		DisplayName:    "Acme",
 		AllowedDomains: []string{"acme.com"},
-		OpenSignup:     true,
+		SignupMode:     SignupModeAllowlist,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)

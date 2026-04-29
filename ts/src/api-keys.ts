@@ -32,7 +32,7 @@ export class ApiKeysClient {
   async create(body: ApiKeyCreate): Promise<ApiKey> {
     return this.http.request<ApiKey>({
       method: "POST",
-      path: `/realms/${encodeURIComponent(this.realmId)}/api-keys`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/api-keys`,
       body: {
         display_name: body.displayName,
         scopes: body.scopes,
@@ -44,7 +44,7 @@ export class ApiKeysClient {
   async list(): Promise<ApiKey[]> {
     const raw = await this.http.request<{ items?: ApiKey[]; api_keys?: ApiKey[] } | ApiKey[]>({
       method: "GET",
-      path: `/realms/${encodeURIComponent(this.realmId)}/api-keys`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/api-keys`,
     });
     if (Array.isArray(raw)) return raw;
     return raw.items ?? raw.api_keys ?? [];
@@ -53,7 +53,7 @@ export class ApiKeysClient {
   async revoke(id: string): Promise<void> {
     await this.http.request({
       method: "DELETE",
-      path: `/realms/${encodeURIComponent(this.realmId)}/api-keys/${encodeURIComponent(id)}`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/api-keys/${encodeURIComponent(id)}`,
     });
   }
 }

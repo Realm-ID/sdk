@@ -28,7 +28,7 @@ func TestRoles_SystemConstants(t *testing.T) {
 func TestRoles_ListReturnsLockedEnvelope(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
-	mux.HandleFunc("/realms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" {
 			t.Errorf("method=%s", r.Method)
 		}
@@ -82,7 +82,7 @@ func TestRoles_ListReturnsLockedEnvelope(t *testing.T) {
 func TestRoles_CreateMapsWireShape(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
-	mux.HandleFunc("/realms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("method=%s", r.Method)
 		}
@@ -117,7 +117,7 @@ func TestRoles_CreateMapsWireShape(t *testing.T) {
 func TestRoles_UpdateSendsOnlyProvidedFields(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
-	mux.HandleFunc("/realms/"+testRealmID+"/roles/salesman", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/salesman", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PATCH" {
 			t.Errorf("method=%s", r.Method)
 		}
@@ -154,7 +154,7 @@ func TestRoles_UpdateSendsOnlyProvidedFields(t *testing.T) {
 func TestRoles_DeleteHappy(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
-	mux.HandleFunc("/realms/"+testRealmID+"/roles/old", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/old", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "DELETE" {
 			t.Errorf("method=%s", r.Method)
 		}
@@ -176,7 +176,7 @@ func TestRoles_DeleteHappy(t *testing.T) {
 func TestRoles_Delete409SurfacesErrRoleInUse(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
-	mux.HandleFunc("/realms/"+testRealmID+"/roles/salesman", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/salesman", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(409)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":       map[string]any{"code": "conflict", "message": "role still attached to users"},
@@ -203,7 +203,7 @@ func TestRoles_Delete409SurfacesErrRoleInUse(t *testing.T) {
 func TestRoles_RenamePostsTo(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
-	mux.HandleFunc("/realms/"+testRealmID+"/roles/oldname/rename", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/oldname/rename", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("method=%s", r.Method)
 		}

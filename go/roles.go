@@ -27,7 +27,7 @@ const (
 )
 
 // RoleObject is one realm-defined role, as returned by the
-// `/realms/{id}/roles` endpoints.
+// `/platforms/{id}/roles` endpoints.
 type RoleObject struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name,omitempty"`
@@ -37,7 +37,7 @@ type RoleObject struct {
 	UpdatedAt   int64    `json:"updated_at"`
 }
 
-// RoleListPage is one page of `/realms/{id}/roles` in the locked
+// RoleListPage is one page of `/platforms/{id}/roles` in the locked
 // SPEC §7 envelope shape.
 type RoleListPage struct {
 	Items      []RoleObject `json:"items"`
@@ -84,7 +84,7 @@ type RolesClient struct {
 	realm *Realm
 }
 
-// List returns one page of `/realms/{id}/roles`. Unlike the typed
+// List returns one page of `/platforms/{id}/roles`. Unlike the typed
 // iterators on Tenants etc., this surface returns the raw envelope so
 // callers can drive their own paging UI directly.
 func (c *RolesClient) List(ctx ctxpkg.Context, opts *RoleListOpts) (*RoleListPage, error) {
@@ -104,7 +104,7 @@ func (c *RolesClient) List(ctx ctxpkg.Context, opts *RoleListOpts) (*RoleListPag
 	var page RoleListPage
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "GET",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/roles",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles",
 		Bearer: tok,
 		Query:  q,
 	}, &page); err != nil {
@@ -126,7 +126,7 @@ func (c *RolesClient) Create(ctx ctxpkg.Context, body RoleCreate) (*RoleObject, 
 	var r RoleObject
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/roles",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles",
 		Bearer: tok,
 		Body:   body,
 	}, &r); err != nil {
@@ -145,7 +145,7 @@ func (c *RolesClient) Update(ctx ctxpkg.Context, name string, patch RolePatch) (
 	var r RoleObject
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "PATCH",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name),
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name),
 		Bearer: tok,
 		Body:   patch,
 	}, &r); err != nil {
@@ -165,7 +165,7 @@ func (c *RolesClient) Delete(ctx ctxpkg.Context, name string) (*RoleDeleteResult
 	var out RoleDeleteResult
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "DELETE",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name),
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name),
 		Bearer: tok,
 	}, &out); err != nil {
 		return nil, mapRoleErr(err)
@@ -186,7 +186,7 @@ func (c *RolesClient) Rename(ctx ctxpkg.Context, name string, to string) (*RoleO
 	var r RoleObject
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name) + "/rename",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name) + "/rename",
 		Bearer: tok,
 		Body:   map[string]string{"to": to},
 	}, &r); err != nil {

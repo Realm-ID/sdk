@@ -84,13 +84,13 @@ test("tenants.create: routes to /platforms/{realmId}/tenants (SPEC §6.1)", asyn
   const tnt = await realm.tenants.create({
     displayName: "Acme",
     allowedDomains: ["acme.com"],
-    openSignup: true,
+    signupMode: "allowlist",
   });
   assert.equal(tnt.id, "t-new");
   assert.match(hitUrl, /\/platforms\/r-1\/tenants$/);
   assert.equal(hitBody.display_name, "Acme");
   assert.deepEqual(hitBody.allowed_domains, ["acme.com"]);
-  assert.equal(hitBody.open_signup, true);
+  assert.equal(hitBody.signup_mode, "allowlist");
 });
 
 test("tenants.updateUserRole: PATCHes /tenants/{id}/users/{uid}/role", async () => {

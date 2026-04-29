@@ -39,7 +39,7 @@ public final class RolesClient {
         this.realmId = realmId;
     }
 
-    /** GET /realms/{id}/roles. */
+    /** GET /platforms/{id}/roles. */
     public RoleListPage list(RoleListOpts opts) {
         Map<String, Object> q = new LinkedHashMap<>();
         if (opts != null) {
@@ -47,48 +47,48 @@ public final class RolesClient {
             if (opts.limit() != null) q.put("limit", opts.limit());
         }
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "GET", "/realms/" + enc(realmId) + "/roles").query(q));
+                "GET", "/platforms/" + enc(realmId) + "/roles").query(q));
         return readPage(raw);
     }
 
     public RoleListPage list() { return list(null); }
 
-    /** POST /realms/{id}/roles. */
+    /** POST /platforms/{id}/roles. */
     public RoleObject create(RoleCreate body) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("name", body.name());
         if (body.displayName() != null) b.put("display_name", body.displayName());
         if (body.permissions() != null) b.put("permissions", body.permissions());
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "POST", "/realms/" + enc(realmId) + "/roles").body(b));
+                "POST", "/platforms/" + enc(realmId) + "/roles").body(b));
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 
-    /** PATCH /realms/{id}/roles/{name}. */
+    /** PATCH /platforms/{id}/roles/{name}. */
     public RoleObject update(String name, RolePatch patch) {
         Map<String, Object> b = new LinkedHashMap<>();
         if (patch.displayName() != null) b.put("display_name", patch.displayName());
         if (patch.permissions() != null) b.put("permissions", patch.permissions());
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "PATCH", "/realms/" + enc(realmId) + "/roles/" + enc(name)).body(b));
+                "PATCH", "/platforms/" + enc(realmId) + "/roles/" + enc(name)).body(b));
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 
-    /** DELETE /realms/{id}/roles/{name}. */
+    /** DELETE /platforms/{id}/roles/{name}. */
     public RoleDeleteResult delete(String name) {
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "DELETE", "/realms/" + enc(realmId) + "/roles/" + enc(name)));
+                "DELETE", "/platforms/" + enc(realmId) + "/roles/" + enc(name)));
         if (raw == null) return new RoleDeleteResult("deleted");
         JsonNode s = raw.get("status");
         return new RoleDeleteResult(s != null && s.isTextual() ? s.asText() : "deleted");
     }
 
-    /** POST /realms/{id}/roles/{name}/rename. */
+    /** POST /platforms/{id}/roles/{name}/rename. */
     public RoleObject rename(String name, String to) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("to", to);
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "POST", "/realms/" + enc(realmId) + "/roles/" + enc(name) + "/rename").body(b));
+                "POST", "/platforms/" + enc(realmId) + "/roles/" + enc(name) + "/rename").body(b));
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 

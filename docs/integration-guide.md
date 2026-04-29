@@ -165,7 +165,7 @@ await realm.config.update({
 });
 ```
 
-`config.update` is a thin wrapper over `PATCH /realms/{id}/config`.
+`config.update` is a thin wrapper over `PATCH /platforms/{id}/config`.
 The SDK takes a `Record<string, unknown>` / `map[string]any` because
 the key set evolves; see §9.2 for the live list and validation rules.
 
@@ -764,7 +764,7 @@ copy from the JWT on every request (don't write a separate sync job).
 ### 5.4 Stashing partner-side metadata on a tenant
 
 RealmID's `tenants.config` is a closed allowlist
-(`mfa_policy`, `open_signup` today). It is **not** a general
+(`mfa_policy`, `signup_mode` today). It is **not** a general
 metadata bag — you cannot stash partner-side foreign keys
 (e.g. `external_company_id`, `crm_account_uuid`) on the RI tenant.
 Keep that mapping in your own database, keyed on the RI tenant UUID
@@ -804,7 +804,7 @@ expire — the tenant status doesn't auto-revoke them.
 const tnt = await realm.tenants.create({
   displayName: "Acme",
   allowedDomains: ["acme.com"],
-  openSignup: true,
+  signupMode: "allowlist",
 });
 ```
 
@@ -812,7 +812,7 @@ const tnt = await realm.tenants.create({
 tnt, err := realm.Tenants.Create(ctx, realmid.TenantCreate{
     DisplayName:    "Acme",
     AllowedDomains: []string{"acme.com"},
-    OpenSignup:     true,
+    SignupMode:     realmid.SignupModeAllowlist,
 })
 ```
 
@@ -1049,7 +1049,7 @@ the following as defaults; check `error-reference.md` for the
   platform-token cache (4-min TTL) means well-behaved partner
   backends mint roughly once every 4 minutes per process; bursts
   only occur on cold start or after a 401 forces re-mint.
-- `/realms/{id}/api-keys` and other admin REST — per-realm: ~30
+- `/platforms/{id}/api-keys` and other admin REST — per-realm: ~30
   req/min. Sized for ops scripts, not bulk operations.
 - **Backfill loops** (`/tenants/{id}/invitations` in a tight
   loop) — sustained ~20/sec per realm is safe; the SDK does not

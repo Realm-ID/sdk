@@ -36,7 +36,7 @@ func (c *APIKeysClient) Create(ctx context.Context, body APIKeyCreate) (*APIKey,
 	var k APIKey
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/api-keys",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/api-keys",
 		Bearer: tok,
 		Body:   body,
 	}, &k); err != nil {
@@ -56,7 +56,7 @@ func (c *APIKeysClient) List(ctx context.Context) ([]APIKey, error) {
 	var raw any
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "GET",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/api-keys",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/api-keys",
 		Bearer: tok,
 	}, &raw); err != nil {
 		return nil, err
@@ -71,7 +71,7 @@ func (c *APIKeysClient) Revoke(ctx context.Context, id string) error {
 	}
 	return c.realm.http.do(ctx, requestOptions{
 		Method: "DELETE",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/api-keys/" + url.PathEscape(id),
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/api-keys/" + url.PathEscape(id),
 		Bearer: tok,
 	}, nil)
 }

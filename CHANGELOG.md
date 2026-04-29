@@ -5,6 +5,87 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## 0.5.0 — platforms-namespace cut + signup_mode enum (2026-04-29)
+
+Cross-cutting **breaking** bump aligning with RealmID v0.5.0
+(ADR-044 + ADR-045). All three SDKs (`ts/`, `go/`, `java/`) bumped in
+lockstep. a partner is on 0.4.0; partners on 0.4.x must upgrade
+when they cut over to a v0.5.0 server.
+
+### Breaking — admin sub-paths moved to `/platforms/{id}/...` (ADR-044)
+
+Every realm-admin sub-path was renamed:
+
+| Old wire path | New wire path |
+|---|---|
+| `POST /realms/{id}/api-keys` | `POST /platforms/{id}/api-keys` |
+| `GET /realms/{id}/api-keys` | `GET /platforms/{id}/api-keys` |
+| `DELETE /realms/{id}/api-keys/{keyId}` | `DELETE /platforms/{id}/api-keys/{keyId}` |
+| `PATCH /realms/{id}/config` | `PATCH /platforms/{id}/config` |
+| `GET /realms/{id}/roles` | `GET /platforms/{id}/roles` |
+| `POST /realms/{id}/roles` | `POST /platforms/{id}/roles` |
+| `PATCH /realms/{id}/roles/{name}` | `PATCH /platforms/{id}/roles/{name}` |
+| `DELETE /realms/{id}/roles/{name}` | `DELETE /platforms/{id}/roles/{name}` |
+| `POST /realms/{id}/roles/{name}/rename` | `POST /platforms/{id}/roles/{name}/rename` |
+
+The high-level SDK surface (`realm.apiKeys.*`, `realm.config.update`,
+`realm.roles.*`, etc.) is unchanged — only the wire path constants
+inside the SDKs moved. Partners who use the SDK methods don't need to
+touch their code; partners who hand-rolled HTTP calls must update.
+
+OIDC discovery URLs (`/realms/{realm}/.well-known/jwks.json` and
+`/realms/{realm}/.well-known/openid-configuration`) **stay** on the
+`/realms/...` namespace. They are the realm-as-issuer surface. Verifier
+behavior is unchanged.
+
+There is no dual-mount window. v0.5.0 is a clean cut; old paths are
+404. See ADR-044 for the rationale.
+
+### Breaking — `signup_mode` enum replaces `open_signup` bool (ADR-045)
+
+`TenantConfig` and `TenantCreate` no longer carry an `open_signup`
+boolean. They carry `signup_mode: "closed" | "allowlist" | "open"`
+instead.
+
+- `closed` (default) — invitation-only; `allowed_domains` ignored.
+- `allowlist` — auto-provision when the verified email domain is in
+  `allowed_domains`. List must be non-empty.
+- `open` — auto-provision every authenticated user. Reserved for the
+  base admin tenant; partner tenants cannot set this mode (server
+  rejects with `signup_mode_invalid_for_tenant`).
+
+Migration on existing data is automatic on the server side
+(see ADR-045 §"Migration from today's model"). For SDK callers:
+
+- TS: `tenants.create({ ..., openSignup: true })` →
+  `tenants.create({ ..., signupMode: "allowlist" })`.
+- Go: `TenantCreate{ ..., OpenSignup: true }` →
+  `TenantCreate{ ..., SignupMode: SignupModeAllowlist }`.
+- Java: `TenantCreate` is config-blob shaped; pass
+  `Map.of("signup_mode", "allowlist", ...)` instead of
+  `"open_signup", true`.
+
+There is no compatibility shim — sending `open_signup` to a v0.5.0
+server is a `bad_request` and the SDKs no longer encode that field.
+
+### What changes in your SDK code
+
+If you call `realm.apiKeys.*`, `realm.config.update`, `realm.roles.*`,
+or pass `tenants.create` with the basic fields covered above: nothing
+beyond bumping the dependency.
+
+If you talked to the server directly without the SDK, see the table
+and the `signup_mode` section above.
+
+### Compatibility
+
+- SDK 0.5.0 talks to RealmID v0.5.0+ realms.
+- SDK 0.5.0 against pre-v0.5.0 realms: admin sub-paths 404 (the
+  server still has `/realms/{id}/...`); do not mix.
+- SDK 0.4.0 against v0.5.0 realms: admin sub-paths 404, `open_signup`
+  on tenant create is rejected. Upgrade to 0.5.0 in lockstep with
+  the server.
+
 ## 0.4.0 — BFF login enforcement (2026-04-27)
 
 Cross-cutting bump aligning with RealmID v0.4.0 (ADR-041).

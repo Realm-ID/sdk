@@ -16,11 +16,25 @@ type Tenant struct {
 	UpdatedAt   string         `json:"updated_at,omitempty"`
 }
 
+// SignupMode is the per-tenant signup policy (SPEC §6.1, ADR-045).
+//
+// `closed` (default) is invitation-only; `allowlist` auto-provisions
+// users whose verified email domain is in `allowed_domains`; `open`
+// auto-provisions every authenticated user and is reserved for the
+// base admin tenant — partner tenants cannot set this mode.
+type SignupMode string
+
+const (
+	SignupModeClosed    SignupMode = "closed"
+	SignupModeAllowlist SignupMode = "allowlist"
+	SignupModeOpen      SignupMode = "open"
+)
+
 // TenantCreate is the create payload (SPEC §6.1).
 type TenantCreate struct {
-	DisplayName    string   `json:"display_name"`
-	AllowedDomains []string `json:"allowed_domains,omitempty"`
-	OpenSignup     bool     `json:"open_signup,omitempty"`
+	DisplayName    string     `json:"display_name"`
+	AllowedDomains []string   `json:"allowed_domains,omitempty"`
+	SignupMode     SignupMode `json:"signup_mode,omitempty"`
 }
 
 // UpdateUserRoleResult is the response shape returned by Tenants.UpdateUserRole.

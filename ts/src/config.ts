@@ -15,7 +15,7 @@ export class ConfigClient {
   async update(patch: Record<string, unknown>): Promise<RealmInfo> {
     return this.http.request<RealmInfo>({
       method: "PATCH",
-      path: `/realms/${encodeURIComponent(this.realmId)}/config`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/config`,
       body: patch,
     });
   }

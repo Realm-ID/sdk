@@ -39,7 +39,7 @@ test("roles: named system constants", () => {
 test("roles.list: returns the locked envelope shape", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "GET");
-    assert.match(req.url, /\/realms\/r\/roles/);
+    assert.match(req.url, /\/platforms\/r\/roles/);
     return new Response(JSON.stringify({
       items: [
         { name: "owner", permissions: [], is_system: true, created_at: 1, updated_at: 1 },
@@ -73,7 +73,7 @@ test("roles.list: forwards cursor + limit", async () => {
 test("roles.create: maps displayName + permissions to wire shape", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "POST");
-    assert.match(req.url, /\/realms\/r\/roles$/);
+    assert.match(req.url, /\/platforms\/r\/roles$/);
     assert.deepEqual(req.body, {
       name: "salesman",
       display_name: "Field Sales",
@@ -94,7 +94,7 @@ test("roles.create: maps displayName + permissions to wire shape", async () => {
 test("roles.update: sends only provided fields", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "PATCH");
-    assert.match(req.url, /\/realms\/r\/roles\/salesman$/);
+    assert.match(req.url, /\/platforms\/r\/roles\/salesman$/);
     assert.deepEqual(req.body, { permissions: ["bills:read", "orders:all"] });
     return new Response(JSON.stringify({
       name: "salesman", permissions: ["bills:read", "orders:all"],
@@ -109,7 +109,7 @@ test("roles.update: sends only provided fields", async () => {
 test("roles.delete: returns deleted ack", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "DELETE");
-    assert.match(req.url, /\/realms\/r\/roles\/old$/);
+    assert.match(req.url, /\/platforms\/r\/roles\/old$/);
     return new Response(JSON.stringify({ status: "deleted" }), {
       status: 200, headers: { "content-type": "application/json" },
     });
@@ -133,7 +133,7 @@ test("roles.delete: 409 role_in_use surfaces as RealmError(conflict)", async () 
 test("roles.rename: posts {to: <new>}", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "POST");
-    assert.match(req.url, /\/realms\/r\/roles\/oldname\/rename$/);
+    assert.match(req.url, /\/platforms\/r\/roles\/oldname\/rename$/);
     assert.deepEqual(req.body, { to: "newname" });
     return new Response(JSON.stringify({
       name: "newname", permissions: [], is_system: false,

@@ -1,4 +1,23 @@
-# Realm ID SDK — cross-language specification (v0.1.0)
+# Realm ID SDK — cross-language specification (v0.5.0)
+
+## Breaking changes from 0.4.x
+
+v0.5.0 is a clean cut aligned with the server's v0.5.0 release. Two
+breaking changes; no deprecation window, no compat shims.
+
+1. **Admin sub-paths moved from `/realms/{id}/...` to
+   `/platforms/{id}/...`** (ADR-044). Affected: `apiKeys.*`,
+   `config.update`, `roles.*`. The OIDC discovery surface
+   (`/realms/{realm}/.well-known/...`) is unchanged. The high-level
+   SDK methods kept their names — only the wire path moved.
+
+2. **`open_signup` bool replaced by `signup_mode` enum** (ADR-045).
+   `TenantCreate` and `TenantConfig` carry `signup_mode:
+   "closed" | "allowlist" | "open"` instead of an `open_signup`
+   boolean. `open` is rejected on any tenant other than the base
+   admin tenant.
+
+See `CHANGELOG.md` and the ADRs for full details.
 
 This document is the contract every official SDK in this repository
 implements. The TypeScript SDK is the canonical reference; the Go and
@@ -186,16 +205,19 @@ list endpoint (see §7).
 
 - `list(opts?)` — paginated. `opts: { cursor?, limit? }`.
 - `get(id)`
-- `create({ displayName, allowedDomains?, openSignup? })` — creates a
+- `create({ displayName, allowedDomains?, signupMode? })` — creates a
   tenant under the calling platform. The realm is implicit (the API
   key's realm); there is no separate "platform" parameter because a
-  partner has one platform per realm. Wire call: `POST /platforms/{realmId}/tenants`.
+  partner has one platform per realm. Wire call:
+  `POST /platforms/{realmId}/tenants`. `signupMode` defaults to
+  `"closed"` server-side (ADR-045).
 - `update(id, { displayName? })` — top-level mutable fields.
 - `updateConfig(id, patch)` — patches `tenants.config`. Honoured keys:
   `allowedDomains: string[]` (auto-provision domain allowlist),
-  `openSignup: boolean` (let users at allowed domains self-provision
-  without an invite). Server enforces an allowlist of accepted keys;
-  unknown keys → `RealmError(bad_request)`.
+  `signupMode: "closed" | "allowlist" | "open"` (per-tenant signup
+  policy, ADR-045 — `open` is reserved for the base admin tenant and
+  rejected on partner tenants). Server enforces an allowlist of
+  accepted keys; unknown keys → `RealmError(bad_request)`.
 - `delete(id)` — soft delete.
 - `transferOwner(id, newOwnerUserId)` — atomic owner swap; the previous
   owner becomes a `member`.

@@ -21,7 +21,7 @@ public final class ConfigClient {
     public Map<String, Object> update(Map<String, Object> patch) {
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "PATCH",
-                "/realms/" + URLEncoder.encode(realmId, StandardCharsets.UTF_8) + "/config")
+                "/platforms/" + URLEncoder.encode(realmId, StandardCharsets.UTF_8) + "/config")
                 .body(patch));
         return raw == null ? Map.of() : http.mapper().convertValue(raw, Map.class);
     }

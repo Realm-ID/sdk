@@ -96,12 +96,13 @@ type Realm struct {
 	Roles   *RolesClient
 }
 
-// Version is the published SDK version (semver). 0.4.0 corresponds to
-// RealmID v0.4.0 — the BFF login pattern from ADR-041. The SDK already
-// attached the platform token to every /auth/* call as Bearer; v0.4.0
-// just makes that the server-required path when the realm sets
-// realms.config.require_bff_login=true. No API breakage.
-const Version = "0.4.0"
+// Version is the published SDK version (semver). 0.5.0 corresponds to
+// RealmID v0.5.0 — the platforms-namespace cut (ADR-044) and the
+// signup_mode enum (ADR-045). Breaking: admin sub-paths moved from
+// /realms/{id}/... to /platforms/{id}/... (api-keys, config, roles)
+// and TenantCreate's `OpenSignup bool` is replaced by `SignupMode`
+// (closed | allowlist | open). OIDC discovery URLs stay on /realms/.
+const Version = "0.5.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

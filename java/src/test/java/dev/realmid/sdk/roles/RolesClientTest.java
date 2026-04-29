@@ -50,7 +50,7 @@ class RolesClientTest {
 
     @Test
     void listReturnsLockedEnvelopeShape() {
-        fs.on("GET /realms/01HREALM/roles", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+        fs.on("GET /platforms/01HREALM/roles", (ex, body) -> FakeServer.Reply.json(200, Map.of(
                 "items", List.of(
                         Map.of("name", "owner", "permissions", List.of(),
                                 "is_system", true, "created_at", 1, "updated_at", 1),
@@ -69,7 +69,7 @@ class RolesClientTest {
 
     @Test
     void createMapsWireShape() {
-        fs.onJson("POST /realms/01HREALM/roles", (body, rec) -> {
+        fs.onJson("POST /platforms/01HREALM/roles", (body, rec) -> {
             assertEquals("salesman", body.get("name"));
             assertEquals("Field Sales", body.get("display_name"));
             return FakeServer.Reply.json(201, Map.of(
@@ -85,7 +85,7 @@ class RolesClientTest {
 
     @Test
     void updateSendsOnlyProvidedFields() {
-        fs.onJson("PATCH /realms/01HREALM/roles/salesman", (body, rec) -> {
+        fs.onJson("PATCH /platforms/01HREALM/roles/salesman", (body, rec) -> {
             assertFalse(body.containsKey("display_name"), "display_name should be omitted");
             assertNotNull(body.get("permissions"));
             return FakeServer.Reply.json(200, Map.of(
@@ -100,7 +100,7 @@ class RolesClientTest {
 
     @Test
     void deleteHappy() {
-        fs.on("DELETE /realms/01HREALM/roles/old", (ex, body) -> FakeServer.Reply.json(200,
+        fs.on("DELETE /platforms/01HREALM/roles/old", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("status", "deleted")));
         RoleDeleteResult out = realm.roles().delete("old");
         assertEquals("deleted", out.status());
@@ -112,7 +112,7 @@ class RolesClientTest {
         envelope.put("error", Map.of("code", "conflict", "message", "role still attached to users"));
         envelope.put("code", "role_in_use");
         envelope.put("role_in_use", true);
-        fs.on("DELETE /realms/01HREALM/roles/salesman", (ex, body) ->
+        fs.on("DELETE /platforms/01HREALM/roles/salesman", (ex, body) ->
                 FakeServer.Reply.json(409, envelope));
 
         RealmException ex = assertThrows(RealmException.class, () -> realm.roles().delete("salesman"));
@@ -125,7 +125,7 @@ class RolesClientTest {
 
     @Test
     void renamePostsTo() {
-        fs.onJson("POST /realms/01HREALM/roles/oldname/rename", (body, rec) -> {
+        fs.onJson("POST /platforms/01HREALM/roles/oldname/rename", (body, rec) -> {
             assertEquals("newname", body.get("to"));
             return FakeServer.Reply.json(200, Map.of(
                     "name", "newname", "permissions", List.of(),

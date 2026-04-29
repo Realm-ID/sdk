@@ -16,10 +16,21 @@ export interface Tenant {
   [k: string]: unknown;
 }
 
+/**
+ * Per-tenant signup policy (SPEC §6.1, ADR-045).
+ *
+ * - `closed` (default): invitation-only; `allowedDomains` is ignored.
+ * - `allowlist`: auto-provision users whose verified email domain is
+ *   listed in `allowedDomains`. The list must be non-empty.
+ * - `open`: auto-provision every authenticated user. Reserved for the
+ *   base admin tenant — partner tenants cannot set this mode.
+ */
+export type SignupMode = "closed" | "allowlist" | "open";
+
 export interface TenantCreate {
   displayName: string;
   allowedDomains?: string[];
-  openSignup?: boolean;
+  signupMode?: SignupMode;
   [k: string]: unknown;
 }
 
@@ -181,8 +192,8 @@ export class TenantsClient {
       body: {
         display_name: body.displayName,
         allowed_domains: body.allowedDomains,
-        open_signup: body.openSignup,
-        ...rest(body, ["displayName", "allowedDomains", "openSignup"]),
+        signup_mode: body.signupMode,
+        ...rest(body, ["displayName", "allowedDomains", "signupMode"]),
       },
     });
   }

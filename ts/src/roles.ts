@@ -58,7 +58,7 @@ export class RolesClient {
   ) {}
 
   /**
-   * GET /realms/{id}/roles. Returns one page in the locked SPEC §7
+   * GET /platforms/{id}/roles. Returns one page in the locked SPEC §7
    * envelope shape (`{items, next_cursor, total?}`). Unlike the typed
    * iterators on `realm.tenants` etc., this surface returns the raw
    * envelope so callers can drive their own paging UI directly.
@@ -66,7 +66,7 @@ export class RolesClient {
   async list(opts?: RoleListOpts): Promise<RoleListPage> {
     const raw = await this.http.request<unknown>({
       method: "GET",
-      path: `/realms/${encodeURIComponent(this.realmId)}/roles`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles`,
       query: { cursor: opts?.cursor, limit: opts?.limit },
     });
     return normalizePage(raw);
@@ -78,7 +78,7 @@ export class RolesClient {
     if (body.permissions !== undefined) wire["permissions"] = body.permissions;
     return this.http.request<RoleObject>({
       method: "POST",
-      path: `/realms/${encodeURIComponent(this.realmId)}/roles`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles`,
       body: wire,
     });
   }
@@ -89,7 +89,7 @@ export class RolesClient {
     if (patch.permissions !== undefined) wire["permissions"] = patch.permissions;
     return this.http.request<RoleObject>({
       method: "PATCH",
-      path: `/realms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}`,
       body: wire,
     });
   }
@@ -97,14 +97,14 @@ export class RolesClient {
   async delete(name: string): Promise<{ status: "deleted" }> {
     return this.http.request<{ status: "deleted" }>({
       method: "DELETE",
-      path: `/realms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}`,
     });
   }
 
   async rename(name: string, opts: { to: string }): Promise<RoleObject> {
     return this.http.request<RoleObject>({
       method: "POST",
-      path: `/realms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}/rename`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}/rename`,
       body: { to: opts.to },
     });
   }

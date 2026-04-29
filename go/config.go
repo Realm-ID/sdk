@@ -15,7 +15,7 @@ type ConfigClient struct {
 	realm *Realm
 }
 
-// Update issues PATCH /realms/{id}/config.
+// Update issues PATCH /platforms/{id}/config.
 func (c *ConfigClient) Update(ctx context.Context, patch ConfigPatch) error {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
@@ -23,7 +23,7 @@ func (c *ConfigClient) Update(ctx context.Context, patch ConfigPatch) error {
 	}
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "PATCH",
-		Path:   "/realms/" + url.PathEscape(c.realm.realmID) + "/config",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/config",
 		Bearer: tok,
 		Body:   patch,
 	}, nil); err != nil {

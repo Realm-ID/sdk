@@ -70,7 +70,7 @@ rotation, version policy, hosted environments, roadmap commitments.
   export this log.** Drop your local audit_log table on this
   assumption *only if* domain audit is acceptable to you (your access
   log + your own role-change handlers cover most needs).
-- **Roadmap — pull endpoint:** `GET /realms/{id}/audit-events?since=…`
+- **Roadmap — pull endpoint:** `GET /platforms/{id}/audit-events?since=…`
   paginated. Cheaper than webhooks; partners poll on their cadence.
   **TBD** — no committed ETA; will land if multiple partners formally
   request it.

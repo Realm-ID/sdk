@@ -26,13 +26,13 @@ public final class APIKeysClient {
         b.put("display_name", body.displayName());
         if (body.scopes() != null) b.put("scopes", body.scopes());
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "POST", "/realms/" + enc(realmId) + "/api-keys").body(b));
+                "POST", "/platforms/" + enc(realmId) + "/api-keys").body(b));
         return http.mapper().convertValue(raw, APIKey.class);
     }
 
     public List<APIKey> list() {
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "GET", "/realms/" + enc(realmId) + "/api-keys"));
+                "GET", "/platforms/" + enc(realmId) + "/api-keys"));
         if (raw == null) return List.of();
         if (raw.isArray()) {
             List<APIKey> out = new ArrayList<>(raw.size());
@@ -49,7 +49,7 @@ public final class APIKeysClient {
 
     public void revoke(String id) {
         http.request(HttpTransport.Request.of(
-                "DELETE", "/realms/" + enc(realmId) + "/api-keys/" + enc(id)));
+                "DELETE", "/platforms/" + enc(realmId) + "/api-keys/" + enc(id)));
     }
 
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
