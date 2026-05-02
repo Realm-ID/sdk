@@ -1,0 +1,202 @@
+package realmid
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestNormalizeOrigin(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://App.Example.com:8443/foo", "app.example.com"},
+		{"http://localhost:5173", "localhost"},
+		{"ACME.com", "acme.com"},
+		{"", ""},
+		{"  https://Foo.Bar  ", "foo.bar"},
+	}
+	for _, c := range cases {
+		if got := NormalizeOrigin(c.in); got != c.want {
+			t.Errorf("NormalizeOrigin(%q) = %q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func originsServer(t *testing.T, mintCount, listCount *int32, listHandler http.HandlerFunc) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(mintCount, 1)
+		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	})
+	mux.HandleFunc("/platforms/"+testRealmID+"/origins", func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(listCount, 1)
+		listHandler(w, r)
+	})
+	return httptest.NewServer(mux)
+}
+
+func TestOrigins_ValidateCachesAcrossCalls(t *testing.T) {
+	var mintCount, listCount int32
+	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{"id": "o1", "domain": "app.acme.com", "entity_type": "tenant", "entity_id": "t1"},
+				map[string]any{"id": "o2", "domain": "auth.acme.com", "entity_type": "realm", "entity_id": testRealmID},
+			},
+			"next_cursor": nil,
+		})
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	ctx := context.Background()
+	ok, err := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://app.acme.com"})
+	if err != nil || !ok {
+		t.Fatalf("first validate: ok=%v err=%v", ok, err)
+	}
+	ok, err = r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://AUTH.acme.com:443"})
+	if err != nil || !ok {
+		t.Fatalf("second validate: ok=%v err=%v", ok, err)
+	}
+	miss, err := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://other.com"})
+	if err != nil || miss {
+		t.Fatalf("miss: ok=%v err=%v", miss, err)
+	}
+	if got := atomic.LoadInt32(&listCount); got != 1 {
+		t.Errorf("list calls = %d, want 1 (cache should serve subsequent validates)", got)
+	}
+}
+
+func TestOrigins_TTLExpiry(t *testing.T) {
+	var mintCount, listCount int32
+	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{"id": "o1", "domain": "app.acme.com", "entity_type": "tenant", "entity_id": "t1"},
+			},
+			"next_cursor": nil,
+		})
+	})
+	defer srv.Close()
+
+	now := time.Unix(1_000_000, 0)
+	clock := func() time.Time { return now }
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL, Clock: clock})
+	ctx := context.Background()
+
+	if ok, _ := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://app.acme.com"}); !ok {
+		t.Fatal("first validate failed")
+	}
+	now = now.Add(4 * time.Minute) // still within TTL
+	if ok, _ := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://app.acme.com"}); !ok {
+		t.Fatal("4min validate failed")
+	}
+	if got := atomic.LoadInt32(&listCount); got != 1 {
+		t.Errorf("list calls before TTL expiry = %d, want 1", got)
+	}
+	now = now.Add(2 * time.Minute) // past 5min TTL
+	if ok, _ := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://app.acme.com"}); !ok {
+		t.Fatal("post-TTL validate failed")
+	}
+	if got := atomic.LoadInt32(&listCount); got != 2 {
+		t.Errorf("list calls after TTL expiry = %d, want 2", got)
+	}
+}
+
+func TestOrigins_RefreshOn401(t *testing.T) {
+	var mintCount, listCount int32
+	var failed atomic.Bool
+	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, _ *http.Request) {
+		if failed.CompareAndSwap(false, true) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{"code": "unauthorized", "message": "stale"},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{"id": "o1", "domain": "app.acme.com", "entity_type": "tenant", "entity_id": "t1"},
+			},
+			"next_cursor": nil,
+		})
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	ok, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{
+		RealmID: testRealmID, Origin: "https://app.acme.com",
+	})
+	if err != nil || !ok {
+		t.Fatalf("retry validate: ok=%v err=%v", ok, err)
+	}
+	if got := atomic.LoadInt32(&mintCount); got != 2 {
+		t.Errorf("mint count = %d, want 2 (initial + post-401 refresh)", got)
+	}
+}
+
+func TestOrigins_PersistentUnauthorized(t *testing.T) {
+	var mintCount, listCount int32
+	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": map[string]any{"code": "unauthorized", "message": "nope"},
+		})
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	_, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{
+		RealmID: testRealmID, Origin: "https://app.acme.com",
+	})
+	if !IsCode(err, ErrCodeUnauthorized) {
+		t.Fatalf("want ErrCodeUnauthorized, got %v", err)
+	}
+}
+
+func TestOrigins_ListPaginates(t *testing.T) {
+	var mintCount, listCount int32
+	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cursor") == "c1" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items":       []any{map[string]any{"id": "o2", "domain": "b.com", "entity_type": "tenant", "entity_id": "t1"}},
+				"next_cursor": nil,
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":       []any{map[string]any{"id": "o1", "domain": "a.com", "entity_type": "realm", "entity_id": testRealmID}},
+			"next_cursor": "c1",
+		})
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	pg, err := r.Origins.List(context.Background(), ListOriginsOptions{RealmID: testRealmID})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var got []string
+	for o, err := range pg.All(context.Background()) {
+		if err != nil {
+			t.Fatalf("iter: %v", err)
+		}
+		got = append(got, o.Domain)
+	}
+	want := []string{"a.com", "b.com"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("got %v want %v", got, want)
+	}
+}
+
+func TestOrigins_ValidateRequiresRealmID(t *testing.T) {
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://localhost:0"})
+	_, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{Origin: "https://x"})
+	if !IsCode(err, ErrCodeBadRequest) {
+		t.Errorf("want bad_request, got %v", err)
+	}
+}

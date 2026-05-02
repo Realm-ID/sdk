@@ -94,6 +94,8 @@ type Realm struct {
 	APIKeys *APIKeysClient
 	Config  *ConfigClient
 	Roles   *RolesClient
+	Origins *OriginsClient
+	Tokens  *TokensClient
 }
 
 // Version is the published SDK version (semver). 0.5.0 corresponds to
@@ -138,6 +140,8 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.APIKeys = &APIKeysClient{realm: r}
 	r.Config = &ConfigClient{realm: r}
 	r.Roles = &RolesClient{realm: r}
+	r.Origins = newOriginsClient(r)
+	r.Tokens = newTokensClient(cfg.Clock)
 
 	return r, nil
 }

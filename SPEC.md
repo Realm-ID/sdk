@@ -280,6 +280,107 @@ onto this enum.
 
 `claim({ hostname })`, `verify({ claimToken })`.
 
+### 6.6 Origin allowlist enforcement — `realm.origins.*`
+
+ADR-047 §1.1 redrafted the v0.6.0 login surface so that **every scoped
+read or write against RealmID flows through a partner backend holding
+a platform token**. Browsers do not call `/auth/login` or
+`/platforms/{id}/identity-providers` directly; the partner exposes
+its own unauthenticated proxy, and origin enforcement moves out of
+RealmID and into the SDK.
+
+Partners MUST call `origins.validate(...)` (or fetch + check manually
+via `origins.list(...)`) inside any unauthenticated proxy that
+forwards to a platform-token-gated RealmID endpoint. Skipping the
+validation step opens the proxy to confused-deputy callers — RealmID
+no longer inspects `Origin` on those routes.
+
+Surface — symmetric across runtimes:
+
+- `client.origins.list({ realmId })` — paginated `Origin` rows from
+  `GET /platforms/{realmId}/origins` (ADR-049 §A.7.2). Auth via the
+  per-handle platform token. Wire shape per §7.
+- `client.origins.validate({ realmId, origin })` → `boolean`.
+  Normalises `origin` (lowercase, strip scheme + port + path), looks
+  it up in the per-realm cache, returns true iff a live row matches.
+
+Cache semantics:
+
+- In-memory, keyed by `realmId`.
+- TTL: **5 minutes**. Expiry triggers a full refetch on the next
+  validate.
+- On `401 unauthorized` from the underlying list call, the SDK
+  invalidates its cached platform token, mints a fresh one, and
+  retries once. A second 401 propagates as a `RealmError(unauthorized)`.
+- The allowlist contains every live `domain` regardless of
+  `entity_type` — partners' SPAs may legitimately sit on either a
+  realm SPA origin or a tenant custom-domain row. Both pass.
+
+Staleness window: a domain attached or detached on RealmID may take
+up to 5 minutes to propagate to a given partner-backend replica.
+Partners that need stricter freshness for a high-risk operation can
+call `origins.invalidate(realmId)` to drop the cache and force a
+refetch, but the default TTL is the documented contract.
+
+### 6.7 Access-token revocation cache — `client.tokens.*`
+
+ADR-047 §1.1 routes every scoped read/write through the partner
+backend, which uses the SDK to call RealmID. RealmID handles
+**refresh-token** revocation server-side via `POST /auth/logout`. The
+SDK adds **partner-side defense-in-depth** for access tokens: on
+logout, the SDK caches the access token's JTI locally so subsequent
+requests presenting that JTI are rejected without needing a server
+round-trip. This bounds the "stolen access token" replay window
+without requiring RI to add per-access-token revocation state.
+
+Surface — symmetric across runtimes:
+
+- `tokens.markRevoked(accessToken)` — extracts the JWT's `jti` and
+  `exp`, stores the JTI in cache with TTL = `exp - now()`. No-op when
+  `exp` is in the past or when `jti`/`exp` are missing.
+- `tokens.isRevoked(accessToken)` — `boolean`. True iff the JTI is in
+  cache and not expired. Lazy GC: stale entries are evicted on read.
+- `tokens.revokeOnLogout` — composable middleware that wraps a
+  `logout()` call. Extracts JTI/exp from the access token **before**
+  the network call, runs the network logout (RI's `POST /auth/logout`),
+  then on **either success or transport failure** marks the JTI
+  revoked locally. Rationale: partner backend should fail closed — if
+  RI is unreachable, the access token still gets blackholed locally
+  so the user is logged out from the partner's perspective.
+- `tokens.gateRequest(accessToken)` — per-request gate the partner's
+  middleware calls before forwarding upstream. If the JTI is in cache,
+  throws `TokenRevokedError` (TS) / returns `ErrTokenRevoked` wrapped
+  in `RealmError(unauthorized, details.revoked=true)` (Go) / throws
+  `TokenRevokedException` (Java).
+
+Cache implementation:
+
+- TS: `Map<jti, expiresAt>`, single-threaded.
+- Go: `sync.RWMutex` + `map[string]time.Time`, lazy GC on read.
+- Java: `ConcurrentHashMap<String, Long>`, lazy GC on read.
+- All three accept an injectable clock (default = system clock) for
+  deterministic testing — same pattern as the origins cache.
+
+TTL semantics: an entry's TTL equals the access token's remaining
+`exp`. Lazily evicted on read; repeated `markRevoked` of the same JTI
+does not grow the cache.
+
+**Multi-pod staleness window.** The cache is **per-process**. A logout
+served by pod A does not propagate to pod B; a stolen access token
+can still be replayed against pod B for up to its remaining TTL. This
+is acceptable for v1; partners running multi-replica deployments
+should be aware of the bound. **v1.1 swap-in:** a Redis-backed
+implementation behind the same surface, out of scope for the initial
+ship.
+
+Recommended partner integration:
+
+- Wire `tokens.revokeOnLogout(authClient.logout)` on the BFF logout
+  handler so logout is a single call from the SPA's perspective.
+- Wire `tokens.gateRequest(accessToken)` in the inbound middleware
+  immediately after `verify()` succeeds, before forwarding to RealmID
+  or to internal services.
+
 ### 6.5 Realm self — top-level
 
 Promoted from a nested namespace for ergonomics:

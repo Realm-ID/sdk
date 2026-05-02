@@ -15,6 +15,8 @@ import { InfoClient, type RealmInfo } from "./info.js";
 import { ApiKeysClient } from "./api-keys.js";
 import { ConfigClient } from "./config.js";
 import { RolesClient } from "./roles.js";
+import { OriginsClient } from "./origins.js";
+import { TokensClient } from "./tokens.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
@@ -73,6 +75,8 @@ export interface Realm {
   readonly apiKeys: ApiKeysClient;
   readonly config: ConfigClient;
   readonly roles: RolesClient;
+  readonly origins: OriginsClient;
+  readonly tokens: TokensClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -166,6 +170,8 @@ export function createRealm(cfg: RealmConfig): Realm {
     apiKeys: new ApiKeysClient(http, cfg.realmId),
     config: new ConfigClient(http, cfg.realmId),
     roles: new RolesClient(http, cfg.realmId),
+    origins: new OriginsClient(http, platformTokens),
+    tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

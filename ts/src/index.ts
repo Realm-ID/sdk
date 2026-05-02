@@ -21,6 +21,8 @@ export type { VerifierConfig, VerifyOptions } from "./verifier.js";
 export { MemRevocationCache } from "./revocation.js";
 export type { RevocationCache } from "./revocation.js";
 
+export { TokensClient, TokenRevokedError } from "./tokens.js";
+
 export { RealmError } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
@@ -54,6 +56,8 @@ export type {
 } from "./tenants.js";
 
 export type { DomainClaim, DomainVerifyResult } from "./domains.js";
+export { OriginsClient, normalizeOrigin } from "./origins.js";
+export type { Origin, OriginListOpts, OriginValidateOpts } from "./origins.js";
 export type { RealmInfo } from "./info.js";
 export type { ApiKey, ApiKeyCreate } from "./api-keys.js";
 

@@ -9,9 +9,11 @@ import dev.realmid.sdk.info.ConfigClient;
 import dev.realmid.sdk.info.RealmInfo;
 import dev.realmid.sdk.info.RealmInfoClient;
 import dev.realmid.sdk.middleware.MiddlewareConfig;
+import dev.realmid.sdk.origins.OriginsClient;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
+import dev.realmid.sdk.tokens.TokensClient;
 import dev.realmid.sdk.verifier.Verifier;
 
 import java.lang.System.Logger;
@@ -37,6 +39,8 @@ public final class Realm {
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
     private final RolesClient roles;
+    private final OriginsClient origins;
+    private final TokensClient tokens;
     private final RealmInfoClient info;
     private final ConfigClient config;
     private final PlatformTokenManager platformTokens;
@@ -78,6 +82,8 @@ public final class Realm {
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.roles = new RolesClient(this.http, this.realmId);
+        this.origins = new OriginsClient(this.http, this.platformTokens, clock);
+        this.tokens = new TokensClient(clock);
         this.config = new ConfigClient(this.http, this.realmId);
     }
 
@@ -96,6 +102,9 @@ public final class Realm {
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }
     public RolesClient roles() { return roles; }
+    public OriginsClient origins() { return origins; }
+    /** SPEC §6.7 — access-token revocation cache. */
+    public TokensClient tokens() { return tokens; }
     public ConfigClient config() { return config; }
     public RealmInfo info() { return info.info(); }
 
