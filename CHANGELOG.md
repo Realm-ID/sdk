@@ -5,6 +5,53 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## 0.7.0 — BFF alignment fixes (Go) (2026-05-02)
+
+Alignment fixes surfaced while standing up the `api.realmid.dev` BFF
+(ADR-050). Wire-compatible for callers using the typed request structs;
+only direct `map[string]any` consumers of the body JSON would notice
+the field rename.
+
+- **Login wire shape (Go)** — `Auth.Login` body field renamed
+  `provider_token` → `token` to match `api/internal/httpapi/auth.go`
+  (`loginReq.Token`). Pre-existing SDK/api drift; was failing every
+  Login at the dev provider in BFF mode. The Go-side `LoginRequest`
+  struct field stays `ProviderToken`.
+- **Tenant ID JSON tag (Go)** — `TenantRef.ID` now decodes from
+  `tenant_id` (matches `authsvc.TenantMembership.TenantID`); legacy
+  `id` accepted via fallback for older mocked issuers / tests.
+- **Session shape (Go)** — added top-level `TenantID` and `Role`
+  (the api's login response carries them flat alongside `Tenants[]`).
+  `User.ID/Email/DisplayName` now backfilled from the access JWT's
+  `sub/email/name` claims when the wire response omits the `user`
+  object (it does today — see `api/internal/httpapi/auth.go.loginResp`).
+- **New helper (Go, private)** — `peekJWTUserFields` decodes JWT
+  user claims for the backfill above.
+- **`Auth.ListSessions` + `Auth.RevokeSession` — request structs +
+  on-behalf-of (Go, breaking)**. Both now take `ListSessionsRequest` /
+  `RevokeSessionRequest`. Two mutually-exclusive auth modes:
+  - `UserID` → SDK attaches the cached platform token as bearer and
+    `X-On-Behalf-Of-User: <UserID>`. Required when the realm has
+    `config.require_bff_login=true` (ADR-041 §7) — the user's own JWT
+    won't pass the BFF gate against base realm once that flips on.
+  - `UserBearer` → that JWT rides as `Authorization: Bearer` (legacy /
+    public-client realms; subject read from the JWT).
+  Optional `OnBehalfOfIP` rides as `X-On-Behalf-Of-IP` so the issuer's
+  per-IP rate limits attribute to the SPA's IP, not the BFF's egress
+  (ADR-050 plan §8.2). Old signatures `(ctx, sessionID, userBearer)` /
+  `(ctx, userBearer)` are gone — there are no in-tree callers.
+- **`Auth.MintMFAChallenge` — request struct (Go, breaking)**. Now
+  takes `MFAChallengeRequest{AccessToken, OnBehalfOfIP}`. The SDK's
+  own MFA middleware was migrated in the same change.
+- **`MFAVerifyRequest.OnBehalfOfIP` (Go)** — new optional field
+  forwards SPA IP via `X-On-Behalf-Of-IP` for the same rate-limit
+  reason.
+
+TS + Java are not affected by this set; they don't have a Server-mode
+consumer landed yet.
+
+
+
 ## 0.5.0 — platforms-namespace cut + signup_mode enum (2026-04-29)
 
 Cross-cutting **breaking** bump aligning with RealmID v0.5.0

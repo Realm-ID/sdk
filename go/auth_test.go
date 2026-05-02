@@ -144,3 +144,175 @@ func TestAuth_Logout(t *testing.T) {
 		t.Fatal("server not called")
 	}
 }
+
+// TestAuth_ListSessions_OnBehalfOf covers the BFF path: UserID set →
+// platform-token bearer + X-On-Behalf-Of-User header, and the SPA-IP
+// attribution header rides through unchanged.
+func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
+	var gotAuth, gotOBO, gotOBOIP string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/sessions": func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
+			gotOBOIP = r.Header.Get("X-On-Behalf-Of-IP")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items":       []any{map[string]any{"id": "sess-1"}},
+				"next_cursor": "",
+			})
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	var ids []string
+	for s, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{
+		UserID:       "user-42",
+		OnBehalfOfIP: "203.0.113.7",
+	}) {
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		ids = append(ids, s.ID)
+	}
+	if len(ids) != 1 || ids[0] != "sess-1" {
+		t.Errorf("ids = %v", ids)
+	}
+	if gotAuth != "Bearer ptok" {
+		t.Errorf("auth = %q (want platform token)", gotAuth)
+	}
+	if gotOBO != "user-42" {
+		t.Errorf("X-On-Behalf-Of-User = %q", gotOBO)
+	}
+	if gotOBOIP != "203.0.113.7" {
+		t.Errorf("X-On-Behalf-Of-IP = %q", gotOBOIP)
+	}
+}
+
+// TestAuth_ListSessions_LegacyUserBearer covers the public-client path:
+// UserBearer set → that JWT is the Authorization, no OBO header.
+func TestAuth_ListSessions_LegacyUserBearer(t *testing.T) {
+	var gotAuth, gotOBO string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/sessions": func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "next_cursor": ""})
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{UserBearer: "u-jwt"}) {
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+	}
+	if gotAuth != "Bearer u-jwt" {
+		t.Errorf("auth = %q (want user bearer)", gotAuth)
+	}
+	if gotOBO != "" {
+		t.Errorf("OBO header leaked in legacy path: %q", gotOBO)
+	}
+}
+
+// TestAuth_ListSessions_RequiresUserSelector enforces that callers pass
+// exactly one of UserID / UserBearer.
+func TestAuth_ListSessions_RequiresUserSelector(t *testing.T) {
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
+	saw := false
+	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{}) {
+		saw = true
+		if err == nil {
+			t.Fatal("expected error when neither UserID nor UserBearer set")
+		}
+		var re *RealmError
+		if !errors.As(err, &re) || re.Code != ErrCodeBadRequest {
+			t.Errorf("err = %v (want bad_request)", err)
+		}
+	}
+	if !saw {
+		t.Fatal("iterator never yielded")
+	}
+}
+
+// TestAuth_RevokeSession_OnBehalfOf checks the same auth resolution on
+// the DELETE path and that the session id is path-escaped.
+func TestAuth_RevokeSession_OnBehalfOf(t *testing.T) {
+	var gotPath, gotAuth, gotOBO string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/sessions/sess+1": func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			gotAuth = r.Header.Get("Authorization")
+			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	if err := r.Auth.RevokeSession(context.Background(), RevokeSessionRequest{
+		SessionID: "sess+1",
+		UserID:    "u-7",
+	}); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if gotPath != "/auth/sessions/sess+1" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotAuth != "Bearer ptok" || gotOBO != "u-7" {
+		t.Errorf("headers: auth=%q obo=%q", gotAuth, gotOBO)
+	}
+}
+
+// TestAuth_MFAVerify_OnBehalfOfIP threads SPA IP through the verify call.
+func TestAuth_MFAVerify_OnBehalfOfIP(t *testing.T) {
+	var gotIP string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/mfa/verify": func(w http.ResponseWriter, r *http.Request) {
+			gotIP = r.Header.Get("X-On-Behalf-Of-IP")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "atok", "refresh_token": "rtok", "expires_in": 900,
+				"tenants": []any{},
+			})
+		},
+	})
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	if _, err := r.Auth.MFAVerify(context.Background(), MFAVerifyRequest{
+		ChallengeToken: "ch", Code: "123456",
+		OnBehalfOfIP: "198.51.100.5",
+	}); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if gotIP != "198.51.100.5" {
+		t.Errorf("X-On-Behalf-Of-IP = %q", gotIP)
+	}
+}
+
+// TestAuth_MintMFAChallenge_OnBehalfOfIP threads SPA IP through the
+// challenge mint.
+func TestAuth_MintMFAChallenge_OnBehalfOfIP(t *testing.T) {
+	var gotIP string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/mfa/challenge": func(w http.ResponseWriter, r *http.Request) {
+			gotIP = r.Header.Get("X-On-Behalf-Of-IP")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"mfa_challenge_token": "ch-1", "methods": []any{"totp"},
+			})
+		},
+	})
+	defer srv.Close()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	tok, _, err := r.Auth.MintMFAChallenge(context.Background(), MFAChallengeRequest{
+		AccessToken:  "u-jwt",
+		OnBehalfOfIP: "198.51.100.9",
+	})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	if tok != "ch-1" {
+		t.Errorf("token = %q", tok)
+	}
+	if gotIP != "198.51.100.9" {
+		t.Errorf("X-On-Behalf-Of-IP = %q", gotIP)
+	}
+}

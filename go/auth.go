@@ -1,7 +1,7 @@
 package realmid
 
 import (
-	"context"
+	ctxpkg "context"
 	"iter"
 	"net/url"
 	"strings"
@@ -30,8 +30,12 @@ type LoginRequest struct {
 }
 
 // TenantRef is the abbreviated tenant info embedded in Session.Tenants.
+//
+// The wire shape uses `tenant_id` (api/internal/authsvc.TenantMembership);
+// `id` is accepted as a fallback for older / mocked issuers in tests.
 type TenantRef struct {
-	ID          string `json:"id"`
+	ID          string `json:"tenant_id"`
+	IDLegacy    string `json:"id,omitempty"`
 	Role        string `json:"role"`
 	DisplayName string `json:"display_name,omitempty"`
 }
@@ -44,11 +48,18 @@ type UserSummary struct {
 }
 
 // Session is the result of a successful Login or MFA verify.
+//
+// Login currently returns flat top-level `tenant_id` + `role` (the user's
+// pinned tenant after the login resolved); these surface here so
+// callers don't have to parse Tenants[]. `User` is populated from the
+// access JWT's claims (sub/email) when the wire response omits it.
 type Session struct {
 	AccessToken  string      `json:"access_token"`
 	RefreshToken string      `json:"refresh_token"`
 	ExpiresIn    int         `json:"expires_in"`
 	ExpiresAt    string      `json:"expires_at,omitempty"`
+	TenantID     string      `json:"tenant_id,omitempty"`
+	Role         string      `json:"role,omitempty"`
 	User         UserSummary `json:"user"`
 	Tenants      []TenantRef `json:"tenants"`
 }
@@ -75,6 +86,10 @@ type MFAVerifyRequest struct {
 	ChallengeToken string
 	Code           string
 	Method         string // defaults to "totp"
+	// OnBehalfOfIP forwards the end-user's IP to the issuer via
+	// X-On-Behalf-Of-IP so per-IP rate limits on /auth/mfa/verify see the
+	// SPA's IP rather than the BFF's egress (ADR-050 plan §8.2).
+	OnBehalfOfIP string
 }
 
 // LogoutRequest optionally targets a specific refresh token. If
@@ -98,10 +113,49 @@ type SessionInfo struct {
 	IP         string `json:"ip,omitempty"`
 }
 
+// ListSessionsRequest selects the user whose sessions to list and how
+// to attest the call.
+//
+// Exactly one of UserID or UserBearer must be set:
+//   - UserID:     BFF mode. The SDK uses its cached platform token as
+//                 the bearer and sends X-On-Behalf-Of-User: <UserID>.
+//                 Required when realm.config.require_bff_login=true
+//                 (ADR-041 §7).
+//   - UserBearer: legacy / public-client mode. The user's access JWT
+//                 rides as Authorization: Bearer. Subject is read from
+//                 the JWT.
+//
+// OnBehalfOfIP, when set, is forwarded as X-On-Behalf-Of-IP so the
+// issuer's per-IP rate limits see the SPA's IP, not the BFF's egress
+// (ADR-050 plan §8.2).
+type ListSessionsRequest struct {
+	UserID       string
+	UserBearer   string
+	OnBehalfOfIP string
+}
+
+// RevokeSessionRequest names the session to revoke and how to attest
+// the caller. Auth shape is identical to ListSessionsRequest.
+type RevokeSessionRequest struct {
+	SessionID    string
+	UserID       string
+	UserBearer   string
+	OnBehalfOfIP string
+}
+
+// MFAChallengeRequest mints a step-up challenge for the user identified
+// by AccessToken. OnBehalfOfIP, when set, is forwarded as
+// X-On-Behalf-Of-IP for per-IP rate-limit attribution on
+// /auth/mfa/challenge (ADR-050 plan §8.2).
+type MFAChallengeRequest struct {
+	AccessToken  string
+	OnBehalfOfIP string
+}
+
 // Login exchanges a provider token for a realm-scoped session. On a 412
 // mfa_required, returns *RealmError{Code: mfa_required} with
 // Details["mfa_challenge_token"] populated.
-func (a *AuthClient) Login(ctx context.Context, req LoginRequest) (*Session, error) {
+func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -126,9 +180,13 @@ func (a *AuthClient) Login(ctx context.Context, req LoginRequest) (*Session, err
 		method = LoginFirebase
 	}
 	body := map[string]any{
-		"realm_id":       a.realm.realmID,
-		"method":         string(method),
-		"provider_token": req.ProviderToken,
+		"realm_id": a.realm.realmID,
+		"method":   string(method),
+		// Field name is "token" on the wire (see api/internal/httpapi/auth.go
+		// loginReq.Token). The SDK historically sent "provider_token";
+		// realigning here keeps Auth.Login working when the BFF talks to
+		// auth.realmid.dev directly. SDK 0.6.0 will document this.
+		"token": req.ProviderToken,
 	}
 	var resp Session
 	if err := a.realm.http.do(ctx, requestOptions{
@@ -140,12 +198,35 @@ func (a *AuthClient) Login(ctx context.Context, req LoginRequest) (*Session, err
 	}, &resp); err != nil {
 		return nil, err
 	}
+	// Consolidate the legacy "id" tenant field onto ID for callers that
+	// branch on that. (Today's RealmID emits "tenant_id"; older mocked
+	// issuers in tests emit "id".)
+	for i := range resp.Tenants {
+		if resp.Tenants[i].ID == "" && resp.Tenants[i].IDLegacy != "" {
+			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
+		}
+	}
+	// Backfill User.ID from the access token's sub claim — the wire
+	// response shape omits a top-level user object today (see
+	// api/internal/httpapi/auth.go loginResp). Email/DisplayName fall
+	// out of the JWT too when present.
+	if resp.User.ID == "" && resp.AccessToken != "" {
+		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
+			resp.User.ID = sub
+			if resp.User.Email == "" {
+				resp.User.Email = email
+			}
+			if resp.User.DisplayName == "" {
+				resp.User.DisplayName = name
+			}
+		}
+	}
 	return &resp, nil
 }
 
 // Token rotates a refresh token, optionally switching tenants and
 // merging custom claims into the minted access token.
-func (a *AuthClient) Token(ctx context.Context, req TokenRequest) (*MintResult, error) {
+func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -171,7 +252,7 @@ func (a *AuthClient) Token(ctx context.Context, req TokenRequest) (*MintResult, 
 }
 
 // MFAVerify completes an MFA challenge. Same response shape as Login.
-func (a *AuthClient) MFAVerify(ctx context.Context, req MFAVerifyRequest) (*Session, error) {
+func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Session, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -186,12 +267,17 @@ func (a *AuthClient) MFAVerify(ctx context.Context, req MFAVerifyRequest) (*Sess
 		"code":            req.Code,
 		"method":          method,
 	}
+	headers := map[string]string{}
+	if req.OnBehalfOfIP != "" {
+		headers["X-On-Behalf-Of-IP"] = req.OnBehalfOfIP
+	}
 	var resp Session
 	if err := a.realm.http.do(ctx, requestOptions{
-		Method: "POST",
-		Path:   "/auth/mfa/verify",
-		Bearer: tok,
-		Body:   body,
+		Method:  "POST",
+		Path:    "/auth/mfa/verify",
+		Bearer:  tok,
+		Body:    body,
+		Headers: headers,
 	}, &resp); err != nil {
 		return nil, err
 	}
@@ -207,7 +293,7 @@ func (a *AuthClient) MFAVerify(ctx context.Context, req MFAVerifyRequest) (*Sess
 // stateless natural expiry (ADR-041 follow-up). Failure to push to the
 // cache does NOT fail the logout call; the server-side refresh
 // revocation is the load-bearing operation.
-func (a *AuthClient) Logout(ctx context.Context, req *LogoutRequest) error {
+func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return err
@@ -232,20 +318,32 @@ func (a *AuthClient) Logout(ctx context.Context, req *LogoutRequest) error {
 	return nil
 }
 
-// RevokeSession removes a session by id. Uses the user's bearer token
-// (per SPEC §4.5 — this is a user-context call).
-func (a *AuthClient) RevokeSession(ctx context.Context, sessionID, userBearer string) error {
+// RevokeSession removes a session by id. The caller identifies the
+// user either via a user-bearer JWT (legacy / public-client realms) or
+// via UserID + the SDK's platform token (BFF realms; ADR-041 §7).
+func (a *AuthClient) RevokeSession(ctx ctxpkg.Context, req RevokeSessionRequest) error {
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	if err != nil {
+		return err
+	}
 	return a.realm.http.do(ctx, requestOptions{
-		Method: "DELETE",
-		Path:   "/auth/sessions/" + url.PathEscape(sessionID),
-		Bearer: userBearer,
+		Method:  "DELETE",
+		Path:    "/auth/sessions/" + url.PathEscape(req.SessionID),
+		Bearer:  bearer,
+		Headers: headers,
 	}, nil)
 }
 
-// ListSessions iterates sessions for the user identified by userBearer.
-// Per SPEC §4.6 this uses the user's bearer JWT, NOT the platform token.
-func (a *AuthClient) ListSessions(ctx context.Context, userBearer string) iter.Seq2[*SessionInfo, error] {
+// ListSessions iterates sessions for the user named in req. Public-
+// client realms set UserBearer; BFF realms set UserID and the SDK
+// attaches the platform token + X-On-Behalf-Of-User (ADR-041 §7).
+func (a *AuthClient) ListSessions(ctx ctxpkg.Context, req ListSessionsRequest) iter.Seq2[*SessionInfo, error] {
 	return func(yield func(*SessionInfo, error) bool) {
+		bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
 		var cursor string
 		for {
 			q := map[string]string{}
@@ -254,10 +352,11 @@ func (a *AuthClient) ListSessions(ctx context.Context, userBearer string) iter.S
 			}
 			var raw map[string]any
 			if err := a.realm.http.do(ctx, requestOptions{
-				Method: "GET",
-				Path:   "/auth/sessions",
-				Bearer: userBearer,
-				Query:  q,
+				Method:  "GET",
+				Path:    "/auth/sessions",
+				Bearer:  bearer,
+				Query:   q,
+				Headers: headers,
 			}, &raw); err != nil {
 				yield(nil, err)
 				return
@@ -344,7 +443,11 @@ func inferOrigin(info *RealmInfo) string {
 // proof. Returns ("", nil, error) when the server hasn't shipped the
 // endpoint yet — the middleware downgrades to a generic 412 envelope
 // without a pre-minted challenge.
-func (a *AuthClient) MintMFAChallenge(ctx context.Context, accessToken string) (string, []string, error) {
+func (a *AuthClient) MintMFAChallenge(ctx ctxpkg.Context, req MFAChallengeRequest) (string, []string, error) {
+	headers := map[string]string{}
+	if req.OnBehalfOfIP != "" {
+		headers["X-On-Behalf-Of-IP"] = req.OnBehalfOfIP
+	}
 	var resp struct {
 		MFAChallengeToken string   `json:"mfa_challenge_token"`
 		Methods           []string `json:"methods"`
@@ -353,10 +456,45 @@ func (a *AuthClient) MintMFAChallenge(ctx context.Context, accessToken string) (
 		Method: "POST",
 		Path:   "/auth/mfa/challenge",
 		// Empty body — the bearer identifies user, session, and realm.
-		Body:   map[string]string{},
-		Bearer: accessToken,
+		Body:    map[string]string{},
+		Bearer:  req.AccessToken,
+		Headers: headers,
 	}, &resp); err != nil {
 		return "", nil, err
 	}
 	return resp.MFAChallengeToken, resp.Methods, nil
+}
+
+// resolveOnBehalfOf picks the bearer + headers for endpoints that act
+// on a specific user. Exactly one of userID / userBearer must be set:
+// userID → platform token + X-On-Behalf-Of-User (BFF mode, ADR-041 §7);
+// userBearer → that JWT direct (legacy / public-client mode). When set,
+// onBehalfOfIP rides as X-On-Behalf-Of-IP for per-IP rate-limit
+// attribution (ADR-050 plan §8.2).
+func (a *AuthClient) resolveOnBehalfOf(ctx ctxpkg.Context, userID, userBearer, onBehalfOfIP string) (string, map[string]string, error) {
+	if userID == "" && userBearer == "" {
+		return "", nil, &RealmError{
+			Code:    ErrCodeBadRequest,
+			Message: "set exactly one of UserID (BFF mode) or UserBearer (legacy mode)",
+		}
+	}
+	if userID != "" && userBearer != "" {
+		return "", nil, &RealmError{
+			Code:    ErrCodeBadRequest,
+			Message: "set exactly one of UserID or UserBearer, not both",
+		}
+	}
+	headers := map[string]string{}
+	if onBehalfOfIP != "" {
+		headers["X-On-Behalf-Of-IP"] = onBehalfOfIP
+	}
+	if userID != "" {
+		tok, err := a.realm.platformToken.get(ctx)
+		if err != nil {
+			return "", nil, err
+		}
+		headers["X-On-Behalf-Of-User"] = userID
+		return tok, headers, nil
+	}
+	return userBearer, headers, nil
 }

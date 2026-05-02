@@ -139,6 +139,30 @@ func peekJWTIssuer(jwt string) (string, error) {
 	return c.Iss, nil
 }
 
+// peekJWTUserFields decodes the JWT payload (no signature check) and
+// returns its `sub`, `email`, and `name` claims. Used by Auth.Login to
+// backfill UserSummary fields the wire response shape omits today.
+// Signature verification stays the verifier's job.
+func peekJWTUserFields(jwt string) (sub, email, name string, err error) {
+	parts := strings.Split(jwt, ".")
+	if len(parts) != 3 {
+		return "", "", "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: expected 3 parts"}
+	}
+	raw, derr := base64.RawURLEncoding.DecodeString(parts[1])
+	if derr != nil {
+		return "", "", "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
+	}
+	var c struct {
+		Sub   string `json:"sub"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if jerr := json.Unmarshal(raw, &c); jerr != nil {
+		return "", "", "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not json"}
+	}
+	return c.Sub, c.Email, c.Name, nil
+}
+
 // peekJWTRevokeFields decodes the JWT payload (no signature check) and
 // returns its `jti` and `exp` claims. Used by AuthClient.Logout's
 // RevocationCache integration. Returns ("", zero time, error) on

@@ -233,7 +233,7 @@ func evaluateMFAFreshness(c *Claims, rule *compiledMFARule, defaultMaxAge time.D
 // support the endpoint yet, returns ("", ["totp"]) so the 412 envelope
 // still tells the client which methods are available.
 func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (string, []string) {
-	ct, methods, err := r.Auth.MintMFAChallenge(reqCtx, accessToken)
+	ct, methods, err := r.Auth.MintMFAChallenge(reqCtx, MFAChallengeRequest{AccessToken: accessToken})
 	if err != nil {
 		r.logger.Warn("realmid mfa challenge mint unavailable", slog.String("error", err.Error()))
 		return "", []string{"totp"}
