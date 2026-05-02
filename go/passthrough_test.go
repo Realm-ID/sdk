@@ -73,6 +73,29 @@ func TestRealm_Do_AttachesPlatformTokenAndOBO(t *testing.T) {
 	}
 }
 
+func TestRealm_Do_UserBearerOverride(t *testing.T) {
+	var gotAuth string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/sessions/abc": func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	resp, err := r.Do(context.Background(), http.MethodDelete, "/auth/sessions/abc", nil, &PassthroughOptions{
+		UserBearer: "rt-one-shot-revocation",
+	})
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	resp.Body.Close()
+	if gotAuth != "Bearer rt-one-shot-revocation" {
+		t.Errorf("auth = %q, want UserBearer override", gotAuth)
+	}
+}
+
 func TestRealm_Do_Returns4xxResponseUnchanged(t *testing.T) {
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/tenants/missing": func(w http.ResponseWriter, _ *http.Request) {

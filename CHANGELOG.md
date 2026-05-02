@@ -5,6 +5,15 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## 0.8.2 — PassthroughOptions.UserBearer (Go) (2026-05-02)
+
+Adds `UserBearer` to `PassthroughOptions`. When set, replaces the
+default platform-token bearer with the supplied bearer (typically a
+user JWT or a one-shot revocation_token). The platform token is
+still minted (cache stays warm, mint-errors surface), but the wire
+bearer is the user's. Required for the BFF's session-limit-modal
+flow where the auth server validates a one-shot revocation_token.
+
 ## 0.8.1 — LoginRequest.TenantID (Go) (2026-05-02)
 
 `LoginRequest` now carries an optional `TenantID`. When set, the SDK

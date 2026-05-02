@@ -21,6 +21,15 @@ type PassthroughOptions struct {
 	// than the BFF's egress.
 	OnBehalfOfIP string
 
+	// UserBearer, when non-empty, REPLACES the platform-token bearer
+	// with the supplied bearer (typically a user's access JWT or a
+	// scoped one-shot token like a revocation_token). The platform
+	// token is still minted (so the cache stays warm + token-mint
+	// errors propagate), but the wire bearer is the user's. This is
+	// the auth model needed for the session-limit-modal flow where the
+	// auth server validates a one-shot revocation_token bearer.
+	UserBearer string
+
 	// Header carries any additional request headers to forward
 	// verbatim (e.g. `Idempotency-Key`). Authorization is always
 	// overwritten; do not set it here.
@@ -56,6 +65,7 @@ func (r *Realm) Do(ctx ctxpkg.Context, method, path string, body io.Reader, opts
 		return nil, &RealmError{Code: ErrCodeBadRequest, Message: fmt.Sprintf("build request: %v", err), Cause: err}
 	}
 
+	bearer := tok
 	if opts != nil {
 		for k, vs := range opts.Header {
 			for _, v := range vs {
@@ -68,8 +78,11 @@ func (r *Realm) Do(ctx ctxpkg.Context, method, path string, body io.Reader, opts
 		if opts.OnBehalfOfIP != "" {
 			req.Header.Set("X-On-Behalf-Of-IP", opts.OnBehalfOfIP)
 		}
+		if opts.UserBearer != "" {
+			bearer = opts.UserBearer
+		}
 	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Authorization", "Bearer "+bearer)
 	if req.Header.Get("Accept") == "" {
 		req.Header.Set("Accept", "application/json")
 	}
