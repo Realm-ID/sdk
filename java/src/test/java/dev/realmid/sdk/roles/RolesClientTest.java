@@ -52,9 +52,9 @@ class RolesClientTest {
     void listReturnsLockedEnvelopeShape() {
         fs.on("GET /platforms/01HREALM/roles", (ex, body) -> FakeServer.Reply.json(200, Map.of(
                 "items", List.of(
-                        Map.of("name", "owner", "permissions", List.of(),
+                        Map.of("id", "role-owner", "name", "owner", "permissions", List.of(),
                                 "is_system", true, "created_at", 1, "updated_at", 1),
-                        Map.of("name", "salesman", "display_name", "Field Sales",
+                        Map.of("id", "role-salesman", "name", "salesman", "display_name", "Field Sales",
                                 "permissions", List.of("bills:read"),
                                 "is_system", false, "created_at", 2, "updated_at", 3)),
                 "next_cursor", "",
@@ -74,6 +74,7 @@ class RolesClientTest {
             assertEquals("Field Sales", body.get("display_name"));
             return FakeServer.Reply.json(201, Map.of(
                     "name", "salesman", "display_name", "Field Sales",
+                    "id", "role-salesman",
                     "permissions", List.of("bills:read"),
                     "is_system", false, "created_at", 1, "updated_at", 1));
         });
@@ -85,24 +86,25 @@ class RolesClientTest {
 
     @Test
     void updateSendsOnlyProvidedFields() {
-        fs.onJson("PATCH /platforms/01HREALM/roles/salesman", (body, rec) -> {
+        fs.onJson("PATCH /platforms/01HREALM/roles/role-salesman", (body, rec) -> {
             assertFalse(body.containsKey("display_name"), "display_name should be omitted");
             assertNotNull(body.get("permissions"));
             return FakeServer.Reply.json(200, Map.of(
                     "name", "salesman",
+                    "id", "role-salesman",
                     "permissions", List.of("bills:read", "orders:all"),
                     "is_system", false, "created_at", 1, "updated_at", 2));
         });
-        RoleObject r = realm.roles().update("salesman",
+        RoleObject r = realm.roles().update("role-salesman",
                 RolePatch.onlyPermissions(List.of("bills:read", "orders:all")));
         assertEquals(2, r.permissions().size());
     }
 
     @Test
     void deleteHappy() {
-        fs.on("DELETE /platforms/01HREALM/roles/old", (ex, body) -> FakeServer.Reply.json(200,
+        fs.on("DELETE /platforms/01HREALM/roles/role-old", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("status", "deleted")));
-        RoleDeleteResult out = realm.roles().delete("old");
+        RoleDeleteResult out = realm.roles().delete("role-old");
         assertEquals("deleted", out.status());
     }
 
@@ -112,10 +114,10 @@ class RolesClientTest {
         envelope.put("error", Map.of("code", "conflict", "message", "role still attached to users"));
         envelope.put("code", "role_in_use");
         envelope.put("role_in_use", true);
-        fs.on("DELETE /platforms/01HREALM/roles/salesman", (ex, body) ->
+        fs.on("DELETE /platforms/01HREALM/roles/role-salesman", (ex, body) ->
                 FakeServer.Reply.json(409, envelope));
 
-        RealmException ex = assertThrows(RealmException.class, () -> realm.roles().delete("salesman"));
+        RealmException ex = assertThrows(RealmException.class, () -> realm.roles().delete("role-salesman"));
         assertEquals(ErrorCode.CONFLICT, ex.getCode());
         assertEquals(409, ex.getHttpStatus());
         // The server's role-specific code rides through on details siblings.
@@ -125,13 +127,14 @@ class RolesClientTest {
 
     @Test
     void renamePostsTo() {
-        fs.onJson("POST /platforms/01HREALM/roles/oldname/rename", (body, rec) -> {
+        fs.onJson("POST /platforms/01HREALM/roles/role-oldname/rename", (body, rec) -> {
             assertEquals("newname", body.get("to"));
             return FakeServer.Reply.json(200, Map.of(
                     "name", "newname", "permissions", List.of(),
+                    "id", "role-oldname",
                     "is_system", false, "created_at", 1, "updated_at", 2));
         });
-        RoleObject r = realm.roles().rename("oldname", "newname");
+        RoleObject r = realm.roles().rename("role-oldname", "newname");
         assertEquals("newname", r.name());
     }
 }

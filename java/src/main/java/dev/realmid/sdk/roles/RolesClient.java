@@ -64,31 +64,31 @@ public final class RolesClient {
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 
-    /** PATCH /platforms/{id}/roles/{name}. */
-    public RoleObject update(String name, RolePatch patch) {
+    /** PATCH /platforms/{id}/roles/{roleId}. */
+    public RoleObject update(String roleId, RolePatch patch) {
         Map<String, Object> b = new LinkedHashMap<>();
         if (patch.displayName() != null) b.put("display_name", patch.displayName());
         if (patch.permissions() != null) b.put("permissions", patch.permissions());
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "PATCH", "/platforms/" + enc(realmId) + "/roles/" + enc(name)).body(b));
+                "PATCH", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId)).body(b));
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 
-    /** DELETE /platforms/{id}/roles/{name}. */
-    public RoleDeleteResult delete(String name) {
+    /** DELETE /platforms/{id}/roles/{roleId}. */
+    public RoleDeleteResult delete(String roleId) {
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "DELETE", "/platforms/" + enc(realmId) + "/roles/" + enc(name)));
+                "DELETE", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId)));
         if (raw == null) return new RoleDeleteResult("deleted");
         JsonNode s = raw.get("status");
         return new RoleDeleteResult(s != null && s.isTextual() ? s.asText() : "deleted");
     }
 
-    /** POST /platforms/{id}/roles/{name}/rename. */
-    public RoleObject rename(String name, String to) {
+    /** POST /platforms/{id}/roles/{roleId}/rename. */
+    public RoleObject rename(String roleId, String to) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("to", to);
         JsonNode raw = http.request(HttpTransport.Request.of(
-                "POST", "/platforms/" + enc(realmId) + "/roles/" + enc(name) + "/rename").body(b));
+                "POST", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId) + "/rename").body(b));
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 

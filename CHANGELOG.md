@@ -109,9 +109,9 @@ Every realm-admin sub-path was renamed:
 | `PATCH /realms/{id}/config` | `PATCH /platforms/{id}/config` |
 | `GET /realms/{id}/roles` | `GET /platforms/{id}/roles` |
 | `POST /realms/{id}/roles` | `POST /platforms/{id}/roles` |
-| `PATCH /realms/{id}/roles/{name}` | `PATCH /platforms/{id}/roles/{name}` |
-| `DELETE /realms/{id}/roles/{name}` | `DELETE /platforms/{id}/roles/{name}` |
-| `POST /realms/{id}/roles/{name}/rename` | `POST /platforms/{id}/roles/{name}/rename` |
+| `PATCH /realms/{id}/roles/{name}` | `PATCH /platforms/{id}/roles/{roleId}` |
+| `DELETE /realms/{id}/roles/{name}` | `DELETE /platforms/{id}/roles/{roleId}` |
+| `POST /realms/{id}/roles/{name}/rename` | `POST /platforms/{id}/roles/{roleId}/rename` |
 
 The high-level SDK surface (`realm.apiKeys.*`, `realm.config.update`,
 `realm.roles.*`, etc.) is unchanged — only the wire path constants

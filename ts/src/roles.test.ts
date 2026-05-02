@@ -42,8 +42,8 @@ test("roles.list: returns the locked envelope shape", async () => {
     assert.match(req.url, /\/platforms\/r\/roles/);
     return new Response(JSON.stringify({
       items: [
-        { name: "owner", permissions: [], is_system: true, created_at: 1, updated_at: 1 },
-        { name: "salesman", display_name: "Field Sales", permissions: ["bills:read"],
+        { id: "role-owner", name: "owner", permissions: [], is_system: true, created_at: 1, updated_at: 1 },
+        { id: "role-salesman", name: "salesman", display_name: "Field Sales", permissions: ["bills:read"],
           is_system: false, created_at: 2, updated_at: 3 },
       ],
       next_cursor: null,
@@ -81,6 +81,7 @@ test("roles.create: maps displayName + permissions to wire shape", async () => {
     });
     return new Response(JSON.stringify({
       name: "salesman", display_name: "Field Sales",
+      id: "role-salesman",
       permissions: ["bills:read"], is_system: false,
       created_at: 1, updated_at: 1,
     }), { status: 201, headers: { "content-type": "application/json" } });
@@ -94,28 +95,28 @@ test("roles.create: maps displayName + permissions to wire shape", async () => {
 test("roles.update: sends only provided fields", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "PATCH");
-    assert.match(req.url, /\/platforms\/r\/roles\/salesman$/);
+    assert.match(req.url, /\/platforms\/r\/roles\/role-salesman$/);
     assert.deepEqual(req.body, { permissions: ["bills:read", "orders:all"] });
     return new Response(JSON.stringify({
-      name: "salesman", permissions: ["bills:read", "orders:all"],
+      id: "role-salesman", name: "salesman", permissions: ["bills:read", "orders:all"],
       is_system: false, created_at: 1, updated_at: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  const r = await realm.roles.update("salesman", { permissions: ["bills:read", "orders:all"] });
+  const r = await realm.roles.update("role-salesman", { permissions: ["bills:read", "orders:all"] });
   assert.deepEqual(r.permissions, ["bills:read", "orders:all"]);
 });
 
 test("roles.delete: returns deleted ack", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "DELETE");
-    assert.match(req.url, /\/platforms\/r\/roles\/old$/);
+    assert.match(req.url, /\/platforms\/r\/roles\/role-old$/);
     return new Response(JSON.stringify({ status: "deleted" }), {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  const out = await realm.roles.delete("old");
+  const out = await realm.roles.delete("role-old");
   assert.equal(out.status, "deleted");
 });
 
@@ -125,7 +126,7 @@ test("roles.delete: 409 role_in_use surfaces as RealmError(conflict)", async () 
     role_in_use: true,
   }), { status: 409, headers: { "content-type": "application/json" } }));
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  await assert.rejects(() => realm.roles.delete("salesman"), (e: Error) => {
+  await assert.rejects(() => realm.roles.delete("role-salesman"), (e: Error) => {
     return e instanceof RealmError && e.code === "conflict" && e.httpStatus === 409;
   });
 });
@@ -133,14 +134,14 @@ test("roles.delete: 409 role_in_use surfaces as RealmError(conflict)", async () 
 test("roles.rename: posts {to: <new>}", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "POST");
-    assert.match(req.url, /\/platforms\/r\/roles\/oldname\/rename$/);
+    assert.match(req.url, /\/platforms\/r\/roles\/role-oldname\/rename$/);
     assert.deepEqual(req.body, { to: "newname" });
     return new Response(JSON.stringify({
-      name: "newname", permissions: [], is_system: false,
+      id: "role-oldname", name: "newname", permissions: [], is_system: false,
       created_at: 1, updated_at: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  const r = await realm.roles.rename("oldname", { to: "newname" });
+  const r = await realm.roles.rename("role-oldname", { to: "newname" });
   assert.equal(r.name, "newname");
 });

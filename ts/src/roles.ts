@@ -20,6 +20,7 @@ export const MEMBER = "member";
 export type Role = string;
 
 export interface RoleObject {
+  id: string;
   name: string;
   display_name?: string;
   permissions: string[];
@@ -83,28 +84,28 @@ export class RolesClient {
     });
   }
 
-  async update(name: string, patch: RolePatch): Promise<RoleObject> {
+  async update(roleId: string, patch: RolePatch): Promise<RoleObject> {
     const wire: Record<string, unknown> = {};
     if (patch.displayName !== undefined) wire["display_name"] = patch.displayName;
     if (patch.permissions !== undefined) wire["permissions"] = patch.permissions;
     return this.http.request<RoleObject>({
       method: "PATCH",
-      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}`,
       body: wire,
     });
   }
 
-  async delete(name: string): Promise<{ status: "deleted" }> {
+  async delete(roleId: string): Promise<{ status: "deleted" }> {
     return this.http.request<{ status: "deleted" }>({
       method: "DELETE",
-      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}`,
     });
   }
 
-  async rename(name: string, opts: { to: string }): Promise<RoleObject> {
+  async rename(roleId: string, opts: { to: string }): Promise<RoleObject> {
     return this.http.request<RoleObject>({
       method: "POST",
-      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(name)}/rename`,
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}/rename`,
       body: { to: opts.to },
     });
   }

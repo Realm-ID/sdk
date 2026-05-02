@@ -15,6 +15,7 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public final class RoleObject {
 
+    private String id;
     private String name;
     @JsonProperty("display_name") @JsonAlias("displayName")
     private String displayName;
@@ -29,6 +30,7 @@ public final class RoleObject {
 
     public RoleObject() {}
 
+    public String id() { return id; }
     public String name() { return name; }
     public String displayName() { return displayName; }
     public List<String> permissions() { return permissions; }
@@ -38,6 +40,7 @@ public final class RoleObject {
     @JsonAnyGetter public Map<String, Object> extra() { return extra; }
     @JsonAnySetter public void put(String k, Object v) { extra.put(k, v); }
 
+    public void setId(String v) { this.id = v; }
     public void setName(String v) { this.name = v; }
     public void setDisplayName(String v) { this.displayName = v; }
     public void setPermissions(List<String> v) { this.permissions = v; }

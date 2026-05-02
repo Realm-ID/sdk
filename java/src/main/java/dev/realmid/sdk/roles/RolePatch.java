@@ -3,7 +3,7 @@ package dev.realmid.sdk.roles;
 import java.util.List;
 
 /**
- * PATCH body for {@code /platforms/{id}/roles/{name}}. Null fields are
+ * PATCH body for {@code /platforms/{id}/roles/{roleId}}. Null fields are
  * omitted from the wire payload (signal "don't touch").
  */
 public record RolePatch(String displayName, List<String> permissions) {

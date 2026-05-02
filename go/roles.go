@@ -29,6 +29,7 @@ const (
 // RoleObject is one realm-defined role, as returned by the
 // `/platforms/{id}/roles` endpoints.
 type RoleObject struct {
+	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name,omitempty"`
 	Permissions []string `json:"permissions"`
@@ -137,7 +138,7 @@ func (c *RolesClient) Create(ctx ctxpkg.Context, body RoleCreate) (*RoleObject, 
 
 // Update patches display_name and/or permissions on an existing role.
 // Returns ErrSystemRoleImmutable when called on `owner` or `member`.
-func (c *RolesClient) Update(ctx ctxpkg.Context, name string, patch RolePatch) (*RoleObject, error) {
+func (c *RolesClient) Update(ctx ctxpkg.Context, roleID string, patch RolePatch) (*RoleObject, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -145,7 +146,7 @@ func (c *RolesClient) Update(ctx ctxpkg.Context, name string, patch RolePatch) (
 	var r RoleObject
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "PATCH",
-		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name),
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(roleID),
 		Bearer: tok,
 		Body:   patch,
 	}, &r); err != nil {
@@ -157,7 +158,7 @@ func (c *RolesClient) Update(ctx ctxpkg.Context, name string, patch RolePatch) (
 // Delete removes a custom role. Returns ErrRoleInUse (409) when the
 // role is still attached to users/invitations, ErrSystemRoleImmutable
 // (400) for `owner`/`member`.
-func (c *RolesClient) Delete(ctx ctxpkg.Context, name string) (*RoleDeleteResult, error) {
+func (c *RolesClient) Delete(ctx ctxpkg.Context, roleID string) (*RoleDeleteResult, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -165,7 +166,7 @@ func (c *RolesClient) Delete(ctx ctxpkg.Context, name string) (*RoleDeleteResult
 	var out RoleDeleteResult
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "DELETE",
-		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name),
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(roleID),
 		Bearer: tok,
 	}, &out); err != nil {
 		return nil, mapRoleErr(err)
@@ -178,7 +179,7 @@ func (c *RolesClient) Delete(ctx ctxpkg.Context, name string) (*RoleDeleteResult
 
 // Rename rewrites a role's name in `realm_roles`, `users.role`, and
 // `invitations.role` in one transaction (server-side).
-func (c *RolesClient) Rename(ctx ctxpkg.Context, name string, to string) (*RoleObject, error) {
+func (c *RolesClient) Rename(ctx ctxpkg.Context, roleID string, to string) (*RoleObject, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -186,7 +187,7 @@ func (c *RolesClient) Rename(ctx ctxpkg.Context, name string, to string) (*RoleO
 	var r RoleObject
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(name) + "/rename",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(roleID) + "/rename",
 		Bearer: tok,
 		Body:   map[string]string{"to": to},
 	}, &r); err != nil {
