@@ -5,6 +5,27 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## 0.8.0 — Realm.Do passthrough (Go) (2026-05-02)
+
+Adds a public escape hatch for BFF / proxy consumers that need to
+forward arbitrary admin-API calls without re-implementing the
+dual-token dance:
+
+- **`Realm.Do(ctx, method, path, body, *PassthroughOptions)`** — issues
+  an authenticated request and returns the raw `*http.Response`. The
+  platform token is minted (and cached) behind the scenes; the caller
+  closes `resp.Body`.
+- **`PassthroughOptions`** carries `OnBehalfOfUser`
+  (→ `X-On-Behalf-Of-User`), `OnBehalfOfIP` (→ `X-On-Behalf-Of-IP`),
+  and a free-form `http.Header` for forwarding things like
+  `Idempotency-Key` or `Content-Type`. `Authorization` is always
+  overwritten with the platform-token bearer.
+
+Typed methods (`Tenants`, `Roles`, `Origins`, …) remain the
+recommended surface for application code; `Do` exists for the BFF at
+`api.realmid.dev` and for partner backends doing protocol-level
+gateway work.
+
 ## 0.7.0 — BFF alignment fixes (Go) (2026-05-02)
 
 Alignment fixes surfaced while standing up the `api.realmid.dev` BFF
