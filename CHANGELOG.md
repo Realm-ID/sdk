@@ -5,6 +5,14 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## 0.8.1 — LoginRequest.TenantID (Go) (2026-05-02)
+
+`LoginRequest` now carries an optional `TenantID`. When set, the SDK
+forwards `tenant_id` on the `/auth/login` body so the auth server can
+mint a tenant-scoped session in one round-trip. When empty and the
+user has >1 tenants, the auth server's existing tenant-picker
+response (no tokens, just `tenants[]`) is preserved.
+
 ## 0.8.0 — Realm.Do passthrough (Go) (2026-05-02)
 
 Adds a public escape hatch for BFF / proxy consumers that need to

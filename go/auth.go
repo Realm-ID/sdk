@@ -27,6 +27,12 @@ type LoginRequest struct {
 	Method        LoginMethod
 	ProviderToken string
 	Origin        string // optional override of the SDK-derived Origin header
+
+	// TenantID disambiguates when the user is a member of multiple
+	// tenants in the realm. When empty and the user has >1 tenants, the
+	// auth server returns the tenant list (no tokens) so the caller can
+	// re-POST with the chosen tenant_id.
+	TenantID string
 }
 
 // TenantRef is the abbreviated tenant info embedded in Session.Tenants.
@@ -187,6 +193,9 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 		// realigning here keeps Auth.Login working when the BFF talks to
 		// auth.realmid.dev directly. SDK 0.6.0 will document this.
 		"token": req.ProviderToken,
+	}
+	if req.TenantID != "" {
+		body["tenant_id"] = req.TenantID
 	}
 	var resp Session
 	if err := a.realm.http.do(ctx, requestOptions{
