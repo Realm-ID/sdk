@@ -73,6 +73,20 @@ export type {
 
 export type { Paginated, Page, PageOpts } from "./pagination.js";
 
+export { AdminClient } from "./admin.js";
+export type {
+  AdminPlatformsResponse,
+  AdminStats,
+  AdminEventsResponse,
+  AdminSearchResponse,
+  AuditEvent,
+  PlatformOwner,
+  PlatformSummary,
+  SearchHit,
+  ListPlatformsOpts,
+  ListEventsOpts,
+} from "./admin.js";
+
 export { createMiddleware, globMatch } from "./middleware.js";
 export type {
   MiddlewareConfig,

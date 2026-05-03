@@ -17,6 +17,7 @@ import { ConfigClient } from "./config.js";
 import { RolesClient } from "./roles.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
+import { AdminClient } from "./admin.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
@@ -77,6 +78,7 @@ export interface Realm {
   readonly roles: RolesClient;
   readonly origins: OriginsClient;
   readonly tokens: TokensClient;
+  readonly admin: AdminClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -172,6 +174,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     roles: new RolesClient(http, cfg.realmId),
     origins: new OriginsClient(http, platformTokens),
     tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
+    admin: new AdminClient(http),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

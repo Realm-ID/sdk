@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "node --test --import tsx --test-reporter=spec src/errors.test.ts src/verifier.test.ts src/platform-token-manager.test.ts src/auth.test.ts src/tenants.test.ts src/roles.test.ts src/middleware.test.ts src/integration.test.ts src/revocation.test.ts src/origins.test.ts src/tokens.test.ts",
+    "test": "node --test --import tsx --test-reporter=spec src/errors.test.ts src/verifier.test.ts src/platform-token-manager.test.ts src/auth.test.ts src/tenants.test.ts src/roles.test.ts src/middleware.test.ts src/integration.test.ts src/revocation.test.ts src/origins.test.ts src/tokens.test.ts src/admin.test.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

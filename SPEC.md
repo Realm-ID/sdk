@@ -423,6 +423,66 @@ must not vary across endpoints.
   realm.tenants().list().stream().forEach(t -> { ... });
   ```
 
+## 7.5 Admin surface (`realm.admin.*`)
+
+Read-only aggregates for the RealmID admin console (ADR-048). All four
+endpoints are gated **server-side** on base-realm staff (a base-realm
+admin-user JWT or a service JWT scoped to the base realm). The SDK
+does **not** gate locally — it forwards the platform-token bearer and
+surfaces the API's `403 forbidden` envelope as the standard
+`RealmError(forbidden)`. Cursor pagination follows §7 (opaque base64
+offset cursor; `next_cursor: null` signals the last page).
+
+Surface — symmetric across runtimes:
+
+- `admin.listPlatforms(opts?)` → `AdminPlatformsResponse`
+  Wraps `GET /admin/platforms`. Filters: `q`, `status[]`, `signupMode[]`,
+  `domain`, `ownerUserId`, `hasCustomDomain`, `createdAfter`,
+  `createdBefore`, `lastActivityAfter`, `lastActivityBefore` (all unix
+  seconds), `sort`, `cursor`, `limit` (1..200, default 50). Multi-value
+  filters are sent as comma-joined values; the server accepts both
+  comma-separated and repeated-param forms.
+
+- `admin.stats()` → `AdminStats`
+  Wraps `GET /admin/stats`. Server caches for 30s.
+
+- `admin.listEvents(opts?)` → `AdminEventsResponse`
+  Wraps `GET /admin/events`. Filters: `platformId`, `tenantId`,
+  `actorId`, `kind[]`, `since`, `until` (unix seconds), `cursor`,
+  `limit`.
+
+- `admin.search(q, limit?)` → `AdminSearchResponse`
+  Wraps `GET /admin/search`. Typeahead over platforms + tenants. Not
+  paginated — server caps `limit` at 25 (default 10).
+
+Response shapes (JSON wire, identical in all SDKs):
+
+```
+PlatformSummary { id, display_name, slug, status, signup_mode,
+                  domains[], owner { user_id, name, email },
+                  tenants_count, users_count,
+                  last_activity_at (unix s), created_at (unix s) }
+AdminPlatformsResponse { items: PlatformSummary[],
+                         next_cursor: string | null,
+                         total: int }
+AdminStats { platforms_count, tenants_count, users_count,
+             sessions_active, events_24h }
+AuditEvent { id (int64), occurred_at (unix s), kind,
+             actor_user_id?, actor_label?,
+             platform_id?, tenant_id?,
+             target_type?, target_id?,
+             summary? }
+AdminEventsResponse { items: AuditEvent[],
+                      next_cursor: string | null }
+SearchHit { type: "platform" | "tenant", id, label,
+            sublabel?, platform_id? }
+AdminSearchResponse { items: SearchHit[] }
+```
+
+The cursor is opaque (base64-encoded offset). Callers must forward the
+returned `next_cursor` verbatim on the next call; tampered or invalid
+cursors are silently treated as the first page.
+
 ## 8. HTTP wire conventions
 
 - **Auth header:** `Authorization: Bearer <token>`. The token is a

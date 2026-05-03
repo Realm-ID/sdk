@@ -5,6 +5,15 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## Unreleased — Admin aggregates surface (all SDKs)
+
+Admin aggregates surface (ADR-048, SPEC §7.5) shipped on all three
+SDKs: `realm.admin.{listPlatforms, stats, listEvents, search}`. Wraps
+the base-realm-staff-only `GET /admin/platforms`, `/admin/stats`,
+`/admin/events`, `/admin/search` endpoints. The SDKs do not gate
+locally; the server's `403 forbidden` envelope is surfaced as the
+standard `RealmError(forbidden)` / `RealmException(FORBIDDEN)`.
+
 ## 0.8.2 — PassthroughOptions.UserBearer (Go) (2026-05-02)
 
 Adds `UserBearer` to `PassthroughOptions`. When set, replaces the

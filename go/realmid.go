@@ -96,6 +96,7 @@ type Realm struct {
 	Roles   *RolesClient
 	Origins *OriginsClient
 	Tokens  *TokensClient
+	Admin   *AdminClient
 }
 
 // Version is the published SDK version (semver). 0.5.0 corresponds to
@@ -104,7 +105,7 @@ type Realm struct {
 // /realms/{id}/... to /platforms/{id}/... (api-keys, config, roles)
 // and TenantCreate's `OpenSignup bool` is replaced by `SignupMode`
 // (closed | allowlist | open). OIDC discovery URLs stay on /realms/.
-const Version = "0.5.0"
+const Version = "0.6.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -142,6 +143,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Roles = &RolesClient{realm: r}
 	r.Origins = newOriginsClient(r)
 	r.Tokens = newTokensClient(cfg.Clock)
+	r.Admin = newAdminClient(r)
 
 	return r, nil
 }
