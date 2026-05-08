@@ -1,0 +1,32 @@
+{
+  "name": "@realmid/web-react",
+  "version": "0.1.0",
+  "description": "React bindings for @realmid/web — provider, useRealm, useUser, useTenant.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@realmid/web": "^0.1.0",
+    "react": ">=17"
+  },
+  "devDependencies": {
+    "@realmid/web": "^0.1.0",
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

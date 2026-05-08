@@ -1,0 +1,35 @@
+{
+  "name": "@realmid/web",
+  "version": "0.1.0",
+  "description": "Browser SDK for RealmID — token management, login-config discovery, framework-agnostic.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["realmid", "auth", "browser", "sdk"],
+  "homepage": "https://realmid.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Realm-ID/sdk.git",
+    "directory": "web/packages/core"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

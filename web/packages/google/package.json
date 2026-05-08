@@ -1,0 +1,29 @@
+{
+  "name": "@realmid/web-google",
+  "version": "0.1.0",
+  "description": "Google Identity Services adapter for @realmid/web — direct GIS popup/redirect (no Firebase).",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@realmid/web": "^0.1.0"
+  },
+  "devDependencies": {
+    "@realmid/web": "^0.1.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
