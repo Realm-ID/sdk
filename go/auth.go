@@ -260,6 +260,100 @@ func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 	return &resp, nil
 }
 
+// OTPLoginRequest is the input for AuthClient.OTPLogin (partner OTP
+// proposal §3.2.1). RealmID is overridden via the Realm config; pass
+// Identifier (email or E.164 phone) + Presented (the OTP value the user
+// typed). Returns Session on success; an enumeration-safe
+// invalid_credentials on miss.
+type OTPLoginRequest struct {
+	Identifier string
+	Presented  string
+	Origin     string
+	TenantID   string
+}
+
+// MFAVerifyOTPRequest is the input for AuthClient.MFAVerifyOTP (partner
+// OTP proposal §3.2.2). The MFA challenge token comes from the prior
+// /auth/login response; Presented is the OTP value the user typed.
+type MFAVerifyOTPRequest struct {
+	MFAToken     string
+	Presented    string
+	OnBehalfOfIP string
+}
+
+// OTPLogin exchanges an identifier + manager-issued OTP for a realm-
+// scoped session. Single-factor variant of the partner OTP primitive
+// (proposal §3.2.1). Gated server-side by realms.config.otp_login_enabled.
+func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session, error) {
+	tok, err := a.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{}
+	origin := req.Origin
+	if origin == "" {
+		origin = a.realm.cfg.Origin
+	}
+	if origin == "" {
+		if info, ierr := a.realm.info.Info(ctx); ierr == nil {
+			origin = inferOrigin(info)
+		}
+	}
+	if origin != "" {
+		headers["Origin"] = origin
+	}
+	body := map[string]any{
+		"realm_id":   a.realm.realmID,
+		"method":     "otp_internal",
+		"identifier": req.Identifier,
+		"presented":  req.Presented,
+	}
+	if req.TenantID != "" {
+		body["tenant_id"] = req.TenantID
+	}
+	var resp Session
+	if err := a.realm.http.do(ctx, requestOptions{
+		Method:  "POST",
+		Path:    "/auth/login",
+		Bearer:  tok,
+		Body:    body,
+		Headers: headers,
+	}, &resp); err != nil {
+		return nil, err
+	}
+	for i := range resp.Tenants {
+		if resp.Tenants[i].ID == "" && resp.Tenants[i].IDLegacy != "" {
+			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
+		}
+	}
+	if resp.User.ID == "" && resp.AccessToken != "" {
+		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
+			resp.User.ID = sub
+			if resp.User.Email == "" {
+				resp.User.Email = email
+			}
+			if resp.User.DisplayName == "" {
+				resp.User.DisplayName = name
+			}
+		}
+	}
+	return &resp, nil
+}
+
+// MFAVerifyOTP completes an otp_internal second-factor challenge. Same
+// response shape as Login. The first-factor login response carries an
+// `mfa_challenge_token` and a `methods` list including "otp_internal"
+// when the user is enrolled (per-user mfa_methods or per-role
+// required_mfa_methods, gated by realms.config.otp_mfa_enabled).
+func (a *AuthClient) MFAVerifyOTP(ctx ctxpkg.Context, req MFAVerifyOTPRequest) (*Session, error) {
+	return a.MFAVerify(ctx, MFAVerifyRequest{
+		ChallengeToken: req.MFAToken,
+		Code:           req.Presented,
+		Method:         "otp_internal",
+		OnBehalfOfIP:   req.OnBehalfOfIP,
+	})
+}
+
 // MFAVerify completes an MFA challenge. Same response shape as Login.
 func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Session, error) {
 	tok, err := a.realm.platformToken.get(ctx)
