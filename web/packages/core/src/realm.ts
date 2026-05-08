@@ -3,14 +3,18 @@ import { Observable } from "./observable.js";
 import { Transport } from "./transport.js";
 import { TokenManager } from "./token-manager.js";
 import { createTabBus, type TabBus } from "./multi-tab.js";
+import { resolveExpiresIn } from "./util.js";
 import type {
   AuthEvent,
   AuthState,
+  GateRule,
   LoginRequest,
   LoginResponse,
   MeResponse,
   ProvidersResponse,
   RealmConfig,
+  RequestAdapters,
+  ResponseAdapters,
   TenantRef,
   UserSummary,
 } from "./types.js";
@@ -27,17 +31,32 @@ export class Realm {
   private tokens: TokenManager;
   private events = new Observable<AuthEvent>();
   private bus: TabBus;
+  private adapters: ResponseAdapters;
+  private requestAdapters: RequestAdapters;
+  private gates: GateRule[];
+  private tenantQueryParam: string;
+  private clientTypeQueryParam: string;
+  private switchEndpoint: string | null;
+  private loginEndpoint: string;
   private state: AuthState = {
     status: "loading",
     user: null,
     tenants: [],
     currentTenantId: null,
   };
-  private mfaPendingChallenge: { challengeId: string; method: string } | null = null;
+  private mfaPending: { challengeId?: string; challengeToken?: string; method?: string } | null = null;
   private restorePromise: Promise<void> | null = null;
 
   constructor(cfg: RealmConfig) {
     this.transport = new Transport(cfg);
+    this.adapters = cfg.adapters ?? {};
+    this.requestAdapters = cfg.requestAdapters ?? {};
+    this.gates = cfg.gates ?? [];
+    this.tenantQueryParam = cfg.tenantQueryParam ?? "tenant_id";
+    this.clientTypeQueryParam = cfg.clientTypeQueryParam ?? "client_type";
+    this.switchEndpoint = this.transport.endpoints.switchTenant;
+    this.loginEndpoint = this.transport.endpoints.login;
+
     const skew = cfg.refreshSkewMs ?? 60_000;
     this.tokens = new TokenManager(this.transport, {
       refreshSkewMs: skew,
@@ -46,8 +65,12 @@ export class Realm {
         this.bus.post({ type: "token_refreshed" });
       },
       onLost: (reason) => {
-        this.handleSessionLost(reason as "expired" | "replaced");
+        this.handleSessionLost(reason as "expired" | "replaced" | "revoked");
       },
+      adapters: this.adapters,
+      requestAdapters: this.requestAdapters,
+      gates: this.gates,
+      refresh: cfg.refresh ?? {},
     });
 
     const channel = cfg.channelName ?? `realmid:${this.transport.baseUrl}`;
@@ -82,55 +105,72 @@ export class Realm {
 
   async providers(opts: { tenantId?: string; clientType?: string } = {}): Promise<ProvidersResponse> {
     const qs = new URLSearchParams();
-    if (opts.tenantId) qs.set("tenant_id", opts.tenantId);
-    if (opts.clientType) qs.set("client_type", opts.clientType);
+    if (opts.tenantId) qs.set(this.tenantQueryParam, opts.tenantId);
+    if (opts.clientType) qs.set(this.clientTypeQueryParam, opts.clientType);
     const path = this.transport.endpoints.providers + (qs.size ? `?${qs}` : "");
-    const { body } = await this.transport.request<ProvidersResponse>("GET", path);
-    return body;
+    const res = await this.transport.request<unknown>("GET", path, { gates: this.gates });
+    const adapted = this.adapters.providers
+      ? this.adapters.providers(res.body, { status: res.status, headers: res.headers })
+      : (res.body as ProvidersResponse);
+    return adapted;
   }
 
   /* -------------------------------------------------- session */
 
   async restore(): Promise<void> {
     try {
-      const { body } = await this.transport.request<MeResponse>("GET", this.transport.endpoints.me);
-      this.applyMe(body);
-    } catch (err) {
-      // 401 = anonymous, anything else propagates as a soft anonymous start.
-      this.setState({
-        status: "anonymous",
-        user: null,
-        tenants: [],
-        currentTenantId: null,
+      const res = await this.transport.request<unknown>("GET", this.transport.endpoints.me, {
+        gates: this.gates,
       });
+      const adapted = this.adapters.me
+        ? this.adapters.me(res.body, { status: res.status, headers: res.headers })
+        : (res.body as MeResponse);
+      this.applyMe(adapted);
+    } catch (err) {
+      if (err instanceof RealmError) {
+        if (err.status === 401 || err.code === "unauthorized" || err.code === "session_expired" || err.code === "session_replaced" || err.code === "session_revoked") {
+          this.setAnonymous();
+          this.events.emit({ type: "ready", user: null, tenants: [], currentTenantId: null });
+          return;
+        }
+        if (err.code === "network_error" || err.code === "server_error") {
+          this.setState({
+            status: "error",
+            user: null,
+            tenants: [],
+            currentTenantId: null,
+            errorReason: err.code,
+          });
+          this.events.emit({ type: "error", reason: err.code });
+          throw err;
+        }
+      }
+      this.setAnonymous();
       this.events.emit({ type: "ready", user: null, tenants: [], currentTenantId: null });
-      if (err instanceof RealmError && err.code === "network_error") throw err;
     }
   }
 
   async login(req: LoginRequest): Promise<LoginResponse> {
-    const { body } = await this.transport.request<LoginResponse>(
-      "POST",
-      this.transport.endpoints.login,
-      { body: req },
-    );
-    if (body.mfa) {
-      this.mfaPendingChallenge = body.mfa;
-      throw new RealmError("mfa_required", "mfa challenge pending", 0, body);
-    }
-    this.applyLoginResponse(body);
-    this.bus.post({ type: "login" });
-    return body;
+    const wireBody = this.requestAdapters.login ? this.requestAdapters.login(req) : req;
+    const res = await this.transport.request<unknown>("POST", this.loginEndpoint, {
+      body: wireBody,
+      gates: this.gates,
+    });
+    const body = this.adaptLogin(res.body, res.status, res.headers);
+    return this.handleLoginResponse(body);
   }
 
   async logout(): Promise<void> {
     try {
-      await this.transport.request("POST", this.transport.endpoints.logout, { body: {} });
+      await this.transport.request("POST", this.transport.endpoints.logout, {
+        body: {},
+        gates: this.gates,
+      });
     } catch (err) {
       if (!(err instanceof RealmError) || (err.status !== 401 && err.status !== 404)) throw err;
     }
     this.tokens.clear();
-    this.setState({ status: "anonymous", user: null, tenants: [], currentTenantId: null });
+    this.setAnonymous();
     this.events.emit({ type: "logout", reason: "user" });
     this.bus.post({ type: "logout", reason: "user" });
   }
@@ -139,13 +179,43 @@ export class Realm {
     if (!this.state.tenants.find((t) => t.id === tenantId)) {
       throw new RealmError("tenant_not_found", `tenant ${tenantId} not in current session`);
     }
-    const { body } = await this.transport.request<{ accessToken: string; expiresIn: number }>(
-      "POST",
-      this.transport.endpoints.switchTenant,
-      { body: { tenantId } },
-    );
-    this.tokens.set(tenantId, body.accessToken, body.expiresIn);
-    this.tokens.setCurrentTenant(tenantId);
+
+    if (this.switchEndpoint) {
+      const wireBody = this.requestAdapters.switchTenant
+        ? this.requestAdapters.switchTenant({ tenantId })
+        : { tenantId };
+      const res = await this.transport.request<unknown>("POST", this.switchEndpoint, {
+        body: wireBody,
+        gates: this.gates,
+      });
+      const adapted = this.adapters.token
+        ? this.adapters.token(res.body, {
+            status: res.status,
+            headers: res.headers,
+            currentAccessToken: this.tokens.peek() ?? undefined,
+          })
+        : (res.body as { accessToken?: string; expiresIn?: number; expiresAt?: string | number });
+      const expiresIn = resolveExpiresIn(adapted.expiresIn, adapted.expiresAt);
+      if (expiresIn === undefined) {
+        throw new RealmError("server_error", "switch-tenant response missing expiry");
+      }
+      const accessToken = adapted.accessToken ?? this.tokens.peek() ?? "";
+      this.tokens.set(tenantId, accessToken, expiresIn);
+      this.tokens.setCurrentTenant(tenantId);
+    } else {
+      // Fallback: call /login again with tenantId. Used by BFFs that collapse
+      // tenant pinning into the login round-trip.
+      const canonical: LoginRequest = { method: "tenant-pin" as LoginRequest["method"], tenantId };
+      const wireBody = this.requestAdapters.login ? this.requestAdapters.login(canonical) : canonical;
+      const res = await this.transport.request<unknown>("POST", this.loginEndpoint, {
+        body: wireBody,
+        gates: this.gates,
+      });
+      const body = this.adaptLogin(res.body, res.status, res.headers);
+      // We expect tokens this time; treat as authenticated.
+      this.handleLoginResponse(body);
+    }
+
     this.setState({ ...this.state, currentTenantId: tenantId });
     this.events.emit({ type: "tenant_switched", currentTenantId: tenantId });
     this.bus.post({ type: "tenant_switched", tenantId });
@@ -154,27 +224,33 @@ export class Realm {
   /* -------------------------------------------------- mfa */
 
   readonly mfa = {
-    pending: (): { challengeId: string; method: string } | null => this.mfaPendingChallenge,
+    pending: () => this.mfaPending,
     challenge: async (req: { method: string; destination?: string }): Promise<{ challengeId: string }> => {
+      const wireBody = this.requestAdapters.mfaChallenge ? this.requestAdapters.mfaChallenge(req) : req;
       const { body } = await this.transport.request<{ challengeId: string }>(
         "POST",
         this.transport.endpoints.mfaChallenge,
-        { body: req },
+        { body: wireBody, gates: this.gates },
       );
-      this.mfaPendingChallenge = { challengeId: body.challengeId, method: req.method };
+      this.mfaPending = { challengeId: body.challengeId, method: req.method };
       return body;
     },
-    verify: async (code: string): Promise<LoginResponse> => {
-      if (!this.mfaPendingChallenge) throw new RealmError("mfa_failed", "no challenge pending");
-      const { body } = await this.transport.request<LoginResponse>(
-        "POST",
-        this.transport.endpoints.mfaVerify,
-        { body: { challengeId: this.mfaPendingChallenge.challengeId, code } },
-      );
-      this.mfaPendingChallenge = null;
-      this.applyLoginResponse(body);
-      this.bus.post({ type: "login" });
-      return body;
+    verify: async (code: string, opts: { method?: string } = {}): Promise<LoginResponse> => {
+      if (!this.mfaPending) throw new RealmError("mfa_failed", "no challenge pending");
+      const canonical = {
+        challengeId: this.mfaPending.challengeId,
+        challengeToken: this.mfaPending.challengeToken,
+        code,
+        method: opts.method ?? this.mfaPending.method,
+      };
+      const wireBody = this.requestAdapters.mfaVerify ? this.requestAdapters.mfaVerify(canonical) : canonical;
+      const res = await this.transport.request<unknown>("POST", this.transport.endpoints.mfaVerify, {
+        body: wireBody,
+        gates: this.gates,
+      });
+      const adapted = this.adaptLogin(res.body, res.status, res.headers);
+      this.mfaPending = null;
+      return this.handleLoginResponse(adapted);
     },
   };
 
@@ -197,38 +273,83 @@ export class Realm {
     const res = await this.doFetch(input, rest, access);
     if (res.status !== 401) return res;
 
-    // Single retry: refresh once, replay.
     const fresh = await this.tokens.refresh(tid);
-    if (fresh === access) return res; // refresh produced the same token — give up
+    if (fresh === access) return res;
     return this.doFetch(input, rest, fresh);
   }
 
   private async doFetch(input: string | URL | Request, init: RequestInit, accessToken: string): Promise<Response> {
     const headers = new Headers(init.headers);
-    headers.set("Authorization", `Bearer ${accessToken}`);
+    if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
     return this.transport.fetchImpl(input as RequestInfo, { ...init, headers });
   }
 
   /* -------------------------------------------------- internals */
 
-  private applyLoginResponse(body: LoginResponse): void {
-    const tid = body.defaultTenantId ?? body.tenants[0]?.id ?? null;
-    if (tid) {
-      this.tokens.set(tid, body.accessToken, body.expiresIn);
+  private adaptLogin(raw: unknown, status: number, headers: Headers): LoginResponse {
+    if (this.adapters.login) {
+      return this.adapters.login(raw, { status, headers, currentAccessToken: this.tokens.peek() ?? undefined });
+    }
+    return raw as LoginResponse;
+  }
+
+  private handleLoginResponse(body: LoginResponse): LoginResponse {
+    // 1. Success-body MFA gate (BFF-SPEC v0.1). Status-based MFA gates surface as RealmError already.
+    if (body.mfa) {
+      this.mfaPending = body.mfa;
+      throw new RealmError("mfa_required", "mfa challenge pending", 0, body);
+    }
+
+    // 2. Tenant picker — successful response, no tokens, just choose a tenant.
+    if (body.tenantsRequired) {
+      this.setState({
+        ...this.state,
+        status: this.state.status === "authenticated" ? "authenticated" : "anonymous",
+        pendingTenants: body.tenants ?? [],
+      });
+      throw new RealmError("tenants_required", "tenant selection required", 0, body);
+    }
+
+    // 3. Authenticated branch.
+    if (!body.user) {
+      throw new RealmError("server_error", "login response missing user", 0, body);
+    }
+    const tenants = body.tenants ?? [];
+    const tid = body.defaultTenantId ?? tenants[0]?.id ?? null;
+    const expiresIn = resolveExpiresIn(body.expiresIn, body.expiresAt);
+    if (tid && body.accessToken !== undefined && expiresIn !== undefined) {
+      this.tokens.set(tid, body.accessToken, expiresIn);
+      this.tokens.setCurrentTenant(tid);
+    } else if (tid && expiresIn !== undefined) {
+      // Tokenless login (rare) — keep tenant pointer but no bearer.
+      this.tokens.set(tid, "", expiresIn);
       this.tokens.setCurrentTenant(tid);
     }
     this.setState({
       status: "authenticated",
       user: body.user,
-      tenants: body.tenants,
+      tenants,
       currentTenantId: tid,
     });
-    this.events.emit({ type: "login", user: body.user, tenants: body.tenants, currentTenantId: tid });
+    this.events.emit({ type: "login", user: body.user, tenants, currentTenantId: tid });
+    this.bus.post({ type: "login" });
+    return body;
   }
 
   private applyMe(body: MeResponse): void {
     const tid = body.currentTenantId ?? body.tenants[0]?.id ?? null;
     this.tokens.setCurrentTenant(tid);
+    if (tid && body.expiresAt !== undefined) {
+      const expiresIn = resolveExpiresIn(undefined, body.expiresAt);
+      if (expiresIn !== undefined) {
+        // No bearer surfaced by /me (it's session-bound on the BFF). Store
+        // a placeholder so refresh schedules correctly; realm.fetch will
+        // pull a fresh bearer via /token if the partner uses the
+        // tokenless-rotation pattern.
+        const existing = this.tokens.peek(tid);
+        this.tokens.set(tid, existing ?? "", expiresIn);
+      }
+    }
     this.setState({
       status: "authenticated",
       user: body.user,
@@ -240,9 +361,13 @@ export class Realm {
 
   private handleSessionLost(reason: "expired" | "replaced" | "revoked"): void {
     this.tokens.clear();
-    this.setState({ status: "anonymous", user: null, tenants: [], currentTenantId: null });
+    this.setAnonymous();
     this.events.emit({ type: "logout", reason });
     this.bus.post({ type: "logout", reason });
+  }
+
+  private setAnonymous(): void {
+    this.setState({ status: "anonymous", user: null, tenants: [], currentTenantId: null });
   }
 
   private setState(next: AuthState): void {
@@ -254,7 +379,7 @@ export class Realm {
       case "logout":
         if (this.state.status !== "anonymous") {
           this.tokens.clear();
-          this.setState({ status: "anonymous", user: null, tenants: [], currentTenantId: null });
+          this.setAnonymous();
           const reason = (["user", "expired", "replaced", "revoked"] as const).find((r) => r === msg.reason) ?? "user";
           this.events.emit({ type: "logout", reason });
         }
@@ -274,6 +399,45 @@ export class Realm {
         this.events.emit({ type: "token_refreshed" });
         break;
     }
+  }
+
+  /**
+   * Adopt an existing session that the SDK didn't mint itself — typically
+   * a token persisted in sessionStorage from a prior page-load, or a
+   * server-side render handoff. Sets state directly without hitting
+   * /login or /me. Callers usually verify the session first (e.g. via
+   * `realm.fetch("/me")` with the bearer) and pass the result here.
+   *
+   * If the SDK's token manager already has a different tenant, the new
+   * one becomes "current".
+   */
+  adopt(input: {
+    accessToken: string;
+    expiresIn?: number;
+    expiresAt?: string | number;
+    tenantId: string;
+    user: UserSummary;
+    tenants?: TenantRef[];
+  }): void {
+    const expiresIn = resolveExpiresIn(input.expiresIn, input.expiresAt);
+    if (expiresIn === undefined) {
+      throw new RealmError("server_error", "adopt() requires expiresIn or expiresAt");
+    }
+    this.tokens.set(input.tenantId, input.accessToken, expiresIn);
+    this.tokens.setCurrentTenant(input.tenantId);
+    const tenants = input.tenants ?? [{ id: input.tenantId, role: "" }];
+    this.setState({
+      status: "authenticated",
+      user: input.user,
+      tenants,
+      currentTenantId: input.tenantId,
+    });
+    this.events.emit({ type: "ready", user: input.user, tenants, currentTenantId: input.tenantId });
+  }
+
+  /** Peek the current bearer for `tenantId` (default: current). Read-only. */
+  peekAccessToken(tenantId?: string): string | undefined {
+    return this.tokens.peek(tenantId);
   }
 
   /** Tear down listeners — useful in tests + SSR rehydration. */

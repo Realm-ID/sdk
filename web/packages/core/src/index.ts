@@ -11,18 +11,29 @@
  *   const { providers } = await realm.providers();
  *   await realm.login({ method: "google", providerToken });
  *   const res = await realm.fetch("/api/orders");
+ *
+ * Partner BFFs whose wire shape diverges from BFF-SPEC.md plug in
+ * `adapters` and `gates`. See @realmid/web-bff-realmid for a worked
+ * example against the realmid.dev reference BFF.
  */
 
 export { createRealm, Realm } from "./realm.js";
 export type { FetchOptions } from "./realm.js";
 
-export { RealmError } from "./errors.js";
+export { RealmError, classifyHttpStatus, extractMessage, pluckPath, DEFAULT_CODE_PATHS } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
+export { resolveExpiresIn, parseExpiresAt } from "./util.js";
+
 export type {
+  AdapterContext,
   AuthEvent,
   AuthState,
+  AuthStatus,
+  CSRFConfig,
   Endpoints,
+  GateCode,
+  GateRule,
   IdentityProvider,
   LoginMethod,
   LoginRequest,
@@ -30,6 +41,9 @@ export type {
   MeResponse,
   ProvidersResponse,
   RealmConfig,
+  RefreshConfig,
+  RequestAdapters,
+  ResponseAdapters,
   TenantRef,
   TokenResponse,
   UserSummary,

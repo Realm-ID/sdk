@@ -9,12 +9,13 @@ multi-tab sync.
 
 ## Packages
 
-| Package                 | Purpose                                                              | Status   |
-|-------------------------|----------------------------------------------------------------------|----------|
-| `@realmid/web`          | Core: transport, token mgmt, observable, multi-tab, MFA, `realm.fetch` | v0.1.0   |
-| `@realmid/web-react`    | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | v0.1.0   |
-| `@realmid/web-firebase` | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | v0.1.0   |
-| `@realmid/web-google`   | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | v0.1.0   |
+| Package                       | Purpose                                                              | Status   |
+|-------------------------------|----------------------------------------------------------------------|----------|
+| `@realmid/web`                | Core: transport, token mgmt, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | v0.2.0 |
+| `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | v0.2.0   |
+| `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | v0.2.0   |
+| `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | v0.2.0   |
+| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/bff-api`) | v0.1.0 |
 
 ## Quick start (vanilla JS)
 
@@ -145,8 +146,41 @@ When tab A logs in, logs out, or switches tenants, tab B sees an
 cd packages/core && npm test     # 9 tests, ~150ms
 ```
 
+## Adapters and gates (v0.2)
+
+If your BFF doesn't ship the canonical wire shape pinned in
+[`BFF-SPEC.md`](./BFF-SPEC.md) — different casing, status discriminators,
+tokenless rotation, 412 gates, etc. — plug in `adapters` and `gates`
+instead of forking the SDK or rewriting your backend:
+
+```ts
+createRealm({
+  baseUrl: ...,
+  adapters: { login, me, token, providers },          // raw → canonical
+  gates: [{ status: 412, code: "mfa_required", gate: "mfa_required", extract }],
+  refresh: { tokenless: true, sendBearer: true },     // tokenless rotation
+  csrf: { headerName: "X-CSRF-Token", cookieName: "csrf_token" },
+  endpoints: { switchTenant: null /* fall back to /login with tenantId */ },
+});
+```
+
+Full reference: [BFF-SPEC.md → Response adapters](./BFF-SPEC.md#response-adapters).
+
 ## Reference BFF
 
 [`Realm-ID/bff-api`](https://github.com/Realm-ID/bff-api) is the canonical
 implementation of [`BFF-SPEC.md`](./BFF-SPEC.md). Fork it, or implement
 the contract directly in your existing backend.
+
+If you target the realmid.dev BFF directly, use the
+[`@realmid/web-bff-realmid`](./packages/bff-realmid/README.md) preset:
+
+```ts
+import { createRealm } from "@realmid/web";
+import { realmidBffPreset } from "@realmid/web-bff-realmid";
+
+const realm = createRealm({
+  baseUrl: "https://api.realmid.dev",
+  ...realmidBffPreset(),
+});
+```

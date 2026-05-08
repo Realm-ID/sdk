@@ -1,6 +1,7 @@
 import { RealmError } from "./errors.js";
 import type { Transport } from "./transport.js";
-import type { TokenResponse } from "./types.js";
+import type { GateRule, RefreshConfig, RequestAdapters, ResponseAdapters, TokenResponse } from "./types.js";
+import { resolveExpiresIn } from "./util.js";
 
 interface TokenEntry {
   accessToken: string;
@@ -10,9 +11,17 @@ interface TokenEntry {
 /**
  * Holds in-memory access tokens (keyed by tenantId, plus a "current" pointer)
  * and dedupes refresh-on-401 + proactive refresh into a single in-flight
- * Promise per tenant. Refresh fires `POST /token` against the BFF; the
- * refresh credential lives in an httpOnly cookie set by the BFF, so the SDK
- * never sees it.
+ * Promise per tenant.
+ *
+ * Refresh fires `POST /token` against the BFF. Two BFF flavours are
+ * supported:
+ *
+ *   - Token-rotating (default): /token returns `{ accessToken, expiresIn }`
+ *     and the SDK swaps the in-memory bearer.
+ *   - Tokenless rotation (`refresh.tokenless`): /token returns only
+ *     `{ expiresAt }`; the bearer is opaque (e.g. an HttpOnly cookie or a
+ *     server-side session id) and the SDK keeps using the previous one,
+ *     just advancing its expiry.
  */
 export class TokenManager {
   private tokens = new Map<string, TokenEntry>();
@@ -21,7 +30,15 @@ export class TokenManager {
 
   constructor(
     private transport: Transport,
-    private opts: { refreshSkewMs: number; onRefreshed: () => void; onLost: (reason: string) => void },
+    private opts: {
+      refreshSkewMs: number;
+      onRefreshed: () => void;
+      onLost: (reason: string) => void;
+      adapters: ResponseAdapters;
+      requestAdapters: RequestAdapters;
+      gates: GateRule[];
+      refresh: RefreshConfig;
+    },
   ) {}
 
   setCurrentTenant(tenantId: string | null): void {
@@ -32,11 +49,19 @@ export class TokenManager {
     return this.currentTenantId;
   }
 
+  /** Stash a token for a tenant. `expiresInSec` accepts either an `expiresIn` or a derived value from `expiresAt`. */
   set(tenantId: string, accessToken: string, expiresInSec: number): void {
     this.tokens.set(tenantId, {
       accessToken,
       expiresAt: Date.now() + expiresInSec * 1000,
     });
+  }
+
+  /** Peek the current bearer without triggering a refresh. */
+  peek(tenantId?: string): string | undefined {
+    const tid = tenantId ?? this.currentTenantId;
+    if (!tid) return undefined;
+    return this.tokens.get(tid)?.accessToken;
   }
 
   clear(): void {
@@ -45,11 +70,6 @@ export class TokenManager {
     this.currentTenantId = null;
   }
 
-  /**
-   * Returns a non-expired access token for the given tenant (or current).
-   * Triggers a refresh if missing or within `refreshSkewMs` of expiry.
-   * Concurrent callers share one in-flight refresh.
-   */
   async get(tenantId?: string): Promise<string> {
     const tid = tenantId ?? this.currentTenantId;
     if (!tid) throw new RealmError("unauthorized", "no current tenant");
@@ -61,7 +81,6 @@ export class TokenManager {
     return this.refresh(tid);
   }
 
-  /** Force a refresh for the given tenant (used on 401 replay). */
   async refresh(tenantId?: string): Promise<string> {
     const tid = tenantId ?? this.currentTenantId;
     if (!tid) throw new RealmError("unauthorized", "no current tenant");
@@ -77,19 +96,63 @@ export class TokenManager {
   }
 
   private async doRefresh(tenantId: string): Promise<string> {
+    const current = this.tokens.get(tenantId);
     try {
-      const { body } = await this.transport.request<TokenResponse>(
-        "POST",
-        this.transport.endpoints.token,
-        { body: { tenantId } },
-      );
-      this.set(tenantId, body.accessToken, body.expiresIn);
+      const wireBody = this.opts.requestAdapters.token
+        ? this.opts.requestAdapters.token({ tenantId })
+        : { tenantId };
+      const res = await this.transport.request<unknown>("POST", this.transport.endpoints.token, {
+        body: wireBody,
+        accessToken: this.opts.refresh.sendBearer ? current?.accessToken : undefined,
+        gates: this.opts.gates,
+      });
+      const adapted: TokenResponse = this.opts.adapters.token
+        ? this.opts.adapters.token(res.body, {
+            status: res.status,
+            headers: res.headers,
+            currentAccessToken: current?.accessToken,
+          })
+        : (res.body as TokenResponse);
+
+      const expiresIn = resolveExpiresIn(adapted.expiresIn, adapted.expiresAt);
+      if (expiresIn === undefined) {
+        throw new RealmError("server_error", "/token response missing expiresIn/expiresAt", res.status, adapted);
+      }
+
+      let nextToken: string | undefined = adapted.accessToken;
+      if (!nextToken) {
+        if (this.opts.refresh.tokenless && current?.accessToken) {
+          nextToken = current.accessToken;
+        } else if (this.opts.refresh.tokenless) {
+          // Tokenless mode but no prior bearer (e.g. cookie-only) — use empty
+          // string to mark "session is alive but bearer not surfaced". Realm.fetch
+          // skips Authorization in that case.
+          nextToken = "";
+        } else {
+          throw new RealmError("server_error", "/token response missing accessToken", res.status, adapted);
+        }
+      }
+
+      this.set(tenantId, nextToken, expiresIn);
       this.opts.onRefreshed();
-      return body.accessToken;
+      return nextToken;
     } catch (err) {
-      if (err instanceof RealmError && (err.code === "session_expired" || err.code === "session_replaced" || err.code === "unauthorized")) {
-        this.tokens.delete(tenantId);
-        this.opts.onLost(err.code === "session_replaced" ? "replaced" : "expired");
+      if (err instanceof RealmError) {
+        if (
+          err.code === "session_expired" ||
+          err.code === "session_replaced" ||
+          err.code === "session_revoked" ||
+          err.code === "unauthorized"
+        ) {
+          this.tokens.delete(tenantId);
+          const reason =
+            err.code === "session_replaced"
+              ? "replaced"
+              : err.code === "session_revoked"
+                ? "revoked"
+                : "expired";
+          this.opts.onLost(reason);
+        }
       }
       throw err;
     }

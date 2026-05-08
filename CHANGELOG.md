@@ -5,6 +5,70 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## web-v0.3.0 — Request adapters + adopt() (2026-05-09)
+
+**Additive only.** Closes the round-trip on partner-BFF flexibility:
+
+- **`requestAdapters`** — symmetric to v0.2's response adapters. Lets
+  partner BFFs receive any wire shape on POST `/login`, `/token`,
+  `/switch-tenant`, `/mfa/challenge`, `/mfa/verify`. Without this,
+  partners whose BFFs use snake_case (or any non-canonical shape) on
+  the *request* side had to fork the SDK; now they pass a small adapter.
+- **`realm.adopt({ accessToken, expiresAt, tenantId, user, tenants })`**
+  — seed the SDK from an externally persisted session (sessionStorage,
+  cookie reflection, SSR handoff) without going through `/login` or
+  `/me`. Pairs with the new `realm.peekAccessToken()` getter for
+  reading the bearer back out for re-persistence.
+- **`@realmid/web-bff-realmid@0.2.0`** ships matching request adapters
+  for the reference BFF (`providerToken→token`, `tenantId→tenant_id`,
+  `challengeToken→mfa_challenge_token`, body-less `/token`).
+- **`TenantRef.mfaRequired?: boolean`** added (additive). Partners that
+  surface a per-tenant MFA policy can populate it through the login or
+  /me adapter.
+
+Sibling packages (`@realmid/web-react`, `-firebase`, `-google`) bumped
+to 0.3.0 in lockstep; their public surface is unchanged.
+
+## web-v0.2.0 — Partner-flexible adapters, gates, tokenless refresh (2026-05-09)
+
+**Additive only.** No wire-shape changes; existing v0.1 BFF integrations
+keep working. Adds the missing primitives that prevented partner BFFs
+(including our own `Realm-ID/bff-api`) from being used as drop-in targets:
+
+- **Response adapters** (`createRealm({ adapters })`) — pluggable
+  normalisers for `/login`, `/me`, `/token`, `/providers`. Lets BFFs ship
+  any wire shape (snake_case, envelope-wrapped, flat `/me`, status
+  discriminator) and have the SDK translate to the canonical shape.
+- **Error gates** (`createRealm({ gates })`) — match HTTP status + body
+  `code` to surface canonical `RealmError` codes (`mfa_required`,
+  `mfa_registration_required`, `session_limit_reached`, `tenants_required`).
+  Gate-specific payloads are exposed via `extract`.
+- **Tokenless `/token` rotation** (`refresh: { tokenless: true }`) —
+  `/token` returns `{ expiresAt }` only; SDK keeps using the existing
+  opaque bearer with an advanced expiry.
+- **`refresh.sendBearer`** — optionally attach `Authorization` to `/token`
+  for BFFs that authenticate refresh with the current session bearer.
+- **CSRF header injection** (`csrf: { headerName, cookieName | tokenProvider }`)
+  on POST/PUT/PATCH/DELETE.
+- **`switchTenant` fallback** — set `endpoints.switchTenant: null` and
+  the SDK falls back to a `/login` second pass with `{ tenantId }`.
+- **`expiresIn`/`expiresAt` reciprocal derivation** — partners can ship
+  either; the SDK schedules refresh from whichever is present.
+- **`AuthState.status: "error"`** — distinguishes a network/5xx failure
+  during `/me` restore from a clean anonymous state.
+- **`tenants_required` success-body gate** — surfaces a typed error and
+  populates `state.pendingTenants` for the caller's tenant picker.
+- **Open `LoginMethod` and provider strings** — partners can use
+  `apple`, `magic_link`, etc. without forking the SDK.
+- **New companion package `@realmid/web-bff-realmid`** — bundles the
+  adapters, gates, endpoints, and refresh flags needed to drop the SDK
+  in front of `Realm-ID/bff-api` (the reference BFF) in one import.
+- **BFF-SPEC.md** rewritten around the canonical+adapter model.
+
+Sibling packages (`@realmid/web-react`, `@realmid/web-firebase`,
+`@realmid/web-google`) bumped to 0.2.0 in lockstep; their public surface
+is unchanged.
+
 ## go-v0.10.0 / ts-v0.9.0 — Two-endpoint auth surface (ADR-051) (2026-05-08)
 
 **BREAKING.** Tracks api `v0.7.0`. The legacy

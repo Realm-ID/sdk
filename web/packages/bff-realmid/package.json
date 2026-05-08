@@ -1,7 +1,7 @@
 {
-  "name": "@realmid/web",
-  "version": "0.3.0",
-  "description": "Browser SDK for RealmID — token management, login-config discovery, framework-agnostic.",
+  "name": "@realmid/web-bff-realmid",
+  "version": "0.2.0",
+  "description": "Drop-in adapter preset wiring @realmid/web to the realmid.dev reference BFF (Realm-ID/bff-api).",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,15 +17,19 @@
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["realmid", "auth", "browser", "sdk"],
+  "keywords": ["realmid", "bff", "adapter", "browser", "sdk"],
   "homepage": "https://realmid.dev",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Realm-ID/sdk.git",
-    "directory": "web/packages/core"
+    "directory": "web/packages/bff-realmid"
   },
   "license": "MIT",
+  "peerDependencies": {
+    "@realmid/web": "^0.3.0"
+  },
   "devDependencies": {
+    "@realmid/web": "^0.3.0",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   },

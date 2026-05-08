@@ -4,13 +4,22 @@ export type ErrorCode =
   | "forbidden"
   | "session_expired"
   | "session_replaced"
+  | "session_revoked"
   | "mfa_required"
+  | "mfa_registration_required"
   | "mfa_failed"
+  | "session_limit_reached"
+  | "tenants_required"
   | "tenant_not_found"
   | "bad_request"
   | "server_error"
   | "unknown";
 
+/**
+ * Single error type used across the SDK. `code` is the canonical reason
+ * partners switch on; `body` carries gate-specific payloads (mfa
+ * challengeToken, session-limit revocationToken, tenants_required picker).
+ */
 export class RealmError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
@@ -29,6 +38,7 @@ export function classifyHttpStatus(status: number, body?: unknown): ErrorCode {
   if (status === 401) {
     const msg = extractMessage(body);
     if (/replaced|invalidated/i.test(msg)) return "session_replaced";
+    if (/revoked/i.test(msg)) return "session_revoked";
     if (/expired/i.test(msg)) return "session_expired";
     return "unauthorized";
   }
@@ -39,7 +49,7 @@ export function classifyHttpStatus(status: number, body?: unknown): ErrorCode {
   return "unknown";
 }
 
-function extractMessage(body: unknown): string {
+export function extractMessage(body: unknown): string {
   if (!body || typeof body !== "object") return "";
   const b = body as Record<string, unknown>;
   if (typeof b.message === "string") return b.message;
@@ -49,3 +59,17 @@ function extractMessage(body: unknown): string {
   }
   return "";
 }
+
+/** Read a dotted/array path out of a parsed body. Returns undefined if any segment is missing. */
+export function pluckPath(body: unknown, path: string[] | undefined): unknown {
+  if (!path || path.length === 0) return undefined;
+  let cur: unknown = body;
+  for (const seg of path) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
+}
+
+/** Default body locations the SDK probes for a `code` field, in order. */
+export const DEFAULT_CODE_PATHS: string[][] = [["code"], ["error", "code"]];

@@ -1,6 +1,6 @@
 # BFF-SPEC.md — Contract between `@realmid/web` and a partner BFF
 
-> **Status**: Draft, v0.1
+> **Status**: Draft, v0.2
 > **Owners**: Realm-ID core
 > **Related**: ADR-052 (browser SDK), ADR-050 (api.realmid.dev BFF reference impl)
 
@@ -9,8 +9,14 @@ BFF holds the API key and brokers calls to `auth.realmid.dev` via the Node
 SDK (`@realmid/sdk`). This document pins the HTTP contract between the SDK
 and any partner BFF.
 
+The shapes below describe the **canonical wire contract**. The SDK defaults
+to consuming them as-is. Partners whose existing backend ships a different
+shape can plug in [response adapters](#response-adapters) and
+[error gates](#error-gates) (added in SDK v0.2) so the SDK normalises the
+partner's wire shape into the canonical types — no fork required.
+
 Partners may override individual route paths via the SDK's `endpoints`
-config (ADR-052 §2). Wire shapes (request/response bodies) are fixed.
+config (ADR-052 §2).
 
 ## Conventions
 
@@ -156,16 +162,105 @@ Used on SDK init to restore session state.
 
 **Response 401** — anonymous; SDK sets `status = "anonymous"`.
 
+## Response adapters
+
+Each canonical response shape (`LoginResponse`, `MeResponse`,
+`TokenResponse`, `ProvidersResponse`) has a matching adapter slot on
+`createRealm({ adapters })`. The adapter takes the raw parsed body plus
+an `AdapterContext` (`{status, headers, currentAccessToken}`) and returns
+the canonical shape:
+
+```ts
+createRealm({
+  baseUrl: "https://api.partner.com",
+  adapters: {
+    login: (raw) => {
+      const b = raw as Record<string, unknown>;
+      return {
+        accessToken: b.session_token as string,
+        expiresAt: b.expires_at as number,
+        user: {
+          id: (b.user as any).id,
+          email: (b.user as any).email,
+          displayName: (b.user as any).display_name,
+        },
+        tenants: ((b.tenants as any[]) ?? []).map((t) => ({
+          id: t.id, role: t.role, displayName: t.display_name,
+        })),
+        defaultTenantId: (b.tenants as any[])?.[0]?.id,
+      };
+    },
+  },
+});
+```
+
+If the body uses an envelope (`{ data: { ... } }`), the SDK strips it
+once before invoking the adapter (single-key `data` only).
+
+The adapter MAY return additional gate flags:
+
+- `{ tenantsRequired: true, tenants: [...] }` — caller must pick a tenant
+  and re-login. Surfaces as `RealmError("tenants_required")` and populates
+  `realm.getState().pendingTenants`.
+- `{ mfa: { challengeId?, challengeToken?, method? } }` — success-body MFA
+  gate (no tokens issued). Surfaces as `RealmError("mfa_required")` with
+  the MFA payload on `error.body`.
+
+## Error gates
+
+Some BFFs use HTTP status codes (typically 412) plus a body-level `code`
+field instead of in-body discriminators. The SDK's `gates` config maps
+those into the same canonical errors:
+
+```ts
+gates: [
+  {
+    status: 412,
+    code: "mfa_required",
+    gate: "mfa_required",
+    extract: (b) => ({
+      challengeToken: (b as any).mfa_challenge_token,
+      method: (b as any).method,
+    }),
+  },
+  {
+    status: 412,
+    code: "session_limit_reached",
+    gate: "session_limit_reached",
+    extract: (b) => ({ revocationToken: (b as any).revocation_token }),
+  },
+];
+```
+
+Gates are checked before generic 4xx classification. The matched rule
+emits a `RealmError` whose `code` equals `gate` and whose `body` contains
+whatever `extract` returns plus `{ raw }` for debugging. Built-in gate
+codes: `mfa_required`, `mfa_registration_required`, `session_limit_reached`,
+`tenants_required`.
+
+## Tokenless `/token` rotation
+
+Some BFFs rotate the underlying user JWT server-side (e.g. inside Redis)
+and use a stable opaque session-id as the bearer. In that mode `/token`
+returns only `{ expiresAt }` (no `accessToken`). Set
+`refresh: { tokenless: true }` and the SDK keeps using the previous
+bearer, only advancing its expiry. Combine with `refresh: { sendBearer:
+true }` if `/token` itself needs the current session bearer for auth.
+
 ## Reference implementation
 
 Realm-ID's own BFF lives at <https://github.com/Realm-ID/bff-api>. It
-implements this contract (with minor route-name differences absorbed by
-the SDK's `endpoints` override) and runs on Cloud Run. Partners are free
-to fork it or implement the contract from scratch in any language.
+deviates from the canonical wire shape in 6 places (snake_case, status
+discriminator on /login, tokenless /token, flat /me, 412-gated MFA + 412
+session-limit) — the published `@realmid/web-bff-realmid` preset bundles
+the adapters/gates/refresh flags needed to wire the SDK to it in one
+import. Partners can fork the BFF, fork the preset, or implement the
+canonical contract from scratch.
 
 ## Versioning
 
 This contract follows the same lockstep version as `@realmid/web`. A
 breaking change bumps the SDK major and ships an ADR. Backwards-
 compatible additions (new optional fields, new endpoints) are minor
-bumps.
+bumps. v0.2 added adapter and gate config; the canonical wire shape did
+not change.
