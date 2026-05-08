@@ -37,6 +37,14 @@ const (
 	ErrCodeRealmOriginMismatch  ErrorCode = "realm_origin_mismatch"
 	ErrCodeMissingOrigin        ErrorCode = "missing_origin"
 
+	// Partner OTP primitive (docs/proposals/partner-otp-primitive.md).
+	ErrCodeInvalidOTP        ErrorCode = "invalid_otp"
+	ErrCodeOTPExpired        ErrorCode = "otp_expired"
+	ErrCodeOTPLocked         ErrorCode = "otp_locked"
+	ErrCodeOTPNotFound       ErrorCode = "otp_not_found"
+	ErrCodeInvalidPurpose    ErrorCode = "invalid_purpose"
+	ErrCodeInvalidSubjectRef ErrorCode = "invalid_subject_ref"
+
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
 	ErrCodeForbidden    ErrorCode = "forbidden"
@@ -117,6 +125,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeMissingOrigin: {}, ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},
+	ErrCodeInvalidOTP: {}, ErrCodeOTPExpired: {}, ErrCodeOTPLocked: {},
+	ErrCodeOTPNotFound: {}, ErrCodeInvalidPurpose: {}, ErrCodeInvalidSubjectRef: {},
 }
 
 func isKnownCode(s string) bool {

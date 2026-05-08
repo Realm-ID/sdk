@@ -97,6 +97,9 @@ type Realm struct {
 	Origins *OriginsClient
 	Tokens  *TokensClient
 	Admin   *AdminClient
+	// OTP exposes the partner OTP primitive (issue / view / verify) —
+	// see docs/proposals/partner-otp-primitive.md in the auth repo.
+	OTP *OTPClient
 }
 
 // Version is the published SDK version (semver). 0.5.0 corresponds to
@@ -144,6 +147,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Origins = newOriginsClient(r)
 	r.Tokens = newTokensClient(cfg.Clock)
 	r.Admin = newAdminClient(r)
+	r.OTP = &OTPClient{realm: r}
 
 	return r, nil
 }
