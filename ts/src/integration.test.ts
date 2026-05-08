@@ -35,34 +35,47 @@ test("createRealm: missing apiKey rejected (SPEC §1)", () => {
 });
 
 test("Origin auto-attach: derived from realm.info() audience when no override", async () => {
-  const { fetch, calls } = mkFetch((url) => {
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
-    }
-    if (url.endsWith("/platforms/mine")) {
-      return new Response(JSON.stringify([{ id: REALM_ID, audience: "acme.com" }]), { status: 200 });
-    }
+  const { fetch, calls } = mkFetch((url, init) => {
     if (url.endsWith("/auth/login")) {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (body.grant_type === "platform_api_key") {
+        return new Response(JSON.stringify({
+          status: "ok", subject_type: "platform",
+          refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300,
+        }), { status: 200 });
+      }
       return new Response(JSON.stringify({
         access_token: "at", refresh_token: "rt", expires_in: 900,
         user: { id: "u1" }, tenants: [],
       }), { status: 200 });
     }
+    if (url.endsWith("/platforms/mine")) {
+      return new Response(JSON.stringify([{ id: REALM_ID, audience: "acme.com" }]), { status: 200 });
+    }
     return new Response("not found", { status: 404 });
   });
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   await realm.auth.login({ method: "firebase", providerToken: "id" });
-  const loginCall = calls.find((c) => c.url.endsWith("/auth/login"));
-  assert.ok(loginCall, "expected /auth/login call");
+  // The user-grant /auth/login is the call carrying the Origin header
+  // (the platform-api-key bootstrap doesn't).
+  const loginCall = calls.find((c) => {
+    if (!c.url.endsWith("/auth/login")) return false;
+    return c.body && (c.body as { grant_type?: string }).grant_type !== "platform_api_key";
+  });
+  assert.ok(loginCall, "expected user-grant /auth/login call");
   assert.equal(loginCall!.headers.get("origin"), "https://acme.com");
 });
 
 test("Origin auto-attach: per-call origin overrides handle config and discovery", async () => {
-  const { fetch, calls } = mkFetch((url) => {
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
-    }
+  const { fetch, calls } = mkFetch((url, init) => {
     if (url.endsWith("/auth/login")) {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (body.grant_type === "platform_api_key") {
+        return new Response(JSON.stringify({
+          status: "ok", subject_type: "platform",
+          refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300,
+        }), { status: 200 });
+      }
       return new Response(JSON.stringify({
         access_token: "at", refresh_token: "rt", expires_in: 900,
         user: { id: "u1" }, tenants: [],
@@ -75,7 +88,10 @@ test("Origin auto-attach: per-call origin overrides handle config and discovery"
     fetch, origin: "https://configured.example",
   });
   await realm.auth.login({ method: "firebase", providerToken: "id", origin: "https://percall.example" });
-  const loginCall = calls.find((c) => c.url.endsWith("/auth/login"));
+  const loginCall = calls.find((c) => {
+    if (!c.url.endsWith("/auth/login")) return false;
+    return c.body && (c.body as { grant_type?: string }).grant_type !== "platform_api_key";
+  });
   assert.equal(loginCall!.headers.get("origin"), "https://percall.example");
 });
 
@@ -86,11 +102,15 @@ test("Logger: never logs raw apiKey, platform_token, refresh, or access tokens",
   };
   const logger = { debug: stash, info: stash, warn: stash, error: stash };
 
-  const { fetch } = mkFetch((url) => {
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_topsecret_full", expires_in: 300 }), { status: 200 });
-    }
+  const { fetch } = mkFetch((url, init) => {
     if (url.endsWith("/auth/login")) {
+      const body = init?.body ? JSON.parse(String(init.body)) : {};
+      if (body.grant_type === "platform_api_key") {
+        return new Response(JSON.stringify({
+          status: "ok", subject_type: "platform",
+          refresh_token: "rtok-platform", access_token: "pt_topsecret_full", expires_in: 300,
+        }), { status: 200 });
+      }
       return new Response(JSON.stringify({
         access_token: "at_topsecret_access",
         refresh_token: "rt_topsecret_refresh",

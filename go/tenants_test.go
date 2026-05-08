@@ -10,8 +10,8 @@ import (
 
 func TestTenants_ListPaginatesAcrossPages(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	calls := 0
 	mux.HandleFunc("/tenants", func(w http.ResponseWriter, r *http.Request) {
@@ -58,8 +58,8 @@ func TestTenants_ListPaginatesAcrossPages(t *testing.T) {
 
 func TestTenants_RejectsBadShape(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	mux.HandleFunc("/tenants", func(w http.ResponseWriter, _ *http.Request) {
 		// flat array — not the locked shape
@@ -82,8 +82,8 @@ func TestTenants_RejectsBadShape(t *testing.T) {
 // requireTenantMaintenance's service-JWT branch (SPEC §6.1).
 func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var hitPath string
 	mux.HandleFunc("/platforms/"+testRealmID+"/tenants", func(w http.ResponseWriter, r *http.Request) {
@@ -116,8 +116,8 @@ func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 // PATCH /tenants/{id}/users/{uid}/role and decodes the response shape.
 func TestTenants_UpdateUserRole(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var gotMethod, gotPath string
 	var gotBody map[string]string

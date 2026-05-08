@@ -18,13 +18,20 @@ function pageBody(items: Array<Record<string, unknown>>, nextCursor?: string): s
 
 function makePlatformTokenResponse(token = "pt_test_abc"): Response {
   return new Response(
-    JSON.stringify({ platform_token: token, expires_in: 300, realm_id: REALM_ID }),
+    JSON.stringify({
+      status: "ok",
+      subject_type: "platform",
+      refresh_token: "rtok-platform",
+      access_token: token,
+      expires_in: 300,
+    }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
 }
 
-/** Recorder that auto-services platform-token mints; per-call handlers
- *  fire for everything else. */
+/** Recorder that auto-services platform-token mints (initial /auth/login
+ *  with platform_api_key grant + subsequent /auth/token refreshes). All
+ *  other requests fall through to the per-call handlers. ADR-051. */
 function recorder(handlers: Array<(rec: Recorded) => Response | Promise<Response>>): {
   fetch: typeof fetch;
   calls: Recorded[];
@@ -38,7 +45,7 @@ function recorder(handlers: Array<(rec: Recorded) => Response | Promise<Response
     const headers = new Headers(init?.headers);
     const rec: Recorded = { url, method: init?.method ?? "GET", headers };
     calls.push(rec);
-    if (url.endsWith("/auth/platform-token")) {
+    if (url.endsWith("/auth/login") || url.endsWith("/auth/token")) {
       mintCount++;
       return makePlatformTokenResponse(`pt_${mintCount}`);
     }
@@ -115,7 +122,7 @@ test("OriginsClient: TTL expiry triggers refetch", async () => {
   let listCalls = 0;
   const fetchImpl = (async (input: RequestInfo | URL): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) return makePlatformTokenResponse();
+    if (url.endsWith("/auth/login") || url.endsWith("/auth/token")) return makePlatformTokenResponse();
     listCalls++;
     return new Response(
       pageBody([{ id: "o1", domain: "app.acme.com", entity_type: "tenant", entity_id: "t1" }]),
@@ -148,7 +155,7 @@ test("origins.validate: 401 invalidates platform token and retries once", async 
   let mintCalls = 0;
   const fetchImpl = (async (input: RequestInfo | URL): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
+    if (url.endsWith("/auth/login") || url.endsWith("/auth/token")) {
       mintCalls++;
       return makePlatformTokenResponse(`pt_${mintCalls}`);
     }
@@ -174,7 +181,7 @@ test("origins.validate: 401 invalidates platform token and retries once", async 
 test("origins.validate: persistent 401 surfaces unauthorized", async () => {
   const fetchImpl = (async (input: RequestInfo | URL): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) return makePlatformTokenResponse();
+    if (url.endsWith("/auth/login") || url.endsWith("/auth/token")) return makePlatformTokenResponse();
     return new Response(
       JSON.stringify({ error: { code: "unauthorized", message: "nope" } }),
       { status: 401, headers: { "content-type": "application/json" } },
@@ -192,7 +199,7 @@ test("origins.list: paginates and uses platform-token auth", async () => {
   let i = 0;
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) return makePlatformTokenResponse();
+    if (url.endsWith("/auth/login") || url.endsWith("/auth/token")) return makePlatformTokenResponse();
     const auth = new Headers(init?.headers).get("authorization");
     assert.equal(auth, "Bearer pt_test_abc", "list call uses platform-token");
     if (i++ === 0) {

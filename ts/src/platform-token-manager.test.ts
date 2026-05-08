@@ -8,6 +8,7 @@ interface Call {
   url: string;
   method: string;
   authorization: string | null;
+  body?: unknown;
 }
 
 function mkFetch(handler: (call: Call) => Response | Promise<Response>): { fetch: typeof fetch; calls: Call[] } {
@@ -15,22 +16,33 @@ function mkFetch(handler: (call: Call) => Response | Promise<Response>): { fetch
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const headers = new Headers(init?.headers);
-    const c: Call = { url, method: init?.method ?? "GET", authorization: headers.get("authorization") };
+    let body: unknown = undefined;
+    if (init?.body) {
+      try { body = JSON.parse(String(init.body)); } catch { body = init.body; }
+    }
+    const c: Call = { url, method: init?.method ?? "GET", authorization: headers.get("authorization"), body };
     calls.push(c);
     return handler(c);
   }) as typeof fetch;
   return { fetch, calls };
 }
 
-test("platform-token-manager: first call mints, subsequent calls within TTL reuse cache", async () => {
-  let mints = 0;
-  const { fetch, calls } = mkFetch(() => {
-    mints++;
-    return new Response(JSON.stringify({
-      platform_token: `pt_${mints}`,
-      expires_in: 300,
-      realm_id: "r1",
-    }), { status: 200, headers: { "content-type": "application/json" } });
+function loginResponse(access: string, refresh = "rtok-platform", expires = 300): Response {
+  return new Response(JSON.stringify({
+    status: "ok",
+    subject_type: "platform",
+    refresh_token: refresh,
+    access_token: access,
+    expires_in: expires,
+  }), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+test("session: first call hits /auth/login, subsequent calls within TTL reuse cache", async () => {
+  let logins = 0, refreshes = 0;
+  const { fetch, calls } = mkFetch((c) => {
+    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`); }
+    if (c.url.endsWith("/auth/token")) { refreshes++; return loginResponse(`at_r_${refreshes}`); }
+    return new Response("nope", { status: 404 });
   });
   let now = 1_700_000_000_000;
   const mgr = new PlatformTokenManager({
@@ -39,24 +51,26 @@ test("platform-token-manager: first call mints, subsequent calls within TTL reus
 
   const t1 = await mgr.getToken();
   const t2 = await mgr.getToken();
-  now += 60_000; // +60s, well within 300s TTL
+  now += 60_000; // well within 300s TTL
   const t3 = await mgr.getToken();
-  assert.equal(t1, "pt_1");
-  assert.equal(t2, "pt_1");
-  assert.equal(t3, "pt_1");
-  assert.equal(mints, 1);
+  assert.equal(t1, "at_1");
+  assert.equal(t2, "at_1");
+  assert.equal(t3, "at_1");
+  assert.equal(logins, 1);
+  assert.equal(refreshes, 0);
   assert.equal(calls[0]!.method, "POST");
-  assert.equal(calls[0]!.authorization, "Bearer rk_live_x");
+  assert.equal(calls[0]!.url.endsWith("/auth/login"), true);
+  // raw api-key only travels in the body, never as a bearer
+  assert.equal(calls[0]!.authorization, null);
+  assert.equal((calls[0]!.body as { grant_type: string }).grant_type, "platform_api_key");
 });
 
-test("platform-token-manager: re-mints when within 30s of expiry", async () => {
-  let mints = 0;
-  const { fetch } = mkFetch(() => {
-    mints++;
-    return new Response(JSON.stringify({
-      platform_token: `pt_${mints}`,
-      expires_in: 60,
-    }), { status: 200, headers: { "content-type": "application/json" } });
+test("session: refreshes via /auth/token when within 30s of expiry", async () => {
+  let logins = 0, refreshes = 0;
+  const { fetch } = mkFetch((c) => {
+    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`, "rtok-1", 60); }
+    if (c.url.endsWith("/auth/token")) { refreshes++; return loginResponse(`at_r_${refreshes}`, "rtok-1", 60); }
+    return new Response("nope", { status: 404 });
   });
   let now = 1_700_000_000_000;
   const mgr = new PlatformTokenManager({
@@ -64,20 +78,40 @@ test("platform-token-manager: re-mints when within 30s of expiry", async () => {
   });
 
   const t1 = await mgr.getToken();
-  assert.equal(t1, "pt_1");
-  // +25s in: 35s remaining > 30s skew, should reuse.
-  now += 25_000;
+  assert.equal(t1, "at_1");
+  now += 25_000; // 35s remaining > 30s skew → reuse
   const t2 = await mgr.getToken();
-  assert.equal(t2, "pt_1");
-  assert.equal(mints, 1);
-  // +35s total: 25s remaining < 30s skew, should re-mint.
-  now += 10_000;
+  assert.equal(t2, "at_1");
+  assert.equal(refreshes, 0);
+  now += 10_000; // 25s remaining < 30s skew → /auth/token
   const t3 = await mgr.getToken();
-  assert.equal(t3, "pt_2");
-  assert.equal(mints, 2);
+  assert.equal(t3, "at_r_1");
+  assert.equal(logins, 1);
+  assert.equal(refreshes, 1);
 });
 
-test("platform-token-manager: 401 from mint endpoint surfaces RealmError unauthorized", async () => {
+test("session: /auth/token 401 falls back to /auth/login", async () => {
+  let logins = 0;
+  const { fetch } = mkFetch((c) => {
+    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`, "rtok-1", 60); }
+    if (c.url.endsWith("/auth/token")) {
+      return new Response(JSON.stringify({ error: { code: "unauthorized", message: "refresh revoked" } }),
+        { status: 401, headers: { "content-type": "application/json" } });
+    }
+    return new Response("nope", { status: 404 });
+  });
+  let now = 1_700_000_000_000;
+  const mgr = new PlatformTokenManager({
+    apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
+  });
+  await mgr.getToken();
+  now += 50_000; // force refresh window
+  const t = await mgr.getToken();
+  assert.equal(t, "at_2"); // re-logged in
+  assert.equal(logins, 2);
+});
+
+test("session: 401 from /auth/login surfaces RealmError unauthorized", async () => {
   const { fetch } = mkFetch(() => new Response(JSON.stringify({
     error: { code: "unauthorized", message: "bad api key" },
   }), { status: 401, headers: { "content-type": "application/json" } }));
@@ -89,7 +123,7 @@ test("platform-token-manager: 401 from mint endpoint surfaces RealmError unautho
   });
 });
 
-test("platform-token-manager: malformed response surfaces server_error", async () => {
+test("session: malformed response surfaces server_error", async () => {
   const { fetch } = mkFetch(() => new Response(JSON.stringify({ wrong: "shape" }), {
     status: 200, headers: { "content-type": "application/json" },
   }));
@@ -101,16 +135,13 @@ test("platform-token-manager: malformed response surfaces server_error", async (
   });
 });
 
-test("platform-token-manager: never logs the raw api key (redaction smoke test)", async () => {
+test("session: never logs the raw api key (redaction smoke test)", async () => {
   const captured: Array<{ msg: string; meta?: Record<string, unknown> }> = [];
   const logger = {
     debug() {}, warn() {}, error() {},
     info(msg: string, meta?: Record<string, unknown>) { captured.push({ msg, meta }); },
   };
-  const { fetch } = mkFetch(() => new Response(JSON.stringify({
-    platform_token: "pt_xxxx",
-    expires_in: 300,
-  }), { status: 200, headers: { "content-type": "application/json" } }));
+  const { fetch } = mkFetch(() => loginResponse("at_xxxx"));
   const mgr = new PlatformTokenManager({
     apiKey: "rk_live_supersecret_full_value",
     baseUrl: "https://auth.test", fetch, logger,
@@ -119,7 +150,7 @@ test("platform-token-manager: never logs the raw api key (redaction smoke test)"
   for (const ev of captured) {
     const blob = JSON.stringify(ev);
     assert.ok(!blob.includes("supersecret_full_value"), `raw API key leaked into log: ${blob}`);
-    assert.ok(!blob.includes("pt_xxxx"), `raw platform token leaked into log: ${blob}`);
+    assert.ok(!blob.includes("at_xxxx"), `raw access token leaked into log: ${blob}`);
   }
   assert.ok(captured.length >= 1, "expected at least one info-level log event");
 });

@@ -2,9 +2,14 @@ package realmid
 
 import (
 	"context"
+	ctxpkg "context"
 	"net/url"
 	"strconv"
 )
+
+// Avoid an unused-import error if a later cleanup removes the only
+// ctxpkg-typed signature; see sdk/CLAUDE.md "Go SDK + GoFr hook quirk".
+var _ = ctxpkg.Background
 
 // Tenant is one entry returned from realm.Tenants.* (SPEC §6.1).
 type Tenant struct {
@@ -195,6 +200,77 @@ func (c *TenantsClient) Delete(ctx context.Context, id string) error {
 		Path:   "/tenants/" + url.PathEscape(id),
 		Bearer: tok,
 	}, nil)
+}
+
+// TenantDomainClaim is the response from Tenants.ClaimDomain. Exactly
+// one of (DNSRecordName/DNSRecordValue) and (FilePath/FileContent) is
+// populated, determined by the verification method.
+type TenantDomainClaim struct {
+	Domain         string `json:"domain"`
+	Status         string `json:"status"`
+	Method         string `json:"method"`
+	DNSRecordName  string `json:"dns_record_name,omitempty"`
+	DNSRecordValue string `json:"dns_record_value,omitempty"`
+	FilePath       string `json:"file_path,omitempty"`
+	FileContent    string `json:"file_content,omitempty"`
+}
+
+// TenantDomainClaimRequest parameterises Tenants.ClaimDomain. Method
+// is optional (defaults to "dns_txt"); accepted values are "dns_txt"
+// and "html_file".
+type TenantDomainClaimRequest struct {
+	PlatformID string
+	TenantID   string
+	Domain     string
+	Method     string // "dns_txt" (default) | "html_file"
+}
+
+// ClaimDomain initiates a tenant-owned domain claim. The DV row is
+// owner-scoped to the tenant: any platform admin can complete a
+// claim another admin started, and the row survives the claimer's
+// user being removed. Re-claiming with the same method is idempotent.
+func (c *TenantsClient) ClaimDomain(ctx ctxpkg.Context, req TenantDomainClaimRequest) (*TenantDomainClaim, error) {
+	if req.PlatformID == "" || req.TenantID == "" || req.Domain == "" {
+		return nil, &RealmError{Code: ErrCodeBadRequest, Message: "ClaimDomain: PlatformID, TenantID, Domain required"}
+	}
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]string{"domain": req.Domain}
+	if req.Method != "" {
+		body["method"] = req.Method
+	}
+	var resp TenantDomainClaim
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/platforms/" + url.PathEscape(req.PlatformID) + "/tenants/" + url.PathEscape(req.TenantID) + "/domains",
+		Bearer: tok,
+		Body:   body,
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// VerifyDomain drives the verification check on the tenant's pending
+// DV row and (on success) inserts the domain_mappings binding in the
+// same call. Method is read off the persisted row, so callers don't
+// pass it again here.
+func (c *TenantsClient) VerifyDomain(ctx ctxpkg.Context, platformID, tenantID, domain string) (*DomainVerifyResult, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp DomainVerifyResult
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/platforms/" + url.PathEscape(platformID) + "/tenants/" + url.PathEscape(tenantID) + "/domains/" + url.PathEscape(domain) + "/verify",
+		Bearer: tok,
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // TransferOwner reassigns tenant ownership.

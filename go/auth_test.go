@@ -1,6 +1,7 @@
 package realmid
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,12 +11,39 @@ import (
 	"testing"
 )
 
-// authTestServer wires the routes auth.go cares about.
+// authTestServer wires the routes auth.go cares about. ADR-051: the
+// platform-token bootstrap and the user login both live on /auth/login;
+// we dispatch on `grant_type` inside the handler. The bootstrap mints
+// access token "ptok" so existing assertions (Bearer ptok) still apply.
 func authTestServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	userLogin := handlers["/auth/login"]
+	delete(handlers, "/auth/login")
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		var probe struct {
+			GrantType string `json:"grant_type"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if probe.GrantType == "platform_api_key" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":        "ok",
+				"subject_type":  "platform",
+				"refresh_token": "rtok-platform",
+				"access_token":  "ptok",
+				"expires_in":    300,
+			})
+			return
+		}
+		if userLogin == nil {
+			http.Error(w, "no user login handler", http.StatusNotImplemented)
+			return
+		}
+		// Re-prime body so the user handler sees what was sent.
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		userLogin(w, r)
 	})
 	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

@@ -15,8 +15,8 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), {
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }

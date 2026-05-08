@@ -11,8 +11,8 @@ import (
 )
 
 func mintPlatformToken(mux *http.ServeMux) {
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 }
 

@@ -1,38 +1,52 @@
 package realmid
 
 import (
-	"context"
+	ctxpkg "context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 )
 
-// platformTokenManager implements SPEC §4.0 dual-token login.
+// sessionManager implements ADR-051's two-endpoint auth surface for the
+// SDK's platform identity.
 //
 // On every call that needs platform-bearer auth, the manager either
-// returns a cached token or mints a fresh one against
-// POST /auth/platform-token with the raw API key. Refresh fires when
-// fewer than 30s remain on the cached token's expiry.
-type platformTokenManager struct {
+// returns a cached access token or mints/refreshes one. The lifecycle is:
+//
+//  1. First call: POST /auth/login {grant_type:"platform_api_key", api_key}
+//     → {refresh_token, access_token, expires_in}.
+//  2. When the cached access token is within 30s of expiry (or after a
+//     401 invalidate): POST /auth/token with the refresh token as the
+//     Authorization Bearer → {refresh_token, access_token, expires_in}.
+//     Whether refresh rotates is decided server-side via the realm's
+//     `platform_refresh_rotates` config (defaults to off; the response's
+//     refresh_token will be the same token the SDK sent).
+//  3. If /auth/token fails with 401 (or refresh is missing), we fall
+//     back to step 1.
+//
+// The raw API key thus only ever travels on the initial /auth/login call.
+type sessionManager struct {
 	apiKey  string
 	realmID string
 	http    *httpClient
 	logger  *slog.Logger
 	now     func() time.Time
 
-	mu        sync.RWMutex
-	token     string
-	expiresAt time.Time
+	mu              sync.RWMutex
+	refreshToken    string
+	accessToken     string
+	accessExpiresAt time.Time
 }
 
-func newPlatformTokenManager(apiKey, realmID string, http *httpClient, logger *slog.Logger, now func() time.Time) *platformTokenManager {
+func newSessionManager(apiKey, realmID string, http *httpClient, logger *slog.Logger, now func() time.Time) *sessionManager {
 	if now == nil {
 		now = time.Now
 	}
-	return &platformTokenManager{
+	return &sessionManager{
 		apiKey:  apiKey,
 		realmID: realmID,
 		http:    http,
@@ -41,81 +55,146 @@ func newPlatformTokenManager(apiKey, realmID string, http *httpClient, logger *s
 	}
 }
 
-// platformTokenResponse is the wire shape returned by /auth/platform-token.
-type platformTokenResponse struct {
-	PlatformToken string `json:"platform_token"`
-	ExpiresIn     int    `json:"expires_in"`
-	ExpiresAt     string `json:"expires_at,omitempty"`
+// loginResponse is the wire shape returned by POST /auth/login for the
+// platform_api_key grant (and used by /auth/token for service/platform).
+type loginResponse struct {
+	Status       string `json:"status"`
+	SubjectType  string `json:"subject_type"`
+	RefreshToken string `json:"refresh_token"`
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
-// get returns a fresh platform token, minting one if the cache is empty
-// or within the 30s pre-expiry window.
-func (m *platformTokenManager) get(ctx context.Context) (string, error) {
+// get returns a fresh access token, minting/refreshing one as needed.
+// Same surface the previous platformTokenManager exposed — every call
+// site (config.go, roles.go, origins.go, ...) uses this as their Bearer.
+func (m *sessionManager) get(ctx ctxpkg.Context) (string, error) {
 	m.mu.RLock()
-	tok := m.token
-	exp := m.expiresAt
+	access := m.accessToken
+	refresh := m.refreshToken
+	exp := m.accessExpiresAt
 	m.mu.RUnlock()
-	if tok != "" && exp.Sub(m.now()) >= 30*time.Second {
-		return tok, nil
+	if access != "" && exp.Sub(m.now()) >= 30*time.Second {
+		return access, nil
 	}
-	return m.refresh(ctx)
+	if refresh != "" {
+		tok, err := m.refreshAccess(ctx, refresh)
+		if err == nil {
+			return tok, nil
+		}
+		// 401 on /auth/token → refresh was revoked or rotated; fall back
+		// to a full login. Other errors (network, 5xx) bubble up.
+		var rerr *RealmError
+		if !errors.As(err, &rerr) || rerr.Code != ErrCodeUnauthorized {
+			return "", err
+		}
+		m.logger.Info("realmid session: refresh rejected, re-logging in",
+			slog.String("realm_id", m.realmID),
+		)
+	}
+	return m.login(ctx)
 }
 
-// refresh forces a re-mint regardless of cache state.
-func (m *platformTokenManager) refresh(ctx context.Context) (string, error) {
+// login exchanges the raw API key for a refresh + access token via
+// POST /auth/login {grant_type:"platform_api_key"}.
+func (m *sessionManager) login(ctx ctxpkg.Context) (string, error) {
 	if m.apiKey == "" {
-		return "", &RealmError{Code: ErrCodeUnauthorized, Message: "no API key configured for platform token mint"}
+		return "", &RealmError{Code: ErrCodeUnauthorized, Message: "no API key configured for platform login"}
 	}
-	m.logger.Info("realmid platform token mint",
+	m.logger.Info("realmid session: platform login",
 		slog.String("realm_id", m.realmID),
 		slog.String("api_key", redactCredential(m.apiKey)),
 	)
 
-	var resp platformTokenResponse
+	var resp loginResponse
 	err := m.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/auth/platform-token",
-		Bearer: m.apiKey,
-		Body:   map[string]any{"realm_id": m.realmID},
+		Path:   "/auth/login",
+		Body: map[string]any{
+			"grant_type": "platform_api_key",
+			"api_key":    m.apiKey,
+		},
 	}, &resp)
 	if err != nil {
 		return "", err
 	}
-	if resp.PlatformToken == "" {
-		return "", &RealmError{Code: ErrCodeServerError, Message: "platform token mint returned empty token"}
+	if resp.AccessToken == "" || resp.RefreshToken == "" {
+		return "", &RealmError{Code: ErrCodeServerError, Message: "platform login returned empty tokens"}
 	}
+	if err := m.checkIssuer(resp.AccessToken); err != nil {
+		return "", err
+	}
+	m.store(resp)
+	m.logger.Info("realmid session: platform login complete",
+		slog.String("realm_id", m.realmID),
+		slog.Time("expires_at", m.accessExpiresAt),
+		slog.String("access_token", redactCredential(resp.AccessToken)),
+	)
+	return resp.AccessToken, nil
+}
 
-	// ADR-041: client-side realm pinning. Decode the minted JWT (no
-	// signature check — we just got it from RI over TLS) and confirm its
-	// iss claim references the configured realm. Catches confused-deputy
-	// bugs where the SDK was constructed with realm A but the API key
-	// actually belongs to realm B; the bug would otherwise surface much
-	// later as cryptic 4xx on partner-level operations.
-	if iss, perr := peekJWTIssuer(resp.PlatformToken); perr == nil {
-		if !strings.HasSuffix(iss, "/"+m.realmID) {
-			return "", &RealmError{
-				Code:    ErrCodeUnauthorized,
-				Message: "platform token's iss does not match configured realm: got " + iss + ", configured realm " + m.realmID,
-			}
+// refreshAccess mints a new access token (and possibly rotates the
+// refresh token) via POST /auth/token. The realm's
+// `platform_refresh_rotates` config decides whether refresh actually
+// rotates; either way we store whatever the server returned.
+func (m *sessionManager) refreshAccess(ctx ctxpkg.Context, refresh string) (string, error) {
+	m.logger.Debug("realmid session: refreshing platform access",
+		slog.String("realm_id", m.realmID),
+	)
+	var resp loginResponse
+	err := m.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/auth/token",
+		Bearer: refresh,
+		Body:   map[string]any{},
+	}, &resp)
+	if err != nil {
+		return "", err
+	}
+	if resp.AccessToken == "" {
+		return "", &RealmError{Code: ErrCodeServerError, Message: "/auth/token returned empty access token"}
+	}
+	if err := m.checkIssuer(resp.AccessToken); err != nil {
+		return "", err
+	}
+	// If the realm has rotation off, the server returns the same refresh
+	// we sent; if rotation is on, a new refresh. Either way: store it.
+	if resp.RefreshToken == "" {
+		resp.RefreshToken = refresh
+	}
+	m.store(resp)
+	return resp.AccessToken, nil
+}
+
+// checkIssuer is the ADR-041 client-side realm pin: decode the JWT
+// (no signature check — we just got it from RI over TLS) and confirm
+// its iss claim references the configured realm. Catches confused-deputy
+// bugs where the SDK was constructed with realm A but the API key
+// actually belongs to realm B.
+func (m *sessionManager) checkIssuer(jwt string) error {
+	iss, perr := peekJWTIssuer(jwt)
+	if perr != nil {
+		return nil // malformed payload — let the verifier surface it later
+	}
+	if !strings.HasSuffix(iss, "/"+m.realmID) {
+		return &RealmError{
+			Code:    ErrCodeUnauthorized,
+			Message: "platform access token's iss does not match configured realm: got " + iss + ", configured realm " + m.realmID,
 		}
 	}
+	return nil
+}
 
+func (m *sessionManager) store(resp loginResponse) {
 	exp := m.now().Add(time.Duration(resp.ExpiresIn) * time.Second)
 	if resp.ExpiresIn == 0 {
 		exp = m.now().Add(5 * time.Minute) // SPEC §4.0 default
 	}
-
 	m.mu.Lock()
-	m.token = resp.PlatformToken
-	m.expiresAt = exp
+	m.refreshToken = resp.RefreshToken
+	m.accessToken = resp.AccessToken
+	m.accessExpiresAt = exp
 	m.mu.Unlock()
-
-	m.logger.Info("realmid platform token refreshed",
-		slog.String("realm_id", m.realmID),
-		slog.Time("expires_at", exp),
-		slog.String("token", redactCredential(resp.PlatformToken)),
-	)
-	return resp.PlatformToken, nil
 }
 
 // peekJWTIssuer decodes the JWT payload (no signature check) and returns
@@ -190,12 +269,13 @@ func peekJWTRevokeFields(jwt string) (string, time.Time, error) {
 	return c.JTI, exp, nil
 }
 
-// invalidate clears the cached token. Used after an auth failure to
-// force a remint on the next call.
-func (m *platformTokenManager) invalidate() {
+// invalidate clears the cached access token. Used after an auth failure
+// to force a re-mint on the next call. The refresh token is preserved
+// so the next get() can attempt /auth/token before a full re-login.
+func (m *sessionManager) invalidate() {
 	m.mu.Lock()
-	m.token = ""
-	m.expiresAt = time.Time{}
+	m.accessToken = ""
+	m.accessExpiresAt = time.Time{}
 	m.mu.Unlock()
 }
 
@@ -220,11 +300,11 @@ type RevocationCache interface {
 	// Revoke marks jti as revoked. expiresAt is the JWT's exp, used as
 	// the cache entry TTL — partners' implementations should evict on
 	// expiry so the cache never grows unboundedly.
-	Revoke(ctx context.Context, jti string, expiresAt time.Time) error
+	Revoke(ctx ctxpkg.Context, jti string, expiresAt time.Time) error
 	// IsRevoked returns true when jti has been revoked and the TTL has
 	// not elapsed. Errors propagate to the verifier which fails closed
 	// (request rejected).
-	IsRevoked(ctx context.Context, jti string) (bool, error)
+	IsRevoked(ctx ctxpkg.Context, jti string) (bool, error)
 }
 
 // MemRevocationCache is a single-process implementation suitable for a
@@ -247,7 +327,7 @@ func NewMemRevocationCache(now func() time.Time) *MemRevocationCache {
 }
 
 // Revoke implements RevocationCache.
-func (m *MemRevocationCache) Revoke(_ context.Context, jti string, expiresAt time.Time) error {
+func (m *MemRevocationCache) Revoke(_ ctxpkg.Context, jti string, expiresAt time.Time) error {
 	if jti == "" {
 		return nil
 	}
@@ -258,7 +338,7 @@ func (m *MemRevocationCache) Revoke(_ context.Context, jti string, expiresAt tim
 }
 
 // IsRevoked implements RevocationCache.
-func (m *MemRevocationCache) IsRevoked(_ context.Context, jti string) (bool, error) {
+func (m *MemRevocationCache) IsRevoked(_ ctxpkg.Context, jti string) (bool, error) {
 	if jti == "" {
 		return false, nil
 	}

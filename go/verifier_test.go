@@ -57,8 +57,8 @@ func mintKey(t *testing.T, kid string) (signFn, jwk) {
 }
 
 // fakeServer wires JWKS endpoints + a stub /platforms/mine + a stub
-// /auth/platform-token so a fully-configured *Realm can exercise the
-// verifier end-to-end without the live API.
+// /auth/login (platform_api_key grant) so a fully-configured *Realm can
+// exercise the verifier end-to-end without the live API.
 func fakeServer(t *testing.T, perRealm map[string][]jwk, audience string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
@@ -69,10 +69,13 @@ func fakeServer(t *testing.T, perRealm map[string][]jwk, audience string) *httpt
 			_ = json.NewEncoder(w).Encode(jwksDoc{Keys: keys})
 		})
 	}
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"platform_token": "ptok_test_" + testRealmID,
-			"expires_in":     300,
+			"status":        "ok",
+			"subject_type":  "platform",
+			"refresh_token": "rtok-platform",
+			"access_token":  "ptok_test_" + testRealmID,
+			"expires_in":    300,
 		})
 	})
 	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {

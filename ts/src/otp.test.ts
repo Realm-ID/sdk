@@ -26,7 +26,7 @@ function recorder(handlers: Array<(rec: Recorded) => Response | Promise<Response
     const rec: Recorded = { url, method: init?.method ?? "GET", headers, body };
     calls.push(rec);
 
-    if (url.endsWith("/auth/platform-token")) {
+    if (url.endsWith("/auth/login")) {
       return new Response(JSON.stringify({
         platform_token: "pt_test",
         expires_in: 300,

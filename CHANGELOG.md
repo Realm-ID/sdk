@@ -5,6 +5,62 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## go-v0.10.0 / ts-v0.9.0 — Two-endpoint auth surface (ADR-051) (2026-05-08)
+
+**BREAKING.** Tracks api `v0.7.0`. The legacy
+`POST /auth/service-token` and `POST /auth/platform-token` endpoints
+are gone (server-side, hard cut, no aliases). The SDK now drives the
+two-endpoint flow:
+
+```text
+POST /auth/login   {grant_type, ...} → refresh + (resolved) access
+POST /auth/token   refresh-bearer    → rotated refresh + access
+```
+
+Authoritative reference:
+- `api/docs/adr/051-two-endpoint-auth-surface.md`
+- `api/docs/proposals/two-endpoint-auth-surface.md`
+
+SPEC.md §4.0, §4.1, §4.2 rewritten to match.
+
+### Changed — Go (`v0.10.0`)
+
+- `internal: platformTokenManager` renamed to `sessionManager`.
+  Public surface unchanged: every `realm.platformToken.get(ctx)`
+  call site keeps returning the platform access token.
+- `sessionManager` now holds **both** an access token and a refresh
+  token. First call hits `POST /auth/login {grant_type:
+  "platform_api_key", api_key}`; near-expiry calls hit `POST
+  /auth/token` with the refresh token as the Authorization Bearer.
+  401 on `/auth/token` falls back transparently to a fresh
+  `/auth/login`.
+- Refresh-token rotation gated by the realm's
+  `platform_refresh_rotates` config (default off, non-rotating;
+  the response's `refresh_token` will equal what was sent).
+- Removed `platformTokenResponse`; introduced `loginResponse` matching
+  the new wire shape (`subject_type`, `refresh_token`,
+  `access_token`, `expires_in`).
+
+### Changed — TS (`0.9.0`)
+
+- `PlatformTokenManager` (kept the class name + `getToken()` surface
+  for source compatibility) reimplemented against the two-endpoint
+  flow. Same fallback semantics as Go.
+- `invalidate()` now clears only the access token; the cached refresh
+  token is preserved so the next `getToken()` can attempt
+  `/auth/token` before a full re-login.
+
+### Removed
+
+- All references to `POST /auth/service-token` and
+  `POST /auth/platform-token` in source, tests, and SPEC.md.
+
+### Migration
+
+Bump the SDK to `go-v0.10.0` / `ts-v0.9.0` whenever you bump the API
+to `v0.7.0`. No partner code changes required — call surface (`auth.login`,
+`auth.token`, `tenants.*`, etc.) is unchanged.
+
 ## go-v0.9.0 / ts-v0.8.0 — Partner OTP primitive + `mfa_challenge_token` wire fix (2026-05-08)
 
 Tracks api `v0.6.0`. Both SDKs ship the partner OTP primitive

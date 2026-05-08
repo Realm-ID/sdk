@@ -28,10 +28,17 @@ func TestNormalizeOrigin(t *testing.T) {
 func originsServer(t *testing.T, mintCount, listCount *int32, listHandler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
+	mintHandler := func(w http.ResponseWriter, _ *http.Request) {
 		atomic.AddInt32(mintCount, 1)
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
-	})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "ok", "subject_type": "platform",
+			"refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300,
+		})
+	}
+	// /auth/login (initial mint) and /auth/token (refresh) share the
+	// same mock; both bump mintCount so existing assertions hold.
+	mux.HandleFunc("/auth/login", mintHandler)
+	mux.HandleFunc("/auth/token", mintHandler)
 	mux.HandleFunc("/platforms/"+testRealmID+"/origins", func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(listCount, 1)
 		listHandler(w, r)

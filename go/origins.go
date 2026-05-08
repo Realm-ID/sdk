@@ -208,6 +208,65 @@ func (c *OriginsClient) doListCall(ctx ctxpkg.Context, realmID string, po PageOp
 	return &Page[Origin]{Items: env.Items, NextCursor: env.NextCursor, Total: env.Total}, nil
 }
 
+// OriginClaim is the response from OriginsClient.Claim. Realm-origin
+// claims are DNS-TXT only — the html_file method is not exposed at
+// the platform surface (see ADR-049 §"Method options").
+type OriginClaim struct {
+	Domain         string `json:"domain"`
+	Status         string `json:"status"`
+	Method         string `json:"method"` // always "dns_txt"
+	DNSRecordName  string `json:"dns_record_name"`
+	DNSRecordValue string `json:"dns_record_value"`
+}
+
+// Claim begins a realm-owned origin claim. The DV row is owner-scoped
+// to the realm — any admin in this realm can complete the verify step
+// and add the bind. Re-claiming returns the existing pending token
+// (idempotent).
+func (c *OriginsClient) Claim(ctx ctxpkg.Context, realmID, hostname string) (*OriginClaim, error) {
+	if realmID == "" || hostname == "" {
+		return nil, &RealmError{Code: ErrCodeBadRequest, Message: "Origins.Claim: realmID and hostname required"}
+	}
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp OriginClaim
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/platforms/" + realmID + "/origins/claim",
+		Bearer: tok,
+		Body:   map[string]string{"domain": hostname},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// Verify drives the DNS check on the realm's pending DV row. Does NOT
+// bind — call Origins.Bind (POST /platforms/{id}/origins) afterwards
+// so a single verified apex can serve as the trust anchor for
+// trusted-by-parent subdomain origins.
+func (c *OriginsClient) Verify(ctx ctxpkg.Context, realmID, hostname string) (*DomainVerifyResult, error) {
+	if realmID == "" || hostname == "" {
+		return nil, &RealmError{Code: ErrCodeBadRequest, Message: "Origins.Verify: realmID and hostname required"}
+	}
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp DomainVerifyResult
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/platforms/" + realmID + "/origins/verify",
+		Bearer: tok,
+		Body:   map[string]string{"domain": hostname},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

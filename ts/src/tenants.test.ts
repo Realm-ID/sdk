@@ -6,8 +6,8 @@ import { RealmError } from "./errors.js";
 function mkFetch(handler: (url: string) => Response): typeof fetch {
   return (async (input: RequestInfo | URL): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), {
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }
@@ -67,8 +67,8 @@ test("tenants.create: routes to /platforms/{realmId}/tenants (SPEC §6.1)", asyn
   let hitBody: Record<string, unknown> = {};
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), {
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }
@@ -99,8 +99,8 @@ test("tenants.updateUserRole: PATCHes /tenants/{id}/users/{uid}/role", async () 
   let hitBody: Record<string, unknown> = {};
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), {
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }

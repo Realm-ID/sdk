@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -21,8 +22,33 @@ import (
 func mwTestServer(t *testing.T, jwks []jwk, audience string, extra map[string]http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/platform-token", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"platform_token": "ptok", "expires_in": 300})
+	userLogin := extra["/auth/login"]
+	delete(extra, "/auth/login")
+	// ADR-051 dispatch: platform_api_key bootstrap and any user-grant
+	// login share /auth/login. Pick by `grant_type`.
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		var probe struct {
+			GrantType string `json:"grant_type"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if probe.GrantType == "platform_api_key" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status":        "ok",
+				"subject_type":  "platform",
+				"refresh_token": "rtok-platform",
+				"access_token":  "ptok",
+				"expires_in":    300,
+			})
+			return
+		}
+		if userLogin == nil {
+			http.Error(w, "no user login handler", http.StatusNotImplemented)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		userLogin(w, r)
 	})
 	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{

@@ -36,14 +36,25 @@ function mkReq(opts: { url: string; method?: string; headers?: Record<string, st
   };
 }
 
-/** Fetch that auto-services platform-token and forwards the rest to the handler. */
+/** Fetch that auto-services the platform-token bootstrap and forwards
+ * the rest (including user-grant /auth/login calls) to the handler.
+ * ADR-051: dispatch on grant_type. */
 function autoFetch(handler: (url: string, init: RequestInit | undefined) => Promise<Response> | Response): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), {
-        status: 200, headers: { "content-type": "application/json" },
-      });
+    if (url.endsWith("/auth/login")) {
+      let parsed: { grant_type?: string } = {};
+      if (init?.body) {
+        try { parsed = JSON.parse(String(init.body)); } catch { /* noop */ }
+      }
+      if (parsed.grant_type === "platform_api_key") {
+        return new Response(JSON.stringify({
+          status: "ok", subject_type: "platform",
+          refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300,
+        }), {
+          status: 200, headers: { "content-type": "application/json" },
+        });
+      }
     }
     return handler(url, init);
   }) as typeof fetch;
@@ -203,8 +214,8 @@ test("middleware: valid bearer attaches claims to req.realmid", async () => {
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
@@ -235,8 +246,8 @@ test("middleware: mfaProtectedPaths returns 412 mfa_required when token lacks MF
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
@@ -273,8 +284,8 @@ test("middleware: mfaProtectedPaths lets through tokens carrying amr=mfa", async
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
@@ -306,8 +317,8 @@ test("middleware: mfaProtectedPaths accepts fresh mfa_at", async () => {
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
@@ -341,8 +352,8 @@ test("middleware: stale mfa_at returns 412 stale_mfa", async () => {
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
@@ -380,8 +391,8 @@ test("middleware: requireFresh rejects amr-only token (no mfa_at)", async () => 
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
@@ -419,8 +430,8 @@ test("middleware: requireFresh accepts mfa_at within 30s", async () => {
 
   const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({ platform_token: "pt_x", expires_in: 300 }), { status: 200 });
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
       return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });

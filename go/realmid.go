@@ -83,7 +83,7 @@ type Realm struct {
 	logger  *slog.Logger
 
 	http          *httpClient
-	platformToken *platformTokenManager
+	platformToken *sessionManager
 	info          *infoClient
 	verifier      *verifier
 	revocation    RevocationCache
@@ -102,13 +102,15 @@ type Realm struct {
 	OTP *OTPClient
 }
 
-// Version is the published SDK version (semver). 0.5.0 corresponds to
-// RealmID v0.5.0 — the platforms-namespace cut (ADR-044) and the
-// signup_mode enum (ADR-045). Breaking: admin sub-paths moved from
-// /realms/{id}/... to /platforms/{id}/... (api-keys, config, roles)
-// and TenantCreate's `OpenSignup bool` is replaced by `SignupMode`
-// (closed | allowlist | open). OIDC discovery URLs stay on /realms/.
-const Version = "0.6.0"
+// Version is the published SDK version (semver). 0.10.0 corresponds to
+// RealmID v0.7.0 — the two-endpoint auth surface (ADR-051). Breaking:
+// the SDK now hits POST /auth/login {grant_type:"platform_api_key"}
+// instead of the deleted POST /auth/platform-token, then refreshes via
+// POST /auth/token with the refresh-token bearer. Refresh rotation is
+// gated by the realm's `platform_refresh_rotates` config (default off,
+// non-rotating). 0.5.0 was the platforms-namespace cut (ADR-044) and
+// the signup_mode enum (ADR-045).
+const Version = "0.10.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -133,7 +135,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 		logger:  cfg.Logger,
 	}
 	r.http = newHTTPClient(cfg.BaseURL, cfg.HTTPClient, cfg.Logger)
-	r.platformToken = newPlatformTokenManager(cfg.APIKey, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
+	r.platformToken = newSessionManager(cfg.APIKey, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
 	r.revocation = cfg.Revocation
 	r.info = &infoClient{realm: r}
 	r.verifier = newVerifier(r)

@@ -11,7 +11,7 @@ interface Recorded {
 }
 
 /**
- * Recorder that auto-services the `POST /auth/platform-token` mint as the
+ * Recorder that auto-services the `POST /auth/login` mint as the
  * first call (returning a fresh platform token). Subsequent handlers fire
  * for the actual user-facing call. Tests can inspect every recorded call.
  */
@@ -31,12 +31,21 @@ function recorder(handlers: Array<(rec: Recorded) => Response | Promise<Response
     const rec: Recorded = { url, method: init?.method ?? "GET", headers, body };
     calls.push(rec);
 
-    if (url.endsWith("/auth/platform-token")) {
-      return new Response(JSON.stringify({
-        platform_token: "pt_test_abc",
-        expires_in: 300,
-        realm_id: "01HREALM",
-      }), { status: 200, headers: { "content-type": "application/json" } });
+    // ADR-051: /auth/login is dual-purpose. The bootstrap mints the
+    // platform session via grant_type=platform_api_key; user-grant
+    // logins (provider_token, password, otp_internal) flow to the
+    // per-test handler.
+    if (url.endsWith("/auth/login")) {
+      const gt = (body as { grant_type?: string } | undefined)?.grant_type;
+      if (gt === "platform_api_key") {
+        return new Response(JSON.stringify({
+          status: "ok",
+          subject_type: "platform",
+          refresh_token: "rtok-platform",
+          access_token: "pt_test_abc",
+          expires_in: 300,
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }
     }
     const h = handlers[i++] ?? handlers[handlers.length - 1]!;
     return h(rec);
@@ -63,10 +72,13 @@ test("auth.login: happy path mints platform token first, then logs in", async ()
   assert.equal(out.refreshToken, "rt");
   assert.equal(out.tenants[0]!.id, "t1");
 
-  // Two outbound calls: platform-token mint, then /auth/login.
+  // Two outbound calls (ADR-051): platform_api_key bootstrap on
+  // /auth/login, then the user-grant /auth/login.
   assert.equal(calls.length, 2);
-  assert.match(calls[0]!.url, /\/auth\/platform-token$/);
-  assert.equal(calls[0]!.headers.get("authorization"), `Bearer ${API_KEY}`);
+  assert.match(calls[0]!.url, /\/auth\/login$/);
+  // Raw API key travels in the body, not as a bearer.
+  assert.equal(calls[0]!.headers.get("authorization"), null);
+  assert.equal((calls[0]!.body as { grant_type: string }).grant_type, "platform_api_key");
 
   assert.match(calls[1]!.url, /\/auth\/login$/);
   assert.equal(calls[1]!.headers.get("authorization"), "Bearer pt_test_abc");

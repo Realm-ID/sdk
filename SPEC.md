@@ -98,33 +98,72 @@ second round trip to fetch context.
 
 ## 4. Authentication surface (`realm.auth.*`)
 
-### 4.0 Dual-token login (defense in depth)
+### 4.0 Two-endpoint auth surface (ADR-051)
+
+The public auth surface is exactly two endpoints:
+
+```text
+POST /auth/login   credentials → refresh token (+ access if resolved)
+POST /auth/token   refresh token → rotated refresh + access pair
+```
+
+`/auth/login` accepts a `grant_type` discriminator. Five values:
+
+| `grant_type`       | Inbound bearer        | Subject minted | Used by SDK for |
+| ---                | ---                   | ---            | --- |
+| `provider_token`   | platform access JWT   | `user`         | `auth.login({ method: "firebase" \| "google" })` |
+| `password`         | platform access JWT   | `user`         | (roadmap — native u/p) |
+| `otp_internal`     | platform access JWT   | `user`         | `auth.otpLogin(...)` |
+| `api_key`          | none (raw key in body) | `service`     | (server-only today) |
+| `platform_api_key` | none (raw key in body) | `platform`    | the SDK's platform-session bootstrap |
 
 Login is a **two-step exchange** internal to the SDK; partners see one
-call. The raw API key is **never** sent on login traffic.
+call. The raw API key is **never** sent on user-login traffic. The SDK
+keeps a per-handle session manager that:
 
-1. **Platform token mint** — SDK calls `POST /auth/platform-token` with
-   `Authorization: Bearer <api-key>`. Response is a short-lived
-   (default 5 min) platform JWT scoped to the realm.
-2. **User session mint** — SDK calls `POST /auth/login` with the
-   platform token in `Authorization: Bearer <platform-token>` and the
-   user's provider token in the body. The server validates **both** —
-   the platform token authorizes the *caller*; the provider token
-   authenticates the *user*.
+1. **Platform login** — first call: `POST /auth/login` with body
+   `{ grant_type: "platform_api_key", api_key: "rk_live_..." }`.
+   Response: `{ status, subject_type: "platform", refresh_token,
+   access_token, expires_in }`. The SDK caches both tokens.
+2. **User session mint** — `POST /auth/login` with the cached platform
+   access token in `Authorization: Bearer ...` and a user grant in the
+   body (`grant_type: "provider_token"`, `provider`, `token`). The
+   server validates both — the platform token authorizes the *caller*;
+   the provider token authenticates the *user*.
+3. **Access refresh** — when the cached platform access token enters
+   its 30 s pre-expiry window: `POST /auth/token` with the refresh
+   token as `Authorization: Bearer ...`. Response is the same shape
+   as `/auth/login` for service/platform grants. If `/auth/token`
+   401s (refresh revoked / rotated by another caller), the SDK falls
+   back to a fresh platform login (step 1) transparently.
 
-The platform token is cached per-handle until 30 s before its `exp`,
-then re-minted automatically. Caller gets one method,
-`realm.auth.login(...)`, that handles both legs.
+Whether the platform refresh token rotates is **realm-configurable**
+(see §4.3). Default: non-rotating — the response's `refresh_token`
+field will equal the one the SDK sent. Rotating mode (single-use
+refresh, reuse-detection lifecycle) is opt-in per realm.
 
-This is a marketing talking point: API keys never travel over login
-traffic, and a leaked login-route capture cannot be replayed past the
-platform token's TTL.
+This is the marketing talking point: API keys never travel over user
+login traffic, and a leaked login-route capture cannot be replayed
+past the platform access token's TTL.
+
+> **Hard cut from pre-v0.10 SDKs**: the legacy `POST /auth/service-token`
+> and `POST /auth/platform-token` endpoints are gone. SDK 0.10+ does
+> not call them; older SDKs will fail loudly against an api `v0.7.0`+
+> server.
 
 ### 4.1 `login(req)`
 
-Exchanges a provider token for a realm-scoped session.
+Exchanges a provider token for a realm-scoped session. On the wire the
+SDK posts to `POST /auth/login` with a `grant_type` discriminator
+(ADR-051):
 
-Request: `{ method, providerToken, origin? }`
+| SDK `method`     | Wire `grant_type`  | Extra body |
+| ---              | ---                | --- |
+| `"firebase"`     | `"provider_token"` | `provider: "firebase_phone"`, `token: <id token>` |
+| `"google"`       | `"provider_token"` | `provider: "google"`, `token: <id token>` |
+| `"otp_internal"` | `"otp_internal"`   | `identifier`, `presented` (use the `auth.otpLogin` helper) |
+
+Request (Go/TS surface unchanged from 0.9.x): `{ method, providerToken, origin? }`
 - `method`: `"firebase" | "google" | "otp_internal"`. `otp_internal`
   is the partner OTP login (see §X), gated server-side by
   `realms.config.otp_login_enabled`. When `method == "otp_internal"`,
@@ -135,6 +174,10 @@ Request: `{ method, providerToken, origin? }`
 - `providerToken`: opaque string from the upstream IdP.
 - `origin`: optional override. If unset, the SDK auto-attaches the
   Origin derived from the realm's claimed domain (see §1).
+
+The wire response includes a typed `subject_type` ∈ `{user, service,
+platform}` (ADR-051 §3). For user grants the SDK exposes the high-level
+fields:
 
 Response: `{ accessToken, refreshToken, expiresIn, expiresAt, user, tenants }`
 - `tenants`: array of `{ id, role, displayName }` the user belongs to.
@@ -148,16 +191,43 @@ Response: `{ accessToken, refreshToken, expiresIn, expiresAt, user, tenants }`
 ### 4.2 `token(req)`
 
 Refresh-token rotation, tenant switch, and **custom claim injection on
-the minted access token**.
+the minted access token**. Wire: `POST /auth/token` with the refresh
+token presented as `Authorization: Bearer ...` (or in the body as
+`refresh_token`).
 
 Request: `{ refreshToken, tenantId, customClaims? }`
-- `tenantId`: required (server contract — even single-tenant calls supply it).
+- `tenantId`: required for multi-tenant user picks; ignored on
+  service / platform refresh tokens (ADR-051).
 - `customClaims`: object of extra claims to merge into the minted
   **access token**, subject to a per-realm server-side allowlist. Use
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
   services need to authorize without a database lookup.
 
-Response: `{ accessToken, refreshToken, expiresIn, tenantId, role }`
+Response: `{ accessToken, refreshToken, expiresIn, tenantId, role,
+subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
+`tenantId` and `role` are user-only.
+
+**Refresh rotation policy (ADR-051):**
+
+- **User refresh** always rotates on `/auth/token` (today's behavior;
+  ADR-031 reuse-detection store).
+- **Service / platform refresh** rotate **only when the realm opts
+  in** via two new realm-config keys (PATCHable on
+  `/platforms/{id}/config`):
+
+  | Key                          | Default | Effect when `false`                                                | Effect when `true`                                                                |
+  | ---                          | :---:   | ---                                                                | ---                                                                               |
+  | `service_refresh_rotates`    | `false` | Service refresh is multi-use until exp; no reuse-detection.        | Single-use; `/auth/token` rotates and runs reuse-detection.                       |
+  | `platform_refresh_rotates`   | `false` | Platform refresh is multi-use until exp; no reuse-detection.       | Single-use; `/auth/token` rotates and runs reuse-detection.                       |
+
+  Defaults are off to match the legacy "platform tokens are
+  essentially single-shot" posture. Realms that want long-lived
+  rotating M2M sessions flip them on and accept the reuse-detection
+  lifecycle. `platform_refresh_rotates` is meaningful only on a base
+  realm; on partner realms the PATCH succeeds but is a no-op.
+
+  Service / platform refresh TTL reuses
+  `realms.config.refresh_ttl_seconds` (no new TTL knob).
 
 ### 4.3 `mfaVerify(req)`
 
@@ -202,10 +272,12 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 
 ## 6. Management surface
 
-All management calls authenticate via the dual-token mechanism (§4.0):
-SDK exchanges the API key for a short-lived platform token, then sends
-the platform token as `Authorization: Bearer ...`. Pagination on every
-list endpoint (see §7).
+All management calls authenticate via the two-endpoint flow (§4.0,
+ADR-051): the SDK exchanges the API key for a platform session via
+`POST /auth/login {grant_type: "platform_api_key"}`, refreshes via
+`POST /auth/token`, and sends the cached platform access token as
+`Authorization: Bearer ...` on every management call. Pagination on
+every list endpoint (see §7).
 
 > **Why no `realm.platforms.*`?** A partner has exactly one platform
 > (themselves) and exactly one realm. The cross-platform admin surface
@@ -499,9 +571,12 @@ cursors are silently treated as the first page.
 ## 8. HTTP wire conventions
 
 - **Auth header:** `Authorization: Bearer <token>`. The token is a
-  short-lived platform token (§4.0) for management calls, the user's
-  bearer JWT for user-context calls (e.g. `listSessions`), or the
-  raw API key for the **single** call to `POST /auth/platform-token`.
+  short-lived platform access token (§4.0, ADR-051) for management
+  calls, the user's bearer JWT for user-context calls
+  (e.g. `listSessions`), or the platform refresh token for `POST
+  /auth/token`. The raw API key never travels in `Authorization`; on
+  the bootstrap call it lives only inside the body of `POST
+  /auth/login` with `grant_type: "platform_api_key"`.
 - **Origin header:** SDK auto-attaches `Origin` on every auth call,
   derived from the realm's claimed domain via `realm.info()`. Override
   per-call (`auth.login({ origin })`) or globally
@@ -536,7 +611,7 @@ Events the SDK emits at each level:
 |-------|---------------------------------------------|
 | debug | every outbound HTTP request + response      |
 | debug | JWKS cache hit / miss / refresh             |
-| info  | platform-token mint and refresh             |
+| info  | platform login + access-token refresh (§4.0)|
 | warn  | retry-after responses, cache eviction       |
 | error | verify failure, network failure (with code) |
 
