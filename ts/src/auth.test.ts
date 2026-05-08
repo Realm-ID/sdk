@@ -118,6 +118,38 @@ test("auth.token: rotate refresh + tenant switch", async () => {
   assert.deepEqual(cc["outlet_ids"], ["o1"]);
 });
 
+test("auth.otpLogin: sends method=otp_internal + identifier + presented", async () => {
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at", refresh_token: "rt", expires_in: 900,
+      user: { id: "u-bob" }, tenants: [{ id: "t1", role: "member" }],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const out = await realm.auth.otpLogin({ identifier: "+15551234567", presented: "123456" });
+  assert.equal(out.accessToken, "at");
+  const body = calls[1]!.body as Record<string, unknown>;
+  assert.equal(body["method"], "otp_internal");
+  assert.equal(body["identifier"], "+15551234567");
+  assert.equal(body["presented"], "123456");
+});
+
+test("auth.mfaVerifyOtp: routes through /auth/mfa/verify with method=otp_internal", async () => {
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at2", refresh_token: "rt2", expires_in: 900,
+      user: { id: "u" }, tenants: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  await realm.auth.mfaVerifyOtp({ mfaToken: "ch_9", presented: "654321" });
+  assert.match(calls[1]!.url, /\/auth\/mfa\/verify$/);
+  const body = calls[1]!.body as Record<string, unknown>;
+  assert.equal(body["method"], "otp_internal");
+  assert.equal(body["challenge_token"], "ch_9");
+  assert.equal(body["code"], "654321");
+});
+
 test("auth.logout: returns ok", async () => {
   const { fetch, calls } = recorder([
     () => new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } }),

@@ -191,6 +191,55 @@ export class AuthClient {
     };
   }
 
+  /**
+   * Partner OTP §3.2.1 — single-factor login via a manager-issued OTP.
+   * Identifier is an email or E.164 phone scoped to the realm; presented
+   * is the OTP value the user typed. Gated server-side by
+   * realms.config.otp_login_enabled — disabled realms surface
+   * `unknown_method`; identifier-miss + hash-mismatch collapse to
+   * `invalid_credentials`.
+   */
+  async otpLogin(req: {
+    identifier: string;
+    presented: string;
+    tenantId?: string;
+    origin?: string;
+  }): Promise<LoginResponse> {
+    const headers = await this.originHeaders(req.origin);
+    const raw = await this.http.request<RawAuthResponse>({
+      method: "POST",
+      path: "/auth/login",
+      headers,
+      body: {
+        realm_id: this.realmId,
+        method: "otp_internal",
+        identifier: req.identifier,
+        presented: req.presented,
+        ...(req.tenantId ? { tenant_id: req.tenantId } : {}),
+      },
+    });
+    return mapAuthResp(raw);
+  }
+
+  /**
+   * Partner OTP §3.2.2 — second-factor MFA verify with a manager-issued
+   * OTP. Thin wrapper over mfaVerify with method=otp_internal pre-set.
+   * The mfa_challenge_token comes from a prior /auth/login response that
+   * advertised "otp_internal" in `methods[]`.
+   */
+  async mfaVerifyOtp(req: {
+    mfaToken: string;
+    presented: string;
+    origin?: string;
+  }): Promise<LoginResponse> {
+    return this.mfaVerify({
+      challengeToken: req.mfaToken,
+      code: req.presented,
+      method: "otp_internal",
+      origin: req.origin,
+    });
+  }
+
   /** SPEC §4.3 — complete an MFA challenge. Same response shape as login. */
   async mfaVerify(req: MfaVerifyRequest): Promise<LoginResponse> {
     const headers = await this.originHeaders(req.origin);
