@@ -5,6 +5,63 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## go-v0.9.0 / ts-v0.8.0 — Partner OTP primitive + `mfa_challenge_token` wire fix (2026-05-08)
+
+Tracks api `v0.6.0`. Both SDKs ship the partner OTP primitive
+(issue / view / verify) and two login integrations
+(`auth.otpLogin` single-factor, `auth.mfaVerifyOtp` second-factor),
+plus a wire-shape fix on `/auth/mfa/verify`. SPEC.md gains §X (OTP
+primitive). Authoritative reference:
+`api/docs/proposals/partner-otp-primitive.md`.
+
+> Versioning note: the previous Go SDK release was `0.8.2`. Bumping
+> Go to `0.9.0` (not `0.8.0`) since 0.8.x is already in flight.
+> TS jumps from `0.6.0` to `0.8.0` to keep the lockstep numbering
+> aligned with Go on the OTP cut.
+
+### Added — Go (`v0.9.0`)
+
+- `realm.OTP.Issue(ctx, tenantID, OTPIssueRequest{SubjectRef, Purpose})` →
+  `OTPIssueResponse{ID, Value, ExpiresAt, Purpose, SubjectRef}`.
+- `realm.OTP.View(ctx, tenantID, otpID)` →
+  `OTPViewResponse{..., IssuerUserID}`.
+- `realm.OTP.Verify(ctx, OTPVerifyRequest{TenantID, SubjectRef, Purpose, Presented})` →
+  `OTPVerifyResponse{OTPID, IssuerUserID, IssuedAt, SubjectRef, Purpose}`.
+- `Auth.OTPLogin(ctx, OTPLoginRequest{RealmID, Identifier, Presented})` —
+  wraps `POST /auth/login` with `method=otp_internal`. Realm gate:
+  `otp_login_enabled`.
+- `Auth.MFAVerifyOTP(ctx, MFAVerifyOTPRequest{MFAToken, Presented})` —
+  wraps `POST /auth/mfa/verify` with `method=otp_internal`. Realm
+  gate: `otp_mfa_enabled` + per-user/per-role enrollment.
+
+### Added — TS (`0.8.0`)
+
+- `realm.otp.issue({ subjectRef, purpose })`,
+  `realm.otp.view(otpId)`,
+  `realm.otp.verify({ subjectRef, purpose, presented })`.
+- `realm.auth.otpLogin({ realmId, identifier, presented })`.
+- `realm.auth.mfaVerifyOtp({ mfaToken, presented })`.
+
+### Fixed — both SDKs (`mfa_challenge_token` wire shape)
+
+`Auth.MFAVerify` (Go) and `auth.mfaVerify` (TS) previously sent the
+challenge token under JSON key `challenge_token`, but the API's
+`mfaVerifyReq` JSON tag is `mfa_challenge_token` — every MFA verify
+broke at the wire. Pre-existing bug; surfaced when Phase 4b's
+`MFAVerifyOTP` path inherited it. Both SDKs now serialise the body
+key as `mfa_challenge_token`. The TS Connect-style middleware's
+inbound body parser (`handleMfaVerify`) accepts both
+`mfa_challenge_token` (canonical) and `challenge_token` (legacy)
+keys from partner UI code so existing partner integrations don't
+regress while they update.
+
+### SPEC
+
+- Adds `§X OTP primitive` with full surface + a partner examples.
+- Updates `§4.1 login()` and `§4.3 mfaVerify()` to mention
+  `otp_internal` and the new typed helpers.
+- Calls out the corrected `mfa_challenge_token` wire-shape on §4.3.
+
 ## Unreleased — Admin aggregates surface (all SDKs)
 
 Admin aggregates surface (ADR-048, SPEC §7.5) shipped on all three

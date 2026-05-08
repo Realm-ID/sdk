@@ -1,6 +1,6 @@
 {
   "name": "@realmid/sdk",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Partner SDK for Realm ID — login, refresh, MFA, verify, and management",
   "type": "module",
   "main": "dist/index.js",

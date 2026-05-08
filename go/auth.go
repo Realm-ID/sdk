@@ -365,10 +365,10 @@ func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Sessi
 		method = "totp"
 	}
 	body := map[string]any{
-		"realm_id":        a.realm.realmID,
-		"challenge_token": req.ChallengeToken,
-		"code":            req.Code,
-		"method":          method,
+		"realm_id":            a.realm.realmID,
+		"mfa_challenge_token": req.ChallengeToken,
+		"code":                req.Code,
+		"method":              method,
 	}
 	headers := map[string]string{}
 	if req.OnBehalfOfIP != "" {

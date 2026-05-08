@@ -305,7 +305,7 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
 
 async function handleMfaVerify(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const body = await readJsonBody(req);
-  const challengeToken = String(body["challenge_token"] ?? body["challengeToken"] ?? "");
+  const challengeToken = String(body["mfa_challenge_token"] ?? body["challenge_token"] ?? body["challengeToken"] ?? "");
   const code = String(body["code"] ?? "");
   try {
     const out = await realm.auth.mfaVerify({ challengeToken, code });

@@ -125,7 +125,13 @@ platform token's TTL.
 Exchanges a provider token for a realm-scoped session.
 
 Request: `{ method, providerToken, origin? }`
-- `method`: `"firebase" | "google"`. Other methods are roadmap.
+- `method`: `"firebase" | "google" | "otp_internal"`. `otp_internal`
+  is the partner OTP login (see §X), gated server-side by
+  `realms.config.otp_login_enabled`. When `method == "otp_internal"`,
+  callers should use the typed helper `auth.otpLogin(...)` /
+  `Auth.OTPLogin(...)` rather than the generic `login()` — it
+  carries the `identifier` + `presented` body shape directly.
+  Other methods are roadmap.
 - `providerToken`: opaque string from the upstream IdP.
 - `origin`: optional override. If unset, the SDK auto-attaches the
   Origin derived from the realm's claimed domain (see §1).
@@ -157,7 +163,14 @@ Response: `{ accessToken, refreshToken, expiresIn, tenantId, role }`
 
 Completes an MFA challenge.
 
-Request: `{ challengeToken, code, method? }` — `method` defaults to `"totp"`.
+Request: `{ challengeToken, code, method? }` — `method` defaults to
+`"totp"`. Set `"otp_internal"` to consume a manager-issued partner
+OTP as the second factor (see §X); the typed helper
+`auth.mfaVerifyOtp(...)` / `Auth.MFAVerifyOTP(...)` wraps this. On
+the wire the request body uses `mfa_challenge_token` (not
+`challenge_token`) — the SDK serialises it correctly; partners
+hitting HTTP directly should match.
+
 Response: same shape as `login()` (refresh + access).
 
 ### 4.4 `logout(req?)`
@@ -719,6 +732,116 @@ webhooks worker), every operation is also exposed directly on the
 `realm` handle (`realm.auth.login(...)`, `realm.verify(...)`, etc.).
 The middleware is sugar over those primitives, not a parallel
 implementation.
+
+## X. OTP primitive (`realm.otp.*` + `auth.otpLogin` / `auth.mfaVerifyOtp`)
+
+Partner-issued one-shot codes. Issuer mints, RealmID hashes, consumer
+verifies; the same primitive composes into `/auth/login` (single
+factor) and `/auth/mfa/verify` (second factor) and as a generic
+delivery / approval gate. Authoritative reference:
+`api/docs/proposals/partner-otp-primitive.md`. Server-side semantics:
+`api/docs/design.md §OTP Primitive`.
+
+### X.1 `realm.otp.issue(req)` / `Realm.OTP.Issue(...)`
+
+Mints a code for `(subject_ref, purpose)`. Multiple issuers may issue
+concurrently; codes stack until consumed or expired.
+
+Request: `{ subjectRef, purpose }` — both opaque tenant-scoped strings.
+Response: `{ id, value, expiresAt, purpose, subjectRef }`.
+
+Length and TTL come from `realms.config.otp_length` (default 6) and
+`realms.config.otp_ttl_seconds` (default 60). Per-call overrides are
+rejected.
+
+### X.2 `realm.otp.view(otpId)` / `Realm.OTP.View(...)`
+
+Re-fetches plaintext from Redis. Issuer-scoped (the bearer's
+`(tenant_id, user_id)` must match the row's). After TTL the cache
+expires and the call returns `RealmError("not_found")` even if the
+underlying row remains verifiable. Use this when the partner UI
+re-renders the manager's pending codes.
+
+Response: `{ id, value, expiresAt, purpose, subjectRef, issuerUserId }`.
+
+### X.3 `realm.otp.verify(req)` / `Realm.OTP.Verify(...)`
+
+Hashes `presented` and consumes the first matching active row.
+
+Request: `{ subjectRef, purpose, presented }`.
+Response: `{ otpId, issuerUserId, issuedAt, subjectRef, purpose }`.
+Errors:
+- `RealmError("invalid_otp")` — no active row matches.
+- `RealmError("otp_expired")` — matched row is expired.
+- `RealmError("otp_locked")` — ≥5 fails / 15 min on the
+  `(tenant, subject_ref, purpose)` triple.
+
+### X.4 `auth.otpLogin(req)` / `Auth.OTPLogin(...)` — single factor
+
+Wraps `POST /auth/login` with `method=otp_internal`. Realm
+precondition: `otp_login_enabled = true`.
+
+Request: `{ realmId, identifier, presented }` — `identifier` is an
+E.164 phone or email; the server resolves it to a tenant-scoped user.
+Response: same shape as `login()`.
+
+### X.5 `auth.mfaVerifyOtp(req)` / `Auth.MFAVerifyOTP(...)` — second factor
+
+Wraps `POST /auth/mfa/verify` with `method=otp_internal`. Realm
+precondition: `otp_mfa_enabled = true` **and** the user is enrolled
+in `otp_internal` (per-user `mfa_methods` or per-role
+`required_mfa_methods`).
+
+Request: `{ mfaToken, presented }` (TS) / `{ MFAToken, Presented }` (Go).
+Response: same shape as `login()`.
+
+### X.6 a partner worked examples
+
+```ts
+// Two-factor login
+try {
+  await realm.auth.login({ method: "google", token: idToken });
+} catch (e) {
+  if (e instanceof RealmError && e.code === "mfa_required") {
+    const mfaToken = String(e.details?.mfa_challenge_token);
+    // (manager-side) issue
+    const otp = await realm.otp.issue({ subjectRef: `user:${saId}`, purpose: "login" });
+    // (SA-side) verify
+    const session = await realm.auth.mfaVerifyOtp({ mfaToken, presented: otp.value });
+  }
+}
+
+// Single-factor login
+const session = await realm.auth.otpLogin({
+  realmId, identifier: "+919999000011", presented: otp.value,
+});
+
+// Delivery gate
+await realm.otp.verify({
+  subjectRef: `booking:${bookingId}`, purpose: "delivery", presented: code,
+});
+```
+
+```go
+// Two-factor login
+_, err := r.Auth.Login(ctx, realmid.LoginRequest{Method: "google", Token: idToken})
+var rerr *realmid.RealmError
+if errors.As(err, &rerr) && rerr.Code == "mfa_required" {
+    mfaToken, _ := rerr.Details["mfa_challenge_token"].(string)
+    otp, _ := r.OTP.Issue(ctx, tenantID, realmid.OTPIssueRequest{
+        SubjectRef: "user:" + saID, Purpose: "login",
+    })
+    sess, _ := r.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
+        MFAToken: mfaToken, Presented: otp.Value,
+    })
+    _ = sess
+}
+
+// Single-factor login
+_, _ = r.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{
+    RealmID: realmID, Identifier: "+919999000011", Presented: otp.Value,
+})
+```
 
 ## 11. Roadmap (deferred)
 

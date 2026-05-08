@@ -249,7 +249,7 @@ export class AuthClient {
       headers,
       body: {
         realm_id: this.realmId,
-        challenge_token: req.challengeToken,
+        mfa_challenge_token: req.challengeToken,
         code: req.code,
         method: req.method ?? "totp",
       },

@@ -146,7 +146,7 @@ test("auth.mfaVerifyOtp: routes through /auth/mfa/verify with method=otp_interna
   assert.match(calls[1]!.url, /\/auth\/mfa\/verify$/);
   const body = calls[1]!.body as Record<string, unknown>;
   assert.equal(body["method"], "otp_internal");
-  assert.equal(body["challenge_token"], "ch_9");
+  assert.equal(body["mfa_challenge_token"], "ch_9");
   assert.equal(body["code"], "654321");
 });
 

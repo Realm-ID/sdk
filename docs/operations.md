@@ -66,10 +66,20 @@ rotation, version policy, hosted environments, roadmap commitments.
 
 - **Today:** RealmID keeps an internal audit log of auth events
   (login attempts, role changes, invitation accepts, session
-  revocations). **There is no partner-facing way to subscribe to or
-  export this log.** Drop your local audit_log table on this
-  assumption *only if* domain audit is acceptable to you (your access
-  log + your own role-change handlers cover most needs).
+  revocations, OTP issue/view/verify). **There is no partner-facing
+  way to subscribe to or export this log.** Drop your local
+  audit_log table on this assumption *only if* domain audit is
+  acceptable to you (your access log + your own role-change handlers
+  cover most needs).
+- **OTP-related kinds (v0.6.0):** `auth.otp.issued`,
+  `auth.otp.viewed`, `auth.otp.verified`, `auth.otp.verify_failed`.
+  The verify-success row denormalises `issuer_user_id` so partner
+  side audit logs can record the gating actor without a follow-up
+  RealmID query. When the partner sets `X-On-Behalf-Of-User`
+  (ADR-050), `on_behalf_of_user_id` is also captured. Until the
+  pull endpoint below ships these are server-internal only;
+  partners should mirror their own view of issue/verify into their
+  business audit log.
 - **Roadmap — pull endpoint:** `GET /platforms/{id}/audit-events?since=…`
   paginated. Cheaper than webhooks; partners poll on their cadence.
   **TBD** — no committed ETA; will land if multiple partners formally
