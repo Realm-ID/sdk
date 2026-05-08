@@ -152,12 +152,36 @@ export class Realm {
 
   async login(req: LoginRequest): Promise<LoginResponse> {
     const wireBody = this.requestAdapters.login ? this.requestAdapters.login(req) : req;
-    const res = await this.transport.request<unknown>("POST", this.loginEndpoint, {
-      body: wireBody,
-      gates: this.gates,
-    });
-    const body = this.adaptLogin(res.body, res.status, res.headers);
-    return this.handleLoginResponse(body);
+    try {
+      const res = await this.transport.request<unknown>("POST", this.loginEndpoint, {
+        body: wireBody,
+        gates: this.gates,
+      });
+      const body = this.adaptLogin(res.body, res.status, res.headers);
+      return this.handleLoginResponse(body);
+    } catch (err) {
+      // Gate-thrown errors (412 MFA, 412 session_limit, etc.) bypass
+      // handleLoginResponse — but callers will want the same internal
+      // state hooks (mfaPending, state.pendingTenants) so the follow-up
+      // verify / pick-tenant calls work uniformly.
+      if (err instanceof RealmError) {
+        if (err.code === "mfa_required" || err.code === "mfa_registration_required") {
+          const b = (err.body ?? {}) as { challengeToken?: string; challengeId?: string; method?: string };
+          this.mfaPending = {
+            challengeId: b.challengeId,
+            challengeToken: b.challengeToken,
+            method: b.method ?? "totp",
+          };
+        } else if (err.code === "tenants_required") {
+          const b = (err.body ?? {}) as { tenants?: TenantRef[]; raw?: unknown };
+          const tenants = b.tenants ?? extractTenants(b.raw);
+          if (tenants && tenants.length > 0) {
+            this.setState({ ...this.state, pendingTenants: tenants });
+          }
+        }
+      }
+      throw err;
+    }
   }
 
   async logout(): Promise<void> {
@@ -454,6 +478,22 @@ export class Realm {
 
 export function createRealm(cfg: RealmConfig): Realm {
   return new Realm(cfg);
+}
+
+/** Best-effort tenant extraction from a partner BFF's raw 412/200 body. */
+function extractTenants(raw: unknown): TenantRef[] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Record<string, unknown>;
+  const list = r.tenants ?? r.memberships;
+  if (!Array.isArray(list)) return undefined;
+  return list.map((t) => {
+    const x = t as Record<string, unknown>;
+    return {
+      id: (x.id ?? x.tenant_id ?? "") as string,
+      role: (x.role ?? "") as string,
+      displayName: (x.display_name ?? x.displayName) as string | undefined,
+    };
+  });
 }
 
 // Re-export user-facing types for convenience.
