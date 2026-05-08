@@ -18,6 +18,7 @@ import { RolesClient } from "./roles.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
+import { OtpClient } from "./otp.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
@@ -79,6 +80,8 @@ export interface Realm {
   readonly origins: OriginsClient;
   readonly tokens: TokensClient;
   readonly admin: AdminClient;
+  /** Partner OTP primitive (issue / view / verify). See proposal in auth repo. */
+  readonly otp: OtpClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -175,6 +178,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     origins: new OriginsClient(http, platformTokens),
     tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
     admin: new AdminClient(http),
+    otp: new OtpClient(http),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

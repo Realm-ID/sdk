@@ -27,6 +27,13 @@ export type ErrorCode =
   | "realm_origin_mismatch"
   | "realm_mismatch"
   | "missing_origin"
+  // partner OTP primitive
+  | "invalid_otp"
+  | "otp_expired"
+  | "otp_locked"
+  | "otp_not_found"
+  | "invalid_purpose"
+  | "invalid_subject_ref"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -86,6 +93,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "account_deactivated", "realm_origin_mismatch", "missing_origin",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",
   "bad_request", "network", "server_error",
+  "invalid_otp", "otp_expired", "otp_locked", "otp_not_found",
+  "invalid_purpose", "invalid_subject_ref",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {
