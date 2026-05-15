@@ -4,6 +4,7 @@ import { Transport } from "./transport.js";
 import { TokenManager } from "./token-manager.js";
 import { createTabBus, type TabBus } from "./multi-tab.js";
 import { resolveExpiresIn } from "./util.js";
+import { memoryStorage, type StorageAdapter, type StoredSession } from "./storage.js";
 import type {
   AuthEvent,
   AuthState,
@@ -46,6 +47,7 @@ export class Realm {
   };
   private mfaPending: { challengeId?: string; challengeToken?: string; method?: string } | null = null;
   private restorePromise: Promise<void> | null = null;
+  private storage: StorageAdapter;
 
   constructor(cfg: RealmConfig) {
     this.transport = new Transport(cfg);
@@ -56,6 +58,7 @@ export class Realm {
     this.clientTypeQueryParam = cfg.clientTypeQueryParam ?? "client_type";
     this.switchEndpoint = this.transport.endpoints.switchTenant;
     this.loginEndpoint = this.transport.endpoints.login;
+    this.storage = cfg.storage ?? memoryStorage();
 
     const skew = cfg.refreshSkewMs ?? 60_000;
     this.tokens = new TokenManager(this.transport, {
@@ -78,12 +81,66 @@ export class Realm {
     this.bus.subscribe((msg) => this.onTabMessage(msg));
 
     if (cfg.autoRestore !== false) {
-      this.restorePromise = this.restore().catch(() => {
-        /* restore swallows — initial /me 401 is normal anonymous state */
-      });
+      const stored = this.readStoredSession();
+      if (stored) {
+        // Paint authenticated state synchronously, then revalidate /me in
+        // the background. If /me 401s the session is stale — drop to anon.
+        this.adoptStored(stored);
+        this.restorePromise = this.restore().catch(() => {
+          /* restore handles 401 → anonymous + clears storage internally */
+        });
+      } else {
+        this.restorePromise = this.restore().catch(() => {
+          /* restore swallows — initial /me 401 is normal anonymous state */
+        });
+      }
     } else {
       this.setState({ ...this.state, status: "anonymous" });
     }
+  }
+
+  private readStoredSession(): StoredSession | null {
+    const s = this.storage.read();
+    if (!s) return null;
+    const nowSec = Math.floor(Date.now() / 1000);
+    // 5s skew — entries within 5s of expiry are treated as expired so the
+    // SDK doesn't paint state we're about to throw away.
+    if (s.expiresAt <= nowSec + 5) {
+      this.storage.clear();
+      return null;
+    }
+    return s;
+  }
+
+  private adoptStored(s: StoredSession): void {
+    if (!s.user || !s.tenantId) return;
+    try {
+      this.adopt({
+        accessToken: s.accessToken,
+        expiresAt: s.expiresAt,
+        tenantId: s.tenantId,
+        user: s.user,
+        tenants: s.tenants,
+      });
+    } catch {
+      this.storage.clear();
+    }
+  }
+
+  private persistSession(): void {
+    const tid = this.tokens.getCurrentTenant();
+    if (!tid || this.state.status !== "authenticated" || !this.state.user) return;
+    const accessToken = this.tokens.peek(tid) ?? "";
+    const expiresAtMs = this.tokens.peekExpiresAt(tid);
+    if (expiresAtMs === undefined) return;
+    const expiresAt = Math.floor(expiresAtMs / 1000);
+    this.storage.write({
+      accessToken,
+      expiresAt,
+      tenantId: tid,
+      user: this.state.user,
+      tenants: this.state.tenants,
+    });
   }
 
   /* -------------------------------------------------- state + events */
@@ -129,7 +186,9 @@ export class Realm {
     } catch (err) {
       if (err instanceof RealmError) {
         if (err.status === 401 || err.code === "unauthorized" || err.code === "session_expired" || err.code === "session_replaced" || err.code === "session_revoked") {
+          this.tokens.clear();
           this.setAnonymous();
+          this.storage.clear();
           this.events.emit({ type: "ready", user: null, tenants: [], currentTenantId: null });
           return;
         }
@@ -195,6 +254,7 @@ export class Realm {
     }
     this.tokens.clear();
     this.setAnonymous();
+    this.storage.clear();
     this.events.emit({ type: "logout", reason: "user" });
     this.bus.post({ type: "logout", reason: "user" });
   }
@@ -241,6 +301,7 @@ export class Realm {
     }
 
     this.setState({ ...this.state, currentTenantId: tenantId });
+    this.persistSession();
     this.events.emit({ type: "tenant_switched", currentTenantId: tenantId });
     this.bus.post({ type: "tenant_switched", tenantId });
   }
@@ -355,6 +416,7 @@ export class Realm {
       tenants,
       currentTenantId: tid,
     });
+    this.persistSession();
     this.events.emit({ type: "login", user: body.user, tenants, currentTenantId: tid });
     this.bus.post({ type: "login" });
     return body;
@@ -380,12 +442,14 @@ export class Realm {
       tenants: body.tenants,
       currentTenantId: tid,
     });
+    this.persistSession();
     this.events.emit({ type: "ready", user: body.user, tenants: body.tenants, currentTenantId: tid });
   }
 
   private handleSessionLost(reason: "expired" | "replaced" | "revoked"): void {
     this.tokens.clear();
     this.setAnonymous();
+    this.storage.clear();
     this.events.emit({ type: "logout", reason });
     this.bus.post({ type: "logout", reason });
   }
@@ -456,6 +520,7 @@ export class Realm {
       tenants,
       currentTenantId: input.tenantId,
     });
+    this.persistSession();
     this.events.emit({ type: "ready", user: input.user, tenants, currentTenantId: input.tenantId });
   }
 

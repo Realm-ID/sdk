@@ -23,6 +23,24 @@ This document is the contract every official SDK in this repository
 implements. The TypeScript SDK is the canonical reference; the Go and
 Java SDKs mirror it idiomatically.
 
+### Browser SDK split
+
+The `sdk/web/` sub-monorepo packages the browser surface as two
+independently consumable SDKs:
+
+| Package              | Role                                              |
+|----------------------|---------------------------------------------------|
+| `@realmid/web`       | Tenant-app SDK. Auth, login, refresh, storage adapters, multi-tab. Partners building a customer-facing app use this directly. |
+| `@realmid/web-admin` | Admin-UI SDK. Tenants, users, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates. Companion to `@realmid/web` for partners building their own admin console. |
+
+`@realmid/web-admin` reuses the hand-written resource clients shipped
+by the Node SDK (`@realmid/sdk`) via a new `@realmid/sdk/internal`
+entry. That means SPEC §6.1 (tenants), §6.2 (invitations), §6.3
+(users), §6.4 (domains), §6.5 (realm self / api keys), §6.7 (token
+revocation) are **shared** between the node and browser admin
+surfaces — same wire shapes, same semantics; only the transport layer
+differs.
+
 A partner application using a Realm ID SDK should never need to call
 `auth.realmid.dev` directly. The SDK covers the full lifecycle:
 **login, refresh, MFA, verify, and management** (tenants, users,

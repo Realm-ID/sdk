@@ -11,18 +11,24 @@ multi-tab sync.
 
 | Package                       | Purpose                                                              | Status   |
 |-------------------------------|----------------------------------------------------------------------|----------|
-| `@realmid/web`                | Core: transport, token mgmt, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | v0.2.0 |
-| `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | v0.2.0   |
-| `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | v0.2.0   |
-| `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | v0.2.0   |
-| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/bff-api`) | v0.1.0 |
+| `@realmid/web`                | Core: transport, token mgmt, storage adapters, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | v0.4.0 |
+| `@realmid/web-admin`          | Admin-UI SDK companion: tenants, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates | v0.1.1 |
+| `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | v0.4.0   |
+| `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | v0.4.0   |
+| `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | v0.4.0   |
+| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/bff-api`) | v0.3.0 |
 
 ## Quick start (vanilla JS)
 
 ```ts
-import { createRealm } from "@realmid/web";
+import { createRealm, localStorageAdapter } from "@realmid/web";
+import { realmidBffPreset } from "@realmid/web-bff-realmid";
 
-const realm = createRealm({ baseUrl: "https://api.partner.com" });
+const realm = createRealm({
+  baseUrl: "https://api.partner.com",
+  storage: localStorageAdapter(),  // optional; default is memoryStorage()
+  ...realmidBffPreset(),
+});
 await realm.ready();
 
 // 1. Load login configuration to render your sign-in UI.
@@ -97,6 +103,53 @@ async function onClickSignInWithGoogle() {
 ```
 
 For redirect mode, call `fb.completeRedirect(realm)` once on app boot.
+
+## Auto-restore: cookie vs storage
+
+Both refresh transports are first-class.
+
+- **HttpOnly cookie**: if the BFF sets a refresh cookie on `/login`, the
+  SDK's `autoRestore` (default on) calls `/me` with
+  `credentials: "include"` on construction. The cookie travels; the SDK
+  rehydrates from the response.
+- **Storage adapter**: if you opt into a `StorageAdapter`
+  (`localStorageAdapter()`, `sessionStorageAdapter()`, or a custom one),
+  the SDK persists `{ accessToken, expiresAt, tenantId? }` on every
+  successful `login`/`adopt`/`switchTenant`. On boot it adopts the
+  stored session synchronously (paints `authenticated` without a network
+  hop), then `/me` revalidates in the background. A 401 there drops back
+  to anonymous and clears the entry.
+
+Default storage key: `"@realmid/web:session"`. Default storage:
+`memoryStorage()` (no cross-reload persistence). Browser adapters are
+SSR-safe and swallow quota / parse errors.
+
+## Admin SDK
+
+[`@realmid/web-admin`](./packages/admin/README.md) is the companion
+admin-UI SDK. It wraps `realm.fetch` with the resource clients from
+`@realmid/sdk` plus browser-only clients for routes the partner SDK
+doesn't expose (`platforms`, `notes`, `signingKeys`, `bff`, `sessions`,
+`me`).
+
+```ts
+import { createAdmin } from "@realmid/web-admin";
+
+const admin = createAdmin(realm, {
+  baseUrl: "https://api.partner.com",
+  realmId: "01HXYZ...",
+});
+
+const tenants = await admin.tenants.list();
+const home = await admin.bff.home({ mode: "ops" });
+```
+
+### Why a separate admin package
+
+Long-term plan: partners build customer-facing apps on `@realmid/web`
+and admin consoles on `@realmid/web-admin`. Keeping them split means a
+tenant-app bundle doesn't pull in the admin resource graph (and its
+`@realmid/sdk` dependency) just to log a user in.
 
 ## Configuration
 

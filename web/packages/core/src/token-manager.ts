@@ -64,6 +64,13 @@ export class TokenManager {
     return this.tokens.get(tid)?.accessToken;
   }
 
+  /** Peek the absolute expiry (ms epoch) for `tenantId` without triggering a refresh. */
+  peekExpiresAt(tenantId?: string): number | undefined {
+    const tid = tenantId ?? this.currentTenantId;
+    if (!tid) return undefined;
+    return this.tokens.get(tid)?.expiresAt;
+  }
+
   clear(): void {
     this.tokens.clear();
     this.inflight.clear();

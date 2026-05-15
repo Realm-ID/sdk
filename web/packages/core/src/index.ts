@@ -50,3 +50,11 @@ export type {
 } from "./types.js";
 
 export { DEFAULT_ENDPOINTS } from "./types.js";
+
+export {
+  memoryStorage,
+  localStorageAdapter,
+  sessionStorageAdapter,
+  DEFAULT_STORAGE_KEY,
+} from "./storage.js";
+export type { StorageAdapter, StoredSession } from "./storage.js";

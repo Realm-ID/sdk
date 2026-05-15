@@ -6,7 +6,14 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRealm, RealmError } from "./index.js";
+import {
+  createRealm,
+  RealmError,
+  memoryStorage,
+  localStorageAdapter,
+  DEFAULT_STORAGE_KEY,
+  type StoredSession,
+} from "./index.js";
 
 interface MockCall {
   url: string;
@@ -281,6 +288,172 @@ test("providers passes tenant_id query", async () => {
   await realm.providers({ tenantId: "t1" });
   assert.ok(seen[0]?.includes("tenant_id=t1"));
   realm.close();
+});
+
+test("storage: pre-seeded entry paints authenticated synchronously and stays after /me revalidates", async () => {
+  const storage = memoryStorage();
+  const seed: StoredSession = {
+    accessToken: "at-stored",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    tenantId: "t1",
+    user: { id: "u1", email: "u@x" },
+    tenants: [{ id: "t1", role: "owner" }],
+  };
+  storage.write(seed);
+
+  let meResolve: (() => void) | null = null;
+  const meGate = new Promise<void>((r) => {
+    meResolve = r;
+  });
+
+  const { fetch } = mockFetch((call) => {
+    void call;
+    return { status: 200, body: { user: { id: "u1" }, tenants: [{ id: "t1", role: "owner" }], currentTenantId: "t1" } };
+  });
+  // Wrap fetch so /me suspends until we release the gate.
+  const fetchGated: typeof globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : (input as URL).toString();
+    if (url.endsWith("/me")) await meGate;
+    return fetch(input, init);
+  };
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch: fetchGated, storage });
+  // Pre-/me: state is already authenticated.
+  assert.equal(realm.getState().status, "authenticated");
+  assert.equal(realm.getState().user?.id, "u1");
+  meResolve!();
+  await realm.ready();
+  assert.equal(realm.getState().status, "authenticated");
+  realm.close();
+});
+
+test("storage: pre-seeded entry but /me 401 drops to anonymous and clears storage", async () => {
+  const storage = memoryStorage();
+  storage.write({
+    accessToken: "at-stale",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    tenantId: "t1",
+    user: { id: "u1" },
+    tenants: [{ id: "t1", role: "owner" }],
+  });
+
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401, body: { message: "unauthorized" } };
+    return { status: 404 };
+  });
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, storage });
+  await realm.ready();
+  assert.equal(realm.getState().status, "anonymous");
+  assert.equal(storage.read(), null);
+  realm.close();
+});
+
+test("storage: login writes a session entry", async () => {
+  const storage = memoryStorage();
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    if (call.url.endsWith("/login")) {
+      return {
+        status: 200,
+        body: {
+          accessToken: "at-1",
+          expiresIn: 3600,
+          user: { id: "u1", email: "u@x" },
+          tenants: [{ id: "t1", role: "owner" }],
+          defaultTenantId: "t1",
+        },
+      };
+    }
+    return { status: 404 };
+  });
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, storage });
+  await realm.ready();
+  await realm.login({ method: "google", providerToken: "x" });
+
+  const stored = storage.read();
+  assert.ok(stored);
+  assert.equal(stored!.accessToken, "at-1");
+  assert.equal(stored!.tenantId, "t1");
+  assert.equal(stored!.user?.id, "u1");
+  assert.ok(stored!.expiresAt > Math.floor(Date.now() / 1000));
+  realm.close();
+});
+
+test("storage: logout clears the entry", async () => {
+  const storage = memoryStorage();
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    if (call.url.endsWith("/login")) {
+      return {
+        status: 200,
+        body: {
+          accessToken: "at-1",
+          expiresIn: 3600,
+          user: { id: "u1" },
+          tenants: [{ id: "t1", role: "owner" }],
+          defaultTenantId: "t1",
+        },
+      };
+    }
+    if (call.url.endsWith("/logout")) return { status: 204 };
+    return { status: 404 };
+  });
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, storage });
+  await realm.ready();
+  await realm.login({ method: "google", providerToken: "x" });
+  assert.ok(storage.read());
+  await realm.logout();
+  assert.equal(storage.read(), null);
+  realm.close();
+});
+
+test("storage: localStorageAdapter pre-seed survives constructor", async () => {
+  // Hand-rolled localStorage on globalThis so the adapter sees it.
+  const store = new Map<string, string>();
+  const api: Storage = {
+    get length() {
+      return store.size;
+    },
+    clear: () => store.clear(),
+    getItem: (k) => (store.has(k) ? store.get(k)! : null),
+    key: (i) => Array.from(store.keys())[i] ?? null,
+    removeItem: (k) => {
+      store.delete(k);
+    },
+    setItem: (k, v) => {
+      store.set(k, String(v));
+    },
+  };
+  const seed: StoredSession = {
+    accessToken: "at-stored",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    tenantId: "t1",
+    user: { id: "u1", email: "u@x" },
+    tenants: [{ id: "t1", role: "owner" }],
+  };
+  store.set(DEFAULT_STORAGE_KEY, JSON.stringify(seed));
+  const g = globalThis as unknown as { localStorage?: Storage };
+  const prev = g.localStorage;
+  g.localStorage = api;
+  try {
+    const { fetch } = mockFetch((call) => {
+      if (call.url.endsWith("/me")) {
+        return { status: 200, body: { user: { id: "u1" }, tenants: [{ id: "t1", role: "owner" }], currentTenantId: "t1" } };
+      }
+      return { status: 404 };
+    });
+    const realm = createRealm({ baseUrl: "https://bff.test", fetch, storage: localStorageAdapter() });
+    assert.equal(realm.getState().status, "authenticated");
+    await realm.ready();
+    assert.equal(realm.getState().status, "authenticated");
+    realm.close();
+  } finally {
+    if (prev === undefined) delete g.localStorage;
+    else g.localStorage = prev;
+  }
 });
 
 test("envelope unwrap strips { data: ... } single-key wrappers", async () => {

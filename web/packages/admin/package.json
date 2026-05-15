@@ -1,7 +1,7 @@
 {
-  "name": "@realmid/web-bff-realmid",
-  "version": "0.3.0",
-  "description": "Drop-in adapter preset wiring @realmid/web to the realmid.dev reference BFF (Realm-ID/bff-api).",
+  "name": "@realmid/web-admin",
+  "version": "0.1.1",
+  "description": "Admin-UI SDK for RealmID — wraps @realmid/sdk resource classes on top of an @realmid/web transport.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,17 +17,21 @@
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["realmid", "bff", "adapter", "browser", "sdk"],
+  "keywords": ["realmid", "admin", "browser", "sdk"],
   "homepage": "https://realmid.dev",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Realm-ID/sdk.git",
-    "directory": "web/packages/bff-realmid"
+    "directory": "web/packages/admin"
   },
   "license": "MIT",
   "peerDependencies": {
     "@realmid/web": "^0.4.0"
   },
+  "dependencies": {
+    "@realmid/sdk": "file:../../../ts"
+  },
+  "bundledDependencies": ["@realmid/sdk"],
   "devDependencies": {
     "@realmid/web": "^0.4.0",
     "tsx": "^4.19.0",

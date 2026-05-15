@@ -5,6 +5,8 @@
  * (see GateRule) to translate. Defaults match BFF-SPEC.md.
  */
 
+import type { StorageAdapter } from "./storage.js";
+
 /** Login methods the spec recognises; partners may add their own. */
 export type LoginMethod = "firebase" | "google" | "password" | "otp" | (string & {});
 
@@ -220,6 +222,14 @@ export interface RealmConfig {
   tenantQueryParam?: string;
   /** Query-param name for client type on /providers. Default "client_type". */
   clientTypeQueryParam?: string;
+  /**
+   * Pluggable session persistence. The SDK writes on every successful
+   * adopt/login/applyMe/switchTenant, clears on logout / session-lost,
+   * and reads on construction to paint state synchronously before /me
+   * resolves. Default `memoryStorage()` (no cross-reload persistence —
+   * cookie-based BFFs survive reload via the cookie already).
+   */
+  storage?: StorageAdapter;
 }
 
 export interface Endpoints {

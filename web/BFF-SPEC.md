@@ -7,7 +7,10 @@
 The browser SDK (`@realmid/web`) talks **only** to the partner's BFF. The
 BFF holds the API key and brokers calls to `auth.realmid.dev` via the Node
 SDK (`@realmid/sdk`). This document pins the HTTP contract between the SDK
-and any partner BFF.
+and any partner BFF. The companion admin-UI SDK
+[`@realmid/web-admin`](./packages/admin/README.md) consumes the same
+contract via `realm.fetch`; routes added to that package are noted
+inline below where they overlap.
 
 The shapes below describe the **canonical wire contract**. The SDK defaults
 to consuming them as-is. Partners whose existing backend ships a different
@@ -22,7 +25,10 @@ config (ADR-052 §2).
 
 - All requests/responses are `application/json` unless noted.
 - Refresh credential lives in an httpOnly cookie set by the BFF on the
-  partner's domain. The SDK never reads or sets it.
+  partner's domain, **or** is replayed via a SDK-side `StorageAdapter`
+  (see [Session restore](#session-restore)). The SDK never reads or
+  sets cookies directly; it only forwards them via
+  `credentials: "include"`.
 - Access JWT is returned in JSON bodies and held in memory by the SDK.
 - Success bodies MAY be wrapped as `{ "data": <body> }` — the SDK
   unwraps once if the only top-level key is `data`.
@@ -161,6 +167,29 @@ Used on SDK init to restore session state.
 ```
 
 **Response 401** — anonymous; SDK sets `status = "anonymous"`.
+
+## Session restore
+
+The SDK's `autoRestore` (default `true`) supports two transports
+side-by-side:
+
+- **HttpOnly cookie** — the BFF MAY set a refresh cookie on `POST
+  /login`. On boot, the SDK calls `GET /me` with
+  `credentials: "include"` and rehydrates from the response. Nothing
+  client-side persists.
+- **StorageAdapter** — partners that prefer (or can only support) a
+  JSON-only transport configure
+  `createRealm({ storage: localStorageAdapter() })` (or
+  `sessionStorageAdapter`, or a custom `StorageAdapter`). The SDK
+  writes `{ accessToken, expiresAt, tenantId? }` on every successful
+  `login`/`adopt`/`switchTenant`, paints `authenticated` synchronously
+  on the next boot from the stored entry, then revalidates with `/me`
+  in the background.
+
+The BFF doesn't need to know which transport the SDK chose. If both are
+present, the cookie wins on the `/me` round-trip (the storage entry is
+overwritten with the freshest server view). Both modes are first-class
+and the canonical contract is unchanged.
 
 ## Response adapters
 
