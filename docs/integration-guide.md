@@ -52,6 +52,18 @@ business invariants, or feature flags. It signs tokens that say "this
 is `sub=X`, in `tenant_id=Y`, with `role=Z`, at this point in time."
 You decide what that lets them do.
 
+> **Two-level orgs (org → branch / outlet / workspace).** RealmID is
+> single-level: one tenant per realm-membership, one role per
+> `(user, tenant)`, no inter-user hierarchy. If your domain has a
+> sub-unit layer below the org (branches, outlets, projects) with
+> per-sub-unit roles or a reporting graph (`reports_to` and friends),
+> model the **top-level org as the RealmID tenant** and keep the
+> sub-unit membership + role matrix in your own database, resolved
+> per-request from the verified `sub`. Carry only a coarse role in
+> the token. Forcing sub-units up into RealmID tenants breaks
+> org-level data isolation and org-wide roles, and is the most common
+> integration anti-pattern.
+
 ### 1.1 Tokens
 
 - **Access token** (RS256 JWT, default 15 min). Carries
@@ -393,6 +405,39 @@ Every verified access token gives you:
 Do not fetch the user from RealmID on every request. The token is the
 truth.
 
+> **Custom claims — who supplies values, when.** RealmID does not
+> compute or persist custom-claim *values*. The allowlist
+> (`access_token_custom_claim_keys`, §8.4) names the keys you are
+> *permitted* to pass; values are supplied **per-call** by the BFF
+> in the `custom_claims` field of the `/auth/token` request body,
+> and the issuer copies them verbatim into the minted access token.
+> Unknown keys (not in the allowlist) reject with `bad_request` at
+> mint time; reserved JWT names (`iss`, `sub`, `aud`, `iat`, `nbf`,
+> `exp`, `jti`, `azp`, `tenant_id`, `role`) are silently dropped.
+>
+> Worked example — BFF carries derived authz context:
+>
+> ```go
+> // /auth/token proxy handler in your BFF, after looking up the
+> // user's outlet list and reports-to graph in YOUR database.
+> outlets, _ := db.OutletsFor(userID, tenantID)         // []string
+> managerSub, _ := db.ManagerOf(userID, tenantID)       // string
+>
+> out, err := realm.Auth.Token(ctx, realmid.TokenRequest{
+>     RefreshToken: req.RefreshToken,
+>     TenantID:     req.TenantID,
+>     CustomClaims: map[string]any{
+>         "outlets":     outlets,      // key must be in allowlist
+>         "manager_sub": managerSub,
+>     },
+> })
+> ```
+>
+> Set the allowlist once at bootstrap:
+> `realm.config.update({ access_token_custom_claim_keys: ["outlets", "manager_sub"] })`.
+> Token verifiers downstream see these as plain claims; no extra
+> SDK call needed.
+
 > **`sub` is per-(user, tenant), not per-human.** Each tenant
 > membership has its own user record, so the same human in tenants
 > A and B presents two different `sub` values across the two access
@@ -420,6 +465,21 @@ truth.
 > unaffected (nothing to invalidate). If you mirror `display_name`
 > in your local tenants table for UI rendering, refresh it on a TTL
 > (24h is fine) or on a cache miss. No push notification today.
+
+> **Mutating a user's email or phone is not supported today.** There
+> is no `PATCH /tenants/{id}/users/{uid}` surface that accepts an
+> identifier change — only `status` and `role` are mutable. If a
+> user's phone or email needs to change, the workaround is:
+> deactivate the existing user, invite a fresh row with the new
+> identifier, and have the user re-link their IdP identity on next
+> login. **Caveat:** the per-tenant unique indexes
+> (`UNIQUE (tenant_id, lower(email))`, `UNIQUE (tenant_id, phone)`)
+> stay held by the deactivated row, so the *old* identifier slot is
+> not reusable for a different person without a hard delete (RealmID
+> ops). First-class identifier mutation is on the roadmap as part of
+> ADR-042 (provider-anchored login + `user_auth_methods` cleanup);
+> until then, treat phone/email as effectively immutable from the
+> partner side.
 
 > **Identifier uniqueness within a tenant.** RealmID enforces
 > uniqueness of email and phone on the user record within a tenant
@@ -480,6 +540,173 @@ The proxy handlers are pure pass-throughs — request body in, response
 body out, no business logic. Do **not** mutate the response (the SPA
 SDK will fail to parse it). Add your domain-row provisioning (§6) on
 the access-token verification path, not here.
+
+### 3.6 Admin consoles: managing the realm as a user
+
+The `rk_live_…` API-key flow (§2, §3) is one way to call the
+management surface — appropriate for ops scripts and headless backends.
+There is a second, equally first-class path: a **human platform-admin
+logged in as a user**, calling the same management endpoints with
+their own access token. This is the right model for a
+partner-operated admin console ("manage tenants, invite owners,
+change roles, reset MFA" UI staffed by your humans). Do **not** ship
+the `rk_live_…` to the admin SPA — that key authorises every tenant
+in your realm and cannot be self-serve revoked.
+
+**The admin tenant.** Every realm is provisioned with one
+**admin tenant** that lives in RealmID's base realm. Your
+platform-admin staff are **owner users in that admin tenant**. They
+log in via the same `/auth/login` flow as end users (whatever IdP
+your realm is configured for), receive a normal user access token,
+and that token authorises the privileged `/platforms/{id}/…` and
+`/tenants/…` writes — the issuer checks `tenant_id ==
+realm.admin_tenant_id` and `role == "owner"`.
+
+**Discovery — finding your realm and admin-tenant ids.** Two
+endpoints the admin SPA calls after login:
+
+```ts
+const me = await realm.identity.me();
+// me.userId, me.email, me.isRealmStaff, me.ownedPlatformsCount,
+// me.memberships: [{ tenantId, platformId, displayName, role }]
+
+const mine = await realm.platforms.mine({ pageSize: 50 });
+// mine.items: [{ id, domain, adminTenantId, displayName, mfaSessionTtlSeconds }]
+```
+
+`me.memberships[].platformId === mine.items[].id` lets the SPA pair
+the caller's tenant memberships with the realms they own; the
+matching item's `adminTenantId` is what you pass to subsequent
+admin-scoped calls (invitations, role updates, etc.).
+
+**SDK shape — admin handle from a user token.** The browser SDK
+constructed with `baseUrl` pointed at your BFF and a bearer-token
+strategy attaches the caller's session token to every request.
+The same resource classes (`realm.tenants`, `realm.roles`,
+`realm.config`, `realm.tenants.invitations`,
+`realm.tenants.updateUserRole`, `realm.tenants.users.resetMfa`, …)
+that work with `apiKey` work here — the authorising token is just
+different. **Do not pass `apiKey` in the browser**; let the BFF
+proxy forward the user's `Authorization` header.
+
+```ts
+// admin SPA — admin tenant owner is logged in
+const realm = createRealm({
+  baseUrl: import.meta.env.VITE_API_BASE_URL,   // your BFF
+});
+
+// invite another platform-admin into the admin tenant
+const { adminTenantId } = (await realm.platforms.mine()).items[0];
+await realm.tenants.invitations.create(adminTenantId, {
+  identifier: { email: "ops-2@partner.com" },
+  role:       "owner",
+});
+
+// create a customer tenant
+await realm.tenants.create({
+  displayName: "Acme",
+  signupMode:  "allowlist",
+});
+```
+
+**Onboarding additional admin staff.** Use the same
+`invitations.create` against the admin tenant id with `role:
+"owner"`. The invitee logs in via the IdP, lands in the admin
+tenant as an owner, and inherits the full management surface. The
+**last-owner guard** prevents demoting or removing the final owner
+(`RealmError(last_owner)`); plan for at least two owners per admin
+tenant in production.
+
+**The boundary — partner-admin vs RealmID-ops.** A user JWT with
+admin-tenant ownership authorises **your realm's** management
+surface (`/platforms/{your-id}/…`, `/tenants/{id-in-your-realm}/…`).
+It does **not** authorise the cross-platform `/admin/*` surface
+(`GET /admin/platforms`, `/admin/stats`, platform-notes,
+signing-key rotation, suspend-other-platform) — those are reserved
+for RealmID's own ops and return 403 for partner admins. Use
+`platforms.mine()` and `identity.me()` for discovery; ignore
+`AdminPlatformsResponse` / `AdminStats` types in the SDK
+(they're shaped for RealmID ops).
+
+**Lifecycle parity — which token authorises what.** For partners
+moving all user-lifecycle management into RealmID, both auth modes
+cover the same surface; pick per call site:
+
+| Operation                          | Admin user JWT | `rk_live_…` API key |
+|------------------------------------|:--------------:|:-------------------:|
+| Create tenant                      | ✓              | ✓                   |
+| List / get tenants                 | ✓              | ✓                   |
+| Invite user (any role except owner)| ✓              | ✓                   |
+| Update user role                   | ✓              | ✓                   |
+| Set user status (deactivate / reactivate) | ✓       | ✓                   |
+| Reset user MFA                     | ✓              | ✓                   |
+| Transfer tenant owner              | ✓              | ✓                   |
+| Suspend / soft-delete tenant       | ✓              | ✓                   |
+| Create / list / revoke API keys    | ✓              | ✓                   |
+| Update realm config                | ✓              | ✓                   |
+| Create / rename / delete roles     | ✓              | ✓                   |
+| **Mutate user phone / email**      | —              | —                   |
+| `/admin/*` cross-platform surface  | —              | —                   |
+
+The two "—" rows are partner-uncallable today regardless of token:
+identifier mutation is not implemented (§3.4 note), and `/admin/*`
+is RealmID-ops only.
+
+**Role catalog ownership split — confirmed.** The integration
+contract is:
+
+- The role **catalog** (names, the set itself) is created and
+  assigned **in RealmID** via `realm.roles.create` and
+  `realm.tenants.updateUserRole`.
+- The role **definition** (which UI screens, API routes, or
+  business operations each role can perform) is enforced **in your
+  application** — RealmID does not enforce the `permissions[]`
+  field; it's stored as opaque metadata for your own use.
+- Renaming a role (planned roadmap; not all backends yet) preserves
+  existing assignments and does **not** require re-issuing tokens
+  to stay valid — the binding is by name, and the next mint after
+  rename carries the new name.
+
+This split is intentional: RealmID stays free of partner-specific
+authorization semantics; your app stays free to evolve its
+permission model without coordinating schema changes through
+identity.
+
+### 3.7 Identity provider restriction (per realm / per tenant)
+
+`auth_config.firebase_project_id` (§2.2) names a single project for
+the realm, but the issuer additionally lets you constrain **which
+identity providers** are accepted, separately per realm and per
+tenant. This is the surface you reach for when you want
+"admin-tenant authenticates with Google only; end-user tenants
+authenticate with phone OTP only," or any other per-tenant IdP
+policy.
+
+```ts
+// realm-wide default
+await realm.identityProviders.list();
+// → [{ provider, clientType, clientId, allowedOrigins, ... }]
+
+// tenant-specific override (admin tenant: Google web-only)
+await realm.tenants.identityProviders.create(adminTenantId, {
+  provider:        "google",
+  clientType:      "web",
+  clientId:        "…apps.googleusercontent.com",
+  allowedOrigins:  ["https://admin.partner.com"],
+});
+```
+
+Provider rows are scoped to a `(realm | tenant, client_type)` pair
+(`web`, `ios`, `android`, `desktop`, `other`) so the same realm can
+allow Google on the web app and Firebase on mobile. The login flow
+filters available providers by the resolved scope of the login
+attempt; an unrecognised provider returns
+`RealmError(provider_not_enabled)`.
+
+The current SDK surface for read is `realm.identityProviders.list`
+(filters by tenant id when supplied); write (create / patch /
+delete) is admin-tenant-owner gated and exposed on the admin SDK
+handle (§3.6).
 
 ---
 
@@ -550,11 +777,32 @@ with the chosen `tenantId`. The user can switch tenants later by
 calling `realm.auth.token` again with a different `tenantId` — the
 access token is rebound; the refresh token rotates.
 
-If a session was established via a custom-domain origin or via OTP
-(see ADR-019 / sessions auth_method), the session is **tenant-locked**
-and `realm.auth.token` will reject any `tenantId` switch with
-`RealmError(tenant_locked_session)`. UI should disable the switcher
-when the session is locked.
+A session is **tenant-locked** only when it was established via the
+built-in OTP login (`method=otp_internal`). In that case
+`realm.auth.token` rejects any `tenantId` switch with
+`RealmError(tenant_locked_session)`; the UI should disable the
+switcher. Sessions established via `firebase`, `google`, or any
+external-IdP method are **not** locked and can switch tenant freely.
+
+> **OTP-first partners read this twice.** If your *primary* login
+> factor is `otp_internal` (a very common shape for SMS-first
+> consumer / SMB apps), then **every** session you mint is
+> tenant-locked, so multi-tenant users **cannot switch tenant
+> without a full re-login**. Two valid patterns:
+>
+> 1. **Re-login on switch.** The user picks a tenant from a list
+>    you maintain locally, you drop the current session, send a fresh
+>    OTP, and `login` against the new tenant. UX-acceptable for most
+>    SMS apps (sub-30-second round-trip).
+> 2. **Use Firebase phone-OTP** (`method=firebase` with a Firebase
+>    phone credential) instead of `method=otp_internal`. Firebase-
+>    method sessions are not locked, so a single session can switch
+>    tenant via `realm.auth.token({ tenantId })`. SMS billing stays
+>    on your Firebase project; the verify step lives in RealmID.
+>
+> The choice is a billing/UX tradeoff, not a security one — both
+> paths verify the same OTP. If you don't already operate Firebase,
+> path 1 is simpler.
 
 ### 4.4 MFA challenge
 
@@ -1067,10 +1315,11 @@ campaign), coordinate with RealmID ops in advance.
 |------------------------------------------|--------------|---------|----------------------------------------------------|
 | `access_ttl_seconds`                     | int          | 900     | 60 ≤ x ≤ 3600                                      |
 | `refresh_ttl_seconds`                    | int          | 2592000 | 3600 ≤ x ≤ 31536000                                |
-| `concurrent_session_limit`               | int          | 0       | 0 = unlimited                                      |
+| `concurrent_session_limit`               | int          | 0       | 0 = unlimited. Counted **per realm** (across all tenants the user belongs to in this realm), not per tenant. **Evict-oldest**: when a new login pushes the count over the limit, the oldest active sessions are revoked FIFO so the new login succeeds. The HTTP response is 412 `session_limit_reached` carrying a `revocationToken` + the list of sessions that *would* be evicted, so the client SDK can prompt the user before committing if it wants an interactive "kick a device" UX; calling `/auth/login` again with the `revocationToken` confirms eviction. |
 | `require_platform_token_on_login`        | bool         | false   | BFF mode (§1.2)                                    |
 | `default_invitation_role`                | string       | `member`| Must be in role catalog; can't be `owner`          |
 | `access_token_custom_claim_keys`         | string[]     | `[]`    | Allowlist of keys you may pass to `/auth/token`    |
+| `refresh_absolute_expiry`                | object       | `{}`    | ADR-054. Wall-clock scheduled refresh-token expiry. Shape: `{ mode: "rolling" \| "scheduled", daily_cutoff_local: "HH:MM", timezone: "<IANA>" }`. Default `mode: "rolling"` preserves the rolling-TTL behaviour. When `mode: "scheduled"`, every refresh token (user, service, platform) expires at `min(now + refresh_ttl_seconds, next daily_cutoff_local in timezone)`. Example for "force daily re-login at 8 PM IST": `{ mode: "scheduled", daily_cutoff_local: "20:00", timezone: "Asia/Kolkata" }`. Note: with scheduled mode, `refresh_ttl_seconds` reads as a *ceiling*, not a guaranteed lifetime — tokens minted close to the cutoff expire sooner. Realm-level only (no per-tenant override). |
 
 Unknown keys return `RealmError(invalid_config_key)`; out-of-range
 values return `RealmError(invalid_config_value)`.
@@ -1092,6 +1341,41 @@ values return `RealmError(invalid_config_value)`.
 
 Full catalog: [`error-reference.md`](./error-reference.md).
 
+### 8.6 Auditing and event export
+
+RealmID does **not** expose a webhook surface or push event stream
+today. Auth and admin mutations performed inside RealmID are
+recorded in RealmID's own `audit_log` table (used by support and
+forensic queries) but are **not** automatically reflected in your
+application's audit log. Mutations affected:
+
+- **Auth events** — `login`, `logout`, MFA-verify, session-revoke,
+  refresh-rotate, OTP-issue/verify, `tenant_locked_session` rejects.
+- **Admin events** — invitation create / accept / revoke, user
+  status changes, user role changes, tenant create / suspend /
+  soft-delete, role catalog create / delete, API-key
+  create / revoke, config patches.
+
+Workarounds available today:
+
+1. **Poll the admin reads.** `realm.tenants.users.list`,
+   `realm.tenants.invitations.list`, `realm.apiKeys.list` (with
+   `last_used_at`), and `realm.auth.listSessions` are
+   cheap-to-poll. A nightly diff against your local mirror surfaces
+   role / status / membership changes.
+2. **Mirror writes you initiate.** Wrap the SDK call in your own
+   audit-log write — every call from your BFF is attributable to a
+   request id you already track. This covers *your* admin's
+   actions; it does **not** cover IdP-driven changes (a user
+   accepting an invitation, a self-serve MFA reset).
+3. **Pull `audit_log` via the planned read endpoint.** A
+   `GET /platforms/{id}/audit-events?since=…` polling endpoint is
+   on the roadmap (TODO.md, ops-decisions group). Until it ships,
+   only RealmID staff can query the underlying table.
+
+Push-based webhooks / event streams are **not** on the v1 roadmap;
+plan around the poll model for now.
+
 ---
 
 ## 9. Known SDK gaps
@@ -1108,6 +1392,34 @@ the integration patterns in §1–§8; workarounds are noted inline.
   new realm) is operator-driven via the RealmID admin UI or direct
   REST. The SDK does not expose realm create today; it isn't needed
   for in-realm work.
+- **Direct user-create (pre-provisioning before first login) is not
+  supported.** Partner admins who want a user to appear in the admin
+  console *before* the user logs in for the first time must rely on
+  the invitation row as the placeholder: `invitations.list(tenantId)`
+  returns pending invitations with the identifier, role, and
+  invited-at timestamp, and the SDK's admin handle treats those
+  rows as first-class for assignment-level UX (you can change the
+  role on a pending invitation, revoke it, re-issue it). A real
+  `users.id` is allocated only on first successful login, at which
+  point the invitation transitions to `accepted` and a user row
+  appears in `tenants.users.list`. If your admin UI needs a single
+  unified "users" list, render `users + pending invitations`
+  client-side keyed on identifier — this is the documented pattern.
+- **No cross-tenant person identity.** RealmID's `sub` is
+  per-`(user, tenant)` by design — the same human in tenants A and B
+  has two distinct `sub` values, and there is no first-class
+  `person_id` that links them. This is a deliberate privacy
+  boundary: it prevents a compromised or curious tenant admin from
+  enumerating "which other tenants is this user a member of?" via
+  identity alone. Partners that need a single durable per-human
+  identifier (e.g. for a global directory, cross-org reporting, or
+  consent ledgers) maintain that mapping locally: key on the
+  verified IdP identifier (Firebase UID, Google sub, verified phone),
+  store `person_id → [sub, …]` in your DB, and look it up at
+  request time. The `tenants[]` array returned from `/auth/login`
+  for a multi-tenant user gives you the full set of
+  `(tenant_id, sub)` pairs for the same Firebase identity in one
+  round-trip — that's the join point.
 
 Check `sdk/CHANGELOG.md` for the latest status. File issues at
 https://github.com/Realm-ID/sdk.
