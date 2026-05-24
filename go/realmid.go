@@ -102,15 +102,19 @@ type Realm struct {
 	OTP *OTPClient
 }
 
-// Version is the published SDK version (semver). 0.10.0 corresponds to
-// RealmID v0.7.0 — the two-endpoint auth surface (ADR-051). Breaking:
-// the SDK now hits POST /auth/login {grant_type:"platform_api_key"}
-// instead of the deleted POST /auth/platform-token, then refreshes via
-// POST /auth/token with the refresh-token bearer. Refresh rotation is
-// gated by the realm's `platform_refresh_rotates` config (default off,
-// non-rotating). 0.5.0 was the platforms-namespace cut (ADR-044) and
-// the signup_mode enum (ADR-045).
-const Version = "0.10.0"
+// Version is the published SDK version (semver). 0.11.0 is additive
+// over 0.10.0: surface helpers (IsUnauthorized, IsTimeout,
+// AsRealmError, HTTPStatus), Session.NeedsTenantChoice +
+// Session.SelectTenant, and a typed Realm.IdentityProviders. 0.10.0
+// corresponds to RealmID v0.7.0 — the two-endpoint auth surface
+// (ADR-051): the SDK hits POST /auth/login
+// {grant_type:"platform_api_key"} instead of the deleted POST
+// /auth/platform-token, then refreshes via POST /auth/token with the
+// refresh-token bearer. Refresh rotation is gated by the realm's
+// `platform_refresh_rotates` config (default off, non-rotating).
+// 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
+// enum (ADR-045).
+const Version = "0.11.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

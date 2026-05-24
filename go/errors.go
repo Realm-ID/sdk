@@ -7,6 +7,7 @@
 package realmid
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -83,6 +84,52 @@ func IsCode(err error, code ErrorCode) bool {
 		return re.Code == code
 	}
 	return false
+}
+
+// AsRealmError reports whether err (or any error it wraps) is a
+// *RealmError, and if so binds it to *target. It mirrors errors.As but
+// is provided as a top-level helper so BFF / partner code doesn't need
+// to drag errors.As + a local var into every call site.
+func AsRealmError(err error, target **RealmError) bool {
+	if err == nil || target == nil {
+		return false
+	}
+	return errors.As(err, target)
+}
+
+// HTTPStatus returns the HTTP status carried by a *RealmError in err's
+// chain, or 0 when err is not a *RealmError (or has no status set).
+// Callers can compare to net/http constants to branch on upstream
+// status without unwrapping manually.
+func HTTPStatus(err error) int {
+	var re *RealmError
+	if errors.As(err, &re) {
+		return re.HTTPStatus
+	}
+	return 0
+}
+
+// IsUnauthorized reports whether err is a *RealmError carrying a 401
+// HTTPStatus or the ErrCodeUnauthorized code. Used by BFFs to map an
+// issuer revocation to a clean session teardown + 401 to the SPA.
+func IsUnauthorized(err error) bool {
+	var re *RealmError
+	if !errors.As(err, &re) {
+		return false
+	}
+	return re.HTTPStatus == 401 || re.Code == ErrCodeUnauthorized
+}
+
+// IsTimeout reports whether err originated from a context cancellation
+// or deadline (the request context was cut before the issuer replied),
+// regardless of how many layers of *RealmError wrap it. Callers map
+// this to a 504 / "upstream timeout" surface so the SPA can distinguish
+// "we gave up" from "the issuer said no".
+func IsTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func newErr(code ErrorCode, format string, args ...any) *RealmError {

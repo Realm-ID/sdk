@@ -69,6 +69,34 @@ Sibling packages (`@realmid/web-react`, `@realmid/web-firebase`,
 `@realmid/web-google`) bumped to 0.2.0 in lockstep; their public surface
 is unchanged.
 
+## go-v0.11.0 — Error + session helpers, typed IdentityProviders (2026-05-24)
+
+**Additive only.** Promotes three pieces of duplication that BFF /
+partner consumers were reinventing into the SDK surface:
+
+- **Error helpers** (`errors.go`): `IsUnauthorized(err)`,
+  `IsTimeout(err)`, `AsRealmError(err, &re)`, `HTTPStatus(err)`. Every
+  consumer mapping an SDK error onto its own HTTP/UI surface was
+  unwrapping `*RealmError` by hand; these collapse that to a single
+  call. `IsTimeout` is `errors.Is`-based so it sees through wrapped
+  `*RealmError{Cause: ctx.Err()}` rather than string-matching.
+- **`Session.NeedsTenantChoice()` + `Session.SelectTenant(preferred)`**
+  (`auth.go`): the two arithmetic pieces every server-side login flow
+  re-implements — "did the issuer return a picker?" and "resolve final
+  (tenant_id, role) given a caller preference". Pure functions on the
+  existing `*Session`, no new state.
+- **`Realm.IdentityProviders(ctx, *IdentityProvidersOptions)`**
+  (`identity_providers.go`): typed wrapper over
+  `GET /platforms/{realm_id}/identity-providers` with optional
+  `Platform`, `TenantID`, `Origin`. Returns
+  `*IdentityProvidersResponse`. Removes ~25 lines of
+  `r.Do` + ReadAll + Unmarshal boilerplate from every consumer that
+  populates a SPA login picker.
+
+No SPEC change; no wire-shape change; existing call sites keep
+working unchanged. TS / Java SDK lockstep additions are tracked
+separately — bump those when a consumer needs them.
+
 ## go-v0.10.0 / ts-v0.9.0 — Two-endpoint auth surface (ADR-051) (2026-05-08)
 
 **BREAKING.** Tracks api `v0.7.0`. The legacy

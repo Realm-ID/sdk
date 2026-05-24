@@ -70,6 +70,44 @@ type Session struct {
 	Tenants      []TenantRef `json:"tenants"`
 }
 
+// NeedsTenantChoice reports whether the issuer returned a tenant
+// picker instead of a session: more than one membership and no access
+// token minted. Callers (typically a BFF) surface the choice to the
+// end user and re-POST /auth/login with `tenant_id` set.
+func (s *Session) NeedsTenantChoice() bool {
+	if s == nil {
+		return false
+	}
+	return s.AccessToken == "" && len(s.Tenants) > 1
+}
+
+// SelectTenant resolves the final (tenant_id, role) pair the BFF
+// should persist for a session, given an optional caller-preferred
+// tenant. Preference order: preferred > Session.TenantID >
+// Session.Tenants[0].ID. The role is looked up from Session.Tenants
+// when the resolved tenant has an entry there; otherwise
+// Session.Role is returned as-is.
+func (s *Session) SelectTenant(preferred string) (tenantID, role string) {
+	if s == nil {
+		return preferred, ""
+	}
+	tenantID = preferred
+	if tenantID == "" {
+		tenantID = s.TenantID
+	}
+	if tenantID == "" && len(s.Tenants) > 0 {
+		tenantID = s.Tenants[0].ID
+	}
+	role = s.Role
+	for _, t := range s.Tenants {
+		if t.ID == tenantID {
+			role = t.Role
+			break
+		}
+	}
+	return tenantID, role
+}
+
 // TokenRequest is realm.Auth.Token's input — refresh + tenant_id +
 // optional access-token customClaims (SPEC §4.2).
 type TokenRequest struct {
