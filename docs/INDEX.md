@@ -20,7 +20,7 @@ cross-language contract; these docs explain how to use and operate it.
 | Topic | Canonical source | Notes |
 |---|---|---|
 | SDK behavior | `../SPEC.md` | Language SDKs must conform. |
-| HTTP paths and DTOs | `../../api/docs/swagger.yaml` | Server owns wire shape. |
+| HTTP paths and DTOs | `../../issuer/docs/swagger.yaml` | Server owns wire shape. |
 | Error taxonomy | `error-reference.md`, `../SPEC.md` | Keep in sync. |
 | Auth/BFF model | `dual-token.md`, ADR-041, ADR-050 | See API ADRs for server decisions. |
 

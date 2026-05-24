@@ -1,6 +1,6 @@
 /**
  * @realmid/web-bff-realmid — preset wiring @realmid/web to the realmid.dev
- * reference BFF (Realm-ID/bff-api).
+ * reference BFF (Realm-ID/api, formerly Realm-ID/bff-api).
  *
  * The reference BFF deviates from BFF-SPEC.md in 6 places:
  *

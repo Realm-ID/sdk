@@ -278,7 +278,7 @@ true }` if `/token` itself needs the current session bearer for auth.
 
 ## Reference implementation
 
-Realm-ID's own BFF lives at <https://github.com/Realm-ID/bff-api>. It
+Realm-ID's own BFF lives at <https://github.com/Realm-ID/api>. It
 deviates from the canonical wire shape in 6 places (snake_case, status
 discriminator on /login, tokenless /token, flat /me, 412-gated MFA + 412
 session-limit) — the published `@realmid/web-bff-realmid` preset bundles

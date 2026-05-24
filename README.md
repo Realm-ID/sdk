@@ -19,7 +19,7 @@ one cross-language contract: `SPEC.md`.
 | Topic | Canonical source | Notes |
 |---|---|---|
 | Cross-language contract | `SPEC.md` | Highest authority inside this repo. |
-| HTTP wire contract | `../api/docs/swagger.yaml` | Server contract owns paths and DTOs. |
+| HTTP wire contract | `../issuer/docs/swagger.yaml` | Server contract owns paths and DTOs. |
 | TypeScript implementation | `ts/README.md`, `ts/` | Canonical reference style for SDK behavior. |
 | Go implementation | `go/README.md`, `go/` | Idiomatic Go mirror. |
 | Java implementation | `java/README.md`, `java/` | Idiomatic Java mirror. |

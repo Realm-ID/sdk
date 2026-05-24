@@ -5,7 +5,7 @@ the browser, talks **only** to the partner's BFF, and handles login-config
 discovery, token management, refresh dedupe, tenant switching, MFA, and
 multi-tab sync.
 
-[adr-052]: ../../api/docs/adr/052-browser-sdk.md
+[adr-052]: ../../issuer/docs/adr/052-browser-sdk.md
 
 ## Packages
 
@@ -16,7 +16,7 @@ multi-tab sync.
 | `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | v0.4.0   |
 | `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | v0.4.0   |
 | `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | v0.4.0   |
-| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/bff-api`) | v0.3.0 |
+| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/api`) | v0.3.0 |
 
 ## Quick start (vanilla JS)
 
@@ -221,7 +221,7 @@ Full reference: [BFF-SPEC.md → Response adapters](./BFF-SPEC.md#response-adapt
 
 ## Reference BFF
 
-[`Realm-ID/bff-api`](https://github.com/Realm-ID/bff-api) is the canonical
+[`Realm-ID/api`](https://github.com/Realm-ID/api) is the canonical
 implementation of [`BFF-SPEC.md`](./BFF-SPEC.md). Fork it, or implement
 the contract directly in your existing backend.
 

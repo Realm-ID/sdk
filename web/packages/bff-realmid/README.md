@@ -1,10 +1,11 @@
 # `@realmid/web-bff-realmid` — preset for the realmid.dev reference BFF
 
 Drop-in adapter + gates + endpoints for `@realmid/web` so it talks
-correctly to [Realm-ID/bff-api][bff-api] (the canonical reference BFF
-implementing [BFF-SPEC.md][spec], with realmid-specific extensions).
+correctly to [Realm-ID/api][bff-api] (the canonical reference BFF,
+formerly `Realm-ID/bff-api`; implements [BFF-SPEC.md][spec], with
+realmid-specific extensions).
 
-[bff-api]: https://github.com/Realm-ID/bff-api
+[bff-api]: https://github.com/Realm-ID/api
 [spec]: ../../BFF-SPEC.md
 
 ## Why this exists

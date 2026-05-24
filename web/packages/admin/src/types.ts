@@ -1,6 +1,6 @@
 /**
  * Shared wire types for the admin SDK. Shapes mirror `ui/web/src/api.ts`
- * and the BFF's response envelopes — see `bff-api/README.md` for the
+ * and the BFF's response envelopes — see `api/README.md` (formerly `bff-api/`) for the
  * canonical contract.
  */
 

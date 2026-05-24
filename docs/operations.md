@@ -27,7 +27,7 @@ rotation, version policy, hosted environments, roadmap commitments.
   for most partners. **TBD** — file an issue if your compliance posture
   requires a separate hostname.
 - **Local dev:** Run the auth API locally via the docker-compose stack
-  in the `Realm-ID/api` repo (`tests/docker-compose.test.yml`). Same
+  in the `Realm-ID/issuer` repo (`tests/docker-compose.test.yml`). Same
   wire shape; same SDK code path with `baseUrl` pointed at
   `http://localhost:<port>`.
 
@@ -150,10 +150,10 @@ This may change once formal pricing tiers land.
 ## 8. Where to file feedback
 
 - **SDK bugs / feature requests:** `Realm-ID/sdk` issues.
-- **Server bugs / behavior questions:** `Realm-ID/api` issues
+- **Server bugs / behavior questions:** `Realm-ID/issuer` issues
   (private repo; if you don't have access, file via SDK and we'll
   triage).
 - **Operational incidents:** status page + your account contact.
 - **ADRs / design discussions:** GitHub Discussions on
-  `Realm-ID/api`. Major changes (like ADR-042) are posted there
+  `Realm-ID/issuer`. Major changes (like ADR-042) are posted there
   before implementation starts.
