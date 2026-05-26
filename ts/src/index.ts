@@ -87,6 +87,9 @@ export type {
   ListEventsOpts,
 } from "./admin.js";
 
+export { AuditEventsClient } from "./audit-events.js";
+export type { AuditEventsResponse, ListAuditEventsOpts } from "./audit-events.js";
+
 export { createMiddleware, globMatch } from "./middleware.js";
 export type {
   MiddlewareConfig,

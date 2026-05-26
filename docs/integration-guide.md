@@ -1343,38 +1343,69 @@ Full catalog: [`error-reference.md`](./error-reference.md).
 
 ### 8.6 Auditing and event export
 
-RealmID does **not** expose a webhook surface or push event stream
-today. Auth and admin mutations performed inside RealmID are
-recorded in RealmID's own `audit_log` table (used by support and
-forensic queries) but are **not** automatically reflected in your
-application's audit log. Mutations affected:
+`GET /platforms/{id}/audit-events` returns the RealmID-originated
+events for your platform (ADR-055). Same row shape as the internal
+ops console feed; scoped (and forced) to the platform in the path
+so a caller can never read another platform's audit trail.
 
-- **Auth events** — `login`, `logout`, MFA-verify, session-revoke,
-  refresh-rotate, OTP-issue/verify, `tenant_locked_session` rejects.
-- **Admin events** — invitation create / accept / revoke, user
-  status changes, user role changes, tenant create / suspend /
-  soft-delete, role catalog create / delete, API-key
-  create / revoke, config patches.
+**Auth.** Either a platform admin user JWT, or a platform-scoped
+service JWT minted from an API key (`/auth/token` with an API-key
+bearer). Compliance ingest is typically a backend job — use the
+API-key path.
 
-Workarounds available today:
+**Pagination.** Cursor-paginated; `cursor` is opaque (do not parse
+it as a timestamp). Filter with `kind` (repeatable), `tenant_id`,
+`actor_id`, `since`, `until` (unix seconds, half-open).
 
-1. **Poll the admin reads.** `realm.tenants.users.list`,
-   `realm.tenants.invitations.list`, `realm.apiKeys.list` (with
-   `last_used_at`), and `realm.auth.listSessions` are
-   cheap-to-poll. A nightly diff against your local mirror surfaces
-   role / status / membership changes.
-2. **Mirror writes you initiate.** Wrap the SDK call in your own
-   audit-log write — every call from your BFF is attributable to a
-   request id you already track. This covers *your* admin's
-   actions; it does **not** cover IdP-driven changes (a user
-   accepting an invitation, a self-serve MFA reset).
-3. **Pull `audit_log` via the planned read endpoint.** A
-   `GET /platforms/{id}/audit-events?since=…` polling endpoint is
-   on the roadmap (TODO.md, ops-decisions group). Until it ships,
-   only RealmID staff can query the underlying table.
+**Retention.** RealmID retains 400 days of events. Pull at least
+once per quarter to maintain a complete archive on your side. There
+is no backfill; the feed begins at the moment the endpoint was
+deployed in your environment.
 
-Push-based webhooks / event streams are **not** on the v1 roadmap;
-plan around the poll model for now.
+**Delivery.** Pull only. Push-based webhooks / event streams are
+**not** on the v1 roadmap.
+
+**Event taxonomy** (kinds you'll see):
+
+- `auth.login.success`, `auth.login.failure`, `auth.logout`,
+  `auth.token.refresh`, `auth.token.revoke`, `auth.platform_token.mint`,
+  `auth.otp.*`
+- `mfa.enroll`, `mfa.confirm`, `mfa.disable`, `mfa.verify.success`,
+  `mfa.verify.failure`, `mfa.lockout`
+- `user.create`, `user.update`, `user.delete`, `user.role_change`,
+  `user.invite`, `user.invite_accept`
+- `tenant.create`, `tenant.update`, `tenant.delete`, `tenant.suspend`,
+  `tenant.resume`
+- `apikey.create`, `apikey.revoke`
+- `role.create`, `role.update`, `role.delete`, `role.assign`,
+  `role.unassign`
+- `idp.create`, `idp.update`, `idp.delete`, `idp.toggle`
+- `domain.claim`, `domain.verify`, `domain.bind`, `domain.detach`
+- `platform.suspend`, `platform.unsuspend`, `platform.signup_mode_change`,
+  `platform.note.create`, `platform.signing_keys.rotate`
+
+> **Coverage note (2026-05-25):** the read endpoint exposes whatever
+> lands in `audit_log`. Some write sites (auth flow, MFA, user role
+> changes) are still being wired through to emit; track progress in
+> the umbrella project `TODO.md` under "Audit coverage". The
+> taxonomy and contract are stable — once a site is wired, events
+> appear in the feed without any partner-side change.
+
+**Example pull (Go):**
+
+```go
+events, cursor, err := client.Platforms.ListAuditEvents(ctx, platformID, realmid.AuditEventsQuery{
+    Since:     lastPullUnix,
+    Kinds:     []string{"auth.login.success", "auth.login.failure"},
+    Limit:     200,
+})
+```
+
+**Mirror writes you initiate (still useful).** The pull feed covers
+RealmID-side events. For writes your BFF makes through the SDK, you
+can still emit a row in your own audit log at the call site — every
+call from your BFF is attributable to a request id you already
+track. This complements (rather than replaces) the pull feed.
 
 ---
 

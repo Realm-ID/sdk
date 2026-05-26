@@ -5,6 +5,36 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## All SDKs — partner audit-event feed (ADR-055) (2026-05-25)
+
+**Additive.** Each language SDK gains a new resource for the
+partner audit-event feed. Versions bump in lockstep:
+`go-v0.12.0`, `ts-v0.10.0`, `java-v0.7.0`.
+
+### Added
+
+- `realm.AuditEvents.List(ctx, ListAuditEventsParams)` (Go) /
+  `realm.auditEvents.list(opts?)` (TS) /
+  `realm.auditEvents().list(opts)` (Java) — wraps
+  `GET /platforms/{id}/audit-events`. The SDK forces the platform id
+  from the configured `realmId`, so partners cannot accidentally
+  read another platform's events; the server also ignores any
+  query-string `platform_id`.
+- Filters: `tenantId`, `actorId`, `kind` (repeatable), `since`,
+  `until`, `cursor`, `limit` (default 50, max 200). Cursor is
+  opaque — forward `next_cursor` verbatim until null.
+- New response type `AuditEventsResponse { items: AuditEvent[],
+  next_cursor: string | null }`. `AuditEvent` row shape is identical
+  to the admin-aggregates surface (§7.5).
+
+### Docs
+
+- `SPEC.md §7.6` added.
+- `docs/integration-guide.md §8.6` rewritten — was a workaround +
+  roadmap note; now documents the live surface, retention (400 days),
+  and the pull-only delivery model. Push (webhooks / event streams)
+  remains explicitly out of scope.
+
 ## web-v0.3.0 — Request adapters + adopt() (2026-05-09)
 
 **Additive only.** Closes the round-trip on partner-BFF flexibility:

@@ -586,6 +586,40 @@ The cursor is opaque (base64-encoded offset). Callers must forward the
 returned `next_cursor` verbatim on the next call; tampered or invalid
 cursors are silently treated as the first page.
 
+### 7.6. Partner audit-event feed (ADR-055)
+
+The partner-facing slice of the same `audit_log` exposed at
+`/admin/events`. Scoped (and forced) to the platform the SDK is
+authenticated for — the SDK passes the configured `realmId` into the
+URL path and the server ignores any query-string `platform_id`, so
+a caller cannot read another platform's events.
+
+Auth: either the platform-token bearer (the SDK's default) or the
+platform admin user JWT.
+
+Surface (matches across all SDKs):
+
+- `auditEvents.list(opts?)` → `AuditEventsResponse`
+  Wraps `GET /platforms/{id}/audit-events`. Filters: `tenantId`,
+  `actorId`, `kind` (repeatable), `since` / `until` (unix seconds,
+  half-open), `cursor`, `limit` (default 50, max 200). The cursor is
+  opaque; forward `next_cursor` verbatim until null.
+
+Response shape (identical in all SDKs):
+
+```
+AuditEventsResponse { items: AuditEvent[],
+                      next_cursor: string | null }
+```
+
+`AuditEvent` is the same shape as in §7.5.
+
+**Retention** is 400 days server-side; partners pulling for long-term
+compliance archives should pull at least quarterly. **No backfill** —
+the feed begins at the moment the endpoint was deployed.
+**Push delivery** (webhooks / event streams) is **not** on the v1
+roadmap.
+
 ## 8. HTTP wire conventions
 
 - **Auth header:** `Authorization: Bearer <token>`. The token is a

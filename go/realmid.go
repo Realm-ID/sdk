@@ -97,6 +97,8 @@ type Realm struct {
 	Origins *OriginsClient
 	Tokens  *TokensClient
 	Admin   *AdminClient
+	// AuditEvents exposes the partner audit-event feed (ADR-055).
+	AuditEvents *AuditEventsClient
 	// OTP exposes the partner OTP primitive (issue / view / verify) —
 	// see docs/proposals/partner-otp-primitive.md in the auth repo.
 	OTP *OTPClient
@@ -114,7 +116,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.11.0"
+const Version = "0.12.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -153,6 +155,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Origins = newOriginsClient(r)
 	r.Tokens = newTokensClient(cfg.Clock)
 	r.Admin = newAdminClient(r)
+	r.AuditEvents = newAuditEventsClient(r)
 	r.OTP = &OTPClient{realm: r}
 
 	return r, nil

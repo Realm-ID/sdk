@@ -18,6 +18,7 @@ import { RolesClient } from "./roles.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
+import { AuditEventsClient } from "./audit-events.js";
 import { OtpClient } from "./otp.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
@@ -80,6 +81,8 @@ export interface Realm {
   readonly origins: OriginsClient;
   readonly tokens: TokensClient;
   readonly admin: AdminClient;
+  /** Partner audit-event feed (ADR-055). */
+  readonly auditEvents: AuditEventsClient;
   /** Partner OTP primitive (issue / view / verify). See proposal in auth repo. */
   readonly otp: OtpClient;
   readonly tokenDelivery: "cookie" | "body";
@@ -178,6 +181,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     origins: new OriginsClient(http, platformTokens),
     tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
     admin: new AdminClient(http),
+    auditEvents: new AuditEventsClient(http, cfg.realmId),
     otp: new OtpClient(http),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),

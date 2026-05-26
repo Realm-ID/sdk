@@ -15,6 +15,7 @@ import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
 import dev.realmid.sdk.tokens.TokensClient;
 import dev.realmid.sdk.admin.AdminClient;
+import dev.realmid.sdk.auditevents.AuditEventsClient;
 import dev.realmid.sdk.verifier.Verifier;
 
 import java.lang.System.Logger;
@@ -43,6 +44,7 @@ public final class Realm {
     private final OriginsClient origins;
     private final TokensClient tokens;
     private final AdminClient admin;
+    private final AuditEventsClient auditEvents;
     private final RealmInfoClient info;
     private final ConfigClient config;
     private final PlatformTokenManager platformTokens;
@@ -87,6 +89,7 @@ public final class Realm {
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
         this.tokens = new TokensClient(clock);
         this.admin = new AdminClient(this.http);
+        this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.config = new ConfigClient(this.http, this.realmId);
     }
 
@@ -110,6 +113,8 @@ public final class Realm {
     public TokensClient tokens() { return tokens; }
     /** SPEC §7.5 — admin aggregates surface (ADR-048). */
     public AdminClient admin() { return admin; }
+    /** SPEC §7.6 — partner audit-event feed (ADR-055). */
+    public AuditEventsClient auditEvents() { return auditEvents; }
     public ConfigClient config() { return config; }
     public RealmInfo info() { return info.info(); }
 
