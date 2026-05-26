@@ -53,6 +53,11 @@ export type {
   InvitationCreate,
   User,
   UserStatus,
+  DriftReview,
+  DriftAcceptResult,
+  DriftRejectResult,
+  ContactVerification,
+  ContactVerificationResult,
 } from "./tenants.js";
 
 export type { DomainClaim, DomainVerifyResult } from "./domains.js";

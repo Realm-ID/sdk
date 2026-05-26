@@ -55,25 +55,29 @@ type TenantPatch struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-// Invitation represents a pending tenant invite.
+// Invitation represents a pending tenant invite. ID is the stable user
+// id allocated up front; Identifier is the invited email or E.164 phone
+// (SPEC §6.2, v0.11.0). ExpiresAt is a unix-seconds timestamp.
 type Invitation struct {
-	ID       string `json:"id"`
-	TenantID string `json:"tenant_id"`
-	Email    string `json:"email"`
-	Role     string `json:"role,omitempty"`
-	Status   string `json:"status,omitempty"`
+	ID         string `json:"id"`
+	Identifier string `json:"identifier"`
+	Role       string `json:"role,omitempty"`
+	Status     string `json:"status,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
 }
 
 // InvitationCreate is the create payload for /tenants/{id}/invitations.
+// Identifier is an email or an E.164 phone (SPEC §6.2, v0.11.0).
 type InvitationCreate struct {
-	Email string `json:"email"`
-	Role  string `json:"role,omitempty"`
+	Identifier string `json:"identifier"`
+	Role       string `json:"role,omitempty"`
 }
 
 // User is one entry in realm.Tenants.Users.* (SPEC §6.3).
 type User struct {
 	ID          string `json:"id"`
 	Email       string `json:"email,omitempty"`
+	Phone       string `json:"phone,omitempty"`
 	DisplayName string `json:"display_name,omitempty"`
 	Status      string `json:"status,omitempty"`
 	MFAEnabled  bool   `json:"mfa_enabled,omitempty"`
@@ -98,16 +102,20 @@ type MFAEnrollResult struct {
 
 // TenantsClient is realm.Tenants.
 type TenantsClient struct {
-	realm       *Realm
-	Invitations *InvitationsClient
-	Users       *UsersClient
+	realm                *Realm
+	Invitations          *InvitationsClient
+	Users                *UsersClient
+	DriftReviews         *DriftReviewsClient
+	ContactVerifications *ContactVerificationsClient
 }
 
 func newTenantsClient(r *Realm) *TenantsClient {
 	return &TenantsClient{
-		realm:       r,
-		Invitations: &InvitationsClient{realm: r},
-		Users:       &UsersClient{realm: r},
+		realm:                r,
+		Invitations:          &InvitationsClient{realm: r},
+		Users:                &UsersClient{realm: r},
+		DriftReviews:         &DriftReviewsClient{realm: r},
+		ContactVerifications: &ContactVerificationsClient{realm: r},
 	}
 }
 

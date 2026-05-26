@@ -1,6 +1,6 @@
 package dev.realmid.sdk.tenants;
 
-public record InvitationCreate(String email, String role) {
-    public static InvitationCreate of(String email) { return new InvitationCreate(email, null); }
-    public static InvitationCreate of(String email, String role) { return new InvitationCreate(email, role); }
+public record InvitationCreate(String identifier, String role) {
+    public static InvitationCreate of(String identifier) { return new InvitationCreate(identifier, null); }
+    public static InvitationCreate of(String identifier, String role) { return new InvitationCreate(identifier, role); }
 }

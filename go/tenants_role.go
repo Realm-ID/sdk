@@ -28,3 +28,34 @@ func (c *TenantsClient) UpdateUserRole(ctx ctxpkg.Context, tenantID, userID, rol
 	}
 	return &out, nil
 }
+
+// UpdateContactInput is the body for Tenants.UpdateUserContact. At
+// least one of Email/Phone must be set (SPEC §6.3, v0.11.0).
+type UpdateContactInput struct {
+	Email string `json:"email,omitempty"`
+	Phone string `json:"phone,omitempty"`
+}
+
+// UpdateUserContact changes a user's email and/or phone. It soft-releases
+// the previous contact of that kind and issues a fresh unverified
+// user_contacts row; the recycled slot is held for 30 days. A collision
+// with another active member's identifier returns
+// RealmError(identifier_collision) (409). Returns the updated User.
+//
+// Wraps PATCH /tenants/{id}/users/{uid}.
+func (c *TenantsClient) UpdateUserContact(ctx ctxpkg.Context, tenantID, userID string, body UpdateContactInput) (*User, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var u User
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "PATCH",
+		Path:   "/tenants/" + url.PathEscape(tenantID) + "/users/" + url.PathEscape(userID),
+		Bearer: tok,
+		Body:   body,
+	}, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}

@@ -41,6 +41,15 @@ public final class UsersClient {
         return http.mapper().convertValue(raw, User.class);
     }
 
+    public User updateContact(String tenantId, String userId, UpdateContactInput body) {
+        Map<String, Object> b = new LinkedHashMap<>();
+        if (body.email() != null) b.put("email", body.email());
+        if (body.phone() != null) b.put("phone", body.phone());
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "PATCH", "/tenants/" + enc(tenantId) + "/users/" + enc(userId)).body(b));
+        return http.mapper().convertValue(raw, User.class);
+    }
+
     @SuppressWarnings("unchecked")
     public Map<String, Object> enrollMfa(String tenantId, String userId) {
         JsonNode raw = http.request(HttpTransport.Request.of(

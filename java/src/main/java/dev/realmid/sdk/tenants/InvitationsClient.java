@@ -29,7 +29,7 @@ public final class InvitationsClient {
 
     public Invitation create(String tenantId, InvitationCreate body) {
         Map<String, Object> b = new LinkedHashMap<>();
-        b.put("email", body.email());
+        b.put("identifier", body.identifier());
         if (body.role() != null) b.put("role", body.role());
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "POST", "/tenants/" + enc(tenantId) + "/invitations").body(b));

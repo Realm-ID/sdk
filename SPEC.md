@@ -1,4 +1,31 @@
-# Realm ID SDK — cross-language specification (v0.5.0)
+# Realm ID SDK — cross-language specification (v0.6.0)
+
+## Breaking changes from 0.5.x
+
+v0.6.0 aligns the SDKs with the server's v0.11.0 contact model
+(ADR-042). A user's identifiers (email / phone) are no longer columns
+on the user row — they are `user_contacts` rows with an independent
+verification lifecycle. The SDK surface changes accordingly:
+
+1. **Invitations are keyed by `identifier`, not `email`** (§6.2).
+   `invitations.create(tenantId, { identifier, role? })` replaces
+   `{ email, role? }`. `identifier` is an email **or** an E.164 phone.
+   The response is now `{ id, identifier, role, status, expiresAt }`
+   where `id` is the **stable user id** allocated at invite time
+   (invites pre-provision the user row in `invited` status). Re-inviting
+   a still-pending identifier is idempotent.
+
+2. **New admin review surfaces** (additive): `realm.tenants.driftReviews.*`
+   (§6.8) for the returning-login contact-drift queue, and
+   `realm.tenants.contactVerifications.*` (§6.9) for the first-login
+   step-up gate on recycled identifier slots.
+
+3. **`users.updateContact`** (§6.3) — admin email/phone changes now go
+   through a dedicated method that soft-releases the old contact and
+   issues a new one; the old `users.update`-style contact mutation is
+   gone.
+
+See `CHANGELOG.md` and ADR-042 for full details.
 
 ## Breaking changes from 0.4.x
 
@@ -327,12 +354,21 @@ every list endpoint (see §7).
 
 ### 6.2 Tenant invitations — `realm.tenants.invitations.*`
 
-This is the **only** path for user creation in a tenant.
+This is the **only** path for user creation in a tenant. Inviting
+pre-provisions the user row in `invited` status and allocates its
+stable `id` up front; the identifier is held as an unverified
+`user_contacts` row until the invitee logs in and verifies it.
 
 - `list(tenantId, opts?)` — paginated. `opts: { status?, cursor?, limit? }`.
-- `create(tenantId, { email, role? })` — sends an invitation. `role`
-  defaults to `"member"`; only an `owner` may invite at `"admin"` or
-  `"owner"`.
+- `create(tenantId, { identifier, role? })` — sends an invitation.
+  `identifier` is an email **or** an E.164 phone. `role` defaults to
+  `"member"`; only an `owner` may invite at `"admin"` or `"owner"`.
+  Returns `Invitation { id, identifier, role, status, expiresAt }` —
+  `id` is the stable user id, `status` is `"pending"`, `expiresAt` is a
+  unix-seconds timestamp. Re-inviting an identifier whose invite is
+  still pending is **idempotent** (refreshes expiry, re-emits the
+  invite); inviting an identifier already bound to an active member
+  fails `RealmError(already_member)` (409).
 - `delete(tenantId, invitationId)` — revoke a pending invite.
 
 ### 6.3 Users — `realm.tenants.users.*`
@@ -353,7 +389,16 @@ the invitee accepts → user record is provisioned.
   ```
 - `get(tenantId, userId)`
 - `updateStatus(tenantId, userId, status)` —
-  `"active" | "suspended" | "deactivated"`.
+  `"active" | "suspended" | "deactivated"`. Deactivating cascades:
+  the user's contacts are released and their verifications revoked.
+  The sole remaining `owner` cannot be deactivated → `RealmError(last_owner)`
+  (409).
+- `updateContact(tenantId, userId, { email?, phone? })` — change a
+  user's email and/or phone (at least one required). Soft-releases the
+  previous contact of that kind and issues a fresh unverified
+  `user_contacts` row; the recycled slot is held for 30 days. Returns
+  the updated `User`. A collision with another active member's
+  identifier fails `RealmError(identifier_collision)` (409).
 - Role updates live on the tenant surface (so they sit alongside
   `transferOwner`): use `tenants.updateUserRole(tenantId, userId, role)`
   / Go `Tenants.UpdateUserRole(ctx, tenantID, userID, role)`. Cannot
@@ -496,6 +541,48 @@ Promoted from a nested namespace for ergonomics:
 - `realm.config.update(patch)` — patch realm-level config (TTL
   overrides, default audience, etc., subject to the server's
   configurable-keys allowlist).
+
+### 6.8 Contact drift reviews — `realm.tenants.driftReviews.*`
+
+When a returning user logs in with an identifier that differs from the
+one on file (e.g. the IdP now asserts a new email), the server does not
+silently mutate the contact. It enqueues a **drift review** and lets a
+tenant admin decide. ADR-042.
+
+- `list(tenantId, opts?)` — paginated. `opts: { userId?, cursor?, limit? }`
+  (`limit` 1..200, default 50). Yields `DriftReview` rows:
+  `{ id, contactId, userId, assertedValue, assertedMethod,
+  assertedProviderUid, seenCount, firstSeenAt, lastSeenAt, status }`.
+  `status` ∈ `"pending" | "accepted" | "rejected" | "superseded" | "expired"`;
+  `*At` fields are unix seconds. Only `pending` rows are actionable.
+- `accept(tenantId, reviewId)` — adopt the asserted value as the user's
+  new contact (releases the old one). Returns
+  `{ id, status: "accepted", acceptedValue, newContactId }`. A review
+  that is already resolved, or whose value now collides, fails
+  `RealmError(conflict)` (409).
+- `reject(tenantId, reviewId)` — treat the drift as a different person:
+  the asserting login is split off onto a fresh deactivated user and the
+  original contact is left intact. Returns
+  `{ id, status: "rejected", newUserId, originalValue }`.
+
+### 6.9 Contact verifications — `realm.tenants.contactVerifications.*`
+
+First-login step-up gate. When a user logs in for the first time on an
+identifier slot that was recycled from a previously-released contact
+(the 30-day hold from `updateContact`), the login is held `pending`
+until a tenant admin approves it. ADR-042.
+
+- `list(tenantId, opts?)` — paginated. `opts: { state?, cursor?, limit? }`
+  (`state` defaults to `"pending"`; `limit` 1..200, default 50). Yields
+  `ContactVerification` rows: `{ id, contactId, userId, method,
+  providerUid, state, createdAt, expiresAt? }`. `state` ∈
+  `"pending" | "active" | "rejected" | "revoked"`; `expiresAt` is
+  present only while `pending`.
+- `approve(tenantId, verificationId)` — admit the login; the contact
+  becomes verified/active. Returns `{ id, state: "active" }`. Already
+  resolved, or the active slot is taken → `RealmError(conflict)` (409).
+- `reject(tenantId, verificationId)` — deny the login. Returns
+  `{ id, state: "rejected" }`.
 
 ## 7. Pagination
 

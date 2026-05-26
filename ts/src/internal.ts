@@ -16,6 +16,8 @@ export {
   TenantsClient,
   InvitationsClient,
   UsersClient,
+  DriftReviewsClient,
+  ContactVerificationsClient,
   type Tenant,
   type TenantCreate,
   type TenantPatch,
@@ -25,6 +27,11 @@ export {
   type User,
   type UserStatus,
   type UpdateUserRoleResult,
+  type DriftReview,
+  type DriftAcceptResult,
+  type DriftRejectResult,
+  type ContactVerification,
+  type ContactVerificationResult,
 } from "./tenants.js";
 
 export {

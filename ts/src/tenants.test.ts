@@ -93,6 +93,88 @@ test("tenants.create: routes to /platforms/{realmId}/tenants (SPEC §6.1)", asyn
   assert.equal(hitBody.signup_mode, "allowlist");
 });
 
+test("tenants.invitations.create: posts identifier (v0.11.0 contact model)", async () => {
+  let hitUrl = "";
+  let hitMethod = "";
+  let hitBody: Record<string, unknown> = {};
+  const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    hitUrl = url;
+    if (init?.method) hitMethod = init.method;
+    if (init?.body) hitBody = JSON.parse(init.body as string);
+    return new Response(
+      JSON.stringify({ id: "u-new", identifier: "alice@acme.com", role: "member", status: "pending", expires_at: 1700000000 }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const inv = await realm.tenants.invitations.create("t1", { identifier: "alice@acme.com", role: "member" });
+  assert.equal(inv.id, "u-new");
+  assert.equal(inv.identifier, "alice@acme.com");
+  assert.equal(inv.status, "pending");
+  assert.equal(hitMethod, "POST");
+  assert.match(hitUrl, /\/tenants\/t1\/invitations$/);
+  assert.equal(hitBody.identifier, "alice@acme.com");
+  assert.equal(hitBody.role, "member");
+});
+
+test("tenants.driftReviews.accept: POSTs /contact-drift-reviews/{id}/accept", async () => {
+  let hitUrl = "";
+  let hitMethod = "";
+  const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    hitUrl = url;
+    if (init?.method) hitMethod = init.method;
+    return new Response(
+      JSON.stringify({ id: "dr1", status: "accepted", accepted_value: "new@acme.com", new_contact_id: "c9" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const out = await realm.tenants.driftReviews.accept("t1", "dr1");
+  assert.equal(out.status, "accepted");
+  assert.equal(out.accepted_value, "new@acme.com");
+  assert.equal(out.new_contact_id, "c9");
+  assert.equal(hitMethod, "POST");
+  assert.match(hitUrl, /\/tenants\/t1\/contact-drift-reviews\/dr1\/accept$/);
+});
+
+test("tenants.contactVerifications.list: filters by state and yields rows", async () => {
+  let hitUrl = "";
+  const wrapped: typeof fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    hitUrl = url;
+    return new Response(
+      JSON.stringify({ items: [{ id: "cv1", state: "pending", method: "email", contact_id: "c1", user_id: "u1", provider_uid: "p1", created_at: 1700000000 }], next_cursor: null }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const p = await realm.tenants.contactVerifications.list("t1", { state: "pending" }).page();
+  assert.equal(p.items.length, 1);
+  assert.equal(p.items[0]!.id, "cv1");
+  assert.match(hitUrl, /\/tenants\/t1\/contact-verifications/);
+  assert.match(hitUrl, /state=pending/);
+});
+
 test("tenants.updateUserRole: PATCHes /tenants/{id}/users/{uid}/role", async () => {
   let hitUrl = "";
   let hitMethod = "";

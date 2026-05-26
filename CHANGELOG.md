@@ -5,6 +5,39 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## All SDKs — v0.11.0 contact model (ADR-042) (2026-05-26)
+
+Aligns the SDKs with the server's v0.11.0 contact model: identifiers
+are independently-verified `user_contacts` rows, not user columns.
+SPEC bumped to **v0.6.0**. Versions bump in lockstep:
+`go-v0.13.0`, `ts-v0.11.0`, `java-v0.8.0`.
+
+### Changed (breaking)
+
+- `invitations.create(tenantId, { identifier, role? })` replaces
+  `{ email, role? }`. `identifier` is an email or E.164 phone. Response
+  is now `Invitation { id, identifier, role, status, expiresAt }` where
+  `id` is the stable user id allocated at invite time. Re-inviting a
+  still-pending identifier is idempotent; an active member's identifier
+  → `RealmError(already_member)` (409).
+
+### Added
+
+- `users.updateContact(tenantId, userId, { email?, phone? })` — admin
+  email/phone change; soft-releases the old contact (30-day slot hold)
+  and issues a fresh unverified one. Collision → `identifier_collision`
+  (409). `updateStatus` deactivation now documented to cascade
+  contact release + verification revoke, guarded by `last_owner` (409).
+- `realm.tenants.driftReviews.{list,accept,reject}` (§6.8) — returning-
+  login contact-drift queue.
+- `realm.tenants.contactVerifications.{list,approve,reject}` (§6.9) —
+  first-login step-up gate on recycled identifier slots.
+
+### Docs
+
+- `SPEC.md` §6.2, §6.3 revised; §6.8, §6.9 added; breaking-changes
+  preamble for 0.5.x → 0.6.0.
+
 ## All SDKs — partner audit-event feed (ADR-055) (2026-05-25)
 
 **Additive.** Each language SDK gains a new resource for the

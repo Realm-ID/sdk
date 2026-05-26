@@ -116,7 +116,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.12.0"
+const Version = "0.13.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

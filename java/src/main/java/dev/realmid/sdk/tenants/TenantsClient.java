@@ -15,15 +15,21 @@ public final class TenantsClient {
     private final HttpTransport http;
     private final InvitationsClient invitations;
     private final UsersClient users;
+    private final DriftReviewsClient driftReviews;
+    private final ContactVerificationsClient contactVerifications;
 
     public TenantsClient(HttpTransport http) {
         this.http = http;
         this.invitations = new InvitationsClient(http);
         this.users = new UsersClient(http);
+        this.driftReviews = new DriftReviewsClient(http);
+        this.contactVerifications = new ContactVerificationsClient(http);
     }
 
     public InvitationsClient invitations() { return invitations; }
     public UsersClient users() { return users; }
+    public DriftReviewsClient driftReviews() { return driftReviews; }
+    public ContactVerificationsClient contactVerifications() { return contactVerifications; }
 
     public Paginated<Tenant> list() {
         return Paginated.of(opts -> {

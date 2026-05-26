@@ -48,15 +48,15 @@ export interface TenantPatch {
 
 export interface Invitation {
   id: string;
-  tenant_id: string;
-  email: string;
+  identifier: string;
   role?: string;
   status?: string;
+  expires_at?: number;
   [k: string]: unknown;
 }
 
 export interface InvitationCreate {
-  email: string;
+  identifier: string;
   role?: string;
   [k: string]: unknown;
 }
@@ -64,6 +64,7 @@ export interface InvitationCreate {
 export interface User {
   id: string;
   email?: string;
+  phone?: string;
   display_name?: string;
   status?: string;
   mfa_enabled?: boolean;
@@ -132,6 +133,14 @@ export class UsersClient {
     });
   }
 
+  async updateContact(tenantId: string, userId: string, body: { email?: string; phone?: string }): Promise<User> {
+    return this.http.request<User>({
+      method: "PATCH",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}`,
+      body,
+    });
+  }
+
   async enrollMfa(tenantId: string, userId: string): Promise<{ secret?: string; otpauth_uri?: string; [k: string]: unknown }> {
     return this.http.request({
       method: "POST",
@@ -155,13 +164,120 @@ export class UsersClient {
   }
 }
 
+export interface DriftReview {
+  id: string;
+  contact_id: string;
+  user_id: string;
+  asserted_value: string;
+  asserted_method: string;
+  asserted_provider_uid: string;
+  seen_count: number;
+  first_seen_at: number;
+  last_seen_at: number;
+  status: string;
+  [k: string]: unknown;
+}
+
+export interface DriftAcceptResult {
+  id: string;
+  status: string;
+  accepted_value: string;
+  new_contact_id: string;
+}
+
+export interface DriftRejectResult {
+  id: string;
+  status: string;
+  new_user_id: string;
+  original_value: string;
+}
+
+export class DriftReviewsClient {
+  constructor(private readonly http: HttpClient) {}
+
+  list(tenantId: string, opts?: { userId?: string } & PageOpts): Paginated<DriftReview> {
+    return paginate<DriftReview>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: `/tenants/${encodeURIComponent(tenantId)}/contact-drift-reviews`,
+        query: { user_id: opts?.userId, cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<DriftReview>(raw);
+    });
+  }
+
+  async accept(tenantId: string, reviewId: string): Promise<DriftAcceptResult> {
+    return this.http.request<DriftAcceptResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/contact-drift-reviews/${encodeURIComponent(reviewId)}/accept`,
+    });
+  }
+
+  async reject(tenantId: string, reviewId: string): Promise<DriftRejectResult> {
+    return this.http.request<DriftRejectResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/contact-drift-reviews/${encodeURIComponent(reviewId)}/reject`,
+    });
+  }
+}
+
+export interface ContactVerification {
+  id: string;
+  contact_id: string;
+  user_id: string;
+  method: string;
+  provider_uid: string;
+  state: string;
+  created_at: number;
+  expires_at?: number;
+  [k: string]: unknown;
+}
+
+export interface ContactVerificationResult {
+  id: string;
+  state: string;
+}
+
+export class ContactVerificationsClient {
+  constructor(private readonly http: HttpClient) {}
+
+  list(tenantId: string, opts?: { state?: string } & PageOpts): Paginated<ContactVerification> {
+    return paginate<ContactVerification>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: `/tenants/${encodeURIComponent(tenantId)}/contact-verifications`,
+        query: { state: opts?.state, cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<ContactVerification>(raw);
+    });
+  }
+
+  async approve(tenantId: string, verificationId: string): Promise<ContactVerificationResult> {
+    return this.http.request<ContactVerificationResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/contact-verifications/${encodeURIComponent(verificationId)}/approve`,
+    });
+  }
+
+  async reject(tenantId: string, verificationId: string): Promise<ContactVerificationResult> {
+    return this.http.request<ContactVerificationResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/contact-verifications/${encodeURIComponent(verificationId)}/reject`,
+    });
+  }
+}
+
 export class TenantsClient {
   readonly invitations: InvitationsClient;
   readonly users: UsersClient;
+  readonly driftReviews: DriftReviewsClient;
+  readonly contactVerifications: ContactVerificationsClient;
 
   constructor(private readonly http: HttpClient, private readonly realmId: string) {
     this.invitations = new InvitationsClient(http);
     this.users = new UsersClient(http);
+    this.driftReviews = new DriftReviewsClient(http);
+    this.contactVerifications = new ContactVerificationsClient(http);
   }
 
   list(opts?: PageOpts): Paginated<Tenant> {
