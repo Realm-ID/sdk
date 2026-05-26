@@ -21,16 +21,16 @@ key with login traffic.
 
 ```
 ┌─────────┐                  ┌──────────────────────┐
-│ Partner │  apiKey          │ POST /auth/platform- │
-│ SDK     ├─────────────────▶│ token                │
-│         │ (sent ONCE per   │                      │
+│ Partner │  apiKey          │ POST /auth/login     │
+│ SDK     ├─────────────────▶│ grant_type:          │
+│         │ (sent ONCE per   │  platform_api_key    │
 │         │  TTL, default    │ → platform JWT, 5m   │
 │         │  5 min)          │   exp, scope:platform│
 │         │                  └──────────────────────┘
 │         │
 │         │  platform JWT     ┌──────────────────────┐
 │         ├─────────────────▶│ POST /auth/login     │
-│         │  + provider token │                      │
+│         │  + provider token │ (user grant_type)    │
 │         │  (Firebase / etc.)│ → user session       │
 │         │                  └──────────────────────┘
 │         │
@@ -64,8 +64,8 @@ The platform JWT is:
 
 This is **not** a substitute for revoking a leaked API key. If you
 suspect compromise, revoke the key in the RealmID console; the SDK
-will surface `unauthorized` from the next `/auth/platform-token`
-mint call onward.
+will surface `unauthorized` from the next platform-token mint call
+(`grant_type: "platform_api_key"` on `/auth/login`) onward.
 
 ## What you write
 
@@ -84,7 +84,7 @@ const session = await realm.auth.login({
 ```
 
 The mint step is idempotent and cached. Calling `auth.login` 1000
-times in 5 minutes results in **one** `/auth/platform-token` call, not
+times in 5 minutes results in **one** platform-token mint call, not
 1000 — same for any management operation.
 
 ## Operational notes
@@ -98,7 +98,8 @@ times in 5 minutes results in **one** `/auth/platform-token` call, not
   expiry, so up to 30 s of clock skew is tolerated. Larger drift will
   cause sporadic 401s; sync your host clock.
 - **No retry on platform-token mint failure.** A 5xx or network error
-  on `/auth/platform-token` surfaces as a `RealmError` immediately so
+  on the mint call (`grant_type: "platform_api_key"` on `/auth/login`)
+  surfaces as a `RealmError` immediately so
   callers can distinguish transient infra failure from auth failure.
 - **Logged events** (when a `Logger` is configured): `info`-level
   "platform-token minted" and "platform-token refreshed". Tokens

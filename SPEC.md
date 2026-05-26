@@ -409,9 +409,24 @@ the invitee accepts → user record is provisioned.
   `resetMfa(tenantId, userId)` — admin-initiated MFA flows. The
   self-service equivalents on `auth.mfa.*` are roadmap (§11).
 
-#### Roles (v0.1.0)
+#### Roles (custom, platform-defined — shipped in server v0.11.x, ADR-040)
 
-A fixed enum — same value across all tenants in the realm:
+The role space is **no longer a fixed enum**. Roles are platform-authored
+per realm and validated against a `realm_roles` catalog. Declare every
+role your app gates on at bootstrap via `realm.roles.*`:
+
+- `realm.roles.create({ name, displayName?, permissions? })` — `POST /platforms/{id}/roles`
+- `realm.roles.list()` — `GET /platforms/{id}/roles`
+- `realm.roles.update(roleId, { displayName?, permissions? })` — `PATCH`
+- `realm.roles.rename(roleId, newName)` — atomic rename
+- `realm.roles.delete(roleId)` — `DELETE`
+
+Assigning a role not present in the catalog returns `unknown_role`;
+creating a duplicate returns `role_exists`. The `role` value in the
+access token is sourced free-form from the catalog.
+
+These four ship as **system roles** by default, but you may add any others
+(`accounts`, `salesman`, `dispatch`, …):
 
 | Wire value | Meaning                                                                 |
 |------------|-------------------------------------------------------------------------|
@@ -420,9 +435,9 @@ A fixed enum — same value across all tenants in the realm:
 | `member`   | Default role for invited users. Can use the application; no admin operations.                                     |
 | `viewer`   | Read-only access. Useful for stakeholders / observers.                                                            |
 
-Custom platform-defined roles + a permissions matrix are roadmap
-(§11). Until they ship, partners should map their concept of "role"
-onto this enum.
+> **`permissions[]` is stored but not yet surfaced in the JWT** (ADR-040
+> §2). Gate on role *name* for now; when the permissions claim lands it
+> will be additive (non-breaking). See §11.
 
 ### 6.4 Domains — `realm.domains.*`
 
@@ -1061,11 +1076,11 @@ _, _ = r.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{
 
 Detailed proposals tracked in repo `TODO.md`. Headlines:
 
-- **Platform-defined custom roles + permissions matrix** — replace the
-  fixed v0.1.0 enum (§6.3) with platform-authored role definitions
-  bound to a permissions list. Needs an ADR (storage shape, default
-  roles per platform, migration of existing `owner`/`admin`/`member`/
-  `viewer` users, RI-UI surface for role definition).
+- **`permissions[]` JWT claim** — `realm_roles.permissions` is stored and
+  editable today (§6.3) but not yet inlined into the access token. When
+  demand materializes it's added non-breakingly by sourcing from the
+  catalog. No committed ETA. (Platform-defined custom *roles* themselves
+  already shipped — see §6.3, ADR-040 — and are no longer roadmap.)
 - Webhooks (`realm.webhooks.verify(payload, signature)`)
 - Service-to-service tokens (`auth.serviceToken()`)
 - OpenID Connect discovery (`/.well-known/openid-configuration`)

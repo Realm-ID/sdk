@@ -72,9 +72,11 @@ You decide what that lets them do.
 - **Refresh token** (opaque, default 30 days). Server-tracked. Used to
   mint access tokens via `/auth/token`. Rotates on every use.
 - **Platform token** (short-lived JWT, ≤15 min). Server-only. Minted
-  by exchanging a `rk_live_…` API key at `/auth/platform-token`. Used
-  by your backend to authenticate to RealmID's management endpoints
-  AND (in BFF mode) to authenticate the proxy itself.
+  by exchanging a `rk_live_…` API key on `/auth/login` with
+  `grant_type: "platform_api_key"` (the standalone `/auth/platform-token`
+  endpoint was removed in server v0.7.0, ADR-051). Used by your backend
+  to authenticate to RealmID's management endpoints AND (in BFF mode) to
+  authenticate the proxy itself.
 
 The SDK manages platform tokens transparently. You never read them.
 
@@ -87,7 +89,7 @@ forces the SPA to be the source of truth for "the user is logged in"
 your problem, and revocation is best-effort.
 
 **BFF mode** flips a single config flag
-(`require_platform_token_on_login=true`) on the realm. After that,
+(`require_bff_login=true`) on the realm. After that,
 RealmID rejects any caller of `/auth/login` (and friends) that does
 not present a valid platform token. Your backend becomes the only
 caller. The SPA hits *your* `/auth/*` routes, which proxy through to
@@ -95,7 +97,7 @@ RealmID with the platform token attached. Refresh tokens become
 HttpOnly cookies; access tokens never touch JS storage.
 
 > **BFF scope is realm-wide, not just `/auth/login`.** Once
-> `require_platform_token_on_login` is set, *every* `/auth/*` call
+> `require_bff_login` is set, *every* `/auth/*` call
 > against the realm requires the partner platform token —
 > `/auth/login`, `/auth/token` (refresh), `/auth/logout`,
 > `/auth/sessions/*`, `/auth/mfa/*`. This is the right model: it
@@ -167,7 +169,7 @@ await realm.config.update({
   access_ttl_seconds: 900,
   refresh_ttl_seconds: 2592000,
   concurrent_session_limit: 0,             // 0 = unlimited
-  require_platform_token_on_login: true,   // BFF mode (§1.2)
+  require_bff_login: true,   // BFF mode (§1.2)
   default_invitation_role: "viewer",       // see warning below
   // Per-realm Firebase project — RealmID verifies Firebase ID tokens
   // using YOUR project's keys. SMS billing stays on your account.
@@ -497,7 +499,7 @@ truth.
 
 ### 3.5 BFF login proxy
 
-If you set `require_platform_token_on_login=true`, the SPA cannot
+If you set `require_bff_login=true`, the SPA cannot
 talk to RealmID directly. Your backend proxies. The drop-in
 middleware (§3.1) does this for you. If you have a custom HTTP layer,
 wire the routes by hand:
@@ -733,7 +735,7 @@ export const realm = createRealm({
 
 Browser-mode does not take an `apiKey`. It cannot mint platform
 tokens. If you point it at RealmID directly with
-`require_platform_token_on_login=true` set, login will fail with
+`require_bff_login=true` set, login will fail with
 `RealmError(missing_platform_token)`.
 
 ### 4.2 Login (Firebase example)
@@ -1157,8 +1159,9 @@ the user revokes the session (§4.5) — your agent should treat this as
 
 If the long-lived caller is a service-to-service integration with no
 human owner, mint a dedicated API key (§2.4) and have the caller
-exchange it for a platform token at `/auth/platform-token`. The Go
-and TS SDKs do this transparently when constructed with `apiKey`.
+exchange it for a platform token via `grant_type: "platform_api_key"`
+on `/auth/login`. The Go and TS SDKs do this transparently when
+constructed with `apiKey`.
 
 Don't use this pattern for human-installed agents — API keys can't be
 self-serve revoked from the sessions UI, and `last_used_at` is the
@@ -1293,8 +1296,8 @@ the following as defaults; check `error-reference.md` for the
 - `/auth/login`, `/auth/token`, `/auth/logout` — per-IP: ~10 req/sec
   burst, ~120 req/min sustained. Per-realm: generous; not the
   binding constraint for normal interactive traffic.
-- `/auth/platform-token` — per-API-key: ~5 req/sec. The SDK's
-  platform-token cache (4-min TTL) means well-behaved partner
+- `/auth/login` (`grant_type: "platform_api_key"`) — per-API-key:
+  ~5 req/sec. The SDK's platform-token cache (4-min TTL) means well-behaved partner
   backends mint roughly once every 4 minutes per process; bursts
   only occur on cold start or after a 401 forces re-mint.
 - `/platforms/{id}/api-keys` and other admin REST — per-realm: ~30
@@ -1316,7 +1319,7 @@ campaign), coordinate with RealmID ops in advance.
 | `access_ttl_seconds`                     | int          | 900     | 60 ≤ x ≤ 3600                                      |
 | `refresh_ttl_seconds`                    | int          | 2592000 | 3600 ≤ x ≤ 31536000                                |
 | `concurrent_session_limit`               | int          | 0       | 0 = unlimited. Counted **per realm** (across all tenants the user belongs to in this realm), not per tenant. **Evict-oldest**: when a new login pushes the count over the limit, the oldest active sessions are revoked FIFO so the new login succeeds. The HTTP response is 412 `session_limit_reached` carrying a `revocationToken` + the list of sessions that *would* be evicted, so the client SDK can prompt the user before committing if it wants an interactive "kick a device" UX; calling `/auth/login` again with the `revocationToken` confirms eviction. |
-| `require_platform_token_on_login`        | bool         | false   | BFF mode (§1.2)                                    |
+| `require_bff_login`        | bool         | false   | BFF mode (§1.2)                                    |
 | `default_invitation_role`                | string       | `member`| Must be in role catalog; can't be `owner`          |
 | `access_token_custom_claim_keys`         | string[]     | `[]`    | Allowlist of keys you may pass to `/auth/token`    |
 | `refresh_absolute_expiry`                | object       | `{}`    | ADR-054. Wall-clock scheduled refresh-token expiry. Shape: `{ mode: "rolling" \| "scheduled", daily_cutoff_local: "HH:MM", timezone: "<IANA>" }`. Default `mode: "rolling"` preserves the rolling-TTL behaviour. When `mode: "scheduled"`, every refresh token (user, service, platform) expires at `min(now + refresh_ttl_seconds, next daily_cutoff_local in timezone)`. Example for "force daily re-login at 8 PM IST": `{ mode: "scheduled", daily_cutoff_local: "20:00", timezone: "Asia/Kolkata" }`. Note: with scheduled mode, `refresh_ttl_seconds` reads as a *ceiling*, not a guaranteed lifetime — tokens minted close to the cutoff expire sooner. Realm-level only (no per-tenant override). |
@@ -1384,12 +1387,12 @@ deployed in your environment.
 - `platform.suspend`, `platform.unsuspend`, `platform.signup_mode_change`,
   `platform.note.create`, `platform.signing_keys.rotate`
 
-> **Coverage note (2026-05-25):** the read endpoint exposes whatever
-> lands in `audit_log`. Some write sites (auth flow, MFA, user role
-> changes) are still being wired through to emit; track progress in
-> the umbrella project `TODO.md` under "Audit coverage". The
-> taxonomy and contract are stable — once a site is wired, events
-> appear in the feed without any partner-side change.
+> **Coverage note (updated 2026-05-26):** the auth-flow and
+> user-lifecycle write sites are now wired and emitting:
+> `auth.login.success`/`failure`, `auth.token.refresh`, `user.invite`,
+> `user.invite_accept`, and `user.role_change` all land in the feed.
+> The taxonomy and contract are stable — newly wired sites appear
+> without any partner-side change.
 
 **Example pull (Go):**
 
@@ -1423,19 +1426,16 @@ the integration patterns in §1–§8; workarounds are noted inline.
   new realm) is operator-driven via the RealmID admin UI or direct
   REST. The SDK does not expose realm create today; it isn't needed
   for in-realm work.
-- **Direct user-create (pre-provisioning before first login) is not
-  supported.** Partner admins who want a user to appear in the admin
-  console *before* the user logs in for the first time must rely on
-  the invitation row as the placeholder: `invitations.list(tenantId)`
-  returns pending invitations with the identifier, role, and
-  invited-at timestamp, and the SDK's admin handle treats those
-  rows as first-class for assignment-level UX (you can change the
-  role on a pending invitation, revoke it, re-issue it). A real
-  `users.id` is allocated only on first successful login, at which
-  point the invitation transitions to `accepted` and a user row
-  appears in `tenants.users.list`. If your admin UI needs a single
-  unified "users" list, render `users + pending invitations`
-  client-side keyed on identifier — this is the documented pattern.
+- **Pre-provisioning at invite time (stable user id).** As of the
+  v0.11.x contact model (ADR-042), `invitations.create(...)` allocates
+  the user's **final, stable `users.id` up front** — it does not change
+  on first login. The invite inserts a `users` row in `status='invited'`
+  plus a `user_contacts` row; first successful login resolves that same
+  row by contact, flips it to `active`, and reuses the id. That id
+  equals the `sub` claim in the user's first access token, so it is safe
+  to key partner-side records (e.g. per-user child rows) on it at invite
+  time. The invited user already appears in `tenants.users.list` (status
+  `invited`); no separate placeholder list is required.
 - **No cross-tenant person identity.** RealmID's `sub` is
   per-`(user, tenant)` by design — the same human in tenants A and B
   has two distinct `sub` values, and there is no first-class

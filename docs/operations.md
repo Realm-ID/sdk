@@ -102,11 +102,13 @@ This covers ≥ 90% of what an RI-side audit feed would give you.
   latest tag. The Go module follows semver post-v1; pre-1.0 minor
   bumps may include breaking changes.
 - **Java:** `dev.realmid:sdk` on Maven Central. Same versioning model.
-- **Compatibility matrix:** SDK 0.4.x is the version of record; it
-  matches the auth-API behavior described in this guide. Older SDK
-  versions may lag features (e.g. BFF mode, custom roles, the fixed
-  `Tenants.Create` wire path) — see `CHANGELOG.md` for per-version
-  feature support.
+- **Compatibility matrix:** `SPEC.md` is the authoritative contract.
+  The current per-language releases that implement it are `go-v0.13.0`,
+  `ts-v0.11.0`, and `java-v0.8.0` (released in lockstep 2026-05-26),
+  matching issuer server **v0.11.1**. SDKs are versioned independently
+  per language. Older SDK versions may lag features (e.g. BFF mode,
+  custom roles, the v0.11.x contact model) — see `CHANGELOG.md` for
+  per-version feature support.
 
 ## 6. Roadmap items partners often ask about
 
