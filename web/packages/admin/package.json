@@ -1,6 +1,6 @@
 {
   "name": "@realmid/web-admin",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Admin-UI SDK for RealmID — wraps @realmid/sdk resource classes on top of an @realmid/web transport.",
   "type": "module",
   "main": "dist/index.js",

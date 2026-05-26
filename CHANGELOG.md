@@ -38,6 +38,16 @@ SPEC bumped to **v0.6.0**. Versions bump in lockstep:
 - `SPEC.md` §6.2, §6.3 revised; §6.8, §6.9 added; breaking-changes
   preamble for 0.5.x → 0.6.0.
 
+## web-admin-v0.2.0 — contact-model surface (2026-05-26)
+
+`@realmid/web-admin` repacked against `@realmid/sdk@0.11.0`. The new
+`admin.tenants.driftReviews.*` and `admin.tenants.contactVerifications.*`
+clients flow through automatically (web-admin instantiates the SDK's
+`TenantsClient` directly); index now re-exports `DriftReview`,
+`DriftAcceptResult`, `DriftRejectResult`, `ContactVerification`,
+`ContactVerificationResult`. Consumers also pick up the breaking
+`invitations.create({ identifier })` change via the bundled SDK.
+
 ## All SDKs — partner audit-event feed (ADR-055) (2026-05-25)
 
 **Additive.** Each language SDK gains a new resource for the
