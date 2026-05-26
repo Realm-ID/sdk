@@ -136,6 +136,85 @@ public final class AuthClient {
     /** Result of {@link #mintMfaChallenge(String)} (SPEC §10.4). */
     public record MfaChallengeMint(String challengeToken, java.util.List<String> methods) {}
 
+    /**
+     * Self-service MFA enroll — {@code POST /auth/mfa/enroll}. Current-user
+     * op; dual-mode bearer (see {@link EnrollMfaRequest}). Returns the freshly
+     * provisioned secret, otpauth QR URL, and recovery codes.
+     */
+    public MfaEnrollment enrollMfa(EnrollMfaRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (req.method() != null && !req.method().isEmpty()) body.put("method", req.method());
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/enroll").body(body);
+        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        JsonNode raw = http.request(r);
+        return http.mapper().convertValue(raw, MfaEnrollment.class);
+    }
+
+    /**
+     * Self-service MFA confirm — {@code POST /auth/mfa/confirm}. Current-user
+     * op; dual-mode bearer. The server returns {@code {"status":"confirmed"}};
+     * the SDK ignores the body and returns void (mirrors {@link #revokeSession}).
+     */
+    public void confirmMfa(ConfirmMfaRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (req.method() != null && !req.method().isEmpty()) body.put("method", req.method());
+        body.put("code", req.code());
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/confirm").body(body);
+        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.request(r);
+    }
+
+    /**
+     * Self-service MFA disable — {@code DELETE /auth/mfa} with a step-up TOTP
+     * code in the body. Current-user op; dual-mode bearer. The server returns
+     * {@code {"status":"disabled"}}; the SDK returns void.
+     */
+    public void disableMfa(DisableMfaRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", req.code());
+        HttpTransport.Request r = HttpTransport.Request.of("DELETE", "/auth/mfa").body(body);
+        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.request(r);
+    }
+
+    /**
+     * Revoke all of the current user's sessions — {@code DELETE /auth/sessions}.
+     * Current-user op; dual-mode bearer; no body. The server returns
+     * {@code {"status":"ok"}}; the SDK returns void. Revocation-class tokens
+     * are rejected by the server with {@code insufficient_scope}, surfaced as a
+     * {@link RealmException}.
+     */
+    public void revokeAllSessions(RevokeAllSessionsRequest req) {
+        HttpTransport.Request r = HttpTransport.Request.of("DELETE", "/auth/sessions");
+        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.request(r);
+    }
+
+    /**
+     * Resolve the dual-mode bearer trio onto a request, mirroring the model
+     * used by {@link #revokeSession} / {@link #listSessions}: exactly one of
+     * {@code userBearer} (legacy mode, sent as the Authorization bearer) or
+     * {@code userId} (BFF mode, sent as {@code X-On-Behalf-Of-User} while the
+     * transport auto-attaches the platform token). {@code onBehalfOfIp} is
+     * optional and only meaningful in BFF mode.
+     */
+    private void applyBearerTrio(HttpTransport.Request r, String userId, String userBearer, String onBehalfOfIp) {
+        boolean hasBearer = userBearer != null && !userBearer.isEmpty();
+        boolean hasUserId = userId != null && !userId.isEmpty();
+        if (hasBearer == hasUserId) {
+            throw new RealmException(ErrorCode.BAD_REQUEST,
+                    "realmid: exactly one of userBearer or userId is required");
+        }
+        if (hasBearer) {
+            r.bearer(userBearer);
+        } else {
+            r.header("x-on-behalf-of-user", userId);
+            if (onBehalfOfIp != null && !onBehalfOfIp.isEmpty()) {
+                r.header("x-on-behalf-of-ip", onBehalfOfIp);
+            }
+        }
+    }
+
     private void attachOrigin(HttpTransport.Request r, String perCall) {
         String o = perCall != null && !perCall.isEmpty() ? perCall
                 : (originResolver == null ? null : originResolver.get());

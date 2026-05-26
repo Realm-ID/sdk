@@ -15,6 +15,7 @@ import { InfoClient, type RealmInfo } from "./info.js";
 import { ApiKeysClient } from "./api-keys.js";
 import { ConfigClient } from "./config.js";
 import { RolesClient } from "./roles.js";
+import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
@@ -78,6 +79,11 @@ export interface Realm {
   readonly apiKeys: ApiKeysClient;
   readonly config: ConfigClient;
   readonly roles: RolesClient;
+  /**
+   * Realm-admin CRUD for social/OIDC identity-provider configs. Distinct
+   * from the public IdP discovery surface.
+   */
+  readonly identityProviderConfig: IdentityProviderConfigClient;
   readonly origins: OriginsClient;
   readonly tokens: TokensClient;
   readonly admin: AdminClient;
@@ -178,6 +184,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     apiKeys: new ApiKeysClient(http, cfg.realmId),
     config: new ConfigClient(http, cfg.realmId),
     roles: new RolesClient(http, cfg.realmId),
+    identityProviderConfig: new IdentityProviderConfigClient(http, cfg.realmId),
     origins: new OriginsClient(http, platformTokens),
     tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
     admin: new AdminClient(http),

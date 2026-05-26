@@ -43,6 +43,11 @@ export type {
   TenantRef,
   UserSummary,
   LoginMethod,
+  EnrollMfaRequest,
+  MfaEnrollment,
+  ConfirmMfaRequest,
+  DisableMfaRequest,
+  RevokeAllSessionsRequest,
 } from "./auth.js";
 
 export type {
@@ -75,6 +80,18 @@ export type {
   RoleCreate,
   RolePatch,
 } from "./roles.js";
+
+export { IdentityProviderConfigClient } from "./identity-provider-config.js";
+export type {
+  IdpConfig,
+  IdpConfigCreate,
+  IdpConfigPatch,
+  IdpConfigListPage,
+  IdpConfigListOpts,
+  IdpEntityType,
+  IdpProvider,
+  IdpClientType,
+} from "./identity-provider-config.js";
 
 export type { Paginated, Page, PageOpts } from "./pagination.js";
 

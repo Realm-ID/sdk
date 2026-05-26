@@ -1,4 +1,4 @@
-# Realm ID SDK — cross-language specification (v0.6.0)
+# Realm ID SDK — cross-language specification (v0.7.0)
 
 ## Breaking changes from 0.5.x
 
@@ -302,6 +302,40 @@ Server-side revoke of a specific session id.
 Returns sessions for the current user (the user identified by the
 caller's bearer token; this is a user-token operation, not API-key).
 
+### 4.7 `revokeAllSessions(req)`
+
+Revokes **every** session for the current user in one call —
+`DELETE /auth/sessions`. Current-user operation: identify the user the
+same way `revokeSession` / `listSessions` do (BFF mode: `userId` +
+platform token + `X-On-Behalf-Of-User`; legacy mode: the user's own
+access JWT as `userBearer`). A revocation token is rejected
+(`insufficient_scope`). Response `{ status: "ok" }`; the SDK returns
+void.
+
+### 4.8 `enrollMfa(req)` / 4.9 `confirmMfa(req)` / 4.10 `disableMfa(req)`
+
+Self-service TOTP MFA for the **current user** (distinct from the
+admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
+§6.2, which act on an admin-named target). All three identify the
+current user with the same bearer model as §4.5–4.7.
+
+- `enrollMfa(req)` → `POST /auth/mfa/enroll`. Request: bearer + `method?`
+  (defaults `"totp"`). Returns `{ secret, qrUrl, recoveryCodes }` —
+  render the secret/QR for the authenticator app and show the recovery
+  codes once. Returns `already_enrolled` (409) if MFA is already set;
+  reset/disable first.
+- `confirmMfa(req)` → `POST /auth/mfa/confirm`. Request: bearer + `code`
+  (+ `method?`). Confirms the pending enrollment. Returns void.
+- `disableMfa(req)` → `DELETE /auth/mfa`. Request: bearer + `code`
+  (step-up). Returns void. `not_enrolled` (400) if MFA isn't active.
+
+> **Bearer-mode parity:** BFF (`userId` + on-behalf-of) and legacy
+> (`userBearer`) modes are both available in the Go and Java SDKs. The
+> TS SDK currently supports only the direct `userBearer` form for these
+> current-user methods (consistent with its existing `revokeSession` /
+> `listSessions`); BFF on-behalf-of parity for the TS session/MFA
+> surface is tracked in `TODO.md`.
+
 ## 5. Verifier surface (`realm.verify`)
 
 ```ts
@@ -598,6 +632,34 @@ until a tenant admin approves it. ADR-042.
   resolved, or the active slot is taken → `RealmError(conflict)` (409).
 - `reject(tenantId, verificationId)` — deny the login. Returns
   `{ id, state: "rejected" }`.
+
+### 6.10 Identity-provider configuration — `realm.identityProviderConfig.*`
+
+Realm-admin CRUD over the realm's login providers (Google, Microsoft,
+Facebook, Apple). Distinct from the read-only **discovery** surface
+(`realm.identityProviders(...)` / `Realm.IdentityProviders`, ADR-047)
+that an SPA uses to list providers — this is the admin surface that
+*defines* them. Authenticates with the platform token, like
+`realm.roles.*`. The realm's own id is sent as `platform_id`
+automatically; callers never pass it. An optional `tenantId` scopes a
+provider to a single tenant within the realm.
+
+An `IdpConfig` is `{ id, entityType ("realm"|"tenant"), entityId,
+provider, clientType ("web"|"ios"|"android"|"desktop"|"other"),
+clientId, allowedOrigins[], comments, enabled, createdAt, updatedAt }`.
+
+- `list({ tenantId? })` — `GET /identity-providers`. Returns
+  `{ items: IdpConfig[] }`.
+- `create({ provider, clientType, clientId, allowedOrigins?, comments?,
+  tenantId? })` — `POST /identity-providers`. Returns the `IdpConfig`.
+  `clientType: "web"` **requires** non-empty `allowedOrigins`; any other
+  client type **requires** it absent. `provider_exists` (409) if a row
+  for that scope/provider/clientType already exists.
+- `update(id, { enabled?, clientId?, allowedOrigins?, comments? })` —
+  `PATCH /identity-providers/{id}`. At least one field required
+  (`empty_patch` otherwise). Returns the updated `IdpConfig`.
+- `delete(id)` — `DELETE /identity-providers/{id}`. Returns
+  `{ status: "deleted" }`. `provider_not_found` (404) if absent.
 
 ## 7. Pagination
 
@@ -1089,8 +1151,9 @@ Detailed proposals tracked in repo `TODO.md`. Headlines:
 - Custom domains for hosted UIs
 - Bulk user import
 - CSRF protection layer in the middleware (double-submit-cookie pattern)
-- Self-service MFA flows for the current user
-  (`realm.auth.mfa.{enroll, confirm, reset}`)
+- BFF on-behalf-of (`userId` + `X-On-Behalf-Of-User`) parity for the TS
+  SDK's current-user session/MFA methods (§4.5–4.10) — Go and Java
+  already support it; TS is `userBearer`-only today
 - Idempotency-key pass-through on mutations
 
 ## 12. Versioning

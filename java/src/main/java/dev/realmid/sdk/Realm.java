@@ -11,6 +11,7 @@ import dev.realmid.sdk.info.RealmInfoClient;
 import dev.realmid.sdk.middleware.MiddlewareConfig;
 import dev.realmid.sdk.origins.OriginsClient;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
+import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
 import dev.realmid.sdk.tokens.TokensClient;
@@ -41,6 +42,7 @@ public final class Realm {
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
     private final RolesClient roles;
+    private final IdentityProviderConfigClient identityProviderConfig;
     private final OriginsClient origins;
     private final TokensClient tokens;
     private final AdminClient admin;
@@ -86,6 +88,7 @@ public final class Realm {
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.roles = new RolesClient(this.http, this.realmId);
+        this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
         this.tokens = new TokensClient(clock);
         this.admin = new AdminClient(this.http);
@@ -108,6 +111,8 @@ public final class Realm {
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }
     public RolesClient roles() { return roles; }
+    /** Identity-provider config CRUD (admin resource; distinct from IdP discovery). */
+    public IdentityProviderConfigClient identityProviderConfig() { return identityProviderConfig; }
     public OriginsClient origins() { return origins; }
     /** SPEC §6.7 — access-token revocation cache. */
     public TokensClient tokens() { return tokens; }

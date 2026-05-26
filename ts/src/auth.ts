@@ -116,6 +116,55 @@ export interface SessionInfo {
   [k: string]: unknown;
 }
 
+/**
+ * Self-service MFA enroll request. Current-user op: pass the user's own
+ * access token as `userBearer` (legacy mode), mirroring how
+ * `revokeSession`/`listSessions` resolve the per-user bearer in this SDK.
+ */
+export interface EnrollMfaRequest {
+  /** The user's own access JWT, sent as the bearer for this call. */
+  userBearer?: string;
+  /** MFA method. Omitted from the wire when unset; server defaults to "totp". */
+  method?: string;
+}
+
+/** Result of `enrollMfa` — the shared secret + provisioning URL + recovery codes. */
+export interface MfaEnrollment {
+  secret: string;
+  qrUrl: string;
+  recoveryCodes: string[];
+}
+
+/** Self-service MFA confirm request — the step-up code that proves possession. */
+export interface ConfirmMfaRequest {
+  /** The user's own access JWT, sent as the bearer for this call. */
+  userBearer?: string;
+  /** Required TOTP (or method-specific) code. */
+  code: string;
+  /** MFA method. Omitted from the wire when unset; server defaults to "totp". */
+  method?: string;
+}
+
+/** Self-service MFA disable request — requires a step-up `code`. */
+export interface DisableMfaRequest {
+  /** The user's own access JWT, sent as the bearer for this call. */
+  userBearer?: string;
+  /** Required step-up code. */
+  code: string;
+}
+
+/** Revoke-all-sessions request — current-user, dual-mode bearer. */
+export interface RevokeAllSessionsRequest {
+  /** The user's own access JWT, sent as the bearer for this call. */
+  userBearer?: string;
+}
+
+interface RawMfaEnrollment {
+  secret: string;
+  qr_url: string;
+  recovery_codes?: string[];
+}
+
 interface RawAuthResponse {
   access_token: string;
   refresh_token: string;
@@ -307,6 +356,74 @@ export class AuthClient {
     });
     if (Array.isArray(raw)) return raw;
     return raw.sessions ?? [];
+  }
+
+  /**
+   * Self-service MFA enroll — `POST /auth/mfa/enroll`. Current-user op;
+   * pass the user's own access token as `userBearer`. Returns the shared
+   * secret, the otpauth:// provisioning URL, and one-time recovery codes.
+   * `method` is omitted from the wire when unset (server defaults to "totp").
+   */
+  async enrollMfa(req: EnrollMfaRequest): Promise<MfaEnrollment> {
+    const body: Record<string, unknown> = {};
+    if (req.method !== undefined && req.method !== "") body["method"] = req.method;
+    const raw = await this.http.request<RawMfaEnrollment>({
+      method: "POST",
+      path: "/auth/mfa/enroll",
+      bearer: req.userBearer,
+      body,
+    });
+    return {
+      secret: raw.secret,
+      qrUrl: raw.qr_url,
+      recoveryCodes: raw.recovery_codes ?? [],
+    };
+  }
+
+  /**
+   * Self-service MFA confirm — `POST /auth/mfa/confirm`. Proves the user
+   * controls the enrolled factor by submitting a `code`. Returns void; the
+   * server's `{ status: "confirmed" }` ack is intentionally ignored,
+   * matching how `revokeSession` returns void.
+   */
+  async confirmMfa(req: ConfirmMfaRequest): Promise<void> {
+    const body: Record<string, unknown> = { code: req.code };
+    if (req.method !== undefined && req.method !== "") body["method"] = req.method;
+    await this.http.request({
+      method: "POST",
+      path: "/auth/mfa/confirm",
+      bearer: req.userBearer,
+      body,
+    });
+  }
+
+  /**
+   * Self-service MFA disable — `DELETE /auth/mfa` with a step-up `code` in
+   * the body. Returns void; the server's `{ status: "disabled" }` ack is
+   * ignored.
+   */
+  async disableMfa(req: DisableMfaRequest): Promise<void> {
+    await this.http.request({
+      method: "DELETE",
+      path: "/auth/mfa",
+      bearer: req.userBearer,
+      body: { code: req.code },
+    });
+  }
+
+  /**
+   * Revoke all sessions for the current user — `DELETE /auth/sessions`.
+   * Dual-mode bearer like `revokeSession`. No request body. Returns void;
+   * the server's `{ status: "ok" }` ack is ignored. The server rejects
+   * revocation-class tokens with `insufficient_scope`, surfaced as a
+   * RealmError.
+   */
+  async revokeAllSessions(req?: RevokeAllSessionsRequest): Promise<void> {
+    await this.http.request({
+      method: "DELETE",
+      path: "/auth/sessions",
+      bearer: req?.userBearer,
+    });
   }
 
   /**

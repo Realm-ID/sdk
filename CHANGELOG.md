@@ -5,6 +5,38 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## All SDKs — SDK-surface gap fill (2026-05-26)
+
+Additive (non-breaking). Wires three already-shipped issuer
+capabilities that previously had no SDK method, so partners can stay
+"SDK-only." SPEC bumped to **v0.7.0**. Versions bump in lockstep:
+`go-v0.14.0`, `ts-v0.12.0`, `java-v0.9.0`.
+
+### Added
+
+- **Self-service MFA** on the auth surface (SPEC §4.8–4.10): `enrollMfa`,
+  `confirmMfa`, `disableMfa` — current-user TOTP enroll/confirm/disable
+  over `POST /auth/mfa/enroll`, `POST /auth/mfa/confirm`,
+  `DELETE /auth/mfa`. Distinct from the admin-initiated
+  `tenants.users.{enrollMfa,confirmMfa,resetMfa}`.
+- **Revoke all sessions** (SPEC §4.7): `auth.revokeAllSessions` over
+  `DELETE /auth/sessions` — complements the existing list +
+  single-session revoke.
+- **Identity-provider configuration** (SPEC §6.10):
+  `realm.identityProviderConfig.{list,create,update,delete}` — realm-admin
+  CRUD over login providers (`/identity-providers`), `platform_id`
+  auto-injected. Separate from the read-only `identityProviders(...)`
+  discovery surface, which is unchanged.
+
+### Notes
+
+- Go (`identity_provider_config.go`, `mfa_self.go`) and Java
+  (`idp` package, `AuthClient`) expose both BFF (`userId` +
+  `X-On-Behalf-Of-User`) and legacy (`userBearer`) bearer modes for the
+  current-user methods. The TS SDK supports `userBearer` only for these
+  (matching its existing `revokeSession`/`listSessions`); BFF parity for
+  the TS session/MFA surface is tracked in `TODO.md`.
+
 ## All SDKs — v0.11.0 contact model (ADR-042) (2026-05-26)
 
 Aligns the SDKs with the server's v0.11.0 contact model: identifiers

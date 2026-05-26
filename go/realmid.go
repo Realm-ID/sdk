@@ -94,7 +94,11 @@ type Realm struct {
 	APIKeys *APIKeysClient
 	Config  *ConfigClient
 	Roles   *RolesClient
-	Origins *OriginsClient
+	// IdentityProviderConfig is the realm-admin CRUD surface for
+	// federated identity providers (distinct from the read-only
+	// Realm.IdentityProviders SPA discovery method).
+	IdentityProviderConfig *IdentityProviderConfigClient
+	Origins                *OriginsClient
 	Tokens  *TokensClient
 	Admin   *AdminClient
 	// AuditEvents exposes the partner audit-event feed (ADR-055).
@@ -116,7 +120,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.13.0"
+const Version = "0.14.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -152,6 +156,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.APIKeys = &APIKeysClient{realm: r}
 	r.Config = &ConfigClient{realm: r}
 	r.Roles = &RolesClient{realm: r}
+	r.IdentityProviderConfig = &IdentityProviderConfigClient{realm: r}
 	r.Origins = newOriginsClient(r)
 	r.Tokens = newTokensClient(cfg.Clock)
 	r.Admin = newAdminClient(r)
