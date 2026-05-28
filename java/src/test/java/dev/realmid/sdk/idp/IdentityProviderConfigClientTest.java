@@ -26,8 +26,8 @@ class IdentityProviderConfigClientTest {
     @BeforeEach
     void setUp() throws IOException {
         fs = new FakeServer();
-        fs.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(200,
-                Map.of("platform_token", "pt", "expires_in", 300)));
+        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         realm = Realm.builder()
                 .realmId("01HREALM")
                 .apiKey("rk")

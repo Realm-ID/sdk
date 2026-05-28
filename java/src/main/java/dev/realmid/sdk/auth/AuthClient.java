@@ -30,6 +30,12 @@ public final class AuthClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
         body.put("method", req.method());
+        // Wire field is "token" (server loginReq.Token); the SDK historically
+        // sent "provider_token". The platform access token is auto-attached as
+        // the Authorization bearer by HttpTransport — the two-step exchange of
+        // ADR-051 §4.0: platform bearer authorizes the caller, this token
+        // authenticates the user.
+        body.put("token", req.providerToken());
         body.put("provider_token", req.providerToken());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
@@ -48,6 +54,21 @@ public final class AuthClient {
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, TokenResponse.class);
+    }
+
+    /**
+     * SPEC §4.2.1 — build a {@link TokenManager} for a long-lived,
+     * single-identity client, seeded with a refresh token the client already
+     * holds (obtained out-of-band, e.g. at enrollment). The manager refreshes
+     * against {@code POST /auth/token} directly on that token.
+     */
+    public TokenManager newTokenManager(String refreshToken) {
+        return new TokenManager(this, refreshToken, null);
+    }
+
+    /** SPEC §4.2.1 — {@link #newTokenManager(String)} with options. */
+    public TokenManager newTokenManager(String refreshToken, TokenManagerOptions opts) {
+        return new TokenManager(this, refreshToken, opts);
     }
 
     /** SPEC §4.3. */

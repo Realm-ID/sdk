@@ -22,24 +22,45 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+/**
+ * Two-endpoint platform session (SPEC §4.0, ADR-051). First acquire goes
+ * through {@code POST /auth/login {grant_type:"platform_api_key"}}; subsequent
+ * refreshes go through {@code POST /auth/token} with the refresh token as the
+ * bearer.
+ */
 class PlatformTokenManagerTest {
     private FakeServer fs;
 
     @BeforeEach void setUp() throws IOException { fs = new FakeServer(); }
     @AfterEach void tearDown() { fs.close(); }
 
+    private PlatformTokenManager manager(Clock clock) {
+        return new PlatformTokenManager("rk_live_secret", fs.baseUrl,
+                HttpClient.newHttpClient(), new ObjectMapper(), null,
+                clock, Duration.ofSeconds(30));
+    }
+
+    private static Clock mutableClock(long[] nowMs) {
+        return new Clock() {
+            @Override public ZoneId getZone() { return ZoneId.of("UTC"); }
+            @Override public Clock withZone(ZoneId z) { return this; }
+            @Override public Instant instant() { return Instant.ofEpochMilli(nowMs[0]); }
+            @Override public long millis() { return nowMs[0]; }
+        };
+    }
+
     @Test
-    void mintAndCacheHit() {
+    void loginAndCacheHit() {
         AtomicInteger calls = new AtomicInteger();
-        fs.on("POST /auth/platform-token", (ex, body) -> {
+        fs.on("POST /auth/login", (ex, body) -> {
             calls.incrementAndGet();
             return FakeServer.Reply.json(200, Map.of(
-                    "platform_token", "pt-" + calls.get(),
-                    "expires_in", 300));
+                    "access_token", "pt-" + calls.get(),
+                    "refresh_token", "rt-" + calls.get(),
+                    "expires_in", 300,
+                    "subject_type", "platform"));
         });
-        var ptm = new PlatformTokenManager("rk_live_secret", fs.baseUrl,
-                HttpClient.newHttpClient(), new ObjectMapper(), null,
-                Clock.systemUTC(), Duration.ofSeconds(30));
+        var ptm = manager(Clock.systemUTC());
 
         String t1 = ptm.getToken();
         String t2 = ptm.getToken();
@@ -49,41 +70,76 @@ class PlatformTokenManagerTest {
     }
 
     @Test
-    void refreshOnExpiry() {
-        AtomicInteger calls = new AtomicInteger();
-        fs.on("POST /auth/platform-token", (ex, body) -> {
-            calls.incrementAndGet();
+    void refreshOnExpiryUsesAuthToken() {
+        AtomicInteger logins = new AtomicInteger();
+        AtomicInteger refreshes = new AtomicInteger();
+        fs.on("POST /auth/login", (ex, body) -> {
+            logins.incrementAndGet();
             return FakeServer.Reply.json(200, Map.of(
-                    "platform_token", "pt-" + calls.get(),
-                    "expires_in", 60));
+                    "access_token", "pt-login", "refresh_token", "rt-1",
+                    "expires_in", 60, "subject_type", "platform"));
         });
-        // Clock that jumps forward.
+        fs.on("POST /auth/token", (ex, body) -> {
+            refreshes.incrementAndGet();
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "pt-refresh-" + refreshes.get(), "refresh_token", "rt-2",
+                    "expires_in", 60, "subject_type", "platform"));
+        });
         long[] nowMs = { Instant.parse("2024-01-01T00:00:00Z").toEpochMilli() };
-        Clock c = Clock.fixed(Instant.ofEpochMilli(nowMs[0]), ZoneId.of("UTC"));
-        var ptm = new PlatformTokenManager("rk", fs.baseUrl,
-                HttpClient.newHttpClient(), new ObjectMapper(), null,
-                new Clock() {
-                    @Override public ZoneId getZone() { return ZoneId.of("UTC"); }
-                    @Override public Clock withZone(ZoneId z) { return this; }
-                    @Override public Instant instant() { return Instant.ofEpochMilli(nowMs[0]); }
-                    @Override public long millis() { return nowMs[0]; }
-                },
-                Duration.ofSeconds(30));
+        var ptm = manager(mutableClock(nowMs));
         String first = ptm.getToken();
-        // Advance past skew.
+        // Advance past skew so the cached access token is stale.
         nowMs[0] += 50_000;
         String second = ptm.getToken();
-        assertEquals(2, calls.get());
+        assertEquals(1, logins.get(), "only one initial login");
+        assertEquals(1, refreshes.get(), "stale token refreshes via /auth/token");
         assertNotEquals(first, second);
+        assertEquals("pt-login", first);
+        assertEquals("pt-refresh-1", second);
     }
 
     @Test
-    void unauthorizedSurfaces() {
-        fs.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(401,
+    void refreshTokenPresentedAsBearer() {
+        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "access_token", "pt-login", "refresh_token", "rt-seed",
+                "expires_in", 300, "subject_type", "platform")));
+        fs.on("POST /auth/token", (ex, body) -> {
+            // The refresh token must be the bearer on /auth/token.
+            assertEquals("Bearer rt-seed", fs.last().header("authorization"));
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "pt-refresh", "refresh_token", "rt-next",
+                    "expires_in", 300, "subject_type", "platform"));
+        });
+        var ptm = manager(Clock.systemUTC());
+        ptm.getToken();                 // login
+        ptm.invalidate();               // drop access token, keep refresh
+        assertEquals("pt-refresh", ptm.getToken());
+    }
+
+    @Test
+    void fallsBackToLoginWhenAuthTokenRejects() {
+        AtomicInteger logins = new AtomicInteger();
+        fs.on("POST /auth/login", (ex, body) -> {
+            int n = logins.incrementAndGet();
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "pt-login-" + n, "refresh_token", "rt-" + n,
+                    "expires_in", 300, "subject_type", "platform"));
+        });
+        fs.on("POST /auth/token", (ex, body) -> FakeServer.Reply.json(401,
+                Map.of("error", Map.of("code", "unauthorized", "message", "rotated away"))));
+        var ptm = manager(Clock.systemUTC());
+        ptm.getToken();      // login #1
+        ptm.invalidate();    // keep refresh → next acquire tries /auth/token, 401s, re-logs in
+        String tok = ptm.getToken();
+        assertEquals(2, logins.get(), "401 on /auth/token falls back to a fresh login");
+        assertEquals("pt-login-2", tok);
+    }
+
+    @Test
+    void unauthorizedLoginSurfaces() {
+        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(401,
                 Map.of("error", Map.of("code", "unauthorized", "message", "bad key"))));
-        var ptm = new PlatformTokenManager("rk", fs.baseUrl,
-                HttpClient.newHttpClient(), new ObjectMapper(), null,
-                Clock.systemUTC(), Duration.ofSeconds(30));
+        var ptm = manager(Clock.systemUTC());
         RealmException ex = assertThrows(RealmException.class, ptm::getToken);
         assertEquals(ErrorCode.UNAUTHORIZED, ex.getCode());
         assertEquals(401, ex.getHttpStatus());

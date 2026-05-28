@@ -140,17 +140,35 @@ public final class HttpTransport {
      * Idempotent for our usage (auth-id mint + management calls are safe).
      */
     private HttpResponse<byte[]> sendWithRetry(HttpRequest req) throws IOException, InterruptedException {
-        try {
-            return client.send(req, HttpResponse.BodyHandlers.ofByteArray());
-        } catch (IOException e) {
-            String msg = e.getMessage() == null ? "" : e.getMessage();
-            if (msg.contains("header parser received no bytes")
-                    || msg.contains("EOF reached")
-                    || msg.contains("Connection reset")) {
+        IOException last = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
                 return client.send(req, HttpResponse.BodyHandlers.ofByteArray());
+            } catch (IOException e) {
+                if (!isRetriableEof(e)) throw e;
+                last = e;
             }
-            throw e;
         }
+        throw last;
+    }
+
+    /**
+     * True for the JDK HttpClient keep-alive race: a pooled socket closed by
+     * the server between requests surfaces as an EOF / "no bytes" / reset
+     * before any reply was read. Safe to retry (idempotent for our usage).
+     */
+    private static boolean isRetriableEof(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.io.EOFException) return true;
+            String msg = t.getMessage();
+            if (msg != null && (msg.contains("header parser received no bytes")
+                    || msg.contains("EOF reached")
+                    || msg.contains("Connection reset")
+                    || msg.contains("GOAWAY"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static RealmException mapErrorResponse(int status, JsonNode body, String method, String path) {

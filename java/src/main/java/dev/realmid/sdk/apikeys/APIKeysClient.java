@@ -23,8 +23,8 @@ public final class APIKeysClient {
 
     public APIKey create(APIKeyCreate body) {
         Map<String, Object> b = new LinkedHashMap<>();
-        b.put("display_name", body.displayName());
-        if (body.scopes() != null) b.put("scopes", body.scopes());
+        b.put("scope", body.scope());
+        if (body.label() != null) b.put("label", body.label());
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "POST", "/platforms/" + enc(realmId) + "/api-keys").body(b));
         return http.mapper().convertValue(raw, APIKey.class);

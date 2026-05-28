@@ -5,6 +5,20 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## Java — v0.8.0 parity + ADR-051 migration (2026-05-28)
+
+`java-v0.10.0` closes the lockstep gap left by the Go + TS round below.
+The Java SDK now ships the **token manager** (SPEC §4.2.1), the
+**`refresh_invalid`** error code (§3.1), and the **api-key DTO**
+alignment (§6.5) — matching the Go/TS semantics exactly. As a
+prerequisite, Java also completed the **ADR-051 platform-auth
+migration**: `PlatformTokenManager` was still bootstrapping via the
+removed `POST /auth/platform-token` (hard-cut server-side in v0.7.0); it
+now uses the two-endpoint flow (`POST /auth/login
+{grant_type:"platform_api_key"}` + `POST /auth/token`), like Go/TS. See
+`java/CHANGELOG.md` for the per-symbol detail. Breaking only for callers
+that read the prior `apiKeys` `displayName`/`scopes`/`secret` shape.
+
 ## Go + TS — token manager + refresh_invalid + api-key DTO (2026-05-28)
 
 Additive on the wire. SPEC bumped to **v0.8.0**. Go + TS bump in

@@ -67,9 +67,9 @@ class OriginsTest {
     void validateCachesAcrossCalls() {
         AtomicInteger mintCount = new AtomicInteger();
         AtomicInteger listCount = new AtomicInteger();
-        fs.on("POST /auth/platform-token", (ex, body) -> {
+        fs.on("POST /auth/login", (ex, body) -> {
             mintCount.incrementAndGet();
-            return FakeServer.Reply.json(200, Map.of("platform_token", "pt", "expires_in", 300));
+            return FakeServer.Reply.json(200, Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform"));
         });
         fs.on("GET /platforms/" + REALM_ID + "/origins", (ex, body) -> {
             listCount.incrementAndGet();
@@ -88,8 +88,12 @@ class OriginsTest {
     @Test
     void ttlExpiryRefetches() {
         AtomicInteger listCount = new AtomicInteger();
-        fs.on("POST /auth/platform-token", (ex, body) ->
-                FakeServer.Reply.json(200, Map.of("platform_token", "pt", "expires_in", 300)));
+        fs.on("POST /auth/login", (ex, body) ->
+                FakeServer.Reply.json(200, Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
+        // After the platform token's 300s lifetime, the session refreshes via
+        // POST /auth/token (ADR-051 two-endpoint flow).
+        fs.on("POST /auth/token", (ex, body) ->
+                FakeServer.Reply.json(200, Map.of("access_token", "pt2", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         fs.on("GET /platforms/" + REALM_ID + "/origins", (ex, body) -> {
             listCount.incrementAndGet();
             return FakeServer.Reply.json(200, page(List.of(
@@ -110,11 +114,23 @@ class OriginsTest {
 
     @Test
     void refreshOn401() {
-        AtomicInteger mintCount = new AtomicInteger();
+        // First acquire = POST /auth/login; after a 401 invalidate the cached
+        // access token is dropped but the refresh token is preserved, so the
+        // re-acquire goes through POST /auth/token (ADR-051 two-endpoint flow).
+        AtomicInteger loginCount = new AtomicInteger();
+        AtomicInteger refreshCount = new AtomicInteger();
         AtomicInteger listCount = new AtomicInteger();
-        fs.on("POST /auth/platform-token", (ex, body) -> {
-            mintCount.incrementAndGet();
-            return FakeServer.Reply.json(200, Map.of("platform_token", "pt-" + mintCount.get(), "expires_in", 300));
+        fs.on("POST /auth/login", (ex, body) -> {
+            loginCount.incrementAndGet();
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "pt-login", "refresh_token", "rt-1",
+                    "expires_in", 300, "subject_type", "platform"));
+        });
+        fs.on("POST /auth/token", (ex, body) -> {
+            refreshCount.incrementAndGet();
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "pt-refreshed", "refresh_token", "rt-2",
+                    "expires_in", 300, "subject_type", "platform"));
         });
         fs.on("GET /platforms/" + REALM_ID + "/origins", (ex, body) -> {
             int n = listCount.incrementAndGet();
@@ -128,13 +144,16 @@ class OriginsTest {
         });
         Realm r = realm(null);
         assertTrue(r.origins().validate(REALM_ID, "https://app.acme.com"));
-        assertEquals(2, mintCount.get(), "401 forces a token re-mint");
+        assertEquals(1, loginCount.get(), "one initial platform login");
+        assertEquals(1, refreshCount.get(), "401 forces a token refresh via /auth/token");
     }
 
     @Test
     void persistentUnauthorizedSurfaces() {
-        fs.on("POST /auth/platform-token", (ex, body) ->
-                FakeServer.Reply.json(200, Map.of("platform_token", "pt", "expires_in", 300)));
+        fs.on("POST /auth/login", (ex, body) ->
+                FakeServer.Reply.json(200, Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
+        fs.on("POST /auth/token", (ex, body) ->
+                FakeServer.Reply.json(200, Map.of("access_token", "pt2", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         fs.on("GET /platforms/" + REALM_ID + "/origins", (ex, body) ->
                 FakeServer.Reply.json(401, Map.of(
                         "error", Map.of("code", "unauthorized", "message", "nope"))));
@@ -146,8 +165,8 @@ class OriginsTest {
 
     @Test
     void listPaginates() {
-        fs.on("POST /auth/platform-token", (ex, body) ->
-                FakeServer.Reply.json(200, Map.of("platform_token", "pt", "expires_in", 300)));
+        fs.on("POST /auth/login", (ex, body) ->
+                FakeServer.Reply.json(200, Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         AtomicInteger calls = new AtomicInteger();
         fs.on("GET /platforms/" + REALM_ID + "/origins", (ex, body) -> {
             int n = calls.incrementAndGet();

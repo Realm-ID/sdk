@@ -69,8 +69,8 @@ class RealmFilterTest {
         keyPair = gen.generateKeyPair();
 
         api = new FakeServer();
-        api.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(200,
-                Map.of("platform_token", "pt", "expires_in", 300)));
+        api.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
 
         // Same server: serve JWKS at /<realm>/.well-known/jwks.json from a separate handler.
         jwksServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -168,8 +168,8 @@ class RealmFilterTest {
     @Test
     void mfaProtectedReturns412() throws Exception {
         // Mock the mfa challenge mint endpoint
-        api.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(200,
-                Map.of("platform_token", "pt", "expires_in", 300)));
+        api.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         api.on("POST /auth/mfa/challenge", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("mfa_challenge_token", "ch-mfa", "methods", List.of("totp"))));
         // jwks for the api server
@@ -292,8 +292,8 @@ class RealmFilterTest {
 
     /** Wire the API fakes used by every MFA-gate test. */
     private void configureMfaApi() {
-        api.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(200,
-                Map.of("platform_token", "pt", "expires_in", 300)));
+        api.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         api.on("POST /auth/mfa/challenge", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("mfa_challenge_token", "ch-mfa", "methods", List.of("totp"))));
         Map<String, Object> jwk = jwkFor((RSAPublicKey) keyPair.getPublic(), kid);

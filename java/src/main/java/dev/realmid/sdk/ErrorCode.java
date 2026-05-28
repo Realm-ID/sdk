@@ -27,6 +27,16 @@ public enum ErrorCode {
     ACCOUNT_DEACTIVATED("account_deactivated"),
     REALM_ORIGIN_MISMATCH("realm_origin_mismatch"),
     MISSING_ORIGIN("missing_origin"),
+    /**
+     * Returned by {@code POST /auth/token} when the presented refresh token is
+     * expired, revoked, or reuse-detected — terminal for the caller (no retry
+     * will help). Distinct from the generic {@link #UNAUTHORIZED} so long-lived
+     * clients (the {@code TokenManager}, SPEC §4.2.1) can deterministically
+     * branch on "re-authentication required" versus a transient 401. The SDK
+     * does not subdivide expiry/revocation/reuse — all three collapse here, as
+     * the issuer does not distinguish them on the wire (SPEC §3.1).
+     */
+    REFRESH_INVALID("refresh_invalid"),
 
     // management / generic
     UNAUTHORIZED("unauthorized"),

@@ -27,8 +27,8 @@ class AuthClientTest {
     void setUp() throws IOException {
         fs = new FakeServer();
         // Default platform-token mint
-        fs.on("POST /auth/platform-token", (ex, body) -> FakeServer.Reply.json(200,
-                Map.of("platform_token", "pt-12345", "expires_in", 300)));
+        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("access_token", "pt-12345", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
         realm = Realm.builder()
                 .realmId("01HREALM")
                 .apiKey("rk_live_test")
@@ -43,7 +43,15 @@ class AuthClientTest {
     @Test
     void loginHappyPath() {
         AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        // The platform bootstrap and the user login both hit POST /auth/login,
+        // distinguished by grant_type (ADR-051). Branch on it.
         fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
             seen.set(fs.last());
             return FakeServer.Reply.json(200, Map.of(
                     "access_token", "at-1",
@@ -61,10 +69,18 @@ class AuthClientTest {
 
     @Test
     void loginMfaRequired() {
-        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(412, Map.of(
-                "error", Map.of("code", "mfa_required", "message", "MFA required"),
-                "mfa_challenge_token", "ch-token-abc",
-                "methods", java.util.List.of("totp"))));
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            return FakeServer.Reply.json(412, Map.of(
+                    "error", Map.of("code", "mfa_required", "message", "MFA required"),
+                    "mfa_challenge_token", "ch-token-abc",
+                    "methods", java.util.List.of("totp")));
+        });
         RealmException ex = assertThrows(RealmException.class,
                 () -> realm.auth().login(LoginRequest.of("firebase", "tok")));
         assertEquals(ErrorCode.MFA_REQUIRED, ex.getCode());
