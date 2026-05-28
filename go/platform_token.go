@@ -40,6 +40,20 @@ type sessionManager struct {
 	refreshToken    string
 	accessToken     string
 	accessExpiresAt time.Time
+	// inflight dedups concurrent acquisitions. When set, a refresh/login
+	// is already running; other callers wait on it rather than firing a
+	// second /auth/token with the same (one-time-use) refresh token, which
+	// would trip the issuer's reuse-detection and kill the session.
+	inflight *tokenCall
+}
+
+// tokenCall is a single in-flight token acquisition shared by all callers
+// that arrive while it runs. The leader closes done after storing the
+// result; followers read token/err once done is closed.
+type tokenCall struct {
+	done  chan struct{}
+	token string
+	err   error
 }
 
 func newSessionManager(apiKey, realmID string, http *httpClient, logger *slog.Logger, now func() time.Time) *sessionManager {
@@ -71,12 +85,52 @@ type loginResponse struct {
 func (m *sessionManager) get(ctx ctxpkg.Context) (string, error) {
 	m.mu.RLock()
 	access := m.accessToken
-	refresh := m.refreshToken
 	exp := m.accessExpiresAt
 	m.mu.RUnlock()
 	if access != "" && exp.Sub(m.now()) >= 30*time.Second {
 		return access, nil
 	}
+	return m.acquire(ctx)
+}
+
+// acquire mints or refreshes the access token, deduping concurrent
+// callers so only one /auth/token (or /auth/login) request is in flight
+// at a time. Without this, two goroutines that both observe a stale
+// access token would each POST the same refresh token; the issuer rotates
+// it on the first and rejects the second as reuse, killing the session.
+func (m *sessionManager) acquire(ctx ctxpkg.Context) (string, error) {
+	m.mu.Lock()
+	// Re-check under the write lock: a peer may have refreshed while we
+	// waited for the lock, in which case the cached token is now fresh.
+	if m.accessToken != "" && m.accessExpiresAt.Sub(m.now()) >= 30*time.Second {
+		tok := m.accessToken
+		m.mu.Unlock()
+		return tok, nil
+	}
+	// Join an in-flight acquisition rather than starting a second one.
+	if call := m.inflight; call != nil {
+		m.mu.Unlock()
+		<-call.done
+		return call.token, call.err
+	}
+	call := &tokenCall{done: make(chan struct{})}
+	m.inflight = call
+	refresh := m.refreshToken
+	m.mu.Unlock()
+
+	tok, err := m.fetch(ctx, refresh)
+
+	m.mu.Lock()
+	m.inflight = nil
+	m.mu.Unlock()
+	call.token, call.err = tok, err
+	close(call.done)
+	return tok, err
+}
+
+// fetch performs the actual refresh-then-login acquisition. Only ever
+// called by the single-flight leader in acquire.
+func (m *sessionManager) fetch(ctx ctxpkg.Context, refresh string) (string, error) {
 	if refresh != "" {
 		tok, err := m.refreshAccess(ctx, refresh)
 		if err == nil {

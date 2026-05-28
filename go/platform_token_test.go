@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -121,6 +122,86 @@ func TestSession_RefreshFallbackToLogin(t *testing.T) {
 	}
 	if loginCalls.Load() != 2 {
 		t.Errorf("expected 2 logins (initial + fallback), got %d", loginCalls.Load())
+	}
+}
+
+// TestSession_ConcurrentRefreshSingleFlight verifies that N goroutines
+// racing on an expired access token collapse into a single /auth/token
+// call. Without single-flight they would each replay the same one-time-use
+// refresh token, and the issuer would reject all but the first as reuse —
+// killing the session.
+func TestSession_ConcurrentRefreshSingleFlight(t *testing.T) {
+	var loginCalls, tokenCalls atomic.Int32
+	release := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		loginCalls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":        "ok",
+			"subject_type":  "platform",
+			"refresh_token": "rtok-1",
+			"access_token":  "atok-fresh",
+			"expires_in":    60,
+		})
+	})
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
+		// Block until all racers have piled up, so a missing single-flight
+		// would deterministically produce multiple concurrent calls.
+		<-release
+		tokenCalls.Add(1)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":        "ok",
+			"subject_type":  "platform",
+			"refresh_token": "rtok-2",
+			"access_token":  "atok-rotated",
+			"expires_in":    60,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("NewRealm: %v", err)
+	}
+	// Seed the session, then push it into the refresh window.
+	if _, err := r.platformToken.get(context.Background()); err != nil {
+		t.Fatalf("seed login: %v", err)
+	}
+	r.platformToken.mu.Lock()
+	r.platformToken.accessExpiresAt = time.Now().Add(5 * time.Second)
+	r.platformToken.mu.Unlock()
+
+	const n = 16
+	toks := make([]string, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			toks[i], errs[i] = r.platformToken.get(context.Background())
+		}(i)
+	}
+	// Give the racers time to all enter acquire() and block on /auth/token,
+	// then let the single in-flight request complete.
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		if errs[i] != nil {
+			t.Fatalf("get[%d]: %v", i, errs[i])
+		}
+		if toks[i] != "atok-rotated" {
+			t.Errorf("get[%d]: got %q, want atok-rotated", i, toks[i])
+		}
+	}
+	if tokenCalls.Load() != 1 {
+		t.Errorf("expected exactly 1 /auth/token call, got %d", tokenCalls.Load())
+	}
+	if loginCalls.Load() != 1 {
+		t.Errorf("expected no re-login (only the seed), got %d login calls", loginCalls.Load())
 	}
 }
 
