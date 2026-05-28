@@ -20,12 +20,12 @@ import type { Realm } from "@realmid/web";
 import {
   TenantsClient,
   RolesClient,
-  ApiKeysClient,
   DomainsClient,
   AdminClient,
 } from "@realmid/sdk/internal";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
+import { ApiKeysClient } from "./api-keys.js";
 import { PlatformsClient } from "./platforms.js";
 import { PlatformNotesClient } from "./notes.js";
 import { SigningKeysClient } from "./signing-keys.js";
@@ -79,7 +79,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
   return {
     tenants: new TenantsClient(httpAsClient, rid),
     roles: new RolesClient(httpAsClient, rid),
-    apiKeys: new ApiKeysClient(httpAsClient, rid),
+    apiKeys: new ApiKeysClient(http),
     domains: new DomainsClient(httpAsClient),
     admin: new AdminClient(httpAsClient),
     platforms: new PlatformsClient(http),
@@ -94,6 +94,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
 export { realmFetchAsHttpClient } from "./transport.js";
 export type { HttpLike, RealmFetchHttpOptions } from "./transport.js";
 
+export { ApiKeysClient } from "./api-keys.js";
 export { PlatformsClient } from "./platforms.js";
 export type {
   PlatformCreate,
@@ -111,7 +112,6 @@ export { MeClient } from "./me.js";
 export {
   TenantsClient,
   RolesClient,
-  ApiKeysClient,
   DomainsClient,
   AdminClient,
 } from "@realmid/sdk/internal";
@@ -140,8 +140,6 @@ export type {
   RoleListOpts,
   RoleCreate,
   RolePatch,
-  ApiKey,
-  ApiKeyCreate,
   DomainClaim,
   DomainVerifyResult,
   PlatformOwner,

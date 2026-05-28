@@ -32,7 +32,8 @@ const note = await admin.notes.create("plt_42", "investigated");
 
 | Namespace             | Source                                | Routing             |
 |-----------------------|---------------------------------------|---------------------|
-| `tenants` / `roles` / `apiKeys` / `domains` / `admin` | `@realmid/sdk/internal` | passthrough (`/api/...`) |
+| `tenants` / `roles` / `domains` / `admin` | `@realmid/sdk/internal` | passthrough (`/api/...`) |
+| `apiKeys`             | this package                          | passthrough         |
 | `platforms`           | this package                          | passthrough         |
 | `notes` / `signingKeys` | this package                        | BFF-direct (`/admin/...`) |
 | `bff`                 | this package                          | BFF-direct (`/home`, `/tenants/{id}/full`) |
@@ -55,6 +56,14 @@ auth SDK.
 
 Tracked so the next reader doesn't have to grep the consuming UI:
 
+- `apiKeys` is a **package-local** client (not the bundled
+  `@realmid/sdk/internal` one, whose `displayName`/`scopes[]` shape
+  predates the issuer contract). It targets the authoritative
+  `/platforms/{id}/api-keys` shapes: `create({ scope, label? })` returns
+  a one-time `value`; `list()` rows are `APIKeyListItem`
+  (`id`/`prefix`/`role`/`created_at`/`last_used_at`/`revoked_at`, no
+  `label`); `revoke(id)` soft-deletes. The `platformId` is passed
+  per-call (not bound at `createAdmin`).
 - `tenants.transferOwner(tenantId, newOwnerUserId)` takes a user id.
   Admin UIs that want email-based ownership transfer must resolve email
   → userId themselves first.

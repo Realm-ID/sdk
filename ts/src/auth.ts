@@ -16,6 +16,7 @@
 
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
+import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
 
 export type LoginMethod = "firebase" | "google";
 
@@ -468,6 +469,21 @@ export class AuthClient {
       mfaChallengeToken: raw.mfa_challenge_token,
       methods: raw.methods ?? ["totp"],
     };
+  }
+
+  /**
+   * SPEC §4.2.1 — build a {@link TokenManager} seeded with a refresh token
+   * the client already holds (obtained out-of-band, e.g. at enrollment).
+   * The manager refreshes against POST /auth/token directly on that token,
+   * single-flights concurrent acquisitions, and (with a `refreshSink`)
+   * persists each rotated token before returning the new access token.
+   *
+   * For long-lived, single-identity clients (desktop apps, sync agents,
+   * daemons) — NOT browser/BFF flows (§10) or the SDK's internal platform
+   * session (§4.0).
+   */
+  newTokenManager(refreshToken: string, opts?: TokenManagerOptions): TokenManager {
+    return new TokenManager(this, refreshToken, opts);
   }
 
   private async originHeaders(perCall?: string): Promise<Record<string, string>> {

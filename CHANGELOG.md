@@ -5,6 +5,39 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## Go + TS — token manager + refresh_invalid + api-key DTO (2026-05-28)
+
+Additive on the wire. SPEC bumped to **v0.8.0**. Go + TS bump in
+lockstep: `go-v0.15.0`, `ts-v0.13.0`. **Java is intentionally NOT bumped
+this round** — it does not yet implement the token manager /
+`refresh_invalid` / api-key DTO alignment; Java parity is tracked in
+`sdk/TODO.md`.
+
+### Added
+
+- **Token manager** (SPEC §4.2.1) — `realm.auth.NewTokenManager(refresh,
+  …)` / `realm.auth.newTokenManager(refresh, …)` for long-lived
+  single-identity clients (desktop apps, sync agents, daemons). Caches
+  the access token (refreshes ~60s pre-expiry), single-flights concurrent
+  acquisitions (one-time-use refresh tokens must never be presented in
+  parallel — reuse-detection), and persists the rotated refresh through a
+  caller `RefreshSink` **before** returning the new access token
+  (crash-safe). `refresh_invalid` is terminal (no API-key fallback).
+- **`refresh_invalid` error code** (SPEC §3.1) — `POST /auth/token`
+  surfaces a distinct code when the refresh token is expired / revoked /
+  reuse-detected, so long-lived clients can branch on "re-auth required"
+  vs a transient 401 (previously collapsed to generic `unauthorized`).
+  Requires the matching issuer change (issuer ≥ v0.12.0).
+
+### Changed
+
+- **api-key DTO aligned to the issuer (code wins)** — the list/row shape
+  is now `{ id, prefix, role, created_at, last_used_at?, revoked_at? }`
+  and create returns a one-time `value` + `{ scope, label? }`. Replaces
+  the prior incorrect `displayName` / `scopes[]` / string-timestamp shape
+  that never matched the wire. **Breaking** for any caller that read those
+  fields. `@realmid/web-admin` gains `apiKeys.{list,create,revoke}`.
+
 ## All SDKs — SDK-surface gap fill (2026-05-26)
 
 Additive (non-breaking). Wires three already-shipped issuer

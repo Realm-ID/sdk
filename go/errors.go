@@ -37,6 +37,12 @@ const (
 	ErrCodeAccountDeactivated   ErrorCode = "account_deactivated"
 	ErrCodeRealmOriginMismatch  ErrorCode = "realm_origin_mismatch"
 	ErrCodeMissingOrigin        ErrorCode = "missing_origin"
+	// ErrCodeRefreshInvalid is returned by POST /auth/token when the
+	// presented refresh token is expired, revoked, or reuse-detected —
+	// terminal for the caller (re-authentication required). Distinct from
+	// the generic ErrCodeUnauthorized so long-lived clients (TokenManager)
+	// can branch on "re-auth required" vs a transient 401. SPEC §3.1.
+	ErrCodeRefreshInvalid ErrorCode = "refresh_invalid"
 
 	// Partner OTP primitive (docs/proposals/partner-otp-primitive.md).
 	ErrCodeInvalidOTP        ErrorCode = "invalid_otp"
@@ -169,7 +175,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeSessionLimitReached: {}, ErrCodeTenantRequired: {},
 	ErrCodeTenantInvalid: {}, ErrCodeAccountSuspended: {},
 	ErrCodeAccountDeactivated: {}, ErrCodeRealmOriginMismatch: {},
-	ErrCodeMissingOrigin: {}, ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
+	ErrCodeMissingOrigin: {}, ErrCodeRefreshInvalid: {},
+	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},
 	ErrCodeInvalidOTP: {}, ErrCodeOTPExpired: {}, ErrCodeOTPLocked: {},

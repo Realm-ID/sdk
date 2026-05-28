@@ -1,4 +1,12 @@
-# Realm ID SDK — cross-language specification (v0.7.0)
+# Realm ID SDK — cross-language specification (v0.8.0)
+
+## v0.8.0 — token manager + refresh_invalid + api-key DTO (additive)
+
+Additive (non-breaking on the wire). Adds the `refresh_invalid` error
+code (§3.1), the long-lived-client **token manager** construct (§4.2.1),
+and pins the api-key list/row DTO to the issuer's authoritative shape
+(§6.5 — `role`/`prefix`/unix-second timestamps; the create `value` is a
+one-time secret). Go + TS ship this; Java parity is a tracked follow-up.
 
 ## Breaking changes from 0.5.x
 
@@ -126,7 +134,17 @@ SDK failure. It carries:
 
 `provider_token_invalid`, `mfa_required`, `session_limit_reached`,
 `tenant_required`, `tenant_invalid`, `account_suspended`,
-`account_deactivated`, `realm_origin_mismatch`, `missing_origin`.
+`account_deactivated`, `realm_origin_mismatch`, `missing_origin`,
+`refresh_invalid`.
+
+> `refresh_invalid` is returned by `POST /auth/token` (and surfaced by
+> `auth.token()` / the token manager) when the presented refresh token is
+> **expired, revoked, or reuse-detected** — terminal for the caller, no
+> retry will help. It is distinct from a generic `unauthorized` so
+> long-lived clients can deterministically branch on "re-authentication
+> required" versus a transient 401. The SDK does **not** subdivide
+> expiry / revocation / reuse: all three collapse to `refresh_invalid`
+> (the issuer does not distinguish them on the wire).
 
 **Management / generic codes:**
 
@@ -273,6 +291,69 @@ subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
 
   Service / platform refresh TTL reuses
   `realms.config.refresh_ttl_seconds` (no new TTL knob).
+
+### 4.2.1 Token manager (long-lived clients)
+
+A convenience wrapper over §4.2 `token()` for **long-lived,
+single-identity clients** — desktop apps, sync agents, daemons — that
+hold one refresh token and need a continuously-valid access token
+without hand-rolling the refresh loop. It is *not* for browser/BFF flows
+(those use the middleware in §10) or for the SDK's internal platform
+session (§4.0).
+
+**Construction.** The manager is created from a refresh token the client
+already holds (obtained out-of-band, e.g. at install/enrollment):
+
+```text
+mgr := realm.auth.newTokenManager(refreshToken, { tenantId?, refreshSink? })
+accessToken := mgr.accessToken(ctx)   // cached, or refreshed on demand
+```
+
+- **Identity / transport.** The manager talks to `POST /auth/token`
+  **directly** on its own refresh token. A long-lived client authenticates
+  as itself; it does not proxy through a BFF and is not handed the
+  platform API key. (The raw API key never reaches such a client — §4.0
+  defense-in-depth.)
+- **`accessToken(ctx)`** returns a cached access token while it has ≥30s
+  of life, otherwise performs one refresh and returns the new one.
+- **Single-flight.** Concurrent `accessToken` calls collapse to a single
+  in-flight `/auth/token` request. This is mandatory, not an
+  optimization: user refresh tokens are one-time-use (ADR-031), so two
+  parallel refreshes on the same token would trip reuse-detection and
+  kill the session.
+- **Proactive refresh.** Implementations SHOULD refresh ~60s before
+  expiry so callers never observe an expired access token under steady
+  load. Whether this runs on a background goroutine/timer or lazily on
+  `accessToken` is language-idiomatic; the observable contract is the
+  same.
+
+**`refreshSink` — crash-safe rotation (REQUIRED semantics).** User
+refresh tokens rotate on every `/auth/token` (§4.2). A long-lived client
+that persists its refresh token across restarts MUST be handed the
+rotated token **before** the manager hands back the new access token, so
+a crash in the window can never strand the client holding a
+consumed-and-rotated refresh:
+
+1. `/auth/token` returns a new `{ accessToken, refreshToken }`.
+2. The manager invokes `refreshSink(newRefreshToken)` and **waits for it
+   to complete**.
+3. **Only if the sink succeeds** does the manager cache the new access
+   token and return it. If the sink reports an error, the acquisition
+   fails (the caller retries; the persisted refresh is still the last one
+   the sink durably stored).
+
+This ordering — *persist-before-return* — is the whole point of the
+sink. A best-effort / fire-and-forget sink does **not** satisfy this
+contract.
+
+**Terminal failure.** When `/auth/token` returns `refresh_invalid`
+(§3.1) — refresh expired, revoked, or reuse-detected — the manager
+surfaces a `RealmError{ code: "refresh_invalid" }` and does **not** retry
+or fall back to any other credential. This is the signal for the client
+to discard its stored refresh token and re-run its enrollment / login
+flow. (Contrast §4.0's platform session manager, which on a dead refresh
+falls back to a fresh `platform_api_key` login — it has the API key; a
+long-lived user client does not.)
 
 ### 4.3 `mfaVerify(req)`
 
@@ -586,7 +667,19 @@ Promoted from a nested namespace for ergonomics:
   rotation status). Backs §1's audience auto-discovery; callers can
   read it for diagnostics.
 - `realm.apiKeys.{create, list, revoke}` — manage the realm's own API
-  keys.
+  keys. The list/row DTO mirrors the issuer's `APIKeyListItem` (code
+  wins — the issuer response is authoritative):
+  `{ id, prefix, role, label?, createdAt, lastUsedAt?, revokedAt? }`.
+  - `prefix` — non-secret key prefix, stable across logs.
+  - `role` — the key's bound role (singular; **not** a `scopes` array).
+  - `label` — optional human name supplied on create.
+  - `createdAt` / `lastUsedAt` / `revokedAt` — unix seconds;
+    `lastUsedAt` and `revokedAt` are nullable. A non-null `revokedAt`
+    means the key is revoked.
+  - `create({ scope, label? })` returns the row **plus** a one-time
+    `value` (the secret) that is shown only on creation and never
+    returned by `list`. `revoke(id)` is a soft-delete (sets
+    `revokedAt`).
 - `realm.config.update(patch)` — patch realm-level config (TTL
   overrides, default audience, etc., subject to the server's
   configurable-keys allowlist).

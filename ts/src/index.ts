@@ -50,6 +50,9 @@ export type {
   RevokeAllSessionsRequest,
 } from "./auth.js";
 
+export { TokenManager } from "./token-manager.js";
+export type { TokenManagerOptions, RefreshSink } from "./token-manager.js";
+
 export type {
   Tenant,
   TenantCreate,

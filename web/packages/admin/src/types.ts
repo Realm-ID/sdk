@@ -61,6 +61,47 @@ export interface CreateApiKeyResponse {
   label?: string;
 }
 
+// ---- API keys (issuer `/platforms/{id}/api-keys`, SPEC §6.5) ----
+
+/** Body for `apiKeys.create`. `scope` is the key's bound role. */
+export interface ApiKeyCreateInput {
+  scope: string;
+  label?: string;
+}
+
+/**
+ * Response from `apiKeys.create`. Carries the one-time `value` (raw
+ * secret) — shown only on creation, never returned by `list`.
+ */
+export interface ApiKeyCreated {
+  id: string;
+  value: string;
+  scope: string;
+  label?: string;
+}
+
+/**
+ * A row from `apiKeys.list`. Mirrors the issuer's `APIKeyListItem`
+ * exactly — note there is **no** `label`, and the bound role surfaces
+ * as `role` (not the `scope` it was created with). Timestamps are unix
+ * seconds; `last_used_at` / `revoked_at` are nullable. A non-null
+ * `revoked_at` means the key is revoked.
+ */
+export interface ApiKeyListItem {
+  id: string;
+  prefix: string;
+  role: string;
+  created_at: number;
+  last_used_at: number | null;
+  revoked_at: number | null;
+}
+
+export interface ApiKeyListPage {
+  items: ApiKeyListItem[];
+  next_cursor?: string | null;
+  total?: number;
+}
+
 export interface ActiveSession {
   id: string;
   origin?: string;

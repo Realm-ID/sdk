@@ -1,26 +1,48 @@
 package realmid
 
 import (
-	"context"
+	ctxpkg "context"
+	"encoding/json"
 	"net/url"
 )
 
-// APIKey is one entry returned from realm.APIKeys.* (SPEC §6.5).
+// APIKey is one entry from realm.APIKeys.* (SPEC §6.5). The struct is a
+// union of the create-response and list-row wire shapes (issuer wins —
+// see issuer swagger APIKey / APIKeyListItem):
+//
+//   - On create: ID, Value (the one-time secret), Scope, Label are set.
+//   - On list:   ID, Prefix, Role, CreatedAt, LastUsedAt, RevokedAt are set.
+//
+// The issuer's create request uses `scope` while the list row reports
+// `role`; the SDK surfaces both fields rather than papering over the
+// asymmetry (logged for the issuer in sdk/TODO.md).
 type APIKey struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name,omitempty"`
-	Prefix      string `json:"prefix,omitempty"`
-	// Secret is only present on creation.
-	Secret    string   `json:"secret,omitempty"`
-	Scopes    []string `json:"scopes,omitempty"`
-	CreatedAt string   `json:"created_at,omitempty"`
-	RevokedAt string   `json:"revoked_at,omitempty"`
+	ID string `json:"id"`
+	// Value is the raw secret key, returned ONLY on create (one-time reveal).
+	Value string `json:"value,omitempty"`
+	// Scope and Label are echoed on create.
+	Scope string `json:"scope,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Prefix is the non-secret key prefix (list rows), stable across logs.
+	Prefix string `json:"prefix,omitempty"`
+	// Role is the key's bound role as reported by the list endpoint.
+	Role string `json:"role,omitempty"`
+	// CreatedAt / LastUsedAt / RevokedAt are unix seconds (list rows).
+	// LastUsedAt and RevokedAt are nil when the server omits them; a
+	// non-nil RevokedAt means the key has been revoked.
+	CreatedAt  int64  `json:"created_at,omitempty"`
+	LastUsedAt *int64 `json:"last_used_at,omitempty"`
+	RevokedAt  *int64 `json:"revoked_at,omitempty"`
 }
 
-// APIKeyCreate is the create payload.
+// Revoked reports whether the key has been soft-deleted (revoked_at set).
+func (k APIKey) Revoked() bool { return k.RevokedAt != nil }
+
+// APIKeyCreate is the create payload. `Scope` is required; `Label` is an
+// optional human-readable name.
 type APIKeyCreate struct {
-	DisplayName string   `json:"display_name"`
-	Scopes      []string `json:"scopes,omitempty"`
+	Scope string `json:"scope"`
+	Label string `json:"label,omitempty"`
 }
 
 // APIKeysClient is realm.APIKeys.
@@ -28,7 +50,7 @@ type APIKeysClient struct {
 	realm *Realm
 }
 
-func (c *APIKeysClient) Create(ctx context.Context, body APIKeyCreate) (*APIKey, error) {
+func (c *APIKeysClient) Create(ctx ctxpkg.Context, body APIKeyCreate) (*APIKey, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -45,15 +67,15 @@ func (c *APIKeysClient) Create(ctx context.Context, body APIKeyCreate) (*APIKey,
 	return &k, nil
 }
 
-// List returns every API key associated with this realm. List endpoints
-// for api-keys are usually small and unpaginated; we accept either the
-// {items, next_cursor} shape or a flat array.
-func (c *APIKeysClient) List(ctx context.Context) ([]APIKey, error) {
+// List returns every API key associated with this realm. The issuer
+// returns a paginated {items, next_cursor, total} envelope; we also
+// accept a flat array or a legacy {api_keys} envelope for resilience.
+func (c *APIKeysClient) List(ctx ctxpkg.Context) ([]APIKey, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var raw any
+	var raw json.RawMessage
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "GET",
 		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/api-keys",
@@ -64,7 +86,7 @@ func (c *APIKeysClient) List(ctx context.Context) ([]APIKey, error) {
 	return decodeAPIKeyList(raw)
 }
 
-func (c *APIKeysClient) Revoke(ctx context.Context, id string) error {
+func (c *APIKeysClient) Revoke(ctx ctxpkg.Context, id string) error {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return err
@@ -76,44 +98,26 @@ func (c *APIKeysClient) Revoke(ctx context.Context, id string) error {
 	}, nil)
 }
 
-func decodeAPIKeyList(raw any) ([]APIKey, error) {
-	var arr []any
-	switch v := raw.(type) {
-	case []any:
-		arr = v
-	case map[string]any:
-		if items, ok := v["items"].([]any); ok {
-			arr = items
-		} else if items, ok := v["api_keys"].([]any); ok {
-			arr = items
-		} else {
-			return nil, &RealmError{Code: ErrCodeServerError, Message: "api-keys list missing items"}
-		}
-	default:
-		return nil, &RealmError{Code: ErrCodeServerError, Message: "api-keys list unexpected shape"}
+// decodeAPIKeyList tolerates the issuer's {items} envelope, a legacy
+// {api_keys} envelope, or a flat array. Decoding straight into the typed
+// APIKey struct picks up the wire field names (role/prefix/last_used_at)
+// without manual key walking.
+func decodeAPIKeyList(raw json.RawMessage) ([]APIKey, error) {
+	var env struct {
+		Items   []APIKey `json:"items"`
+		APIKeys []APIKey `json:"api_keys"`
 	}
-	out := make([]APIKey, 0, len(arr))
-	for _, x := range arr {
-		obj, ok := x.(map[string]any)
-		if !ok {
-			continue
+	if err := json.Unmarshal(raw, &env); err == nil {
+		if env.Items != nil {
+			return env.Items, nil
 		}
-		k := APIKey{
-			ID:          strField(obj, "id"),
-			DisplayName: strField(obj, "display_name"),
-			Prefix:      strField(obj, "prefix"),
-			Secret:      strField(obj, "secret"),
-			CreatedAt:   strField(obj, "created_at"),
-			RevokedAt:   strField(obj, "revoked_at"),
+		if env.APIKeys != nil {
+			return env.APIKeys, nil
 		}
-		if scopes, ok := obj["scopes"].([]any); ok {
-			for _, s := range scopes {
-				if str, ok := s.(string); ok {
-					k.Scopes = append(k.Scopes, str)
-				}
-			}
-		}
-		out = append(out, k)
 	}
-	return out, nil
+	var arr []APIKey
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		return arr, nil
+	}
+	return nil, &RealmError{Code: ErrCodeServerError, Message: "api-keys list: unexpected response shape"}
 }

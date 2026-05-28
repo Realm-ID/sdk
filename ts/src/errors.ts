@@ -27,6 +27,15 @@ export type ErrorCode =
   | "realm_origin_mismatch"
   | "realm_mismatch"
   | "missing_origin"
+  // `refresh_invalid` is returned by POST /auth/token (surfaced by
+  // `auth.token()` / the TokenManager) when the presented refresh token is
+  // expired, revoked, or reuse-detected — terminal for the caller, no
+  // retry will help. Distinct from a generic `unauthorized` so long-lived
+  // clients can deterministically branch on "re-authentication required"
+  // versus a transient 401. The SDK does not subdivide
+  // expiry/revocation/reuse: all three collapse to `refresh_invalid`
+  // (the issuer does not distinguish them on the wire). SPEC §3.1.
+  | "refresh_invalid"
   // partner OTP primitive
   | "invalid_otp"
   | "otp_expired"
@@ -91,6 +100,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "provider_token_invalid", "mfa_required", "session_limit_reached",
   "tenant_required", "tenant_invalid", "account_suspended",
   "account_deactivated", "realm_origin_mismatch", "missing_origin",
+  "refresh_invalid",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",
   "bad_request", "network", "server_error",
   "invalid_otp", "otp_expired", "otp_locked", "otp_not_found",
