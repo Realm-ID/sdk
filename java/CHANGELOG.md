@@ -4,6 +4,34 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.11.0 — OTP surface parity + MFA-verify wire fix (2026-05-29)
+
+Closes the two cross-language drifts where Java trailed Go (`go-v0.15.0`)
+and TS (`ts-v0.13.0`): the entire OTP surface was missing, and MFA verify
+sent the wrong wire field.
+
+### Fixed
+
+- **MFA verify wire field (breaking against a live issuer).** `mfaVerify`
+  sent `challenge_token`; the issuer requires `mfa_challenge_token`
+  (`MFAVerifyRequest required: [mfa_challenge_token, code]`). Go/TS were
+  already correct. Every Java `mfaVerify` call previously 400'd. A new
+  `AuthClientTest` body-assertion locks the field name.
+
+### Added
+
+- **OTP surface (SPEC §X)** — new `dev.realmid.sdk.otp` package: `OtpClient`
+  (`issue` → `POST /auth/otp/issue`, `view` → `GET /auth/otp/{id}`,
+  `verify` → `POST /auth/otp/verify`), wired as `realm.otp()`. Supports the
+  dual-mode bearer trio (`userBearer` legacy / `userId` BFF +
+  `X-On-Behalf-Of-User`), matching Go's `OTPClient`.
+- `AuthClient.otpLogin(...)` (`POST /auth/login` with `method=otp_internal`)
+  and `mfaVerifyOtp(...)`.
+- Six OTP `ErrorCode`s: `INVALID_OTP`, `OTP_EXPIRED`, `OTP_LOCKED`,
+  `OTP_NOT_FOUND`, `INVALID_PURPOSE`, `INVALID_SUBJECT_REF` (wire strings
+  match Go/TS; decoded from nested `error.code`).
+- Tests: `OtpClientTest` (8) + OTP cases in `AuthClientTest`. Full suite 100/100.
+
 ## 0.10.0 — token manager + refresh_invalid + api-key DTO + ADR-051 (2026-05-28)
 
 Brings the Java SDK to parity with Go (`go-v0.15.0`) and TS (`ts-v0.13.0`)

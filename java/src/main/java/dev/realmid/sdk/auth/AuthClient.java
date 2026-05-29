@@ -75,13 +75,50 @@ public final class AuthClient {
     public Session mfaVerify(MFAVerifyRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
-        body.put("challenge_token", req.challengeToken());
+        // Wire field is "mfa_challenge_token" (server MFAVerifyRequest required:
+        // [mfa_challenge_token, code]). Go (sdk/go/auth.go) and TS
+        // (sdk/ts/src/auth.ts) send the same key.
+        body.put("mfa_challenge_token", req.challengeToken());
         body.put("code", req.code());
         body.put("method", req.method() == null ? "totp" : req.method());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/verify").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, Session.class);
+    }
+
+    /**
+     * SPEC §X.4 — partner OTP single-factor login. Wraps {@code POST
+     * /auth/login} with {@code method=otp_internal}; {@code identifier} is an
+     * E.164 phone or email the server resolves to a tenant-scoped user,
+     * {@code presented} is the manager-issued OTP value the user typed.
+     * Realm precondition: {@code otp_login_enabled = true}. Mirrors Go's
+     * {@code Auth.OTPLogin} / TS's {@code auth.otpLogin}.
+     */
+    public Session otpLogin(OtpLoginRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("realm_id", realmId);
+        body.put("method", "otp_internal");
+        body.put("identifier", req.identifier());
+        body.put("presented", req.presented());
+        if (req.tenantId() != null && !req.tenantId().isEmpty()) body.put("tenant_id", req.tenantId());
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
+        attachOrigin(r, req.origin());
+        JsonNode raw = http.request(r);
+        return http.mapper().convertValue(raw, Session.class);
+    }
+
+    /**
+     * SPEC §X.5 — partner OTP second-factor verify. Thin wrapper over
+     * {@link #mfaVerify(MFAVerifyRequest)} with {@code method=otp_internal}
+     * pre-set; the {@code mfaToken} comes from a prior {@code /auth/login}
+     * response that advertised {@code "otp_internal"} in {@code methods[]}.
+     * Realm precondition: {@code otp_mfa_enabled = true} and the user is
+     * enrolled in {@code otp_internal}. Mirrors Go's {@code Auth.MFAVerifyOTP}
+     * / TS's {@code auth.mfaVerifyOtp}.
+     */
+    public Session mfaVerifyOtp(MfaVerifyOtpRequest req) {
+        return mfaVerify(new MFAVerifyRequest(req.mfaToken(), req.presented(), "otp_internal", req.origin()));
     }
 
     /** SPEC §4.4. */

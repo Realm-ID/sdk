@@ -10,6 +10,7 @@ import dev.realmid.sdk.info.RealmInfo;
 import dev.realmid.sdk.info.RealmInfoClient;
 import dev.realmid.sdk.middleware.MiddlewareConfig;
 import dev.realmid.sdk.origins.OriginsClient;
+import dev.realmid.sdk.otp.OtpClient;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.roles.RolesClient;
@@ -38,6 +39,7 @@ public final class Realm {
     private final HttpTransport http;
     private final Verifier verifier;
     private final AuthClient auth;
+    private final OtpClient otp;
     private final TenantsClient tenants;
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
@@ -84,6 +86,7 @@ public final class Realm {
                 httpClient, mapper,
                 b.cacheTtl, b.leeway, clock, this.logger);
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin);
+        this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http);
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
@@ -107,6 +110,8 @@ public final class Realm {
     }
 
     public AuthClient auth() { return auth; }
+    /** SPEC §X — partner OTP primitive (issue / view / verify). */
+    public OtpClient otp() { return otp; }
     public TenantsClient tenants() { return tenants; }
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }

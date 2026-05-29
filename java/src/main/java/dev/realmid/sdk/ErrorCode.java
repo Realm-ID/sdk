@@ -38,6 +38,14 @@ public enum ErrorCode {
      */
     REFRESH_INVALID("refresh_invalid"),
 
+    // partner OTP primitive (SPEC §X)
+    INVALID_OTP("invalid_otp"),
+    OTP_EXPIRED("otp_expired"),
+    OTP_LOCKED("otp_locked"),
+    OTP_NOT_FOUND("otp_not_found"),
+    INVALID_PURPOSE("invalid_purpose"),
+    INVALID_SUBJECT_REF("invalid_subject_ref"),
+
     // management / generic
     UNAUTHORIZED("unauthorized"),
     FORBIDDEN("forbidden"),

@@ -116,6 +116,67 @@ class AuthClientTest {
         assertEquals("ok", r.get("status"));
     }
 
+    @Test
+    void mfaVerifySendsMfaChallengeTokenWireField() {
+        AtomicReference<Map<String, Object>> seen = new AtomicReference<>();
+        fs.on("POST /auth/mfa/verify", (ex, body) -> {
+            seen.set(fs.last().bodyAsMap());
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-mfa", "refresh_token", "rt-mfa",
+                    "expires_in", 600, "tenants", java.util.List.of()));
+        });
+        Session s = realm.auth().mfaVerify(new MFAVerifyRequest("ch-token-abc", "123456", "totp", null));
+        assertEquals("at-mfa", s.accessToken());
+        // Issuer requires "mfa_challenge_token" (MFAVerifyRequest required:
+        // [mfa_challenge_token, code]); the legacy "challenge_token" must NOT
+        // be sent.
+        assertEquals("ch-token-abc", seen.get().get("mfa_challenge_token"));
+        assertFalse(seen.get().containsKey("challenge_token"));
+        assertEquals("123456", seen.get().get("code"));
+        assertEquals("totp", seen.get().get("method"));
+    }
+
+    // ---- Partner OTP login / verify (SPEC §X.4 / §X.5) ----
+
+    @Test
+    void otpLoginSendsMethodOtpInternalWithIdentifierAndPresented() {
+        AtomicReference<Map<String, Object>> seen = new AtomicReference<>();
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            seen.set(b);
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-otp", "refresh_token", "rt-otp",
+                    "expires_in", 900, "user", Map.of("id", "u-bob"),
+                    "tenants", java.util.List.of()));
+        });
+        Session s = realm.auth().otpLogin(OtpLoginRequest.of("+15551234567", "123456"));
+        assertEquals("at-otp", s.accessToken());
+        assertEquals("otp_internal", seen.get().get("method"));
+        assertEquals("+15551234567", seen.get().get("identifier"));
+        assertEquals("123456", seen.get().get("presented"));
+    }
+
+    @Test
+    void mfaVerifyOtpRoutesThroughMfaVerifyWithOtpInternal() {
+        AtomicReference<Map<String, Object>> seen = new AtomicReference<>();
+        fs.on("POST /auth/mfa/verify", (ex, body) -> {
+            seen.set(fs.last().bodyAsMap());
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-otp2", "refresh_token", "rt-otp2",
+                    "expires_in", 900, "tenants", java.util.List.of()));
+        });
+        Session s = realm.auth().mfaVerifyOtp(MfaVerifyOtpRequest.of("ch-9", "654321"));
+        assertEquals("at-otp2", s.accessToken());
+        assertEquals("otp_internal", seen.get().get("method"));
+        assertEquals("ch-9", seen.get().get("mfa_challenge_token"));
+        assertEquals("654321", seen.get().get("code"));
+    }
+
     // ---- Self-service MFA (feature 1) ----
 
     @Test
