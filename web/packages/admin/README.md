@@ -35,13 +35,17 @@ const note = await admin.notes.create("plt_42", "investigated");
 | `tenants` / `roles` / `domains` / `admin` | `@realmid/sdk/internal` | passthrough (`/api/...`) |
 | `apiKeys`             | this package                          | passthrough         |
 | `platforms`           | this package                          | passthrough         |
-| `notes` / `signingKeys` | this package                        | BFF-direct (`/admin/...`) |
+| `notes` / `signingKeys` | this package                        | passthrough (`/api/admin/...` → issuer) |
 | `bff`                 | this package                          | BFF-direct (`/home`, `/tenants/{id}/full`) |
-| `sessions`            | this package                          | BFF-direct (`/auth/sessions`) |
+| `sessions`            | this package                          | passthrough (`/api/auth/sessions` → issuer) |
 | `me`                  | this package                          | BFF-direct (`/me`, `/identity-providers`) |
 
 The transport shim auto-detects BFF-direct paths by leading segment;
-everything else gets the `/api` passthrough prefix.
+everything else gets the `/api` passthrough prefix. **Only paths the BFF
+registers as typed routes (`api/cmd/bff/main.go`) are BFF-direct** —
+`/admin/*` and the authed `/auth/sessions` surface are *issuer* routes
+and MUST transit `/api` (the BFF registers neither). Routing them
+BFF-direct 404s; this was the v0.4.0 fix.
 
 ## Why a separate package
 

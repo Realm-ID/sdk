@@ -11,3 +11,21 @@
 - [ ] **`@realmid/web` publish/tag status** (a partner preflight item 4) — packages are at `0.4.0` in the monorepo but the latest `web-*` git tag is `web-v0.3.0`, so `0.4.0` looks uncut/unpublished. Confirm npm publish + cut the matching tag; document the BFF-fronted SPA combo (`@realmid/web` + `@realmid/web-firebase` (+ `@realmid/web-react`)).
 - [x] **`@realmid/web-admin` version bump + re-vendor** (DONE 2026-05-28) — the api-key `apiKeys.{list,create,revoke}` methods were added and the UI's vendored tarball (`ui/web/vendor/realmid-web-admin-0.2.0.tgz`) was repacked **without** bumping the package version, so `0.2.0` now ships two different public APIs. Bump `sdk/web/packages/admin` → `0.3.0`, re-pack honoring the repack gotcha (`sdk/CLAUDE.md`: copy fresh `sdk/ts/dist` into the bundled `@realmid/sdk` before `npm pack`), re-vendor as `realmid-web-admin-0.3.0.tgz`, and point `ui/web/package.json` at it. UI build is currently green against the repacked 0.2.0 tarball; this is hygiene, not a functional break.
 - [ ] Remaining HTTP→SDK surface gaps (lower priority, partner-facing): `GET /me` caller identity; tenant domain delete (`DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`); realm origin bind/detach (`POST` / `DELETE /platforms/{id}/origins[/{id}]`). Operator/base-realm surfaces (platform create/rename, `/admin/*` suspend/rotate/notes) are intentionally out of the partner SDK.
+
+## Cross-language drift found in review (2026-05-29)
+
+The "`java-v0.10.0` restored to v0.8.0 lockstep" claim above is **overstated** — Java has two unrecorded defects:
+
+- [ ] **P0 — Java MFA-verify is wire-broken.** `java/.../auth/AuthClient.java:78` sends `body.put("challenge_token", …)`; the issuer requires `mfa_challenge_token` (swagger.yaml:604-606, `MFAVerifyRequest required: [mfa_challenge_token, code]`). Go (`auth.go:407`) and TS (`auth.ts:302`) send it correctly. **Every Java `mfaVerify` call 400s against a live issuer.** SPEC §4.3 warns about exactly this field name. Add an `AuthClientTest` MFA-verify case asserting the body key (none exists — that's why it wasn't caught).
+- [ ] **Java has no OTP surface at all.** Go (`go/otp.go` + `Auth.OTPLogin`/`MFAVerifyOTP`) and TS (`ts/src/otp.ts` + `auth.otpLogin`/`mfaVerifyOtp`) implement SPEC §X (lines 1120-1182); Java has no `otp/` package, no `OTPClient`, no `realm.otp`, no `otpLogin`/`mfaVerifyOtp`, and **none of the 6 OTP `ErrorCode`s** (`invalid_otp`, `otp_expired`, `otp_locked`, `otp_not_found`, `invalid_purpose`, `invalid_subject_ref`) — so a Java caller can't even branch on OTP failures. Largest drift in the monorepo.
+
+### SPEC-vs-code reconciliation (consistent across all 3 langs — divergence, not drift)
+- [ ] **`subjectType` missing from `token()` response** — SPEC §4.2 (lines 269-271) lists it; none of Go `MintResult`, TS `TokenResponse`, Java `TokenResponse` carry it. Add to all three or strike from SPEC.
+- [ ] **Token manager contradicts SPEC §4.2.1's defense-in-depth claim** — SPEC says the manager talks to `/auth/token` directly on its own refresh token "not handed the platform API key," but all three managers call `auth.token()`, which attaches the platform bearer. Decide: bypass the platform bearer, or update the SPEC wording.
+- [ ] **`realm_mismatch` is TS-only** — `ts/errors.ts:28` defines it (used by `platform-token-manager.ts:254`) but it's absent from SPEC §3.1, Go, and Java, and even missing from TS's own `KNOWN_CODES` set (so `isKnownCode("realm_mismatch")` is false). Spec it + add to all langs, or remove.
+- [ ] **Re-stamp `SPEC.md` version** — header says v0.8.0 but shipped tags are ahead (`ts/v0.13.0`, `go/v0.15.0`, `java-v0.10.0`) with contact-model + audit-feed + IdP-config surfaces past v0.8.0. Per CLAUDE.md "spec is law" the header should track the implemented surface; add a per-language tag matrix.
+
+### Versioning / publish hygiene
+- [ ] **`@realmid/web*` 0.4.0 is uncut** — core + adapters at `0.4.0` but latest git tag is `web-v0.3.0`. Cut the tags (or roll back to 0.3.0 if unpublished).
+- [ ] **`go/README.md:24,89` also references stale `realmid.NewVerifier(...)`** — an additional site beyond the `quickstart.md`/`integration-guide.md` already noted above (Go has no exported `NewVerifier`; verification is `realm.Verify`).
+- [ ] **Web adapters `firebase/`, `google/`, `react/` have zero tests.** Backfill.

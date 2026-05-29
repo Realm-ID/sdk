@@ -6,10 +6,17 @@
  * a single-method shim is enough. The shim:
  *
  *   - prefixes paths with `/api` (default) so requests route through the
- *     BFF's passthrough to `auth.realmid.dev`; "typed BFF" paths
- *     (`/home`, `/tenants/{id}/full`, `/admin/...`, `/me`,
- *     `/auth/sessions`, `/identity-providers`, plus anything the caller
- *     opts in via the `x-realmid-via: bff` header) hit the BFF directly.
+ *     BFF's passthrough to `auth.realmid.dev`; only paths the BFF actually
+ *     registers as *typed* routes (`/home`, `/tenants/{id}/full`, `/me`,
+ *     `/identity-providers`, `/sessions` — the pre-login revocation-token
+ *     flow, plus anything the caller opts in via the `x-realmid-via: bff`
+ *     header) hit the BFF directly. NOTE: `/admin/...` and the authed
+ *     `/auth/sessions` surface are **issuer** routes, NOT BFF typed routes
+ *     — they MUST go through the `/api` passthrough (the BFF registers
+ *     neither; treating them as BFF-direct 404s). See
+ *     `api/cmd/bff/main.go` for the authoritative BFF route list and
+ *     `issuer/internal/httpapi/routes.go` for the `/admin/*` +
+ *     `/auth/sessions` surface reached via passthrough.
  *   - delegates the actual `fetch` to `realm.fetch`, so the SDK's
  *     Authorization-attach, refresh-on-401, and multi-tab logout sync
  *     still apply.
@@ -33,12 +40,15 @@ import type { RequestOptions } from "@realmid/sdk/internal";
  *  bypasses the `/api` prefix and routes to the BFF's typed routes. */
 const VIA_HEADER = "x-realmid-via";
 
-/** Path prefixes that always hit BFF-direct (no `/api`). */
+/**
+ * Path prefixes that hit BFF-direct (no `/api`). Must match EXACTLY the
+ * typed routes registered in `api/cmd/bff/main.go`. Everything else —
+ * including `/admin/*` and the authed `/auth/sessions` surface, which are
+ * issuer routes — falls through to the `/api` passthrough.
+ */
 const BFF_DIRECT_PREFIXES: readonly string[] = [
   "/home",
   "/me",
-  "/admin/",
-  "/auth/sessions",
   "/identity-providers",
   "/sessions",
 ];

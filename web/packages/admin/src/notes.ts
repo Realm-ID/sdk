@@ -1,8 +1,9 @@
 /**
- * Platform notes — append-only ops notes routed through the BFF's typed
- * `/admin/platforms/{id}/notes` surface (not `/platforms/...`). The path
- * matches `ui/web/src/api.ts:1158-1176`; the leading `/admin/` lives in
- * the BFF's typed routes so the shim auto-detects this as BFF-direct.
+ * Platform notes — append-only ops notes on the **issuer**'s
+ * `/admin/platforms/{id}/notes` surface (`issuer/internal/httpapi/routes.go:155-156`),
+ * reached via the BFF `/api` passthrough. The leading `/admin/` is an
+ * issuer route, NOT a BFF typed route, so the transport shim routes it
+ * through `/api` (it is intentionally absent from `BFF_DIRECT_PREFIXES`).
  */
 
 import type { HttpLike } from "./transport.js";

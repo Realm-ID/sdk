@@ -1,7 +1,10 @@
 /**
- * Signing-key rotation + suspend/unsuspend — ops-only BFF-direct routes
+ * Signing-key rotation + suspend/unsuspend — ops-only **issuer** routes
  * at `/admin/platforms/{id}/signing-keys/rotate`, `/suspend`,
- * `/unsuspend`. See `ui/web/src/api.ts:1178-1207`.
+ * `/unsuspend` (`issuer/internal/httpapi/routes.go:157-159`), reached via
+ * the BFF `/api` passthrough (the BFF registers no typed `/admin/*`
+ * route). Authz is the session user's base-realm-staff role, carried by
+ * the passthrough's `X-On-Behalf-Of-User`.
  */
 
 import type { HttpLike } from "./transport.js";

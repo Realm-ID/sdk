@@ -1,7 +1,12 @@
 /**
  * In-app sessions admin — post-login revocation surface. Bears the
- * current session token (auto-attached by `realm.fetch`) and routes
- * via the BFF's `/auth/sessions` typed pathway.
+ * current session token (auto-attached by `realm.fetch`) and routes via
+ * the BFF `/api` passthrough to the **issuer**'s authed `/auth/sessions`
+ * surface (`issuer/internal/httpapi/routes.go:55-57`); the passthrough
+ * attaches the platform token + `X-On-Behalf-Of-User`. `/auth/sessions`
+ * is NOT a BFF typed route (the BFF's typed `/sessions` is the separate
+ * pre-login revocation-token flow), so it is intentionally absent from
+ * `BFF_DIRECT_PREFIXES` and must transit `/api`.
  *
  * NOTE: this is distinct from the pre-login revocation_token flow that
  * lives in `ui/web/src/api.ts` (session-limit modal); that one bears a

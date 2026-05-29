@@ -59,6 +59,42 @@ describe("realmFetchAsHttpClient", () => {
     assert.equal(calls[0]!.url, "https://api.partner.com/tenants/abc/full");
   });
 
+  it("/admin/* is NOT BFF-direct — routes through /api passthrough to the issuer", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: { platforms: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "POST", path: "/admin/platforms/p1/signing-keys/rotate" });
+    assert.equal(calls[0]!.url, "https://api.partner.com/api/admin/platforms/p1/signing-keys/rotate");
+  });
+
+  it("/auth/sessions is NOT BFF-direct — routes through /api to the issuer's authed surface", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: { items: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "GET", path: "/auth/sessions" });
+    assert.equal(calls[0]!.url, "https://api.partner.com/api/auth/sessions");
+  });
+
+  it("BFF-direct (/sessions) — the pre-login revocation-token flow — bypasses /api", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: { items: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "GET", path: "/sessions" });
+    assert.equal(calls[0]!.url, "https://api.partner.com/sessions");
+  });
+
   it("unwraps a single { data: T } success envelope", async () => {
     const { realm } = makeRealm(() =>
       new Response(JSON.stringify({ data: { id: "t_1", name: "x" } }), {
