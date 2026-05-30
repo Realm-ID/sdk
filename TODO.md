@@ -12,12 +12,14 @@
 - [x] **`@realmid/web-admin` version bump + re-vendor** (DONE 2026-05-28) — the api-key `apiKeys.{list,create,revoke}` methods were added and the UI's vendored tarball (`ui/web/vendor/realmid-web-admin-0.2.0.tgz`) was repacked **without** bumping the package version, so `0.2.0` now ships two different public APIs. Bump `sdk/web/packages/admin` → `0.3.0`, re-pack honoring the repack gotcha (`sdk/CLAUDE.md`: copy fresh `sdk/ts/dist` into the bundled `@realmid/sdk` before `npm pack`), re-vendor as `realmid-web-admin-0.3.0.tgz`, and point `ui/web/package.json` at it. UI build is currently green against the repacked 0.2.0 tarball; this is hygiene, not a functional break.
 - [ ] Remaining HTTP→SDK surface gaps (lower priority, partner-facing): `GET /me` caller identity; tenant domain delete (`DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`); realm origin bind/detach (`POST` / `DELETE /platforms/{id}/origins[/{id}]`). Operator/base-realm surfaces (platform create/rename, `/admin/*` suspend/rotate/notes) are intentionally out of the partner SDK.
 
-## Cross-language drift found in review (2026-05-29)
+## Cross-language drift found in review (2026-05-29) — Java P0s RESOLVED 2026-05-30
 
-The "`java-v0.10.0` restored to v0.8.0 lockstep" claim above is **overstated** — Java has two unrecorded defects:
+The "`java-v0.10.0` restored to v0.8.0 lockstep" claim above had two
+unrecorded defects; both are now fixed in `27e9844` (`fix(java): correct
+MFA-verify wire field + add OTP surface parity`):
 
-- [ ] **P0 — Java MFA-verify is wire-broken.** `java/.../auth/AuthClient.java:78` sends `body.put("challenge_token", …)`; the issuer requires `mfa_challenge_token` (swagger.yaml:604-606, `MFAVerifyRequest required: [mfa_challenge_token, code]`). Go (`auth.go:407`) and TS (`auth.ts:302`) send it correctly. **Every Java `mfaVerify` call 400s against a live issuer.** SPEC §4.3 warns about exactly this field name. Add an `AuthClientTest` MFA-verify case asserting the body key (none exists — that's why it wasn't caught).
-- [ ] **Java has no OTP surface at all.** Go (`go/otp.go` + `Auth.OTPLogin`/`MFAVerifyOTP`) and TS (`ts/src/otp.ts` + `auth.otpLogin`/`mfaVerifyOtp`) implement SPEC §X (lines 1120-1182); Java has no `otp/` package, no `OTPClient`, no `realm.otp`, no `otpLogin`/`mfaVerifyOtp`, and **none of the 6 OTP `ErrorCode`s** (`invalid_otp`, `otp_expired`, `otp_locked`, `otp_not_found`, `invalid_purpose`, `invalid_subject_ref`) — so a Java caller can't even branch on OTP failures. Largest drift in the monorepo.
+- [x] **P0 — Java MFA-verify is wire-broken.** DONE. `AuthClient.java:81` now sends `mfa_challenge_token` (issuer requires it — swagger `MFAVerifyRequest required: [mfa_challenge_token, code]`). Regression test added: `AuthClientTest.java:120` `mfaVerifySendsMfaChallengeTokenWireField` captures the request body and asserts the key (and that legacy `challenge_token` is absent) — closing the "no test, that's why it wasn't caught" gap.
+- [x] **Java OTP surface.** DONE. Added the `otp/` package (`OtpClient` + `OtpIssue/Verify/View` DTOs), `auth().otpLogin(...)` (`method=otp_internal` login wrapper) + `auth().mfaVerifyOtp(...)` (`AuthClient.java:98,120`), and all 6 OTP `ErrorCode`s (`ErrorCode.java:42-47`). Tests: `AuthClientTest.java:142,165` + `OtpClientTest`. Now at parity with Go (`go/otp.go`) and TS (`ts/src/otp.ts`).
 
 ### SPEC-vs-code reconciliation (consistent across all 3 langs — divergence, not drift)
 - [ ] **`subjectType` missing from `token()` response** — SPEC §4.2 (lines 269-271) lists it; none of Go `MintResult`, TS `TokenResponse`, Java `TokenResponse` carry it. Add to all three or strike from SPEC.
