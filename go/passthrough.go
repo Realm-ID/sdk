@@ -30,10 +30,42 @@ type PassthroughOptions struct {
 	// auth server validates a one-shot revocation_token bearer.
 	UserBearer string
 
+	// OnBehalfOfUserToken, when non-empty, rides as `X-User-Token`
+	// ALONGSIDE the platform-token bearer (it does NOT replace it — that
+	// is UserBearer's job). It is the user's verified access JWT, so the
+	// issuer authorizes a *verified* principal instead of trusting the
+	// bare OnBehalfOfUser id (ADR-056). When set, prefer omitting
+	// OnBehalfOfUser: the issuer prefers the verified token and rejects a
+	// present-but-invalid one rather than downgrading to the bare id. If
+	// empty, Do falls back to any token stashed via WithUserToken(ctx,…).
+	OnBehalfOfUserToken string
+
 	// Header carries any additional request headers to forward
 	// verbatim (e.g. `Idempotency-Key`). Authorization is always
 	// overwritten; do not set it here.
 	Header http.Header
+}
+
+// userTokenKey is the typed context key carrying the verified user access
+// JWT into Do() / typed methods, so callers need not thread
+// PassthroughOptions through every call site.
+type userTokenKey struct{}
+
+// WithUserToken returns a copy of ctx carrying the user's verified access
+// JWT. The SDK forwards it as `X-User-Token` on passthrough requests (see
+// PassthroughOptions.OnBehalfOfUserToken). The SDK stores nothing — ctx is
+// request-scoped transport only; persistence + refresh stay the caller's
+// responsibility (ADR-056).
+func WithUserToken(ctx ctxpkg.Context, accessJWT string) ctxpkg.Context {
+	return ctxpkg.WithValue(ctx, userTokenKey{}, accessJWT)
+}
+
+// userTokenFrom extracts a user token stashed by WithUserToken. "" if absent.
+func userTokenFrom(ctx ctxpkg.Context) string {
+	if v, ok := ctx.Value(userTokenKey{}).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // Do issues an authenticated request to the realm's API and returns
@@ -66,6 +98,10 @@ func (r *Realm) Do(ctx ctxpkg.Context, method, path string, body io.Reader, opts
 	}
 
 	bearer := tok
+	// X-User-Token resolves from the explicit option first, then any token
+	// stashed on the ctx via WithUserToken (ADR-056). The platform token
+	// stays the wire bearer — this is additive, unlike UserBearer.
+	userToken := userTokenFrom(ctx)
 	if opts != nil {
 		for k, vs := range opts.Header {
 			for _, v := range vs {
@@ -78,9 +114,15 @@ func (r *Realm) Do(ctx ctxpkg.Context, method, path string, body io.Reader, opts
 		if opts.OnBehalfOfIP != "" {
 			req.Header.Set("X-On-Behalf-Of-IP", opts.OnBehalfOfIP)
 		}
+		if opts.OnBehalfOfUserToken != "" {
+			userToken = opts.OnBehalfOfUserToken
+		}
 		if opts.UserBearer != "" {
 			bearer = opts.UserBearer
 		}
+	}
+	if userToken != "" {
+		req.Header.Set("X-User-Token", userToken)
 	}
 	req.Header.Set("Authorization", "Bearer "+bearer)
 	if req.Header.Get("Accept") == "" {

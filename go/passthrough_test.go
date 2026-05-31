@@ -96,6 +96,66 @@ func TestRealm_Do_UserBearerOverride(t *testing.T) {
 	}
 }
 
+func TestRealm_Do_ForwardsUserTokenAdditive(t *testing.T) {
+	// ADR-056: X-User-Token rides ALONGSIDE the platform bearer (additive),
+	// unlike UserBearer which replaces it. Cover both the explicit option and
+	// the WithUserToken(ctx) fallback, and assert the bearer stays platform.
+	cases := []struct {
+		name string
+		call func(r *Realm) (*http.Response, error)
+	}{
+		{
+			name: "via_option",
+			call: func(r *Realm) (*http.Response, error) {
+				return r.Do(context.Background(), http.MethodGet, "/tenants/t1", nil,
+					&PassthroughOptions{OnBehalfOfUserToken: "user-access-jwt"})
+			},
+		},
+		{
+			name: "via_ctx_helper",
+			call: func(r *Realm) (*http.Response, error) {
+				ctx := WithUserToken(context.Background(), "user-access-jwt")
+				return r.Do(ctx, http.MethodGet, "/tenants/t1", nil, nil)
+			},
+		},
+		{
+			name: "option_overrides_ctx",
+			call: func(r *Realm) (*http.Response, error) {
+				ctx := WithUserToken(context.Background(), "ctx-token-ignored")
+				return r.Do(ctx, http.MethodGet, "/tenants/t1", nil,
+					&PassthroughOptions{OnBehalfOfUserToken: "user-access-jwt"})
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotAuth, gotUserTok string
+			srv := authTestServer(t, map[string]http.HandlerFunc{
+				"/tenants/t1": func(w http.ResponseWriter, r *http.Request) {
+					gotAuth = r.Header.Get("Authorization")
+					gotUserTok = r.Header.Get("X-User-Token")
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write([]byte(`{"id":"t1"}`))
+				},
+			})
+			defer srv.Close()
+
+			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			resp, err := tc.call(r)
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			resp.Body.Close()
+			if gotAuth != "Bearer ptok" {
+				t.Errorf("bearer must stay the platform token, got %q", gotAuth)
+			}
+			if gotUserTok != "user-access-jwt" {
+				t.Errorf("X-User-Token = %q, want user-access-jwt", gotUserTok)
+			}
+		})
+	}
+}
+
 func TestRealm_Do_Returns4xxResponseUnchanged(t *testing.T) {
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/tenants/missing": func(w http.ResponseWriter, _ *http.Request) {

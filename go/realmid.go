@@ -108,7 +108,13 @@ type Realm struct {
 	OTP *OTPClient
 }
 
-// Version is the published SDK version (semver). 0.11.0 is additive
+// Version is the published SDK version (semver). 0.16.0 is additive over
+// 0.15.0 (the token-manager round): PassthroughOptions.OnBehalfOfUserToken
+// + WithUserToken(ctx) forward the user's verified access JWT as
+// X-User-Token alongside the platform bearer (ADR-056, SPEC v0.9.0). NOTE:
+// the const skipped 0.15.0 — the token-manager round (CHANGELOG
+// "go-v0.15.0", 2026-05-28) bumped the changelog but not this const; fixed
+// forward here. 0.11.0 is additive
 // over 0.10.0: surface helpers (IsUnauthorized, IsTimeout,
 // AsRealmError, HTTPStatus), Session.NeedsTenantChoice +
 // Session.SelectTenant, and a typed Realm.IdentityProviders. 0.10.0
@@ -120,7 +126,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.14.0"
+const Version = "0.16.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

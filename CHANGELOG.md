@@ -5,6 +5,36 @@ All notable changes to the Realm ID SDK monorepo. Each SDK
 tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
 
+## Go — verified on-behalf-of via `X-User-Token` (2026-05-31)
+
+`go-v0.16.0`. Additive on the wire. SPEC bumped to **v0.9.0**. **Go-only**
+this round — the passthrough (`Realm.Do` / `PassthroughOptions`) is the Go
+BFF/proxy escape hatch and the only server-side consumer; browser SDKs never
+forward `X-User-Token` (they reach the BFF over `rsid_`), and TS/Java inherit
+it through the existing on-behalf parity gap (`sdk/TODO.md`) — no speculative
+lockstep.
+
+### Added
+
+- **`PassthroughOptions.OnBehalfOfUserToken`** (ADR-056) — forwards the
+  user's verified access JWT as `X-User-Token` **alongside** the platform
+  bearer (additive; unlike `UserBearer`, which replaces it). The issuer then
+  authorizes a cryptographically verified principal instead of trusting the
+  spoofable `X-On-Behalf-Of-User` id. A BFF holding a user JWT SHOULD send
+  only the token (omit the bare id): the issuer prefers the token and rejects
+  (`x_user_token_invalid`, no downgrade) a present-but-invalid one. Requires
+  issuer with the ADR-056 prefer-verified order.
+- **`WithUserToken(ctx, accessJWT)`** — idiomatic ctx helper so callers need
+  not thread the option through every passthrough call; `Realm.Do` reads it
+  when `OnBehalfOfUserToken` is unset. The SDK stores nothing — ctx is
+  request-scoped transport; persistence + refresh stay the app's job.
+
+### Note
+
+- The `Version` const skipped `0.15.0`: the 2026-05-28 token-manager round
+  below bumped the CHANGELOG to `go-v0.15.0` but left the const at `0.14.0`.
+  This release fixes that forward (const → `0.16.0`).
+
 ## Java — v0.8.0 parity + ADR-051 migration (2026-05-28)
 
 `java-v0.10.0` closes the lockstep gap left by the Go + TS round below.

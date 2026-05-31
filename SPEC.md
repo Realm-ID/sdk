@@ -1,4 +1,16 @@
-# Realm ID SDK — cross-language specification (v0.8.0)
+# Realm ID SDK — cross-language specification (v0.9.0)
+
+## v0.9.0 — verified on-behalf-of via `X-User-Token` (additive, ADR-056)
+
+Additive (non-breaking on the wire). Documents the verified on-behalf-of
+variant: a BFF holding the user's access JWT forwards it as `X-User-Token`
+alongside the platform bearer, so the issuer authorizes a cryptographically
+verified principal instead of a spoofable `X-On-Behalf-Of-User` id. The
+issuer prefers the token and rejects (no downgrade) a present-but-invalid
+one. Server-side only — the **Go** SDK exposes it now
+(`PassthroughOptions.OnBehalfOfUserToken` + `WithUserToken`); TS/Java inherit
+it through the existing on-behalf parity gap. See §4.10's "Verified
+on-behalf-of" note.
 
 ## v0.8.0 — token manager + refresh_invalid + api-key DTO (additive)
 
@@ -416,6 +428,25 @@ current user with the same bearer model as §4.5–4.7.
 > current-user methods (consistent with its existing `revokeSession` /
 > `listSessions`); BFF on-behalf-of parity for the TS session/MFA
 > surface is tracked in `TODO.md`.
+
+> **Verified on-behalf-of (`X-User-Token`, ADR-056):** the bare
+> `X-On-Behalf-Of-User` id is *asserted* — any platform-token holder can
+> name any in-realm user. A BFF that holds the user's access JWT SHOULD
+> instead forward it as `X-User-Token` **alongside** the platform bearer
+> (not replacing it — the platform token stays primary for ADR-041
+> defense-in-depth). The issuer then authorizes a **verified** principal
+> (signature + realm checked), with role/tenant re-fetched from the store
+> so a stale `role` claim is harmless. **Preference + no-downgrade rule:**
+> when `X-User-Token` is present the issuer uses it and **ignores** any
+> bare `X-On-Behalf-Of-User`; a present-but-invalid `X-User-Token` is
+> **rejected** (`x_user_token_invalid`) rather than downgraded to the bare
+> id. So a BFF holding a user JWT SHOULD send **only** `X-User-Token`
+> (omit the bare id). This is a **server-side** concern: the Go SDK
+> exposes it via `PassthroughOptions.OnBehalfOfUserToken` /
+> `WithUserToken(ctx, accessJWT)` on the `Realm.Do` passthrough; browser
+> SDKs never forward it (they reach the BFF over the `rsid_` cookie).
+> TS/Java inherit it through the existing on-behalf parity gap below — no
+> speculative lockstep.
 
 ## 5. Verifier surface (`realm.verify`)
 
