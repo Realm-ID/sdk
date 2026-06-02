@@ -30,7 +30,7 @@ import (
 //
 // The raw API key thus only ever travels on the initial /auth/login call.
 type sessionManager struct {
-	apiKey  string
+	cred    CredentialSource
 	realmID string
 	http    *httpClient
 	logger  *slog.Logger
@@ -56,12 +56,12 @@ type tokenCall struct {
 	err   error
 }
 
-func newSessionManager(apiKey, realmID string, http *httpClient, logger *slog.Logger, now func() time.Time) *sessionManager {
+func newSessionManager(cred CredentialSource, realmID string, http *httpClient, logger *slog.Logger, now func() time.Time) *sessionManager {
 	if now == nil {
 		now = time.Now
 	}
 	return &sessionManager{
-		apiKey:  apiKey,
+		cred:    cred,
 		realmID: realmID,
 		http:    http,
 		logger:  logger,
@@ -149,25 +149,44 @@ func (m *sessionManager) fetch(ctx ctxpkg.Context, refresh string) (string, erro
 	return m.login(ctx)
 }
 
-// login exchanges the raw API key for a refresh + access token via
-// POST /auth/login {grant_type:"platform_api_key"}.
+// login exchanges the bootstrap credential (a static API key or an ambient
+// workload OIDC token) for a refresh + access token via POST /auth/login.
+// The credential never travels on subsequent traffic — only here.
 func (m *sessionManager) login(ctx ctxpkg.Context) (string, error) {
-	if m.apiKey == "" {
-		return "", &RealmError{Code: ErrCodeUnauthorized, Message: "no API key configured for platform login"}
+	cred, err := m.cred.Fetch(ctx)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]any{"grant_type": cred.GrantType}
+	var redacted string
+	switch cred.GrantType {
+	case grantPlatformAPIKey:
+		if cred.APIKey == "" {
+			return "", &RealmError{Code: ErrCodeUnauthorized, Message: "credential source returned an empty API key"}
+		}
+		body["api_key"] = cred.APIKey
+		redacted = redactCredential(cred.APIKey)
+	case grantTokenExchange:
+		if cred.SubjectToken == "" {
+			return "", &RealmError{Code: ErrCodeUnauthorized, Message: "credential source returned an empty workload token"}
+		}
+		body["subject_token"] = cred.SubjectToken
+		body["subject_token_type"] = subjectTokenTypeJWT
+		redacted = redactCredential(cred.SubjectToken)
+	default:
+		return "", &RealmError{Code: ErrCodeBadRequest, Message: "unsupported credential grant_type: " + cred.GrantType}
 	}
 	m.logger.Info("realmid session: platform login",
 		slog.String("realm_id", m.realmID),
-		slog.String("api_key", redactCredential(m.apiKey)),
+		slog.String("grant_type", cred.GrantType),
+		slog.String("credential", redacted),
 	)
 
 	var resp loginResponse
-	err := m.http.do(ctx, requestOptions{
+	err = m.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/login",
-		Body: map[string]any{
-			"grant_type": "platform_api_key",
-			"api_key":    m.apiKey,
-		},
+		Body:   body,
 	}, &resp)
 	if err != nil {
 		return "", err

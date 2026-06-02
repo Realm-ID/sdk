@@ -1,4 +1,20 @@
-# Realm ID SDK — cross-language specification (v0.9.0)
+# Realm ID SDK — cross-language specification (v0.10.0)
+
+## v0.10.0 — workload identity federation (token-exchange grant, additive, ADR-057)
+
+Additive (non-breaking on the wire). Adds a sixth `/auth/login` grant —
+`urn:ietf:params:oauth:grant-type:token-exchange` — letting a partner
+workload authenticate with its **ambient** cloud OIDC token (GCP Cloud
+Run/GKE/GCE or GitHub Actions) instead of a stored `rk_live_` API key.
+The workload token is treated as **≡ the API key**: a bootstrap
+credential presented once and exchanged for the *identical*
+`class="platform"` session — below the exchange line everything is the
+same as the API-key path. SDKs gain a pluggable **`CredentialSource`**
+(the static API key becomes one implementation; the ambient-token
+providers are the others) plus a zero-config auto-detecting default.
+Trust is configured RI-side per platform via `federation_bindings`; the
+SDK carries **no secret**. Go ships first; TS/Java follow in lockstep.
+See §4.0.1.
 
 ## v0.9.0 — verified on-behalf-of via `X-User-Token` (additive, ADR-056)
 
@@ -182,7 +198,7 @@ POST /auth/login   credentials → refresh token (+ access if resolved)
 POST /auth/token   refresh token → rotated refresh + access pair
 ```
 
-`/auth/login` accepts a `grant_type` discriminator. Five values:
+`/auth/login` accepts a `grant_type` discriminator. Six values:
 
 | `grant_type`       | Inbound bearer        | Subject minted | Used by SDK for |
 | ---                | ---                   | ---            | --- |
@@ -191,6 +207,7 @@ POST /auth/token   refresh token → rotated refresh + access pair
 | `otp_internal`     | platform access JWT   | `user`         | `auth.otpLogin(...)` |
 | `api_key`          | none (raw key in body) | `service`     | (server-only today) |
 | `platform_api_key` | none (raw key in body) | `platform`    | the SDK's platform-session bootstrap |
+| `urn:ietf:params:oauth:grant-type:token-exchange` | none (workload OIDC JWT in body) | `platform` | the SDK's zero-config workload bootstrap (§4.0.1) |
 
 Login is a **two-step exchange** internal to the SDK; partners see one
 call. The raw API key is **never** sent on user-login traffic. The SDK
@@ -225,6 +242,79 @@ past the platform access token's TTL.
 > and `POST /auth/platform-token` endpoints are gone. SDK 0.10+ does
 > not call them; older SDKs will fail loudly against an api `v0.7.0`+
 > server.
+
+### 4.0.1 Workload identity federation (token-exchange grant, ADR-057)
+
+A partner workload running with an **ambient** cloud identity (a GCP
+Cloud Run/GKE/GCE service account or a GitHub Actions workflow) can mint
+a short-lived OIDC token on demand and present it **in place of** a
+stored API key. The token is a bootstrap credential equivalent to the
+API key: it is exchanged once at `POST /auth/login` for the *identical*
+`class="platform"` session, and never re-sent on subsequent traffic
+(the SDK rides the platform access token exactly as it does for the
+API-key path).
+
+**Wire — the exchange (step 1 substitute for `platform_api_key`):**
+
+```text
+POST /auth/login
+{
+  "grant_type":         "urn:ietf:params:oauth:grant-type:token-exchange",
+  "subject_token":      "<workload OIDC JWT>",
+  "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
+}
+→ { status, subject_type: "platform", refresh_token, access_token, expires_in }
+```
+
+The response shape is identical to the `platform_api_key` exchange;
+steps 2 (user-session mint) and 3 (refresh) are unchanged.
+
+**`CredentialSource` (SDK).** The per-handle session manager's credential
+is generalized from a fixed API-key string to a `CredentialSource` that
+yields a fresh credential at login time:
+
+- `StaticAPIKey(key)` — today's behavior; emits `{ grant_type:
+  "platform_api_key", api_key }`. Selected when `APIKey` is configured.
+- `GoogleWorkloadIdentity` — fetches an ID token from the GCP metadata
+  server.
+- `GitHubActionsOIDC` — fetches a token from `ACTIONS_ID_TOKEN_REQUEST_URL`.
+- **auto-detect** (the zero-config default when no `APIKey`/explicit
+  source is set): probe GCP metadata, then GitHub Actions, in that
+  deterministic precedence. Each workload source emits `{ grant_type:
+  "...token-exchange", subject_token: <fresh OIDC JWT> }`.
+
+The OIDC token is fetched only on initial login + refresh-death and
+cached until ~its `exp`; it is never sent per request. `RealmID` stays
+required and continues to power the client-side realm-pin (§4.0, ADR-041)
+— it is identity, not a secret.
+
+**Audience.** A zero-config SDK bakes the requested `aud` in, so it is a
+single well-known global constant (the RI public API origin), not
+per-platform. This is safe because the **tenant boundary is the binding's
+claim-allowlist, not `aud`** (see below); `aud` only blocks cross-RP
+replay.
+
+**Trust binding (RI-side, no SDK config).** The platform owner registers,
+per source, a `federation_binding` describing *where their workload runs*
+via `POST /platforms/{id}/federation-bindings` (admin-gated, §6). A
+binding pins `issuer` + `audience` + a `match_claims` allowlist (AND
+semantics) → mapped role/scope. v1 issuers are RI-known and RI-pinned
+(GCP `accounts.google.com`; GitHub `token.actions.githubusercontent.com`)
+so the partner never supplies a JWKS URL. A binding **must** constrain at
+least the provider's mandatory claim — GCP `sub` (the SA's immutable
+numeric `uniqueId`, never the reassignable email); GitHub `repository` —
+and the `(issuer, match_claims)` tuple must be unambiguous.
+
+**Security / replay.** The issuer verifies the assertion against the
+RI-pinned JWKS (RS256, `exp`/`nbf`), enforces `aud` == the binding's
+audience, rejects assertions whose `iat` is older than ~5 min (30 s
+leeway), and rejects **reuse** via a one-time-use cache keyed on the
+assertion's identity (its `jti` when present — GitHub — else a hash of
+the raw assertion — GCP Google ID tokens carry no `jti`). The SDK mints a
+fresh token at exchange time, so freshness never bites a real caller.
+Federation is **additive** — `platform_api_key` is unchanged and not
+deprecated — and **issuer-direct** (the exchange hits `auth.realmid.dev`
+directly; the BFF is not in the path).
 
 ### 4.1 `login(req)`
 

@@ -235,8 +235,18 @@ func TestNewRealm_Validation(t *testing.T) {
 	if _, err := NewRealm(Config{APIKey: "x"}); err == nil {
 		t.Fatal("expected error for missing RealmID")
 	}
-	if _, err := NewRealm(Config{RealmID: "x"}); err == nil {
-		t.Fatal("expected error for missing APIKey")
+	// ADR-057: APIKey is no longer required — with neither APIKey nor
+	// Credential, the SDK falls back to ambient workload-identity auto-detect
+	// (the credential is only fetched lazily at first login, so construction
+	// must succeed here).
+	if _, err := NewRealm(Config{RealmID: "x"}); err != nil {
+		t.Fatalf("RealmID-only config should construct (auto-detect credential), got %v", err)
+	}
+	if _, err := NewRealm(Config{RealmID: "x", APIKey: "rk_live_x"}); err != nil {
+		t.Fatalf("APIKey config should construct, got %v", err)
+	}
+	if _, err := NewRealm(Config{RealmID: "x", Credential: GitHubActionsOIDC("", nil)}); err != nil {
+		t.Fatalf("explicit Credential config should construct, got %v", err)
 	}
 }
 

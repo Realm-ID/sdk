@@ -38,10 +38,19 @@ type Config struct {
 	// RealmID — required. Your realm's UUID-ish identifier.
 	RealmID string
 
-	// APIKey — required. The realm's API key (rk_live_...). Never sent
-	// over login traffic; the SDK exchanges it once for a short-lived
-	// platform token (SPEC §4.0).
+	// APIKey — the realm's API key (rk_live_...). Never sent over login
+	// traffic; the SDK exchanges it once for a short-lived platform token
+	// (SPEC §4.0). Sugar for Credential = StaticAPIKey(APIKey). Optional when
+	// Credential is set or when an ambient workload identity is available
+	// (ADR-057); required otherwise.
 	APIKey string
+
+	// Credential overrides how the SDK bootstraps its platform session
+	// (ADR-057). Leave nil to use APIKey, or, when APIKey is also empty, to
+	// auto-detect an ambient workload identity (GCP / GitHub Actions). Set
+	// explicitly via StaticAPIKey / GoogleWorkloadIdentity / GitHubActionsOIDC
+	// to pin the source.
+	Credential CredentialSource
 
 	// BaseURL overrides the issuer host. Default: DefaultBaseURL.
 	BaseURL string
@@ -99,8 +108,8 @@ type Realm struct {
 	// Realm.IdentityProviders SPA discovery method).
 	IdentityProviderConfig *IdentityProviderConfigClient
 	Origins                *OriginsClient
-	Tokens  *TokensClient
-	Admin   *AdminClient
+	Tokens                 *TokensClient
+	Admin                  *AdminClient
 	// AuditEvents exposes the partner audit-event feed (ADR-055).
 	AuditEvents *AuditEventsClient
 	// OTP exposes the partner OTP primitive (issue / view / verify) —
@@ -133,8 +142,16 @@ func NewRealm(cfg Config) (*Realm, error) {
 	if cfg.RealmID == "" {
 		return nil, errors.New("realmid: RealmID required")
 	}
-	if cfg.APIKey == "" {
-		return nil, errors.New("realmid: APIKey required")
+	// Resolve the bootstrap credential source (ADR-057): explicit Credential
+	// wins; else a static APIKey; else auto-detect an ambient workload
+	// identity (GCP / GitHub Actions).
+	cred := cfg.Credential
+	if cred == nil {
+		if cfg.APIKey != "" {
+			cred = StaticAPIKey(cfg.APIKey)
+		} else {
+			cred = autoDetectCredential(DefaultFederationAudience, cfg.HTTPClient)
+		}
 	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultBaseURL
@@ -151,7 +168,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 		logger:  cfg.Logger,
 	}
 	r.http = newHTTPClient(cfg.BaseURL, cfg.HTTPClient, cfg.Logger)
-	r.platformToken = newSessionManager(cfg.APIKey, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
+	r.platformToken = newSessionManager(cred, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
 	r.revocation = cfg.Revocation
 	r.info = &infoClient{realm: r}
 	r.verifier = newVerifier(r)
