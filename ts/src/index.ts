@@ -14,6 +14,14 @@
 
 export { createRealm } from "./realm.js";
 export type { Realm, RealmConfig } from "./realm.js";
+// Workload identity federation credential sources (ADR-057).
+export {
+  staticApiKey,
+  googleWorkloadIdentity,
+  githubActionsOidc,
+  DEFAULT_FEDERATION_AUDIENCE,
+} from "./credential.js";
+export type { CredentialSource, Credential } from "./credential.js";
 
 export { createVerifier, Verifier } from "./verifier.js";
 export type { VerifierConfig, VerifyOptions } from "./verifier.js";

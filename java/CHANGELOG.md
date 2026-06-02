@@ -4,6 +4,20 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.12.0 — workload identity federation (2026-06-02)
+
+Additive (non-breaking). Implements SPEC v0.10.0 §4.0.1 (ADR-057).
+
+### Added
+- `CredentialSource` + `Credential` and the `CredentialSources` factory
+  (`staticApiKey`, `googleWorkloadIdentity`, `githubActionsOidc`,
+  `autoDetect`) for the platform-session bootstrap.
+- `Realm.Builder.credential(...)` to pin a source explicitly.
+  `Builder.apiKey(...)` is now sugar for `staticApiKey` and **optional** —
+  when neither is set the SDK auto-detects an ambient workload identity
+  (GCP / GitHub Actions) and exchanges its OIDC token via
+  `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`.
+
 ## 0.11.0 — OTP surface parity + MFA-verify wire fix (2026-05-29)
 
 Closes the two cross-language drifts where Java trailed Go (`go-v0.15.0`)

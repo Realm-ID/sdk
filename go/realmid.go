@@ -117,7 +117,11 @@ type Realm struct {
 	OTP *OTPClient
 }
 
-// Version is the published SDK version (semver). 0.16.0 is additive over
+// Version is the published SDK version (semver). 0.17.0 is additive over
+// 0.16.0 (ADR-057, SPEC v0.10.0): the CredentialSource abstraction +
+// workload-identity-federation sources (StaticAPIKey, GoogleWorkloadIdentity,
+// GitHubActionsOIDC, zero-config auto-detect). APIKey config is now sugar for
+// StaticAPIKey and optional. 0.16.0 was additive over
 // 0.15.0 (the token-manager round): PassthroughOptions.OnBehalfOfUserToken
 // + WithUserToken(ctx) forward the user's verified access JWT as
 // X-User-Token alongside the platform bearer (ADR-056, SPEC v0.9.0). NOTE:
@@ -135,7 +139,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.16.0"
+const Version = "0.17.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

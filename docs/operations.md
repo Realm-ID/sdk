@@ -116,20 +116,45 @@ audit feed gives you, and pairs well with it for a unified view.
   bumps may include breaking changes.
 - **Java:** `dev.realmid:sdk` on Maven Central. Same versioning model.
 - **Compatibility matrix:** `SPEC.md` is the authoritative contract
-  (currently **v0.9.0**). The current per-language releases that
-  implement it are Go **`go/v0.16.0`**, TS **`ts-v0.13.0`**, and Java
-  **`java-v0.11.0`**, matching issuer server **v0.13.0**. (Go module
+  (currently **v0.10.0**). The current per-language releases that
+  implement it are Go **`go/v0.17.0`**, TS **`ts-v0.14.0`**, and Java
+  **`java-v0.12.0`**, matching issuer server **v0.14.0**. (Go module
   tags use the submodule-path form `go/vX.Y.Z` — that, not the stale
   `go-v*` label, is what `go get` resolves.) SDKs are versioned
   independently per language. Older SDK versions may lag features
   (e.g. BFF mode, custom roles, the contact model, `X-User-Token`
-  on-behalf forwarding) — see `CHANGELOG.md` for per-version support.
+  on-behalf forwarding, workload identity federation) — see
+  `CHANGELOG.md` for per-version support.
 
 ## 6. Roadmap items partners often ask about
 
 Status of the items partners most often ask about, as of 2026-05-31.
 Most remain on the roadmap; any that have since shipped are marked.
 
+- **ADR-057 — Workload Identity Federation (no stored API key) —
+  SHIPPED (issuer v0.14.0, SPEC v0.10.0).** A partner workload running on
+  GCP (Cloud Run/GKE/GCE) or GitHub Actions can authenticate with its
+  *ambient* OIDC token instead of a stored `rk_live_` key. The SDK is
+  zero-config — drop the API key and it auto-detects the ambient source:
+
+  ```
+  // Go — no APIKey:
+  realmid.NewRealm(realmid.Config{RealmID: rid})
+  ```
+
+  Register a trust binding once (RI-side) per workload via
+  `POST /platforms/{id}/federation-bindings`. The `match_claims` are the
+  tenant boundary and must constrain the provider's mandatory claim:
+  - **GCP** → the service account's immutable numeric `sub` (its
+    `uniqueId`, never the reassignable email):
+    `gcloud iam service-accounts describe SA_EMAIL --format='value(uniqueId)'`
+    → `{ "issuer": "https://accounts.google.com", "match_claims": {"sub": "1148350..."} }`
+  - **GitHub Actions** → at least `repository` (workflow needs
+    `permissions: id-token: write`):
+    `{ "issuer": "https://token.actions.githubusercontent.com", "match_claims": {"repository": "acme/billing", "environment": "prod"} }`
+
+  Additive — `platform_api_key` is unchanged. AWS/Azure/self-hosted K8s
+  are not yet supported (RI pins the JWKS for the two v1 issuers).
 - **ADR-042 — identifier-collision invariant + `user_contacts` table —
   SHIPPED (issuer v0.11.0).** Identifiers are now independently-verified
   `user_contacts` rows rather than `users.email`/`users.phone` columns;

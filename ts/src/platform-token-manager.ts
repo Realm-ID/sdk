@@ -20,9 +20,16 @@
 import { RealmError } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { redactCredential } from "./logger.js";
+import type { CredentialSource } from "./credential.js";
+import {
+  GRANT_PLATFORM_API_KEY,
+  GRANT_TOKEN_EXCHANGE,
+  SUBJECT_TOKEN_TYPE_JWT,
+} from "./credential.js";
 
 export interface PlatformTokenManagerOptions {
-  apiKey: string;
+  /** Bootstrap credential source (ADR-057). Static API key or workload OIDC. */
+  credential: CredentialSource;
   baseUrl: string;
   /**
    * Configured realm id. When set, the minted access token's `iss`
@@ -136,14 +143,39 @@ export class PlatformTokenManager {
 
   private async login(): Promise<CachedSession> {
     const url = this.opts.baseUrl.replace(/\/+$/, "") + "/auth/login";
-    this.opts.logger.info("realmid: platform login (api key → session)", {
-      apiKey: redactCredential(this.opts.apiKey),
+    const cred = await this.opts.credential.fetch();
+    const payload: Record<string, string> = { grant_type: cred.grantType };
+    let redacted = "";
+    if (cred.grantType === GRANT_PLATFORM_API_KEY) {
+      if (!cred.apiKey) {
+        throw new RealmError({
+          code: "unauthorized",
+          message: "credential source returned an empty API key",
+        });
+      }
+      payload["api_key"] = cred.apiKey;
+      redacted = redactCredential(cred.apiKey);
+    } else if (cred.grantType === GRANT_TOKEN_EXCHANGE) {
+      if (!cred.subjectToken) {
+        throw new RealmError({
+          code: "unauthorized",
+          message: "credential source returned an empty workload token",
+        });
+      }
+      payload["subject_token"] = cred.subjectToken;
+      payload["subject_token_type"] = SUBJECT_TOKEN_TYPE_JWT;
+      redacted = redactCredential(cred.subjectToken);
+    } else {
+      throw new RealmError({
+        code: "bad_request",
+        message: "unsupported credential grant_type: " + cred.grantType,
+      });
+    }
+    this.opts.logger.info("realmid: platform login (credential → session)", {
+      grantType: cred.grantType,
+      credential: redacted,
     });
-    const body = JSON.stringify({
-      grant_type: "platform_api_key",
-      api_key: this.opts.apiKey,
-    });
-    const wire = await this.postJSON(url, body, undefined);
+    const wire = await this.postJSON(url, JSON.stringify(payload), undefined);
     if (!wire.access_token || !wire.refresh_token) {
       throw new RealmError({
         code: "server_error",

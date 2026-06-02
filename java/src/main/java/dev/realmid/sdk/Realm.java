@@ -11,6 +11,8 @@ import dev.realmid.sdk.info.RealmInfoClient;
 import dev.realmid.sdk.middleware.MiddlewareConfig;
 import dev.realmid.sdk.origins.OriginsClient;
 import dev.realmid.sdk.otp.OtpClient;
+import dev.realmid.sdk.platformtoken.CredentialSource;
+import dev.realmid.sdk.platformtoken.CredentialSources;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.roles.RolesClient;
@@ -57,9 +59,6 @@ public final class Realm {
         if (b.realmId == null || b.realmId.isEmpty()) {
             throw new RealmException(ErrorCode.BAD_REQUEST, "realmid: realmId required");
         }
-        if (b.apiKey == null || b.apiKey.isEmpty()) {
-            throw new RealmException(ErrorCode.BAD_REQUEST, "realmid: apiKey required");
-        }
         this.realmId = b.realmId;
         this.baseUrl = stripSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
         this.origin = b.origin;
@@ -70,8 +69,16 @@ public final class Realm {
                 : b.httpClient;
         Clock clock = b.clock == null ? Clock.systemUTC() : b.clock;
 
+        // Resolve the bootstrap credential (ADR-057): explicit credential wins;
+        // else a static apiKey; else auto-detect an ambient workload identity.
+        CredentialSource credential = b.credential != null
+                ? b.credential
+                : (b.apiKey != null && !b.apiKey.isEmpty()
+                        ? CredentialSources.staticApiKey(b.apiKey)
+                        : CredentialSources.autoDetect(CredentialSources.DEFAULT_FEDERATION_AUDIENCE, httpClient, mapper));
+
         this.platformTokens = new PlatformTokenManager(
-                b.apiKey, this.baseUrl, httpClient, mapper, this.logger, clock,
+                credential, this.baseUrl, httpClient, mapper, this.logger, clock,
                 b.refreshSkew == null ? Duration.ofSeconds(30) : b.refreshSkew);
         this.http = new HttpTransport(this.baseUrl, httpClient, mapper, this.logger, this.platformTokens);
 
@@ -167,6 +174,7 @@ public final class Realm {
     public static final class Builder {
         private String realmId;
         private String apiKey;
+        private CredentialSource credential;
         private String baseUrl;
         private String origin;
         private String audience;
@@ -180,6 +188,8 @@ public final class Realm {
 
         public Builder realmId(String v) { this.realmId = v; return this; }
         public Builder apiKey(String v) { this.apiKey = v; return this; }
+        /** Workload identity federation credential source (ADR-057). Overrides apiKey. */
+        public Builder credential(CredentialSource v) { this.credential = v; return this; }
         public Builder baseUrl(String v) { this.baseUrl = v; return this; }
         public Builder origin(String v) { this.origin = v; return this; }
         public Builder audience(String v) { this.audience = v; return this; }

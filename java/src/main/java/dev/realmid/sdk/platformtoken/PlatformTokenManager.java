@@ -20,14 +20,16 @@ import java.util.Map;
 
 /**
  * Two-endpoint platform-session machinery (SPEC §4.0, ADR-051). Holds a
- * short-lived platform access token for the SDK's own identity, minted from
- * the realm's API key. Re-mints automatically when fewer than
- * {@code refreshSkew} remain on its lifetime. Thread-safe.
+ * short-lived platform access token for the SDK's own identity, minted from a
+ * bootstrap credential (a static API key or, per ADR-057, an ambient workload
+ * OIDC token). Re-mints automatically when fewer than {@code refreshSkew}
+ * remain on its lifetime. Thread-safe.
  *
- * <p>Lifecycle (the raw API key only ever travels on the first call):
+ * <p>Lifecycle (the bootstrap credential only ever travels on the first call):
  * <ol>
- *   <li>First call: {@code POST /auth/login {grant_type:"platform_api_key",
- *       api_key}} → {@code {refresh_token, access_token, expires_in}}.</li>
+ *   <li>First call: {@code POST /auth/login} with the credential's grant
+ *       ({@code platform_api_key} or {@code token-exchange}) →
+ *       {@code {refresh_token, access_token, expires_in}}.</li>
  *   <li>Within the pre-expiry skew window: {@code POST /auth/token} with the
  *       refresh token as the {@code Authorization} bearer → the same shape.
  *       Whether the platform refresh rotates is realm-configurable
@@ -44,7 +46,7 @@ public final class PlatformTokenManager {
 
     private static final Duration DEFAULT_REFRESH_SKEW = Duration.ofSeconds(30);
 
-    private final String apiKey;
+    private final CredentialSource credential;
     private final String baseUrl;
     private final HttpClient http;
     private final ObjectMapper mapper;
@@ -56,10 +58,10 @@ public final class PlatformTokenManager {
     private String cachedToken;
     private long cachedExpiresAtMs;
 
-    public PlatformTokenManager(String apiKey, String baseUrl, HttpClient http,
+    public PlatformTokenManager(CredentialSource credential, String baseUrl, HttpClient http,
                                 ObjectMapper mapper, Logger logger, Clock clock,
                                 Duration refreshSkew) {
-        this.apiKey = apiKey;
+        this.credential = credential;
         this.baseUrl = stripSlash(baseUrl);
         this.http = http;
         this.mapper = mapper;
@@ -112,18 +114,36 @@ public final class PlatformTokenManager {
         login();
     }
 
-    /** Exchanges the raw API key for a refresh + access token. */
+    /**
+     * Exchanges the bootstrap credential (a static API key or an ambient
+     * workload OIDC token) for a refresh + access token. The credential only
+     * ever travels here, never on subsequent traffic.
+     */
     private void login() {
-        if (apiKey == null || apiKey.isEmpty()) {
-            throw new RealmException(ErrorCode.UNAUTHORIZED,
-                    "no API key configured for platform login");
+        Credential cred = credential.fetch();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("grant_type", cred.grantType());
+        String redacted;
+        if (Credential.GRANT_PLATFORM_API_KEY.equals(cred.grantType())) {
+            if (cred.apiKey() == null || cred.apiKey().isEmpty()) {
+                throw new RealmException(ErrorCode.UNAUTHORIZED, "credential source returned an empty API key");
+            }
+            body.put("api_key", cred.apiKey());
+            redacted = Logging.redact(cred.apiKey());
+        } else if (Credential.GRANT_TOKEN_EXCHANGE.equals(cred.grantType())) {
+            if (cred.subjectToken() == null || cred.subjectToken().isEmpty()) {
+                throw new RealmException(ErrorCode.UNAUTHORIZED, "credential source returned an empty workload token");
+            }
+            body.put("subject_token", cred.subjectToken());
+            body.put("subject_token_type", Credential.SUBJECT_TOKEN_TYPE_JWT);
+            redacted = Logging.redact(cred.subjectToken());
+        } else {
+            throw new RealmException(ErrorCode.BAD_REQUEST, "unsupported credential grant_type: " + cred.grantType());
         }
         if (logger.isLoggable(Level.INFO)) {
-            logger.log(Level.INFO, "realmid: platform login apiKey={0}", Logging.redact(apiKey));
+            logger.log(Level.INFO, "realmid: platform login grant_type={0} credential={1}",
+                    new Object[] {cred.grantType(), redacted});
         }
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("grant_type", "platform_api_key");
-        body.put("api_key", apiKey);
         JsonNode resp = send("/auth/login", null, body, "platform login");
         store(resp, null, "platform login");
     }

@@ -117,6 +117,7 @@ test("OriginsClient: TTL expiry triggers refetch", async () => {
   const { OriginsClient } = await import("./origins.js");
   const { HttpClient } = await import("./http.js");
   const { PlatformTokenManager } = await import("./platform-token-manager.js");
+  const { staticApiKey } = await import("./credential.js");
   const { NOOP_LOGGER } = await import("./logger.js");
 
   let listCalls = 0;
@@ -131,7 +132,7 @@ test("OriginsClient: TTL expiry triggers refetch", async () => {
   }) as typeof fetch;
 
   const ptm = new PlatformTokenManager({
-    apiKey: API_KEY, baseUrl: "https://auth.test", realmId: REALM_ID,
+    credential: staticApiKey(API_KEY), baseUrl: "https://auth.test", realmId: REALM_ID,
     fetch: fetchImpl, logger: NOOP_LOGGER,
   });
   const http = new HttpClient({ baseUrl: "https://auth.test", fetch: fetchImpl, platformTokens: ptm, logger: NOOP_LOGGER });

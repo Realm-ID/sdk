@@ -24,6 +24,8 @@ import { OtpClient } from "./otp.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
+import type { CredentialSource } from "./credential.js";
+import { staticApiKey, autoDetectCredential, DEFAULT_FEDERATION_AUDIENCE } from "./credential.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
 import type { RevocationCache } from "./revocation.js";
@@ -32,12 +34,20 @@ export interface RealmConfig {
   /** Your realm's id (UUID-ish string). Required. */
   realmId: string;
   /**
-   * Realm API key (`rk_live_...`). **Required** — used for every
-   * operation, including login. The SDK exchanges it for short-lived
-   * platform tokens internally; your raw API key never crosses login
-   * traffic (SPEC §4.0).
+   * Realm API key (`rk_live_...`). Sugar for `credential =
+   * staticApiKey(apiKey)`. Optional when `credential` is set or when an
+   * ambient workload identity is available (ADR-057); required otherwise.
+   * The SDK exchanges it for short-lived platform tokens internally; your
+   * raw API key never crosses login traffic (SPEC §4.0).
    */
-  apiKey: string;
+  apiKey?: string;
+  /**
+   * Overrides how the SDK bootstraps its platform session (ADR-057). Leave
+   * unset to use `apiKey`, or — when `apiKey` is also unset — to auto-detect
+   * an ambient workload identity (GCP / GitHub Actions). Set explicitly via
+   * `staticApiKey` / `googleWorkloadIdentity` / `githubActionsOidc`.
+   */
+  credential?: CredentialSource;
   /** Defaults to "https://auth.realmid.dev". */
   baseUrl?: string;
   /**
@@ -105,18 +115,19 @@ export function createRealm(cfg: RealmConfig): Realm {
   if (!cfg.realmId) {
     throw new RealmError({ code: "bad_request", message: "realmid: realmId required" });
   }
-  if (!cfg.apiKey) {
-    throw new RealmError({
-      code: "bad_request",
-      message: "realmid: apiKey required (SPEC §1) — every operation, including login, uses the dual-token exchange",
-    });
-  }
   const baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const logger = cfg.logger ?? NOOP_LOGGER;
   const fetchImpl = cfg.fetch ?? globalThis.fetch.bind(globalThis);
 
+  // Resolve the bootstrap credential (ADR-057): explicit credential wins;
+  // else a static apiKey; else auto-detect an ambient workload identity.
+  const credential: CredentialSource = cfg.credential
+    ?? (cfg.apiKey
+      ? staticApiKey(cfg.apiKey)
+      : autoDetectCredential(DEFAULT_FEDERATION_AUDIENCE, fetchImpl));
+
   const platformTokens = new PlatformTokenManager({
-    apiKey: cfg.apiKey,
+    credential,
     baseUrl,
     realmId: cfg.realmId,
     fetch: fetchImpl,

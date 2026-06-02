@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -35,7 +36,7 @@ class PlatformTokenManagerTest {
     @AfterEach void tearDown() { fs.close(); }
 
     private PlatformTokenManager manager(Clock clock) {
-        return new PlatformTokenManager("rk_live_secret", fs.baseUrl,
+        return new PlatformTokenManager(CredentialSources.staticApiKey("rk_live_secret"), fs.baseUrl,
                 HttpClient.newHttpClient(), new ObjectMapper(), null,
                 clock, Duration.ofSeconds(30));
     }
@@ -143,5 +144,22 @@ class PlatformTokenManagerTest {
         RealmException ex = assertThrows(RealmException.class, ptm::getToken);
         assertEquals(ErrorCode.UNAUTHORIZED, ex.getCode());
         assertEquals(401, ex.getHttpStatus());
+    }
+
+    @Test
+    void tokenExchangeCredentialPostsSubjectToken() {
+        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "access_token", "pt-fed", "refresh_token", "rt-fed",
+                "expires_in", 300, "subject_type", "platform")));
+        CredentialSource cred = () -> Credential.ofWorkloadToken("workload.jwt.tok");
+        var ptm = new PlatformTokenManager(cred, fs.baseUrl, HttpClient.newHttpClient(),
+                new ObjectMapper(), null, Clock.systemUTC(), Duration.ofSeconds(30));
+
+        assertEquals("pt-fed", ptm.getToken());
+        Map<String, Object> body = fs.last().bodyAsMap();
+        assertEquals("urn:ietf:params:oauth:grant-type:token-exchange", body.get("grant_type"));
+        assertEquals("workload.jwt.tok", body.get("subject_token"));
+        assertEquals("urn:ietf:params:oauth:token-type:jwt", body.get("subject_token_type"));
+        assertNull(body.get("api_key"));
     }
 }

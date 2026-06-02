@@ -4,6 +4,20 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.14.0 — workload identity federation (2026-06-02)
+
+Additive (non-breaking). Implements SPEC v0.10.0 §4.0.1 (ADR-057).
+
+### Added
+- `CredentialSource` abstraction for the platform-session bootstrap, plus
+  built-in sources `staticApiKey`, `googleWorkloadIdentity`,
+  `githubActionsOidc`, and a zero-config auto-detect.
+- `RealmConfig.credential` to pin a source explicitly. `RealmConfig.apiKey`
+  is now sugar for `staticApiKey(apiKey)` and **optional** — when both are
+  unset the SDK auto-detects an ambient workload identity (GCP / GitHub
+  Actions) and exchanges its OIDC token via
+  `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`.
+
 ## Unreleased
 
 Additive (non-breaking surface) plus one wire-shape correction on

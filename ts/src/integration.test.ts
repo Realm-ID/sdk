@@ -27,10 +27,15 @@ function mkFetch(handler: (url: string, init: RequestInit | undefined) => Respon
   return { fetch, calls };
 }
 
-test("createRealm: missing apiKey rejected (SPEC §1)", () => {
-  // @ts-expect-error apiKey is now required at the type level
-  assert.throws(() => createRealm({ realmId: REALM_ID }), (e: Error) => {
-    return e instanceof RealmError && e.code === "bad_request" && /apiKey/.test(e.message);
+test("createRealm: missing apiKey is allowed (auto-detect workload identity, ADR-057)", () => {
+  // No apiKey + no credential → auto-detect an ambient workload identity.
+  // Construction succeeds; the credential is only fetched lazily at first
+  // login (which is what would fail off a supported platform).
+  const realm = createRealm({ realmId: REALM_ID });
+  assert.equal(realm.realmId, REALM_ID);
+  // realmId is still required.
+  assert.throws(() => createRealm({} as Parameters<typeof createRealm>[0]), (e: Error) => {
+    return e instanceof RealmError && e.code === "bad_request" && /realmId/.test(e.message);
   });
 });
 

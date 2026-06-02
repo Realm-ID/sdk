@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { PlatformTokenManager } from "./platform-token-manager.js";
+import { staticApiKey } from "./credential.js";
 import { NOOP_LOGGER } from "./logger.js";
 import { RealmError } from "./errors.js";
 
@@ -46,7 +47,7 @@ test("session: first call hits /auth/login, subsequent calls within TTL reuse ca
   });
   let now = 1_700_000_000_000;
   const mgr = new PlatformTokenManager({
-    apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
+    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
   });
 
   const t1 = await mgr.getToken();
@@ -74,7 +75,7 @@ test("session: refreshes via /auth/token when within 30s of expiry", async () =>
   });
   let now = 1_700_000_000_000;
   const mgr = new PlatformTokenManager({
-    apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
+    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
   });
 
   const t1 = await mgr.getToken();
@@ -102,7 +103,7 @@ test("session: /auth/token 401 falls back to /auth/login", async () => {
   });
   let now = 1_700_000_000_000;
   const mgr = new PlatformTokenManager({
-    apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
+    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
   });
   await mgr.getToken();
   now += 50_000; // force refresh window
@@ -116,7 +117,7 @@ test("session: 401 from /auth/login surfaces RealmError unauthorized", async () 
     error: { code: "unauthorized", message: "bad api key" },
   }), { status: 401, headers: { "content-type": "application/json" } }));
   const mgr = new PlatformTokenManager({
-    apiKey: "rk_live_bad", baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
+    credential: staticApiKey("rk_live_bad"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
   });
   await assert.rejects(() => mgr.getToken(), (e: Error) => {
     return e instanceof RealmError && e.code === "unauthorized";
@@ -128,7 +129,7 @@ test("session: malformed response surfaces server_error", async () => {
     status: 200, headers: { "content-type": "application/json" },
   }));
   const mgr = new PlatformTokenManager({
-    apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
+    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
   });
   await assert.rejects(() => mgr.getToken(), (e: Error) => {
     return e instanceof RealmError && e.code === "server_error";
@@ -143,7 +144,7 @@ test("session: never logs the raw api key (redaction smoke test)", async () => {
   };
   const { fetch } = mkFetch(() => loginResponse("at_xxxx"));
   const mgr = new PlatformTokenManager({
-    apiKey: "rk_live_supersecret_full_value",
+    credential: staticApiKey("rk_live_supersecret_full_value"),
     baseUrl: "https://auth.test", fetch, logger,
   });
   await mgr.getToken();
@@ -153,4 +154,29 @@ test("session: never logs the raw api key (redaction smoke test)", async () => {
     assert.ok(!blob.includes("at_xxxx"), `raw access token leaked into log: ${blob}`);
   }
   assert.ok(captured.length >= 1, "expected at least one info-level log event");
+});
+
+test("session: token-exchange credential posts grant_type + subject_token (ADR-057)", async () => {
+  const { fetch, calls } = mkFetch((c) => {
+    if (c.url.endsWith("/auth/login")) return loginResponse("at_fed");
+    return new Response("nope", { status: 404 });
+  });
+  const cred = {
+    async fetch() {
+      return {
+        grantType: "urn:ietf:params:oauth:grant-type:token-exchange",
+        subjectToken: "workload.jwt.tok",
+      };
+    },
+  };
+  const mgr = new PlatformTokenManager({
+    credential: cred, baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
+  });
+  const t = await mgr.getToken();
+  assert.equal(t, "at_fed");
+  const body = calls[0]!.body as Record<string, string>;
+  assert.equal(body.grant_type, "urn:ietf:params:oauth:grant-type:token-exchange");
+  assert.equal(body.subject_token, "workload.jwt.tok");
+  assert.equal(body.subject_token_type, "urn:ietf:params:oauth:token-type:jwt");
+  assert.equal(body.api_key, undefined);
 });
