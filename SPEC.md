@@ -1200,19 +1200,27 @@ A middle-ground between "MFA once per session" and "MFA on every
 operation" — partner picks per route.
 
 **Token claim.** Access tokens carry `mfa_at` (unix-seconds) — the
-timestamp of the user's most recent successful MFA challenge.
-Absent or `0` means MFA never verified for this session.
+timestamp of the user's most recent successful MFA challenge **for the
+token's tenant**. Absent or `0` means MFA never verified for this
+(session, tenant).
 
-**Server source of truth.** `sessions.mfa_verified_at` (TIMESTAMPTZ).
-- `POST /auth/mfa/verify` → `UPDATE sessions SET mfa_verified_at = now()`.
-- `POST /auth/login` → set if the login flow itself completed MFA;
-  otherwise NULL.
-- `POST /auth/token` (refresh-mint) → reads `sessions.mfa_verified_at`
-  and projects into the next access token's `mfa_at` claim.
-- Logout / session revoke → row dropped; freshness vanishes with it.
-- `DELETE /auth/mfa` (disable MFA for the current user) → NULLs
-  `mfa_verified_at` for **all** sessions of that user, forcing re-MFA
-  on the next protected operation.
+**Server source of truth (ADR-059).** Per-(session, tenant) MFA proof,
+keyed `(jti, tenant_id)` in `session_tenant_mfa`; the Redis MFA cache is
+an advisory speed-up keyed identically. Because one user-scoped session
+legitimately spans tenants (tenant switching off a single refresh token),
+**MFA completion does not transfer across tenants** — completing MFA for
+tenant A never satisfies the gate for tenant B.
+- `POST /auth/mfa/verify` → upserts proof for the challenge's
+  `(jti, tenant_id)`.
+- `POST /auth/login` → no proof unless the login itself completed MFA
+  for the resolved tenant.
+- `POST /auth/token` (refresh-mint for `tenant_id`) → reads the
+  `(jti, tenant_id)` proof and projects it into the access token's
+  `mfa_at` claim; the per-tenant gate fires when that proof is absent.
+- Logout / session revoke → proof rows cascade away with the session.
+- `DELETE /auth/mfa` (disable MFA for the current user) → drops proof
+  for **all** tenants across **all** sessions of that user, forcing
+  re-MFA on the next protected operation.
 
 **Per-route policy.** Each entry in `mfaProtectedPaths` is either a
 string (sugar for the realm default) or an object:
