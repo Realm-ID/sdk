@@ -1,6 +1,6 @@
 {
   "name": "@realmid/web-bff-realmid",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Drop-in adapter preset wiring @realmid/web to the realmid.dev reference BFF (Realm-ID/api).",
   "type": "module",
   "main": "dist/index.js",

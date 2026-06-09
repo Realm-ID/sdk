@@ -3,8 +3,8 @@ package dev.realmid.sdk.auth;
 /**
  * Request for {@link AuthClient#disableMfa(DisableMfaRequest)}.
  *
- * <p>Current-user op (dual-mode bearer — see {@link EnrollMfaRequest}).
- * {@code code} (the TOTP step-up) is required and travels in the body of the
+ * <p>Current-user op (dual-mode bearer — exactly one of {@code userBearer} or
+ * {@code userId}). {@code code} (the TOTP step-up) is required and travels in the body of the
  * {@code DELETE /auth/mfa} request.
  */
 public record DisableMfaRequest(String userId, String userBearer, String onBehalfOfIp, String code) {

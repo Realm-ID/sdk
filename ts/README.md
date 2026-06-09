@@ -102,7 +102,7 @@ try {
 The full contract is in [`../SPEC.md`](../SPEC.md). Summary:
 
 - `realm.verify(token, opts?)` — verify a Realm-issued JWT.
-- `realm.auth.{login, token, mfaVerify, logout, listSessions, revokeSession, mintMfaChallenge}`
+- `realm.auth.{login, token, mfaVerify, selfEnrollMfa, disableMfa, logout, listSessions, revokeSession, revokeAllSessions, mintMfaChallenge}`
 - `realm.tenants.{list, get, create, update, updateConfig, delete, transferOwner, updateUserRole}`
 - `realm.tenants.invitations.{list, create, delete}`
 - `realm.tenants.users.{list, get, updateStatus, enrollMfa, confirmMfa, resetMfa}`

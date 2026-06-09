@@ -180,66 +180,60 @@ class AuthClientTest {
     // ---- Self-service MFA (feature 1) ----
 
     @Test
-    void enrollMfaLegacyBearerOmitsMethod() {
-        fs.on("POST /auth/mfa/enroll", (ex, body) -> {
-            FakeServer.Recorded rec = fs.last();
-            // Legacy mode: the user's own access JWT is the Authorization bearer.
-            assertEquals("Bearer user-jwt", rec.header("authorization"));
-            // method omitted when not set.
-            assertFalse(rec.bodyAsMap().containsKey("method"));
-            return FakeServer.Reply.json(200, Map.of(
-                    "secret", "JBSWY3DPEHPK3PXP",
-                    "qr_url", "otpauth://totp/acme:u1?secret=JBSWY3DPEHPK3PXP",
-                    "recovery_codes", java.util.List.of("aaa-111", "bbb-222")));
-        });
-        MfaEnrollment e = realm.auth().enrollMfa(EnrollMfaRequest.withBearer("user-jwt"));
-        assertEquals("JBSWY3DPEHPK3PXP", e.secret());
-        assertTrue(e.qrUrl().startsWith("otpauth://"));
-        assertEquals(2, e.recoveryCodes().size());
-    }
-
-    @Test
-    void enrollMfaBffModeSendsOnBehalfHeader() {
+    void enrollMfaRefreshAuthedDefaultsMethodSurfacesChallenge() {
         AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
         fs.on("POST /auth/mfa/enroll", (ex, body) -> {
             seen.set(fs.last());
             return FakeServer.Reply.json(200, Map.of(
-                    "secret", "S", "qr_url", "otpauth://x", "recovery_codes", java.util.List.of()));
+                    "secret", "JBSWY3DPEHPK3PXP",
+                    "qr_url", "otpauth://totp/acme:u1?secret=JBSWY3DPEHPK3PXP",
+                    "recovery_codes", java.util.List.of("aaa-111", "bbb-222"),
+                    "mfa_challenge_token", "enroll-ch-1",
+                    "tenant_id", "t1"));
         });
-        realm.auth().enrollMfa(new EnrollMfaRequest("u1", null, "203.0.113.7", "totp"));
-        // BFF mode: platform token + on-behalf-of headers.
+        MfaEnrollment e = realm.auth().enrollMfa(SelfEnrollMfaRequest.of("rt-user", "t1"));
+        assertEquals("JBSWY3DPEHPK3PXP", e.secret());
+        assertTrue(e.qrUrl().startsWith("otpauth://"));
+        assertEquals(2, e.recoveryCodes().size());
+        // Enroll-scoped challenge + tenant surfaced for a single-shot mfaVerify.
+        assertEquals("enroll-ch-1", e.mfaChallengeToken());
+        assertEquals("t1", e.tenantId());
+        // Refresh-authed: the platform token is the bearer (auto-attached) and
+        // the refresh + tenant ride in the body (mirrors token()).
         assertEquals("Bearer pt-12345", seen.get().header("authorization"));
-        assertEquals("u1", seen.get().header("x-on-behalf-of-user"));
-        assertEquals("203.0.113.7", seen.get().header("x-on-behalf-of-ip"));
-        assertEquals("totp", seen.get().bodyAsMap().get("method"));
+        Map<String, Object> b = seen.get().bodyAsMap();
+        assertEquals("rt-user", b.get("refresh_token"));
+        assertEquals("t1", b.get("tenant_id"));
+        // method omitted when not set; server defaults to "totp".
+        assertFalse(b.containsKey("method"));
     }
 
     @Test
-    void enrollMfaRejectsBothBearerAndUserId() {
-        RealmException ex = assertThrows(RealmException.class,
-                () -> realm.auth().enrollMfa(new EnrollMfaRequest("u1", "user-jwt", null, null)));
-        assertEquals(ErrorCode.BAD_REQUEST, ex.getCode());
-    }
-
-    @Test
-    void confirmMfaSendsCodeReturnsVoid() {
-        fs.on("POST /auth/mfa/confirm", (ex, body) -> {
-            assertEquals("123456", fs.last().bodyAsMap().get("code"));
-            return FakeServer.Reply.json(200, Map.of("status", "confirmed"));
+    void enrollMfaSendsExplicitMethod() {
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/mfa/enroll", (ex, body) -> {
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "secret", "S", "qr_url", "otpauth://x", "recovery_codes", java.util.List.of(),
+                    "mfa_challenge_token", "enroll-ch-2", "tenant_id", "t2"));
         });
-        realm.auth().confirmMfa(ConfirmMfaRequest.withBearer("user-jwt", "123456"));
+        realm.auth().enrollMfa(SelfEnrollMfaRequest.of("rt-user", "t2", "totp"));
+        Map<String, Object> b = seen.get().bodyAsMap();
+        assertEquals("rt-user", b.get("refresh_token"));
+        assertEquals("t2", b.get("tenant_id"));
+        assertEquals("totp", b.get("method"));
     }
 
     @Test
-    void confirmMfaMissingCodeSurfacesError() {
+    void enrollMfaServerErrorSurfaces() {
         Map<String, Object> envelope = new LinkedHashMap<>();
-        envelope.put("error", Map.of("code", "bad_request", "message", "missing code"));
-        envelope.put("code", "missing_code");
-        fs.on("POST /auth/mfa/confirm", (ex, body) -> FakeServer.Reply.json(400, envelope));
+        envelope.put("error", Map.of("code", "conflict", "message", "already enrolled"));
+        envelope.put("code", "already_enrolled");
+        fs.on("POST /auth/mfa/enroll", (ex, body) -> FakeServer.Reply.json(409, envelope));
         RealmException ex = assertThrows(RealmException.class,
-                () -> realm.auth().confirmMfa(ConfirmMfaRequest.withBearer("user-jwt", "")));
-        assertEquals(400, ex.getHttpStatus());
-        assertEquals("missing_code", ex.getDetails().get("code"));
+                () -> realm.auth().enrollMfa(SelfEnrollMfaRequest.of("rt-user", "t1")));
+        assertEquals(409, ex.getHttpStatus());
+        assertEquals("already_enrolled", ex.getDetails().get("code"));
     }
 
     @Test

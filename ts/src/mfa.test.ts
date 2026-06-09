@@ -30,67 +30,80 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
 
 const REALM = { realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test" } as const;
 
-test("auth.enrollMfa: posts to /auth/mfa/enroll, maps snake->camel, omits empty method", async () => {
+test("auth.selfEnrollMfa: refresh-authed POST to /auth/mfa/enroll, platform bearer, refresh+tenant in body, surfaces challenge", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "POST");
     assert.match(req.url, /\/auth\/mfa\/enroll$/);
-    assert.equal(req.authorization, "Bearer user_jwt");
-    assert.deepEqual(req.body, {});
+    // Refresh-authed (ADR-061): platform token is the bearer (auto-attached,
+    // exactly like /auth/token); refresh + tenant ride the body.
+    assert.equal(req.authorization, "Bearer pt_x");
+    assert.deepEqual(req.body, { refresh_token: "rt-123", tenant_id: "t1" });
     return new Response(JSON.stringify({
       secret: "BASE32SECRET",
       qr_url: "otpauth://totp/x",
       recovery_codes: ["a", "b"],
+      mfa_challenge_token: "enroll-chal-xyz",
+      tenant_id: "t1",
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ ...REALM, fetch });
-  const out = await realm.auth.enrollMfa({ userBearer: "user_jwt" });
+  const out = await realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1" });
   assert.equal(out.secret, "BASE32SECRET");
   assert.equal(out.qrUrl, "otpauth://totp/x");
   assert.deepEqual(out.recoveryCodes, ["a", "b"]);
+  // Enroll-scoped challenge surfaced for the caller to complete via mfaVerify.
+  assert.equal(out.mfaChallengeToken, "enroll-chal-xyz");
+  assert.equal(out.tenantId, "t1");
 });
 
-test("auth.enrollMfa: includes method when set", async () => {
+test("auth.selfEnrollMfa: includes method when set, defaults recovery codes to []", async () => {
   const fetch = mkFetch((req) => {
-    assert.deepEqual(req.body, { method: "totp" });
-    return new Response(JSON.stringify({ secret: "s", qr_url: "u" }), {
+    assert.deepEqual(req.body, { refresh_token: "rt-123", tenant_id: "t1", method: "totp" });
+    return new Response(JSON.stringify({
+      secret: "s", qr_url: "u", mfa_challenge_token: "c", tenant_id: "t1",
+    }), {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
   const realm = createRealm({ ...REALM, fetch });
-  const out = await realm.auth.enrollMfa({ userBearer: "user_jwt", method: "totp" });
+  const out = await realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1", method: "totp" });
   assert.deepEqual(out.recoveryCodes, []);
+  assert.equal(out.mfaChallengeToken, "c");
 });
 
-test("auth.enrollMfa: 409 already_enrolled surfaces as RealmError(conflict)", async () => {
+test("auth.selfEnrollMfa: enroll challenge completes via mfaVerify (no separate confirm step)", async () => {
+  const fetch = mkFetch((req) => {
+    if (/\/auth\/mfa\/enroll$/.test(req.url)) {
+      return new Response(JSON.stringify({
+        secret: "s", qr_url: "u", recovery_codes: ["x"],
+        mfa_challenge_token: "enroll-chal-xyz", tenant_id: "t1",
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    // Confirmation folds into the existing verify path using the
+    // enroll-scoped challenge — no /auth/mfa/confirm exists anymore.
+    assert.equal(req.method, "POST");
+    assert.match(req.url, /\/auth\/mfa\/verify$/);
+    assert.equal((req.body as Record<string, unknown>).mfa_challenge_token, "enroll-chal-xyz");
+    assert.equal((req.body as Record<string, unknown>).code, "123456");
+    return new Response(JSON.stringify({
+      access_token: "at", refresh_token: "rt2", expires_in: 300,
+      user: { id: "u1" }, tenants: [],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ ...REALM, fetch });
+  const enroll = await realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1" });
+  const session = await realm.auth.mfaVerify({ challengeToken: enroll.mfaChallengeToken, code: "123456" });
+  assert.equal(session.accessToken, "at");
+  assert.equal(session.refreshToken, "rt2");
+});
+
+test("auth.selfEnrollMfa: 409 already_enrolled surfaces as RealmError(conflict)", async () => {
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "conflict", message: "already enrolled" },
   }), { status: 409, headers: { "content-type": "application/json" } }));
   const realm = createRealm({ ...REALM, fetch });
-  await assert.rejects(() => realm.auth.enrollMfa({ userBearer: "user_jwt" }), (e: Error) =>
+  await assert.rejects(() => realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1" }), (e: Error) =>
     e instanceof RealmError && e.code === "conflict" && e.httpStatus === 409);
-});
-
-test("auth.confirmMfa: posts code, returns void", async () => {
-  const fetch = mkFetch((req) => {
-    assert.equal(req.method, "POST");
-    assert.match(req.url, /\/auth\/mfa\/confirm$/);
-    assert.deepEqual(req.body, { code: "123456" });
-    return new Response(JSON.stringify({ status: "confirmed" }), {
-      status: 200, headers: { "content-type": "application/json" },
-    });
-  });
-  const realm = createRealm({ ...REALM, fetch });
-  const out = await realm.auth.confirmMfa({ userBearer: "user_jwt", code: "123456" });
-  assert.equal(out, undefined);
-});
-
-test("auth.confirmMfa: 400 missing_code surfaces as RealmError", async () => {
-  const fetch = mkFetch(() => new Response(JSON.stringify({
-    error: { code: "bad_request", message: "missing code" },
-  }), { status: 400, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...REALM, fetch });
-  await assert.rejects(() => realm.auth.confirmMfa({ userBearer: "user_jwt", code: "" }), (e: Error) =>
-    e instanceof RealmError && e.code === "bad_request" && e.httpStatus === 400);
 });
 
 test("auth.disableMfa: DELETE /auth/mfa with code body, returns void", async () => {

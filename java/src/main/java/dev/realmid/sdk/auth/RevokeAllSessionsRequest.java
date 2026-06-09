@@ -3,8 +3,8 @@ package dev.realmid.sdk.auth;
 /**
  * Request for {@link AuthClient#revokeAllSessions(RevokeAllSessionsRequest)}.
  *
- * <p>Current-user op (dual-mode bearer — see {@link EnrollMfaRequest}).
- * Carries only the bearer trio; there is no request body.
+ * <p>Current-user op (dual-mode bearer — exactly one of {@code userBearer} or
+ * {@code userId}). Carries only the bearer trio; there is no request body.
  */
 public record RevokeAllSessionsRequest(String userId, String userBearer, String onBehalfOfIp) {
 

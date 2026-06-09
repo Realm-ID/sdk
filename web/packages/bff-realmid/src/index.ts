@@ -280,10 +280,12 @@ function extractMfa(body: unknown): Record<string, unknown> {
   const inner = (b.error ?? b) as Record<string, unknown>;
   return {
     challengeToken: inner.mfa_challenge_token,
-    // The target tenant rides the gate so MfaEnroll can POST
-    // /tenants/{tid}/users/{uid}/mfa/enroll without a session.
     tenantId: inner.tenant_id,
     method: inner.method ?? "totp",
+    // mfa_registration_required carries the pending-MFA session token
+    // (ADR-061): the BFF persisted a session sealing the refresh, and the
+    // SPA bears this token on POST /auth/mfa/enroll to self-enroll.
+    sessionToken: inner.session_token,
   };
 }
 

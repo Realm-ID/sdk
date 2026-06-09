@@ -13,6 +13,37 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## All — Refresh-authed MFA self-enrollment (ADR-061, SPEC §4.8) — go/v0.18.0, ts, java, web bff-realmid 0.3.3 (2026-06-09)
+
+Breaking: the self-service MFA enrollment surface is now a single
+refresh-authed call. Lockstep across all SDKs + the reference BFF preset.
+
+### Changed (breaking)
+
+- **`selfEnrollMfa(req)` replaces `enrollMfa` + `confirmMfa`.** Posts
+  `{ refresh_token, tenant_id, method? }` to `POST /auth/mfa/enroll` (the
+  platform token auto-attaches as bearer; the refresh rides the body, as
+  for `token()`). Returns `{ secret, qrUrl, recoveryCodes,
+  mfaChallengeToken, tenantId }`. The enroll-scoped `mfaChallengeToken`
+  is completed via `mfaVerify` — a single verify confirms the new secret
+  AND mints tokens, so the separate `confirmMfa` (`POST /auth/mfa/confirm`)
+  is gone. Lets a first-login user (no access token — the MFA gate
+  withheld it) self-enroll off their refresh.
+  - Go: `AuthClient.SelfEnrollMFA(SelfEnrollMFARequest{RefreshToken,
+    TenantID, Method})`; `MFAEnrollment` gained `MFAChallengeToken` +
+    `TenantID`. `EnrollMFA`/`ConfirmMFA` removed.
+  - TS: `auth.selfEnrollMfa({ refreshToken, tenantId, method? })`;
+    `MfaEnrollment` gained `mfaChallengeToken` + `tenantId`.
+    `enrollMfa`/`confirmMfa` + `ConfirmMfaRequest` removed.
+  - Java: `auth.enrollMfa(SelfEnrollMfaRequest)`; `MfaEnrollment` gained
+    `mfaChallengeToken` + `tenantId`. `ConfirmMfaRequest` deleted.
+  - web `@realmid/web-bff-realmid` (0.3.2 → 0.3.3): the
+    `mfa_registration_required` gate now surfaces `sessionToken`
+    (`session_token`) — the BFF's pending-MFA session the SPA bears to
+    `/auth/mfa/enroll`.
+- **Unchanged:** `disableMfa` (`DELETE /auth/mfa`, step-up) and the admin
+  `tenants.users.{enrollMfa,confirmMfa,resetMfa}` surface.
+
 ## All — SPEC reconciliation: `subjectType` on `token()` + `realm_mismatch` code (2026-06-03)
 
 Additive on the wire; no version bump cut yet (unreleased, lands with the

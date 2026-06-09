@@ -517,29 +517,36 @@ access JWT as `userBearer`). A revocation token is rejected
 (`insufficient_scope`). Response `{ status: "ok" }`; the SDK returns
 void.
 
-### 4.8 `enrollMfa(req)` / 4.9 `confirmMfa(req)` / 4.10 `disableMfa(req)`
+### 4.8 `selfEnrollMfa(req)` / 4.9 `disableMfa(req)`
 
 Self-service TOTP MFA for the **current user** (distinct from the
 admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
-§6.2, which act on an admin-named target). All three identify the
-current user with the same bearer model as §4.5–4.7.
+§6.2, which act on an admin-named target).
 
-- `enrollMfa(req)` → `POST /auth/mfa/enroll`. Request: bearer + `method?`
-  (defaults `"totp"`). Returns `{ secret, qrUrl, recoveryCodes }` —
-  render the secret/QR for the authenticator app and show the recovery
-  codes once. Returns `already_enrolled` (409) if MFA is already set;
-  reset/disable first.
-- `confirmMfa(req)` → `POST /auth/mfa/confirm`. Request: bearer + `code`
-  (+ `method?`). Confirms the pending enrollment. Returns void.
+- `selfEnrollMfa(req)` → `POST /auth/mfa/enroll` (ADR-061).
+  **Refresh-authed**: the request carries the user's `refreshToken` (the
+  handle to their login session) + `tenantId` (+ `method?`, defaults
+  `"totp"`). This is the one enrollment path for both timings — a
+  first-login user who has no access token yet (the MFA gate withheld
+  it) and a post-login user switching into an MFA-required tenant. In
+  BFF mode the platform token is the Authorization bearer and the
+  refresh rides the **body** (as for `token`). Returns `{ secret, qrUrl,
+  recoveryCodes, mfaChallengeToken, tenantId }` — render the secret/QR
+  and recovery codes, then complete enrollment by passing the
+  **enroll-scoped** `mfaChallengeToken` to `mfaVerify` (§4.x): a single
+  verify confirms the new secret **and** mints tokens. There is **no**
+  separate `confirmMfa` step. Returns `already_enrolled` (409) if a
+  confirmed factor already exists (reset/disable first),
+  `not_a_member` (403), or `refresh_invalid` (401).
 - `disableMfa(req)` → `DELETE /auth/mfa`. Request: bearer + `code`
   (step-up). Returns void. `not_enrolled` (400) if MFA isn't active.
 
-> **Bearer-mode parity:** BFF (`userId` + on-behalf-of) and legacy
-> (`userBearer`) modes are both available in the Go and Java SDKs. The
-> TS SDK currently supports only the direct `userBearer` form for these
-> current-user methods (consistent with its existing `revokeSession` /
-> `listSessions`); BFF on-behalf-of parity for the TS session/MFA
-> surface is tracked in `TODO.md`.
+> **History:** the JWT-authed self `enrollMfa` + the separate
+> `confirmMfa` (`POST /auth/mfa/confirm`) were removed in favour of the
+> single refresh-authed `selfEnrollMfa` above (ADR-061). The admin
+> `tenants.users.{enrollMfa,confirmMfa,resetMfa}` surface (§6.2) is
+> unchanged — an admin enrolling a factor for a named target genuinely
+> needs the admin JWT + a separate confirm.
 
 > **Verified on-behalf-of (`X-User-Token`, ADR-056):** the bare
 > `X-On-Behalf-Of-User` id is *asserted* — any platform-token holder can

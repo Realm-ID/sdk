@@ -125,32 +125,35 @@ export interface SessionInfo {
 }
 
 /**
- * Self-service MFA enroll request. Current-user op: pass the user's own
- * access token as `userBearer` (legacy mode), mirroring how
- * `revokeSession`/`listSessions` resolve the per-user bearer in this SDK.
+ * Self-service MFA enroll request (ADR-061). Refresh-authed: `refreshToken`
+ * is the handle to the user's login session — the only credential a
+ * first-login user has, since the MFA gate withholds the access token.
+ * `tenantId` scopes the returned enroll-challenge to the MFA-required tenant.
+ * The SDK's platform token rides as the bearer and the refresh travels in
+ * the body (mirroring `token`); callers never pass a user bearer here.
  */
-export interface EnrollMfaRequest {
-  /** The user's own access JWT, sent as the bearer for this call. */
-  userBearer?: string;
+export interface SelfEnrollMfaRequest {
+  /** The user's refresh token — authorizes the enrollment. */
+  refreshToken: string;
+  /** Tenant that requires MFA; scopes the returned enroll-challenge. */
+  tenantId: string;
   /** MFA method. Omitted from the wire when unset; server defaults to "totp". */
   method?: string;
 }
 
-/** Result of `enrollMfa` — the shared secret + provisioning URL + recovery codes. */
+/**
+ * Result of `selfEnrollMfa` — the shared TOTP secret, an otpauth://
+ * provisioning URL for QR rendering, recovery codes, and an enroll-scoped
+ * `mfaChallengeToken` the caller completes via `mfaVerify` to confirm the
+ * secret AND mint tokens in a single code entry (there is no separate
+ * confirm step). `tenantId` echoes the request.
+ */
 export interface MfaEnrollment {
   secret: string;
   qrUrl: string;
   recoveryCodes: string[];
-}
-
-/** Self-service MFA confirm request — the step-up code that proves possession. */
-export interface ConfirmMfaRequest {
-  /** The user's own access JWT, sent as the bearer for this call. */
-  userBearer?: string;
-  /** Required TOTP (or method-specific) code. */
-  code: string;
-  /** MFA method. Omitted from the wire when unset; server defaults to "totp". */
-  method?: string;
+  mfaChallengeToken: string;
+  tenantId: string;
 }
 
 /** Self-service MFA disable request — requires a step-up `code`. */
@@ -171,6 +174,8 @@ interface RawMfaEnrollment {
   secret: string;
   qr_url: string;
   recovery_codes?: string[];
+  mfa_challenge_token: string;
+  tenant_id: string;
 }
 
 interface RawAuthResponse {
@@ -369,42 +374,37 @@ export class AuthClient {
   }
 
   /**
-   * Self-service MFA enroll — `POST /auth/mfa/enroll`. Current-user op;
-   * pass the user's own access token as `userBearer`. Returns the shared
-   * secret, the otpauth:// provisioning URL, and one-time recovery codes.
-   * `method` is omitted from the wire when unset (server defaults to "totp").
+   * Self-service MFA enroll — `POST /auth/mfa/enroll` (ADR-061). Refresh-authed:
+   * `req.refreshToken` is the handle to the user's login session, so a
+   * first-login user who has no access token yet — the MFA gate withheld it —
+   * can still enroll; the same call serves a post-login user switching into an
+   * MFA-required tenant. The SDK's platform token rides as the bearer (the
+   * HttpClient auto-attaches it, exactly as for `token`) and the refresh
+   * travels in the body. Returns the TOTP secret, an otpauth:// provisioning
+   * URL, recovery codes, and an enroll-scoped challenge to pass to `mfaVerify`
+   * — there is NO separate confirm step. `method` is omitted from the wire when
+   * unset (server defaults to "totp"). Server error codes (unsupported_method,
+   * already_enrolled (409), not_a_member (403), refresh_invalid (401)) surface
+   * as the usual RealmError.
    */
-  async enrollMfa(req: EnrollMfaRequest): Promise<MfaEnrollment> {
-    const body: Record<string, unknown> = {};
+  async selfEnrollMfa(req: SelfEnrollMfaRequest): Promise<MfaEnrollment> {
+    const body: Record<string, unknown> = {
+      refresh_token: req.refreshToken,
+      tenant_id: req.tenantId,
+    };
     if (req.method !== undefined && req.method !== "") body["method"] = req.method;
     const raw = await this.http.request<RawMfaEnrollment>({
       method: "POST",
       path: "/auth/mfa/enroll",
-      bearer: req.userBearer,
       body,
     });
     return {
       secret: raw.secret,
       qrUrl: raw.qr_url,
       recoveryCodes: raw.recovery_codes ?? [],
+      mfaChallengeToken: raw.mfa_challenge_token,
+      tenantId: raw.tenant_id,
     };
-  }
-
-  /**
-   * Self-service MFA confirm — `POST /auth/mfa/confirm`. Proves the user
-   * controls the enrolled factor by submitting a `code`. Returns void; the
-   * server's `{ status: "confirmed" }` ack is intentionally ignored,
-   * matching how `revokeSession` returns void.
-   */
-  async confirmMfa(req: ConfirmMfaRequest): Promise<void> {
-    const body: Record<string, unknown> = { code: req.code };
-    if (req.method !== undefined && req.method !== "") body["method"] = req.method;
-    await this.http.request({
-      method: "POST",
-      path: "/auth/mfa/confirm",
-      bearer: req.userBearer,
-      body,
-    });
   }
 
   /**

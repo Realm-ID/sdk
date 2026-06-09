@@ -195,31 +195,31 @@ public final class AuthClient {
     public record MfaChallengeMint(String challengeToken, java.util.List<String> methods) {}
 
     /**
-     * Self-service MFA enroll — {@code POST /auth/mfa/enroll}. Current-user
-     * op; dual-mode bearer (see {@link EnrollMfaRequest}). Returns the freshly
-     * provisioned secret, otpauth QR URL, and recovery codes.
+     * Self-service MFA enroll — refresh-authed {@code POST /auth/mfa/enroll}
+     * (ADR-061). The user's {@code refreshToken} authorizes enrollment, so a
+     * first-login user whose access token was withheld by the MFA gate can
+     * still bootstrap a factor; the same call serves a post-login user
+     * switching into an MFA-required tenant. The refresh travels in the body
+     * and the platform token rides as the Authorization bearer (auto-attached
+     * by {@link HttpTransport}), exactly mirroring {@link #token(TokenRequest)}.
+     *
+     * <p>{@code method} is optional (server defaults to {@code "totp"}).
+     * Returns the freshly provisioned TOTP secret, an otpauth QR URL, recovery
+     * codes, and an enroll-scoped {@code mfa_challenge_token} the caller
+     * completes via {@link #mfaVerify(MFAVerifyRequest)} — there is no separate
+     * confirm step.
      */
-    public MfaEnrollment enrollMfa(EnrollMfaRequest req) {
+    public MfaEnrollment enrollMfa(SelfEnrollMfaRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
+        body.put("refresh_token", req.refreshToken());
+        body.put("tenant_id", req.tenantId());
         if (req.method() != null && !req.method().isEmpty()) body.put("method", req.method());
+        // No explicit bearer: HttpTransport auto-attaches the platform token,
+        // and the refresh rides in the body (mirrors token()).
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/enroll").body(body);
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, MfaEnrollment.class);
-    }
-
-    /**
-     * Self-service MFA confirm — {@code POST /auth/mfa/confirm}. Current-user
-     * op; dual-mode bearer. The server returns {@code {"status":"confirmed"}};
-     * the SDK ignores the body and returns void (mirrors {@link #revokeSession}).
-     */
-    public void confirmMfa(ConfirmMfaRequest req) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        if (req.method() != null && !req.method().isEmpty()) body.put("method", req.method());
-        body.put("code", req.code());
-        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/confirm").body(body);
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
-        http.request(r);
     }
 
     /**

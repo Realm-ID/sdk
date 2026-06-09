@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestAuth_EnrollMFA_Happy(t *testing.T) {
-	var gotAuth, gotOBO string
+func TestAuth_SelfEnrollMFA_Happy(t *testing.T) {
+	var gotAuth string
 	var gotBody map[string]any
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/auth/mfa/enroll": func(w http.ResponseWriter, r *http.Request) {
@@ -18,28 +18,38 @@ func TestAuth_EnrollMFA_Happy(t *testing.T) {
 				t.Errorf("method=%s", r.Method)
 			}
 			gotAuth = r.Header.Get("Authorization")
-			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
 			raw, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(raw, &gotBody)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"secret":         "JBSWY3DPEHPK3PXP",
-				"qr_url":         "otpauth://totp/realm:u1?secret=JBSWY3DPEHPK3PXP",
-				"recovery_codes": []string{"aaaa-bbbb", "cccc-dddd"},
+				"secret":              "JBSWY3DPEHPK3PXP",
+				"qr_url":              "otpauth://totp/realm:u1?secret=JBSWY3DPEHPK3PXP",
+				"recovery_codes":      []string{"aaaa-bbbb", "cccc-dddd"},
+				"mfa_challenge_token": "enroll-chal-xyz",
+				"tenant_id":           "t1",
 			})
 		},
 	})
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	out, err := r.Auth.EnrollMFA(context.Background(), EnrollMFARequest{UserID: "u1"})
+	out, err := r.Auth.SelfEnrollMFA(context.Background(), SelfEnrollMFARequest{
+		RefreshToken: "rt-123", TenantID: "t1",
+	})
 	if err != nil {
-		t.Fatalf("enroll: %v", err)
+		t.Fatalf("self-enroll: %v", err)
 	}
 	if out.Secret != "JBSWY3DPEHPK3PXP" || out.QRURL == "" || len(out.RecoveryCodes) != 2 {
 		t.Errorf("out=%+v", out)
 	}
-	if gotAuth != "Bearer ptok" || gotOBO != "u1" {
-		t.Errorf("auth=%q obo=%q", gotAuth, gotOBO)
+	if out.MFAChallengeToken != "enroll-chal-xyz" || out.TenantID != "t1" {
+		t.Errorf("challenge/tenant not surfaced: %+v", out)
+	}
+	// Refresh-authed: platform token is the bearer; refresh + tenant ride the body.
+	if gotAuth != "Bearer ptok" {
+		t.Errorf("auth=%q (want platform token)", gotAuth)
+	}
+	if gotBody["refresh_token"] != "rt-123" || gotBody["tenant_id"] != "t1" {
+		t.Errorf("body missing refresh/tenant: %v", gotBody)
 	}
 	// Method empty → must be omitted from the wire body.
 	if _, has := gotBody["method"]; has {
@@ -47,7 +57,7 @@ func TestAuth_EnrollMFA_Happy(t *testing.T) {
 	}
 }
 
-func TestAuth_EnrollMFA_AlreadyEnrolled(t *testing.T) {
+func TestAuth_SelfEnrollMFA_AlreadyEnrolled(t *testing.T) {
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/auth/mfa/enroll": func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusConflict)
@@ -60,65 +70,12 @@ func TestAuth_EnrollMFA_AlreadyEnrolled(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	_, err := r.Auth.EnrollMFA(context.Background(), EnrollMFARequest{UserBearer: "u-jwt"})
+	_, err := r.Auth.SelfEnrollMFA(context.Background(), SelfEnrollMFARequest{RefreshToken: "rt", TenantID: "t1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if !IsCode(err, ErrCodeConflict) {
 		t.Errorf("want conflict code, got %v", err)
-	}
-}
-
-func TestAuth_ConfirmMFA_Happy(t *testing.T) {
-	var gotBody map[string]any
-	var gotIP string
-	srv := authTestServer(t, map[string]http.HandlerFunc{
-		"/auth/mfa/confirm": func(w http.ResponseWriter, r *http.Request) {
-			gotIP = r.Header.Get("X-On-Behalf-Of-IP")
-			raw, _ := io.ReadAll(r.Body)
-			_ = json.Unmarshal(raw, &gotBody)
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "confirmed"})
-		},
-	})
-	defer srv.Close()
-
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	err := r.Auth.ConfirmMFA(context.Background(), ConfirmMFARequest{
-		UserBearer: "u-jwt", Code: "123456", OnBehalfOfIP: "198.51.100.2",
-	})
-	if err != nil {
-		t.Fatalf("confirm: %v", err)
-	}
-	if gotBody["code"] != "123456" {
-		t.Errorf("body=%v", gotBody)
-	}
-	if _, has := gotBody["method"]; has {
-		t.Errorf("method should be omitted when empty: %v", gotBody)
-	}
-	if gotIP != "198.51.100.2" {
-		t.Errorf("ip=%q", gotIP)
-	}
-}
-
-func TestAuth_ConfirmMFA_MissingCode(t *testing.T) {
-	srv := authTestServer(t, map[string]http.HandlerFunc{
-		"/auth/mfa/confirm": func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"error": map[string]any{"code": "bad_request", "message": "code required"},
-				"code":  "missing_code",
-			})
-		},
-	})
-	defer srv.Close()
-
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	err := r.Auth.ConfirmMFA(context.Background(), ConfirmMFARequest{UserBearer: "u-jwt"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !IsCode(err, ErrCodeBadRequest) {
-		t.Errorf("want bad_request, got %v", err)
 	}
 }
 

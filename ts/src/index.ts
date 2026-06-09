@@ -51,9 +51,8 @@ export type {
   TenantRef,
   UserSummary,
   LoginMethod,
-  EnrollMfaRequest,
+  SelfEnrollMfaRequest,
   MfaEnrollment,
-  ConfirmMfaRequest,
   DisableMfaRequest,
   RevokeAllSessionsRequest,
 } from "./auth.js";
