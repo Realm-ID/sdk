@@ -36,7 +36,13 @@ const (
 	ErrCodeAccountSuspended     ErrorCode = "account_suspended"
 	ErrCodeAccountDeactivated   ErrorCode = "account_deactivated"
 	ErrCodeRealmOriginMismatch  ErrorCode = "realm_origin_mismatch"
-	ErrCodeMissingOrigin        ErrorCode = "missing_origin"
+	// ErrCodeRealmMismatch is the ADR-041 client-side realm pin: the SDK
+	// was constructed for realm A but the platform access token's iss
+	// references realm B (a confused-deputy guard). Emitted locally by the
+	// session manager before any subsequent API call — never a server
+	// code on the partner surface (SPEC §3.1).
+	ErrCodeRealmMismatch ErrorCode = "realm_mismatch"
+	ErrCodeMissingOrigin ErrorCode = "missing_origin"
 	// ErrCodeRefreshInvalid is returned by POST /auth/token when the
 	// presented refresh token is expired, revoked, or reuse-detected —
 	// terminal for the caller (re-authentication required). Distinct from
@@ -175,6 +181,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeSessionLimitReached: {}, ErrCodeTenantRequired: {},
 	ErrCodeTenantInvalid: {}, ErrCodeAccountSuspended: {},
 	ErrCodeAccountDeactivated: {}, ErrCodeRealmOriginMismatch: {},
+	ErrCodeRealmMismatch: {},
 	ErrCodeMissingOrigin: {}, ErrCodeRefreshInvalid: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},

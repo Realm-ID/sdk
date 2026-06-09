@@ -26,6 +26,15 @@ public enum ErrorCode {
     ACCOUNT_SUSPENDED("account_suspended"),
     ACCOUNT_DEACTIVATED("account_deactivated"),
     REALM_ORIGIN_MISMATCH("realm_origin_mismatch"),
+    /**
+     * ADR-041 client-side realm pin: the SDK was constructed for realm A
+     * but the platform access token's {@code iss} references realm B (a
+     * confused-deputy guard). Emitted locally before any subsequent API
+     * call — never a server code on the partner surface (SPEC §3.1). The
+     * Java SDK does not yet perform this client-side pin (Go/TS do); the
+     * constant is present for cross-language taxonomy parity.
+     */
+    REALM_MISMATCH("realm_mismatch"),
     MISSING_ORIGIN("missing_origin"),
     /**
      * Returned by {@code POST /auth/token} when the presented refresh token is

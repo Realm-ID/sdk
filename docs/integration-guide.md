@@ -354,11 +354,17 @@ const claims = await verifier.verify(token);
 ```
 
 ```go
-v, _ := realmid.NewVerifier(ctx, realmid.VerifierConfig{
-    Issuer:   "https://auth.realmid.dev/" + os.Getenv("REALM_ID"),
+// Go has no standalone NewVerifier — construct the handle and call
+// Verify. A verifier-only handle needs no API key; pass the audience
+// per-call via VerifyOptions so Verify never falls back to the
+// credentialed Info() auto-discovery.
+realm, _ := realmid.NewRealm(realmid.Config{
+    BaseURL: "https://auth.realmid.dev",
+    RealmID: os.Getenv("REALM_ID"),
+})
+claims, err := realm.Verify(ctx, token, &realmid.VerifyOptions{
     Audience: os.Getenv("REALM_AUDIENCE"),
 })
-claims, err := v.Verify(ctx, token)
 ```
 
 Verifier-only mode does **not** need an API key. Use it for any

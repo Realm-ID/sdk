@@ -9,14 +9,45 @@ multi-tab sync.
 
 ## Packages
 
-| Package                       | Purpose                                                              | Status   |
-|-------------------------------|----------------------------------------------------------------------|----------|
-| `@realmid/web`                | Core: transport, token mgmt, storage adapters, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | v0.4.0 |
-| `@realmid/web-admin`          | Admin-UI SDK companion: tenants, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates | v0.1.1 |
-| `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | v0.4.0   |
-| `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | v0.4.0   |
-| `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | v0.4.0   |
-| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/api`) | v0.3.0 |
+| Package                       | Purpose                                                              | Version in repo |
+|-------------------------------|----------------------------------------------------------------------|-----------------|
+| `@realmid/web`                | Core: transport, token mgmt, storage adapters, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | 0.4.0 |
+| `@realmid/web-admin`          | Admin-UI SDK companion: tenants, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates | 0.4.0 |
+| `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | 0.4.0   |
+| `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | 0.4.0   |
+| `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | 0.4.0   |
+| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/api`) | 0.3.0 |
+
+> **Release status (2026-06-03).** The `0.4.0` packages above are
+> **UNRELEASED** — they are the versions in this monorepo, not what is on
+> npm. The latest cut tag is **`web-v0.3.0`** (and `web-bff-realmid-v0.2.0`
+> for the BFF preset), so npm currently serves the `0.3.x` line. Shipping
+> `0.4.0` is a two-step human action that is **not** done here: (1) cut the
+> matching git tags (`web-v0.4.0`, and `web-bff-realmid-v0.3.0` if that
+> package is rolled forward), then (2) `npm publish` each package. Until
+> both happen, treat `0.4.0` as `main`-only. The tag-cut + publish is
+> tracked in `sdk/TODO.md`.
+
+### BFF-fronted SPA combo
+
+A partner SPA that authenticates **through its own BFF** (the canonical
+ADR-052 topology — the browser never holds an API key and never calls
+`auth.realmid.dev` directly) installs `@realmid/web` plus exactly one
+provider-kickoff adapter, and optionally the React bindings:
+
+- **`@realmid/web`** — required. Transport, token lifecycle, `realm.fetch`.
+- **`@realmid/web-firebase`** *(or `@realmid/web-google`)** — the
+  provider kickoff. Use `-firebase` when you already run Firebase Auth
+  (Google popup/redirect + email/password); use `-google` for raw Google
+  Identity Services (FedCM-aware, no Firebase dep). Pick one.
+- **`@realmid/web-react`** — optional. `RealmProvider` + hooks for React
+  apps. Vanilla-JS apps skip it.
+- **`@realmid/web-bff-realmid`** — optional preset, only if the SPA points
+  at the reference `Realm-ID/api` BFF (wires the canonical wire-shape
+  adapters/gates so you don't hand-configure them).
+
+`@realmid/web-admin` is **not** part of the customer-facing SPA combo — it
+is the separate admin-console SDK (see "Admin SDK" below).
 
 ## Quick start (vanilla JS)
 

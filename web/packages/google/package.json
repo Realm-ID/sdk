@@ -14,7 +14,8 @@
   "files": ["dist", "README.md"],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx --test-reporter=spec src/*.test.ts"
   },
   "peerDependencies": {
     "@realmid/web": "^0.4.0"

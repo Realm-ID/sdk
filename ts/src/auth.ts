@@ -71,6 +71,13 @@ export interface TokenResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /**
+   * Minted token's subject class (SPEC §4.2): "user" | "service" |
+   * "platform" (ADR-051). The issuer returns it on /auth/token for every
+   * refresh class; `tenantId` and `role` are populated only when
+   * `subjectType === "user"`.
+   */
+  subjectType: string;
   tenantId: string;
   role: string;
 }
@@ -179,6 +186,7 @@ interface RawTokenResponse {
   access_token: string;
   refresh_token: string;
   expires_in: number;
+  subject_type: string;
   tenant_id: string;
   role: string;
 }
@@ -236,6 +244,7 @@ export class AuthClient {
       accessToken: raw.access_token,
       refreshToken: raw.refresh_token,
       expiresIn: raw.expires_in,
+      subjectType: raw.subject_type,
       tenantId: raw.tenant_id,
       role: raw.role,
     };

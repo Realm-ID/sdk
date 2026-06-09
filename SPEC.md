@@ -162,8 +162,18 @@ SDK failure. It carries:
 
 `provider_token_invalid`, `mfa_required`, `session_limit_reached`,
 `tenant_required`, `tenant_invalid`, `account_suspended`,
-`account_deactivated`, `realm_origin_mismatch`, `missing_origin`,
-`refresh_invalid`.
+`account_deactivated`, `realm_origin_mismatch`, `realm_mismatch`,
+`missing_origin`, `refresh_invalid`.
+
+> `realm_mismatch` is a **client-side** code (ADR-041 realm pin): the SDK
+> decodes the platform access token it just minted and confirms the `iss`
+> references the configured `realmId`. A mismatch (the SDK was constructed
+> for realm A but the API key / workload credential belongs to realm B)
+> is a confused-deputy bug; the SDK raises `realm_mismatch` locally
+> **before** any subsequent management call rather than letting it surface
+> as a cryptic downstream 4xx. It is never emitted by the issuer on the
+> partner surface. Go and TS perform this pin today; Java carries the code
+> for taxonomy parity (its pin is a tracked follow-up).
 
 > `refresh_invalid` is returned by `POST /auth/token` (and surfaced by
 > `auth.token()` / the token manager) when the presented refresh token is
@@ -411,11 +421,20 @@ mgr := realm.auth.newTokenManager(refreshToken, { tenantId?, refreshSink? })
 accessToken := mgr.accessToken(ctx)   // cached, or refreshed on demand
 ```
 
-- **Identity / transport.** The manager talks to `POST /auth/token`
-  **directly** on its own refresh token. A long-lived client authenticates
-  as itself; it does not proxy through a BFF and is not handed the
-  platform API key. (The raw API key never reaches such a client — §4.0
-  defense-in-depth.)
+- **Identity / transport.** The manager is created from a configured
+  `realm` handle (`realm.auth.newTokenManager(...)`) and rides that
+  handle's platform session: each `POST /auth/token` carries the
+  **platform access token** in `Authorization: Bearer ...` (minted from
+  the handle's API key / workload credential per §4.0) **and** the
+  manager's own refresh token in the request body. This matches the
+  issuer's BFF gate (§4.2 / ADR-041): when the refresh-bound realm has
+  `require_bff_login=true`, the bearer MUST be the platform token and the
+  refresh MUST be in the body. The long-lived client's *identity* is its
+  refresh token; the platform bearer authorizes the *caller* (the handle).
+  The raw API key itself is **never** placed on the wire as a credential —
+  it is exchanged once for the platform token (§4.0 defense-in-depth) — so
+  a handle embedded in a long-lived client still does not leak the key on
+  `/auth/token` traffic.
 - **`accessToken(ctx)`** returns a cached access token while it has ≥30s
   of life, otherwise performs one refresh and returns the new one.
 - **Single-flight.** Concurrent `accessToken` calls collapse to a single
@@ -453,9 +472,12 @@ contract.
 surfaces a `RealmError{ code: "refresh_invalid" }` and does **not** retry
 or fall back to any other credential. This is the signal for the client
 to discard its stored refresh token and re-run its enrollment / login
-flow. (Contrast §4.0's platform session manager, which on a dead refresh
-falls back to a fresh `platform_api_key` login — it has the API key; a
-long-lived user client does not.)
+flow. (Contrast §4.0's platform *session* manager, which on a dead
+platform refresh re-bootstraps with a fresh `platform_api_key` login. The
+token manager never re-bootstraps the *user* identity — the user refresh
+is the only thing that can mint a user access token, and it is gone — so a
+dead refresh is terminal here even though the underlying handle still
+holds a live platform session.)
 
 ### 4.3 `mfaVerify(req)`
 
@@ -1372,8 +1394,31 @@ Detailed proposals tracked in repo `TODO.md`. Headlines:
 
 ## 12. Versioning
 
-The repository tags per SDK with a language prefix
-(`ts-v0.1.0`, `go-v0.1.0`, `java-v0.1.0`). Surface changes that break
+The repository tags each SDK independently. Surface changes that break
 wire compatibility require **all three** SDKs to bump together. The
 spec in this document is authoritative; if an SDK diverges, it is a
 bug in that SDK, not a permitted variation.
+
+**Tag forms.** The Go SDK is a *subdirectory* module
+(`github.com/Realm-ID/sdk/go`), so its release tags MUST use the
+**slash** form `go/vX.Y.Z` — that is the only form
+`go get github.com/Realm-ID/sdk/go@vX.Y.Z` resolves. The `go-vX.Y.Z`
+hyphen label is a legacy human convention (stopped at `go-v0.10.0`) and
+is **not** a resolvable module version; do not cite it as an install
+target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
+
+**Per-language tag matrix** (latest released ↔ this SPEC version):
+
+| Language | Latest released tag | Notes |
+|----------|---------------------|-------|
+| Go       | `go/v0.16.0`        | slash form; resolved by `go get`. ADR-056 `X-User-Token`. |
+| TS       | `ts-v0.13.0`        | token manager + `refresh_invalid` + api-key DTO (SPEC v0.8.0). |
+| Java     | `java-v0.10.0`      | v0.8.0 parity + ADR-051 migration. |
+
+> **SPEC v0.10.0 (ADR-057 workload identity federation, §4.0.1) is
+> implemented in all three SDKs but UNRELEASED** — the lockstep version
+> bump + tags (`go/v0.17.0`, `ts-v0.14.0`, `java-v0.11.0`, or the next
+> numbers chosen at release) are pending. Until then, the federation
+> surface ships only from `main`. The SPEC header tracks the
+> *implemented* surface (CLAUDE.md "spec is law / code wins"), which may
+> lead the newest released tag.

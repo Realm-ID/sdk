@@ -251,7 +251,7 @@ func (m *sessionManager) checkIssuer(jwt string) error {
 	}
 	if !strings.HasSuffix(iss, "/"+m.realmID) {
 		return &RealmError{
-			Code:    ErrCodeUnauthorized,
+			Code:    ErrCodeRealmMismatch,
 			Message: "platform access token's iss does not match configured realm: got " + iss + ", configured realm " + m.realmID,
 		}
 	}

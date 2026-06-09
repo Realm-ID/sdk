@@ -207,7 +207,12 @@ export class Verifier {
   }
 }
 
-/** Convenience factory mirroring the Go SDK's `NewVerifier`. */
+/**
+ * Convenience factory for a verifier-only handle. The Go and Java SDKs
+ * have no standalone verifier factory — they verify via the unified
+ * handle (`realmid.NewRealm(...)` + `realm.Verify(...)` in Go;
+ * `Realm.builder()...build()` + `realm.verify(...)` in Java).
+ */
 export function createVerifier(cfg: VerifierConfig): Verifier {
   return new Verifier(cfg);
 }

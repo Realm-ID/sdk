@@ -121,6 +121,11 @@ type MintResult struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
+	// SubjectType is the minted token's subject class (SPEC §4.2):
+	// "user", "service", or "platform" (ADR-051). The issuer returns it
+	// on /auth/token for every refresh class; TenantID and Role are
+	// populated only when SubjectType == "user".
+	SubjectType  string `json:"subject_type"`
 	TenantID     string `json:"tenant_id"`
 	Role         string `json:"role"`
 }

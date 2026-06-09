@@ -15,23 +15,31 @@ go get github.com/Realm-ID/sdk/go
 package main
 
 import (
+    "context"
+    "errors"
     "log"
 
     realmid "github.com/Realm-ID/sdk/go"
 )
 
 func main() {
-    v, err := realmid.NewVerifier(realmid.Config{
-        BaseURL:  "https://auth.realmid.dev",
-        Audience: "your-partner-audience",
+    // There is no standalone NewVerifier in the Go SDK — construct the
+    // handle and call Verify. A verifier-only handle needs no API key;
+    // pass the audience per-call via VerifyOptions so Verify never
+    // falls back to the credentialed Info() auto-discovery.
+    realm, err := realmid.NewRealm(realmid.Config{
+        BaseURL: "https://auth.realmid.dev",
+        RealmID: "your-realm-id",
     })
     if err != nil {
         log.Fatal(err)
     }
 
-    claims, err := v.Verify(accessToken)
+    claims, err := realm.Verify(context.Background(), accessToken, &realmid.VerifyOptions{
+        Audience: "your-partner-audience",
+    })
     if err != nil {
-        var verr *realmid.Error
+        var verr *realmid.RealmError
         if errors.As(err, &verr) {
             // verr.Code in {malformed, wrong_algorithm, bad_signature,
             //   wrong_issuer, wrong_audience, expired, not_yet_valid,
@@ -50,13 +58,13 @@ Stdlib only — no third-party dependencies. Go 1.22+.
 
 ## HTTP middleware
 
-The full `Realm` handle (`realmid.New(...)`) ships an `http.Handler`
+The full `Realm` handle (`realmid.NewRealm(...)`) ships an `http.Handler`
 middleware that handles `/login`, `/logout`, `/token` (refresh), and
 `/mfa/verify` end-to-end and verifies bearer tokens on every other
 route. Mount it once on your mux:
 
 ```go
-realm, err := realmid.New(realmid.Config{
+realm, err := realmid.NewRealm(realmid.Config{
     RealmID: os.Getenv("REALM_ID"),
     APIKey:  os.Getenv("REALM_API_KEY"),
 })
@@ -86,9 +94,11 @@ viable — native apps, CLIs, or truly cross-origin SPAs. See
 
 ## What's in scope
 
-Verifier-only callers can stay on `realmid.NewVerifier(...)` — no
-network calls beyond JWKS. The full handle (`realmid.New(...)`) layers
-the auth surface, management API, and the middleware above.
+Verifier-only callers construct the handle without an API key and call
+`realm.Verify(ctx, token, &realmid.VerifyOptions{Audience: ...})` — no
+network calls beyond JWKS. The same handle (`realmid.NewRealm(...)`,
+given an `APIKey` or an ambient workload credential) layers the auth
+surface, management API, and the middleware above.
 
 ## Tests
 

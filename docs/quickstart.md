@@ -165,9 +165,13 @@ const verifier = createVerifier({
 const claims = await verifier.verify(token);
 ```
 
-(The Go and Java SDKs expose the same low-level primitive as
-`realmid.NewVerifier(...)` and `Verifier.create(Config.builder()...)`
-respectively.)
+(The Go and Java SDKs expose the same verify primitive, but there is no
+standalone `NewVerifier` factory: in Go you construct the handle with
+`realmid.NewRealm(realmid.Config{...})` and call
+`realm.Verify(ctx, token, opts)`; in Java you build
+`Realm.builder()...build()` and call `realm.verify(token)`. A
+verifier-only handle needs no API key — set `baseUrl` + `realmId` +
+`audience` and skip `apiKey`.)
 
 ## Next steps
 

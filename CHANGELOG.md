@@ -1,9 +1,50 @@
 # Changelog
 
 All notable changes to the Realm ID SDK monorepo. Each SDK
-(`ts/`, `go/`, `java/`) ships independently with a language-prefixed
-tag (`ts-vX.Y.Z`, `go-vX.Y.Z`, `java-vX.Y.Z`); cross-cutting items
+(`ts/`, `go/`, `java/`) ships independently; cross-cutting items
 that affect every SDK at once are recorded under a shared heading.
+
+> **Tag forms — read this before `go get`.** The Go module is a
+> subdirectory module (`github.com/Realm-ID/sdk/go`), so its release
+> tags MUST use the **slash** form `go/vX.Y.Z` — that is the only form
+> the Go toolchain resolves for `go get github.com/Realm-ID/sdk/go@vX.Y.Z`.
+> The `go-vX.Y.Z` **hyphen** form that appears in older headings below is
+> a legacy human label (a one-off that stopped at `go-v0.10.0`); it is
+> **not** a resolvable module version. TS and Java are not subdirectory
+> Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
+
+## All — SPEC reconciliation: `subjectType` on `token()` + `realm_mismatch` code (2026-06-03)
+
+Additive on the wire; no version bump cut yet (unreleased, lands with the
+next lockstep tags). Three SPEC-vs-code divergences closed:
+
+### Added
+
+- **`subjectType` on the `token()` response** (SPEC §4.2). The issuer has
+  always returned `subject_type ∈ {user, service, platform}` on
+  `POST /auth/token` (it is `required` in the swagger `TokenResponse`); the
+  SDKs were dropping it. Now surfaced as Go `MintResult.SubjectType`, TS
+  `TokenResponse.subjectType`, and Java `TokenResponse.subjectType`.
+  `tenantId` / `role` remain user-only.
+- **`realm_mismatch` error code** (SPEC §3.1) — the ADR-041 **client-side**
+  realm pin: the SDK decodes the freshly-minted platform access token and
+  raises `realm_mismatch` locally when its `iss` doesn't reference the
+  configured realm (confused-deputy guard), before any management call.
+  Added to Go (`ErrCodeRealmMismatch`) and the TS `KNOWN_CODES` set (the TS
+  type already had it); added to Java `ErrorCode` for taxonomy parity
+  (Java's client-side pin itself is a tracked follow-up).
+
+### Changed
+
+- **Go `sessionManager.checkIssuer`** now emits `realm_mismatch` instead of
+  the generic `unauthorized` on a realm-pin failure, matching TS and the
+  newly-spec'd taxonomy.
+- **SPEC §4.2.1 (token manager) transport wording** corrected: the manager
+  rides the handle's platform session, so each `/auth/token` carries the
+  **platform bearer** + the refresh in the body (matching the issuer BFF
+  gate). The prior "directly on its own refresh token, not handed the
+  platform API key" wording was misleading. No code change — implementation
+  was already correct.
 
 ## Go — verified on-behalf-of via `X-User-Token` (2026-05-31)
 
@@ -754,9 +795,11 @@ Superseded by the locked surface above.
 
 ## go-v0.1.0 (initial public release, 2026-04-25)
 
-First public Go SDK as a verifier-only surface
-(`realmid.NewVerifier(realmid.Config{...})`). Stdlib only.
-Superseded by the locked surface above.
+First public Go SDK as a verifier-only surface. Stdlib only.
+(This release exposed a standalone `realmid.NewVerifier(...)` factory;
+it was later folded into the unified handle — verification is now
+`realmid.NewRealm(...)` + `realm.Verify(ctx, token, opts)`, with no
+exported `NewVerifier`.) Superseded by the locked surface above.
 
 ## java-v0.1.0 (initial public release, 2026-04-25)
 
