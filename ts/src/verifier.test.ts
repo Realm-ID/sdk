@@ -153,7 +153,15 @@ test("verify: tampered signature rejected", async () => {
     exp: Math.floor(now.getTime() / 1000) + 900,
   });
   const parts = good.split(".");
-  parts[2] = parts[2]!.slice(0, -1) + (parts[2]!.slice(-1) === "A" ? "B" : "A");
+  // Mutate a char in the MIDDLE of the signature, not the last one: the final
+  // base64url char encodes the signature's trailing bits plus unused padding
+  // bits, so flipping it (A<->B) can change only padding and decode to the
+  // identical bytes — leaving the signature valid (the old ~1-in-3 flake). A
+  // middle char carries 6 meaningful bits, so any change is guaranteed to alter
+  // a signature byte and deterministically fail verification.
+  const sig = parts[2]!;
+  const mid = Math.floor(sig.length / 2);
+  parts[2] = sig.slice(0, mid) + (sig[mid] === "A" ? "B" : "A") + sig.slice(mid + 1);
   const bad = parts.join(".");
 
   await assert.rejects(() => v.verify(bad), (e: Error) => {
