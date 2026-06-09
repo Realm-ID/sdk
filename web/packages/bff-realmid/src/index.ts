@@ -64,13 +64,24 @@ interface RealmidLoginBody {
   tenants?: RealmidLoginTenant[];
 }
 
+interface RealmidMeMembership {
+  tenant_id?: string;
+  platform_id?: string;
+  display_name?: string;
+  role?: string;
+}
+
 interface RealmidMeBody {
   user_id?: string;
   realm_id?: string;
+  // tenant_id/role name the session's *current* pinned tenant (injected
+  // by the BFF from the session record); memberships[] is the full
+  // switchable set (issuer GET /me, resolved by contact join).
   tenant_id?: string;
   role?: string;
   email?: string;
   display_name?: string;
+  memberships?: RealmidMeMembership[];
   expires_at?: number | string;
 }
 
@@ -136,10 +147,22 @@ const adaptLogin: NonNullable<ResponseAdapters["login"]> = (raw, _ctx: AdapterCo
 
 const adaptMe: NonNullable<ResponseAdapters["me"]> = (raw, _ctx): MeResponse => {
   const body = (raw ?? {}) as RealmidMeBody;
-  const tenantId = body.tenant_id;
-  const tenants: TenantRef[] = tenantId
-    ? [{ id: tenantId, role: body.role ?? "", displayName: undefined }]
-    : [];
+  const currentTenantId = body.tenant_id;
+  // Full switchable set from memberships[]; fall back to the single
+  // current tenant for older BFFs that don't surface memberships.
+  const fromMemberships = (body.memberships ?? []).map(
+    (m): TenantRef => ({
+      id: m.tenant_id ?? "",
+      role: m.role ?? "",
+      displayName: m.display_name,
+    }),
+  );
+  const tenants: TenantRef[] =
+    fromMemberships.length > 0
+      ? fromMemberships
+      : currentTenantId
+        ? [{ id: currentTenantId, role: body.role ?? "", displayName: undefined }]
+        : [];
   return {
     user: {
       id: body.user_id ?? "",
@@ -147,7 +170,7 @@ const adaptMe: NonNullable<ResponseAdapters["me"]> = (raw, _ctx): MeResponse => 
       displayName: body.display_name,
     },
     tenants,
-    currentTenantId: tenantId,
+    currentTenantId,
     expiresAt: body.expires_at,
   };
 };
@@ -210,6 +233,11 @@ export const realmidBffRequestAdapters: RequestAdapters = {
   },
   // /token is bearer-only on the reference BFF; send no body.
   token: () => undefined,
+  // /switch-tenant: the SDK speaks { tenantId }, the BFF expects
+  // { tenant_id }. The BFF re-pins the session server-side via the
+  // user-scoped refresh and returns { expires_at } (session_token
+  // unchanged), so the response flows through adaptToken.
+  switchTenant: ({ tenantId }) => ({ tenant_id: tenantId }),
   mfaVerify: (canonical) => {
     const body: Record<string, unknown> = { code: canonical.code };
     if (canonical.challengeToken) body.mfa_challenge_token = canonical.challengeToken;
@@ -252,20 +280,24 @@ function extractMfa(body: unknown): Record<string, unknown> {
   const inner = (b.error ?? b) as Record<string, unknown>;
   return {
     challengeToken: inner.mfa_challenge_token,
+    // The target tenant rides the gate so MfaEnroll can POST
+    // /tenants/{tid}/users/{uid}/mfa/enroll without a session.
+    tenantId: inner.tenant_id,
     method: inner.method ?? "totp",
   };
 }
 
 /**
- * Endpoints for the reference BFF. `switchTenant` is null because the BFF
- * collapses tenant pinning into a /login second pass; the SDK falls back
- * to that automatically.
+ * Endpoints for the reference BFF. `switchTenant` re-pins the session
+ * server-side using the user-scoped refresh token (no re-login, no
+ * provider id_token needed); the SDK uses the mint path in
+ * Realm.switchTenant.
  */
 export const realmidBffEndpoints: Partial<Endpoints> = {
   providers: "/identity-providers",
   login: "/login",
   token: "/token",
-  switchTenant: null,
+  switchTenant: "/switch-tenant",
   mfaVerify: "/auth/mfa/verify",
   logout: "/logout",
   me: "/me",

@@ -30,7 +30,15 @@ const (
 	// Auth-flow codes.
 	ErrCodeProviderTokenInvalid ErrorCode = "provider_token_invalid"
 	ErrCodeMFARequired          ErrorCode = "mfa_required"
-	ErrCodeSessionLimitReached  ErrorCode = "session_limit_reached"
+	// ErrCodeMFARegistrationRequired is the first-factor-enrollment variant of
+	// the MFA gate: the realm/tenant requires MFA but the user has no confirmed
+	// factor yet. The issuer returns it (with mfa_challenge_token + tenant_id)
+	// on POST /auth/token; a BFF re-surfaces it so the SPA renders an
+	// enrollment screen rather than a code prompt. Must be a *known* code or
+	// mapErrorResponse falls back to the generic 412 status code and the gate
+	// is lost downstream.
+	ErrCodeMFARegistrationRequired ErrorCode = "mfa_registration_required"
+	ErrCodeSessionLimitReached     ErrorCode = "session_limit_reached"
 	ErrCodeTenantRequired       ErrorCode = "tenant_required"
 	ErrCodeTenantInvalid        ErrorCode = "tenant_invalid"
 	ErrCodeAccountSuspended     ErrorCode = "account_suspended"
@@ -178,7 +186,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeWrongIssuer: {}, ErrCodeWrongAudience: {}, ErrCodeExpired: {},
 	ErrCodeNotYetValid: {}, ErrCodeUnknownKID: {}, ErrCodeJWKSFetchFailed: {},
 	ErrCodeProviderTokenInvalid: {}, ErrCodeMFARequired: {},
-	ErrCodeSessionLimitReached: {}, ErrCodeTenantRequired: {},
+	ErrCodeMFARegistrationRequired: {},
+	ErrCodeSessionLimitReached:     {}, ErrCodeTenantRequired: {},
 	ErrCodeTenantInvalid: {}, ErrCodeAccountSuspended: {},
 	ErrCodeAccountDeactivated: {}, ErrCodeRealmOriginMismatch: {},
 	ErrCodeRealmMismatch: {},

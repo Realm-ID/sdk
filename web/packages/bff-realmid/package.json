@@ -1,6 +1,6 @@
 {
   "name": "@realmid/web-bff-realmid",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Drop-in adapter preset wiring @realmid/web to the realmid.dev reference BFF (Realm-ID/api).",
   "type": "module",
   "main": "dist/index.js",
@@ -11,13 +11,22 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["realmid", "bff", "adapter", "browser", "sdk"],
+  "keywords": [
+    "realmid",
+    "bff",
+    "adapter",
+    "browser",
+    "sdk"
+  ],
   "homepage": "https://realmid.dev",
   "repository": {
     "type": "git",

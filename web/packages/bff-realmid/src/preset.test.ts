@@ -227,6 +227,78 @@ test("realmid preset: /me restore populates from flat snake_case shape", async (
   realm.close();
 });
 
+test("realmid preset: /me restore populates the full switchable set from memberships[]", async () => {
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) {
+      return {
+        status: 200,
+        body: {
+          user_id: "u1",
+          realm_id: "r1",
+          // current pinned tenant (injected by the BFF from the session record)
+          tenant_id: "t1",
+          role: "owner",
+          email: "u@x",
+          display_name: "User",
+          memberships: [
+            { tenant_id: "t1", display_name: "Acme", role: "owner" },
+            { tenant_id: "t2", display_name: "Globex", role: "member" },
+          ],
+          expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+        },
+      };
+    }
+    return { status: 404 };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  const s = realm.getState();
+  assert.equal(s.status, "authenticated");
+  assert.equal(s.currentTenantId, "t1", "current tenant from tenant_id, not memberships[0]");
+  assert.equal(s.tenants.length, 2, "full membership set surfaces for the switcher");
+  assert.deepEqual(
+    s.tenants.map((t) => t.id).sort(),
+    ["t1", "t2"],
+  );
+  assert.equal(s.tenants.find((t) => t.id === "t2")?.displayName, "Globex");
+  realm.close();
+});
+
+test("realmid preset: switchTenant re-pins via POST /switch-tenant (no re-login)", async () => {
+  const { fetch, calls } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) {
+      return {
+        status: 200,
+        body: {
+          user_id: "u1",
+          tenant_id: "t1",
+          role: "owner",
+          memberships: [
+            { tenant_id: "t1", display_name: "Acme", role: "owner" },
+            { tenant_id: "t2", display_name: "Globex", role: "member" },
+          ],
+          expires_at: Math.floor((Date.now() + 3600_000) / 1000),
+        },
+      };
+    }
+    if (call.url.endsWith("/switch-tenant")) {
+      // BFF re-pins server-side; session_token unchanged, only expiry advances.
+      return { status: 200, body: { expires_at: Math.floor((Date.now() + 3600_000) / 1000) } };
+    }
+    return { status: 404 };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  await realm.switchTenant("t2");
+  const switchCall = calls.find((c) => c.url.endsWith("/switch-tenant"));
+  assert.ok(switchCall, "hit /switch-tenant, not /login");
+  assert.equal(switchCall!.method, "POST");
+  assert.deepEqual(switchCall!.body, { tenant_id: "t2" }, "tenantId → tenant_id");
+  assert.equal(realm.getState().currentTenantId, "t2");
+  assert.equal(calls.filter((c) => c.url.endsWith("/login")).length, 0, "no re-login round-trip");
+  realm.close();
+});
+
 test("realmid preset: providers query uses platform=", async () => {
   const seen: string[] = [];
   const { fetch } = mockFetch((call) => {

@@ -270,6 +270,10 @@ export class Realm {
         : { tenantId };
       const res = await this.transport.request<unknown>("POST", this.switchEndpoint, {
         body: wireBody,
+        // Authenticated call: attach the current bearer so a BFF that re-pins
+        // server-side can load the session. Without this the request is
+        // anonymous and the BFF rejects it (missing session bearer).
+        accessToken: this.tokens.peek() ?? undefined,
         gates: this.gates,
       });
       const adapted = this.adapters.token

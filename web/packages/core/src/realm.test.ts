@@ -162,7 +162,7 @@ test("concurrent fetches share one refresh", async () => {
 });
 
 test("switchTenant mints a new token and updates state", async () => {
-  const { fetch } = mockFetch((call) => {
+  const { fetch, calls } = mockFetch((call) => {
     if (call.url.endsWith("/me")) return { status: 401 };
     if (call.url.endsWith("/login")) {
       return {
@@ -190,6 +190,10 @@ test("switchTenant mints a new token and updates state", async () => {
   await realm.login({ method: "google", providerToken: "x" });
   await realm.switchTenant("t2");
   assert.equal(realm.getState().currentTenantId, "t2");
+  // The switch must carry the current bearer — a BFF that re-pins server-side
+  // loads the session from it (regression: anonymous switch → 401).
+  const switchCall = calls.find((c) => c.url.endsWith("/switch-tenant"));
+  assert.equal(switchCall?.headers["authorization"], "Bearer at-1", "switch attaches current bearer");
   realm.close();
 });
 

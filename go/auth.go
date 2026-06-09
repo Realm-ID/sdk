@@ -44,6 +44,12 @@ type TenantRef struct {
 	IDLegacy    string `json:"id,omitempty"`
 	Role        string `json:"role"`
 	DisplayName string `json:"display_name,omitempty"`
+	// MFARequired reports whether this membership demands an MFA step
+	// before a usable access token is minted. The issuer sets it per
+	// tenant on the login tenant list (authsvc.TenantMembership); a BFF
+	// uses it to tell an unminted-because-MFA login apart from an
+	// unminted-because-multi-tenant one.
+	MFARequired bool `json:"mfa_required,omitempty"`
 }
 
 // UserSummary is the verified-user payload returned from Login / MFAVerify.
