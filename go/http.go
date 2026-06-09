@@ -172,6 +172,16 @@ func mapErrorResponse(status int, raw []byte, method, path string) *RealmError {
 					}
 					siblings[k] = v
 				}
+				// Gate payloads (revocation_token, active_sessions,
+				// mfa_challenge_token, …) are nested INSIDE the error object by
+				// the issuer, not alongside it. Collect those too — otherwise
+				// SessionLimitModal / MfaPrompt get an empty Details map.
+				for k, v := range env {
+					if k == "code" || k == "message" || k == "error" {
+						continue
+					}
+					siblings[k] = v
+				}
 				if len(siblings) > 0 {
 					details = siblings
 				}
