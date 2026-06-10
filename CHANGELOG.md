@@ -43,6 +43,11 @@ refresh-authed call. Lockstep across all SDKs + the reference BFF preset.
     `/auth/mfa/enroll`.
 - **Unchanged:** `disableMfa` (`DELETE /auth/mfa`, step-up) and the admin
   `tenants.users.{enrollMfa,confirmMfa,resetMfa}` surface.
+- **Known issue — `recoveryCodes` not yet redeemable.** `selfEnrollMfa`
+  returns `recoveryCodes`, but the issuer has no redemption path yet; do
+  not present them to end users as a recovery mechanism until the redeem
+  flow ships (a follow-up). Account recovery after authenticator loss
+  currently requires an admin MFA reset.
 
 ## All — SPEC reconciliation: `subjectType` on `token()` + `realm_mismatch` code (2026-06-03)
 

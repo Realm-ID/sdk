@@ -4,6 +4,25 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.15.0 — Refresh-authed MFA self-enrollment (ADR-061)
+
+Breaking. Mirrors the monorepo lockstep entry (`../CHANGELOG.md`, cut with
+`go/v0.18.0` + `java-v0.13.0` + web bff-realmid 0.3.3).
+
+### Changed (breaking)
+- `auth.selfEnrollMfa({ refreshToken, tenantId, method? })` replaces
+  `enrollMfa` + `confirmMfa`. Posts to `POST /auth/mfa/enroll` and returns
+  `{ secret, qrUrl, recoveryCodes, mfaChallengeToken, tenantId }`. The
+  enroll-scoped `mfaChallengeToken` is completed via `mfaVerify` — one
+  verify confirms the new secret **and** mints tokens. `enrollMfa`,
+  `confirmMfa`, and `ConfirmMfaRequest` are removed; `MfaEnrollment` gained
+  `mfaChallengeToken` + `tenantId`.
+
+### Known issue
+- `recoveryCodes` are returned but not yet redeemable (no issuer redemption
+  path); do not present them as a recovery mechanism until the follow-up
+  ships.
+
 ## 0.14.0 — workload identity federation (2026-06-02)
 
 Additive (non-breaking). Implements SPEC v0.10.0 §4.0.1 (ADR-057).
