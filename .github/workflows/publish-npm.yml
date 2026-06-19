@@ -1,0 +1,69 @@
+name: publish-npm
+
+# Publishes the JS/TS SDK packages to the npm `realm-id` org:
+#   @realm-id/sdk              (ts/)
+#   @realm-id/web              (web/packages/core)
+#   @realm-id/web-react        (web/packages/react)
+#   @realm-id/web-bff-realmid  (web/packages/bff-realmid)
+#
+# Auth: repo secret NPM_TOKEN — an npm Automation token (bypasses 2FA)
+# owned by a member of the `realm-id` org.
+#
+# Trigger: manual (workflow_dispatch) or pushing a release tag. Re-runs are
+# idempotent — an already-published version is treated as a skip, not a failure.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'ts-v*'
+      - 'web-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish @realm-id/sdk (ts)
+        working-directory: ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci
+          # prepublishOnly runs `npm run build`
+          if npm publish --access public 2>err.log; then
+            echo "published @realm-id/sdk"
+          elif grep -qiE 'cannot publish over|previously published version' err.log; then
+            echo "@realm-id/sdk already published — skipping"
+          else
+            cat err.log; exit 1
+          fi
+
+      - name: Publish web packages (core, react, bff-realmid)
+        working-directory: web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm ci
+          npm run build
+          # order: core first (peers depend on it), then the rest
+          for pkg in core react bff-realmid; do
+            ( cd "packages/$pkg"
+              if npm publish --access=public 2>err.log; then
+                echo "published $pkg"
+              elif grep -qiE 'cannot publish over|previously published version' err.log; then
+                echo "$pkg already published — skipping"
+              else
+                cat err.log; exit 1
+              fi
+            )
+          done
