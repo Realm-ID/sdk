@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased — Platform-intrinsic audience (ADR-064) + on-behalf typed forwarding (ADR-056) — go (2026-06-20)
+## go/v0.19.0 — Platform-intrinsic audience (ADR-064) + on-behalf typed forwarding (ADR-056) — go (2026-06-20)
 
 - **go** `verify`: the expected audience is the platform-intrinsic value
   `realmid:<public_ref>` (learned from `GET /platforms/mine`); the legacy
