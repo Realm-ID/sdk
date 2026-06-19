@@ -13,6 +13,25 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — Platform-intrinsic audience (ADR-064) + on-behalf typed forwarding (ADR-056) — go (2026-06-20)
+
+- **go** `verify`: the expected audience is the platform-intrinsic value
+  `realmid:<public_ref>` (learned from `GET /platforms/mine`); the legacy
+  **fallback to the realm domain is removed** (ADR-064). A realm always has a
+  stable audience, so the "audience auto-discovery returned empty" footgun no
+  longer triggers for configured platforms. Tokens also carry an informational
+  `domain` claim (display/routing only, never an isolation key).
+- **go** `X-User-Token` (on-behalf-of, ADR-056) is now forwarded on the
+  **typed client path** (`Tenants.*`, `Origins.*`, `Auth.*`), not just
+  `Realm.Do`. A token stashed via `WithUserToken(ctx)` makes user-scoped typed
+  calls authorize on the user, not the platform principal. Closes the
+  partner-reported gap (a partner §1.3).
+- ts/java: no code change for the audience increment — their verifiers resolve
+  audience via the info resolver (no domain fallback) and pick up the new
+  `realmid:<ref>` value automatically. Lockstep on-behalf forwarding + the
+  ADR-064 §3 local-derivation increment tracked for the next SDK cut.
+- Version bumps held until the release phase (whole feature set ships together).
+
 ## All — Refresh-authed MFA self-enrollment (ADR-061, SPEC §4.8) — go/v0.18.0, ts, java, web bff-realmid 0.3.3 (2026-06-09)
 
 Breaking: the self-service MFA enrollment surface is now a single

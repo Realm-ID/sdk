@@ -73,6 +73,14 @@ func (c *httpClient) do(ctx context.Context, opts requestOptions, out any) error
 	if opts.Bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+opts.Bearer)
 	}
+	// ADR-056: forward the on-behalf-of user token (X-User-Token) on the typed
+	// client path too, not just Realm.Do. A token stashed via WithUserToken(ctx)
+	// makes user-scoped typed calls (Tenants.*, Origins.*, Auth.*) authorize on
+	// the user, not the platform principal. The platform token stays the wire
+	// bearer — this is additive. (Completes ADR-056; closes the a partner §1.3 gap.)
+	if ut := userTokenFrom(ctx); ut != "" {
+		req.Header.Set("X-User-Token", ut)
+	}
 	for k, v := range opts.Headers {
 		req.Header.Set(k, v)
 	}

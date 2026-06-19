@@ -127,10 +127,15 @@ The SDK exposes a single handle. Configuration is minimal:
 const realm = createRealm({ realmId: "01HXYZ...", apiKey: "rk_live_..." });
 ```
 
-> **Audience auto-discovery:** at first use of `verify()`, the SDK calls
-> `GET /platforms/mine` to learn the realm's canonical audience (its
-> domain). The result is cached for the lifetime of the handle.
-> Override per-call via `verify(token, { audience })`.
+> **Audience (ADR-064):** the token `aud` is the platform-intrinsic,
+> immutable value `realmid:<public_ref>` — decoupled from the routing
+> domain so it cannot collide on domain reuse or move on domain transfer.
+> At first use of `verify()`, the SDK learns it from `GET /platforms/mine`
+> (`audience` field) and caches it for the lifetime of the handle. There is
+> **no fallback to the domain** (removed) — a realm always has an audience.
+> The token also carries an informational `domain` claim (display/routing
+> only, **never** an isolation key). Override the expected audience per-call
+> via `verify(token, { audience })`.
 
 ## 2. Caching
 

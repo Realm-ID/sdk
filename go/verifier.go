@@ -199,14 +199,13 @@ func (v *verifier) expectedAudience(ctx context.Context, opts *VerifyOptions) (s
 	if err != nil {
 		return "", &RealmError{Code: ErrCodeWrongAudience, Message: "audience auto-discovery failed: " + err.Error(), Cause: err}
 	}
-	aud := info.Audience
-	if aud == "" {
-		aud = info.Domain
-	}
-	if aud == "" {
+	// ADR-064: audience is the platform-intrinsic `realmid:<public_ref>` value,
+	// always populated. The legacy fallback to the mutable routing domain is
+	// removed — domain is informational only and must never decide `aud`.
+	if info.Audience == "" {
 		return "", &RealmError{Code: ErrCodeWrongAudience, Message: "audience auto-discovery returned empty"}
 	}
-	return aud, nil
+	return info.Audience, nil
 }
 
 func (v *verifier) resolveKey(ctx context.Context, realmID, kid string) (*rsa.PublicKey, *RealmError) {
