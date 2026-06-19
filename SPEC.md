@@ -535,7 +535,13 @@ admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
   and recovery codes, then complete enrollment by passing the
   **enroll-scoped** `mfaChallengeToken` to `mfaVerify` (§4.x): a single
   verify confirms the new secret **and** mints tokens. There is **no**
-  separate `confirmMfa` step. Returns `already_enrolled` (409) if a
+  separate `confirmMfa` step.
+  > **Recovery codes are not yet redeemable.** `recoveryCodes` are
+  > generated and hash-stored, but there is **no redemption endpoint**
+  > today — losing the authenticator is currently an unrecoverable
+  > lockout. Do not present them to end users as a recovery mechanism
+  > until the redeem path ships (tracked in the project punch list).
+  Returns `already_enrolled` (409) if a
   confirmed factor already exists (reset/disable first),
   `not_a_member` (403), or `refresh_invalid` (401).
 - `disableMfa(req)` → `DELETE /auth/mfa`. Request: bearer + `code`
@@ -1426,14 +1432,13 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.16.0`        | slash form; resolved by `go get`. ADR-056 `X-User-Token`. |
-| TS       | `ts-v0.13.0`        | token manager + `refresh_invalid` + api-key DTO (SPEC v0.8.0). |
-| Java     | `java-v0.10.0`      | v0.8.0 parity + ADR-051 migration. |
+| Go       | `go/v0.18.0`        | slash form; resolved by `go get`. ADR-057 federation + ADR-056 `X-User-Token`. |
+| TS       | `ts-v0.15.0`        | token manager + `refresh_invalid` + api-key DTO + federation. |
+| Java     | `java-v0.10.0`      | v0.8.0 parity + ADR-051 migration. Federation lockstep tag pending. |
 
 > **SPEC v0.10.0 (ADR-057 workload identity federation, §4.0.1) is
-> implemented in all three SDKs but UNRELEASED** — the lockstep version
-> bump + tags (`go/v0.17.0`, `ts-v0.14.0`, `java-v0.11.0`, or the next
-> numbers chosen at release) are pending. Until then, the federation
-> surface ships only from `main`. The SPEC header tracks the
-> *implemented* surface (CLAUDE.md "spec is law / code wins"), which may
-> lead the newest released tag.
+> released for Go (`go/v0.18.0`) and TS (`ts-v0.15.0`).** Java's
+> lockstep federation tag (`java-v0.11.0`) is still pending — until it
+> lands, the Java federation surface ships only from `main`. The SPEC
+> header tracks the *implemented* surface (CLAUDE.md "spec is law / code
+> wins"), which may lead the newest released tag.

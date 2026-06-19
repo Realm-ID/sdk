@@ -1423,11 +1423,13 @@ track. This complements (rather than replaces) the pull feed.
 These SPEC capabilities are not yet first-class methods. None block
 the integration patterns in §1–§8; workarounds are noted inline.
 
-- **MFA enroll/confirm/disable as BFF proxy routes** — the SDK ships
-  the *admin* surfaces (`tenants.users.enrollMfa` etc.). If you need
-  to mount `/auth/mfa/enroll` and `/auth/mfa/confirm` as
-  partner-proxy routes for a self-service TOTP flow, hand-roll those
-  handlers — the underlying server endpoints exist.
+- **MFA enroll/disable as BFF proxy routes** — the SDK ships
+  the *admin* surfaces (`tenants.users.enrollMfa` etc.) and the
+  self-service `selfEnrollMfa` / `disableMfa` (SPEC §4.8). If you need
+  to mount the raw `/auth/mfa/enroll` server route as a partner-proxy
+  for a hand-rolled self-service TOTP flow, the underlying endpoint
+  exists. (There is no `/auth/mfa/confirm` — confirmation folds into
+  `/auth/mfa/verify` via the enroll-scoped challenge per ADR-061.)
 - **Realm / platform create** — partner onboarding (creating a brand
   new realm) is operator-driven via the RealmID admin UI or direct
   REST. The SDK does not expose realm create today; it isn't needed
