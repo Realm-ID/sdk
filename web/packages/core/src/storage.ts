@@ -1,5 +1,5 @@
 /**
- * Pluggable session storage for @realmid/web.
+ * Pluggable session storage for @realm-id/web.
  *
  * The SDK can persist the *opaque* session payload (access bearer +
  * absolute expiry + user/tenant summary) between page-loads so a tab
@@ -40,7 +40,7 @@ export interface StorageAdapter {
   clear(): void;
 }
 
-export const DEFAULT_STORAGE_KEY = "@realmid/web:session";
+export const DEFAULT_STORAGE_KEY = "@realm-id/web:session";
 
 export function memoryStorage(): StorageAdapter {
   let cell: StoredSession | null = null;

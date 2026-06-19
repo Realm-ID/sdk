@@ -1,28 +1,28 @@
 /**
- * @realmid/web-admin — admin-UI SDK companion to @realmid/web.
+ * @realm-id/web-admin — admin-UI SDK companion to @realm-id/web.
  *
- * Reuses the resource classes from @realmid/sdk/internal on top of a
+ * Reuses the resource classes from @realm-id/sdk/internal on top of a
  * thin transport shim that delegates to `realm.fetch`. SDK ownership
  * of Authorization-attach, refresh-on-401, and multi-tab logout sync
  * applies to every admin call.
  *
  * Quick start:
  *
- *   import { createRealm } from "@realmid/web";
- *   import { createAdmin } from "@realmid/web-admin";
+ *   import { createRealm } from "@realm-id/web";
+ *   import { createAdmin } from "@realm-id/web-admin";
  *
  *   const realm = createRealm({ baseUrl: "https://api.partner.com" });
  *   const admin = createAdmin(realm, { baseUrl: "https://api.partner.com" });
  *   const tenants = await admin.tenants.list();
  */
 
-import type { Realm } from "@realmid/web";
+import type { Realm } from "@realm-id/web";
 import {
   TenantsClient,
   RolesClient,
   DomainsClient,
   AdminClient,
-} from "@realmid/sdk/internal";
+} from "@realm-id/sdk/internal";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
 import { ApiKeysClient } from "./api-keys.js";
@@ -70,7 +70,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
   });
   const rid = opts.realmId ?? "current";
   // Cast: TenantsClient/RolesClient/etc. accept the real `HttpClient`
-  // from `@realmid/sdk/internal`, but only call `.request<T>()` — the
+  // from `@realm-id/sdk/internal`, but only call `.request<T>()` — the
   // duck-typed `HttpLike` satisfies that surface. The cast is the
   // boundary between the resource classes' nominal type and our
   // structural shim.
@@ -114,13 +114,13 @@ export {
   RolesClient,
   DomainsClient,
   AdminClient,
-} from "@realmid/sdk/internal";
+} from "@realm-id/sdk/internal";
 
 // Wire types.
 export type * from "./types.js";
 
 // Convenience re-exports of resource-class types most UI consumers
-// will pull from this package rather than @realmid/sdk/internal.
+// will pull from this package rather than @realm-id/sdk/internal.
 export type {
   Tenant,
   TenantCreate,
@@ -152,7 +152,7 @@ export type {
   AdminSearchResponse,
   ListPlatformsOpts,
   ListEventsOpts,
-} from "@realmid/sdk/internal";
+} from "@realm-id/sdk/internal";
 
-export { RealmError } from "@realmid/sdk";
-export type { ErrorCode } from "@realmid/sdk";
+export { RealmError } from "@realm-id/sdk";
+export type { ErrorCode } from "@realm-id/sdk";

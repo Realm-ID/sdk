@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { realmFetchAsHttpClient } from "./transport.js";
-import { RealmError } from "@realmid/sdk";
+import { RealmError } from "@realm-id/sdk";
 
 interface CapturedCall {
   url: string;
@@ -19,7 +19,7 @@ function makeRealm(handler: (call: CapturedCall) => Response | Promise<Response>
     },
   };
   // The shim only consumes `realm.fetch`. Cast for typing.
-  return { realm: realm as unknown as import("@realmid/web").Realm, calls };
+  return { realm: realm as unknown as import("@realm-id/web").Realm, calls };
 }
 
 describe("realmFetchAsHttpClient", () => {

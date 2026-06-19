@@ -1,6 +1,6 @@
 /**
  * Rich `/me` profile + admin-flavored `/identity-providers` lookup.
- * Distinct from `realm.providers()` in `@realmid/web`, which returns
+ * Distinct from `realm.providers()` in `@realm-id/web`, which returns
  * the slimmer login-page shape.
  */
 

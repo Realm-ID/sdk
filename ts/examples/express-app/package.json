@@ -7,7 +7,7 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
-    "@realmid/sdk": "file:../..",
+    "@realm-id/sdk": "file:../..",
     "express": "^4.19.2"
   },
   "devDependencies": {

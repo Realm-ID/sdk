@@ -109,7 +109,7 @@ audit feed gives you, and pairs well with it for a unified view.
 
 ## 5. SDK versioning
 
-- **TS:** `@realmid/sdk` on npm. Pin to the latest minor (`^0.13`)
+- **TS:** `@realm-id/sdk` on npm. Pin to the latest minor (`^0.13`)
   during pre-launch; re-pin on each minor release.
 - **Go:** `github.com/Realm-ID/sdk/go`. Pin via `go.mod` to the
   latest tag. The Go module follows semver post-v1; pre-1.0 minor

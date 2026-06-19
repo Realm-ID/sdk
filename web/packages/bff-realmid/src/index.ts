@@ -1,5 +1,5 @@
 /**
- * @realmid/web-bff-realmid — preset wiring @realmid/web to the realmid.dev
+ * @realm-id/web-bff-realmid — preset wiring @realm-id/web to the realmid.dev
  * reference BFF (Realm-ID/api, formerly Realm-ID/bff-api).
  *
  * The reference BFF deviates from BFF-SPEC.md in 6 places:
@@ -17,8 +17,8 @@
  *
  * Usage:
  *
- *   import { createRealm } from "@realmid/web";
- *   import { realmidBffPreset } from "@realmid/web-bff-realmid";
+ *   import { createRealm } from "@realm-id/web";
+ *   import { realmidBffPreset } from "@realm-id/web-bff-realmid";
  *
  *   const realm = createRealm({
  *     baseUrl: "https://api.realmid.dev",
@@ -40,7 +40,7 @@ import type {
   TenantRef,
   TokenResponse,
   UserSummary,
-} from "@realmid/web";
+} from "@realm-id/web";
 
 interface RealmidLoginUser {
   id?: string;

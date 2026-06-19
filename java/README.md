@@ -1,4 +1,4 @@
-# @realmid/sdk — Java
+# @realm-id/sdk — Java
 
 Java SDK for the [Realm ID](https://realmid.dev) authentication service.
 Sibling TypeScript SDK at [`../ts/`](../ts), Go SDK at [`../go/`](../go).

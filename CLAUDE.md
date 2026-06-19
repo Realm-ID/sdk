@@ -4,16 +4,16 @@ One locked spec, multiple language-idiomatic implementations.
 
 | Path | Status | Package |
 |---|---|---|
-| `ts/` | Released | `@realmid/sdk` (npm) |
+| `ts/` | Released | `@realm-id/sdk` (npm) |
 | `go/` | Released | `github.com/Realm-ID/sdk/go` |
 | `java/` | Released | `dev.realmid:sdk` |
-| `web/packages/core/` | Released | `@realmid/web@0.4.0` (tenant-app browser SDK) |
-| `web/packages/admin/` | Released | `@realmid/web-admin@0.1.1` (admin-UI browser SDK) |
-| `web/packages/react/` | Released | `@realmid/web-react@0.4.0` |
-| `web/packages/firebase/` | Released | `@realmid/web-firebase@0.4.0` |
-| `web/packages/google/` | Released | `@realmid/web-google@0.4.0` |
-| `web/packages/bff-realmid/` | Released | `@realmid/web-bff-realmid@0.3.0` |
-| `components/` | Planned | `@realmid/components` (React) |
+| `web/packages/core/` | Released | `@realm-id/web@0.4.0` (tenant-app browser SDK) |
+| `web/packages/admin/` | Released | `@realm-id/web-admin@0.1.1` (admin-UI browser SDK) |
+| `web/packages/react/` | Released | `@realm-id/web-react@0.4.0` |
+| `web/packages/firebase/` | Released | `@realm-id/web-firebase@0.4.0` |
+| `web/packages/google/` | Released | `@realm-id/web-google@0.4.0` |
+| `web/packages/bff-realmid/` | Released | `@realm-id/web-bff-realmid@0.3.0` |
+| `components/` | Planned | `@realm-id/components` (React) |
 
 ## Authoritative docs
 
@@ -34,18 +34,18 @@ One locked spec, multiple language-idiomatic implementations.
   `ctxpkg "context"` for new exported funcs.
 - **Version bumping** — SPEC change → bump all language SDKs in lockstep
   with matching CHANGELOG entries.
-- **Two-SDK browser split** — `@realmid/web` is the tenant-app SDK
-  (auth, storage, multi-tab); `@realmid/web-admin` is the admin-UI SDK
+- **Two-SDK browser split** — `@realm-id/web` is the tenant-app SDK
+  (auth, storage, multi-tab); `@realm-id/web-admin` is the admin-UI SDK
   (tenants, users, roles, platforms, notes, signing keys, BFF
-  aggregates). `web-admin` declares `@realmid/web` as a peer
-  dependency and bundles `@realmid/sdk` (via `bundledDependencies`)
+  aggregates). `web-admin` declares `@realm-id/web` as a peer
+  dependency and bundles `@realm-id/sdk` (via `bundledDependencies`)
   so its resource classes are pinned to the version it was packed
   against.
 - **Repack gotcha (`web-admin`)** — workspace-root `npm install`
-  hoists `@realmid/sdk` out of
-  `sdk/web/packages/admin/node_modules/@realmid/sdk/`. Before
+  hoists `@realm-id/sdk` out of
+  `sdk/web/packages/admin/node_modules/@realm-id/sdk/`. Before
   `npm pack` in that package, manually copy `sdk/ts/` (with a fresh
-  `dist/`) into `packages/admin/node_modules/@realmid/sdk/` so the
+  `dist/`) into `packages/admin/node_modules/@realm-id/sdk/` so the
   tarball actually carries the bundled dep. This bites every
   release.
 

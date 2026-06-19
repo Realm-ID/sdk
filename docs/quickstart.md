@@ -14,14 +14,14 @@ user in, verify their access token, and protect a route.
 ## TypeScript / Node
 
 ```bash
-npm install @realmid/sdk express cookie-parser
+npm install @realm-id/sdk express cookie-parser
 ```
 
 ```ts
 // server.ts
 import express from "express";
 import cookieParser from "cookie-parser";
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realm = createRealm({
   realmId: process.env.REALM_ID!,
@@ -154,7 +154,7 @@ that trusts tokens minted by your edge), skip the full handle and use
 the low-level verifier:
 
 ```ts
-import { createVerifier } from "@realmid/sdk";
+import { createVerifier } from "@realm-id/sdk";
 
 const verifier = createVerifier({
   baseUrl: "https://auth.realmid.dev",

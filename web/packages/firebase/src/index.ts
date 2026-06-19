@@ -1,7 +1,7 @@
 /**
- * Firebase Auth provider adapter for @realmid/web.
+ * Firebase Auth provider adapter for @realm-id/web.
  *
- *   import { createFirebaseProvider } from "@realmid/web-firebase";
+ *   import { createFirebaseProvider } from "@realm-id/web-firebase";
  *   const fb = createFirebaseProvider({
  *     firebaseConfig: { apiKey, authDomain, projectId, appId },
  *     mode: "popup", // or "redirect" for webviews
@@ -30,7 +30,7 @@ import {
   type Auth,
   type UserCredential,
 } from "firebase/auth";
-import type { LoginResponse, Realm } from "@realmid/web";
+import type { LoginResponse, Realm } from "@realm-id/web";
 
 export interface FirebaseProviderOptions {
   firebaseConfig: FirebaseOptions;
@@ -54,7 +54,7 @@ export interface FirebaseProvider {
 }
 
 export function createFirebaseProvider(opts: FirebaseProviderOptions): FirebaseProvider {
-  const app = initializeApp(opts.firebaseConfig, "@realmid/web-firebase");
+  const app = initializeApp(opts.firebaseConfig, "@realm-id/web-firebase");
   const auth = getAuth(app);
   const mode = opts.mode ?? "popup";
 

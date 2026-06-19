@@ -11,12 +11,12 @@ multi-tab sync.
 
 | Package                       | Purpose                                                              | Version in repo |
 |-------------------------------|----------------------------------------------------------------------|-----------------|
-| `@realmid/web`                | Core: transport, token mgmt, storage adapters, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | 0.4.0 |
-| `@realmid/web-admin`          | Admin-UI SDK companion: tenants, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates | 0.4.0 |
-| `@realmid/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | 0.4.0   |
-| `@realmid/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | 0.4.0   |
-| `@realmid/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | 0.4.0   |
-| `@realmid/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/api`) | 0.3.0 |
+| `@realm-id/web`                | Core: transport, token mgmt, storage adapters, observable, multi-tab, MFA, `realm.fetch`, adapters, gates | 0.4.0 |
+| `@realm-id/web-admin`          | Admin-UI SDK companion: tenants, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates | 0.4.0 |
+| `@realm-id/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | 0.4.0   |
+| `@realm-id/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | 0.4.0   |
+| `@realm-id/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | 0.4.0   |
+| `@realm-id/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/api`) | 0.3.0 |
 
 > **Release status (2026-06-03).** The `0.4.0` packages above are
 > **UNRELEASED** — they are the versions in this monorepo, not what is on
@@ -32,28 +32,28 @@ multi-tab sync.
 
 A partner SPA that authenticates **through its own BFF** (the canonical
 ADR-052 topology — the browser never holds an API key and never calls
-`auth.realmid.dev` directly) installs `@realmid/web` plus exactly one
+`auth.realmid.dev` directly) installs `@realm-id/web` plus exactly one
 provider-kickoff adapter, and optionally the React bindings:
 
-- **`@realmid/web`** — required. Transport, token lifecycle, `realm.fetch`.
-- **`@realmid/web-firebase`** *(or `@realmid/web-google`)** — the
+- **`@realm-id/web`** — required. Transport, token lifecycle, `realm.fetch`.
+- **`@realm-id/web-firebase`** *(or `@realm-id/web-google`)** — the
   provider kickoff. Use `-firebase` when you already run Firebase Auth
   (Google popup/redirect + email/password); use `-google` for raw Google
   Identity Services (FedCM-aware, no Firebase dep). Pick one.
-- **`@realmid/web-react`** — optional. `RealmProvider` + hooks for React
+- **`@realm-id/web-react`** — optional. `RealmProvider` + hooks for React
   apps. Vanilla-JS apps skip it.
-- **`@realmid/web-bff-realmid`** — optional preset, only if the SPA points
+- **`@realm-id/web-bff-realmid`** — optional preset, only if the SPA points
   at the reference `Realm-ID/api` BFF (wires the canonical wire-shape
   adapters/gates so you don't hand-configure them).
 
-`@realmid/web-admin` is **not** part of the customer-facing SPA combo — it
+`@realm-id/web-admin` is **not** part of the customer-facing SPA combo — it
 is the separate admin-console SDK (see "Admin SDK" below).
 
 ## Quick start (vanilla JS)
 
 ```ts
-import { createRealm, localStorageAdapter } from "@realmid/web";
-import { realmidBffPreset } from "@realmid/web-bff-realmid";
+import { createRealm, localStorageAdapter } from "@realm-id/web";
+import { realmidBffPreset } from "@realm-id/web-bff-realmid";
 
 const realm = createRealm({
   baseUrl: "https://api.partner.com",
@@ -65,8 +65,8 @@ await realm.ready();
 // 1. Load login configuration to render your sign-in UI.
 const { providers, signupMode } = await realm.providers();
 
-// 2. Run the provider flow yourself (or via @realmid/web-google /
-//    @realmid/web-firebase) and post the resulting token.
+// 2. Run the provider flow yourself (or via @realm-id/web-google /
+//    @realm-id/web-firebase) and post the resulting token.
 const idToken = /* signInWithGoogle(...) */ "";
 await realm.login({ method: "google", providerToken: idToken });
 
@@ -78,8 +78,8 @@ const res = await realm.fetch("/api/orders");
 ## Quick start (React)
 
 ```tsx
-import { createRealm } from "@realmid/web";
-import { RealmProvider, useRealm, useUser } from "@realmid/web-react";
+import { createRealm } from "@realm-id/web";
+import { RealmProvider, useRealm, useUser } from "@realm-id/web-react";
 
 const realm = createRealm({ baseUrl: import.meta.env.VITE_BFF_URL });
 
@@ -106,10 +106,10 @@ function ProfileBadge() {
 
 ## Provider adapters
 
-### `@realmid/web-google` (Google Identity Services, no Firebase)
+### `@realm-id/web-google` (Google Identity Services, no Firebase)
 
 ```ts
-import { createGoogleProvider } from "@realmid/web-google";
+import { createGoogleProvider } from "@realm-id/web-google";
 
 const google = createGoogleProvider({ clientId: "…apps.googleusercontent.com" });
 
@@ -118,10 +118,10 @@ async function onClickSignInWithGoogle() {
 }
 ```
 
-### `@realmid/web-firebase` (Firebase Auth)
+### `@realm-id/web-firebase` (Firebase Auth)
 
 ```ts
-import { createFirebaseProvider } from "@realmid/web-firebase";
+import { createFirebaseProvider } from "@realm-id/web-firebase";
 
 const fb = createFirebaseProvider({
   firebaseConfig: { apiKey, authDomain, projectId, appId },
@@ -151,20 +151,20 @@ Both refresh transports are first-class.
   hop), then `/me` revalidates in the background. A 401 there drops back
   to anonymous and clears the entry.
 
-Default storage key: `"@realmid/web:session"`. Default storage:
+Default storage key: `"@realm-id/web:session"`. Default storage:
 `memoryStorage()` (no cross-reload persistence). Browser adapters are
 SSR-safe and swallow quota / parse errors.
 
 ## Admin SDK
 
-[`@realmid/web-admin`](./packages/admin/README.md) is the companion
+[`@realm-id/web-admin`](./packages/admin/README.md) is the companion
 admin-UI SDK. It wraps `realm.fetch` with the resource clients from
-`@realmid/sdk` plus browser-only clients for routes the partner SDK
+`@realm-id/sdk` plus browser-only clients for routes the partner SDK
 doesn't expose (`platforms`, `notes`, `signingKeys`, `bff`, `sessions`,
 `me`).
 
 ```ts
-import { createAdmin } from "@realmid/web-admin";
+import { createAdmin } from "@realm-id/web-admin";
 
 const admin = createAdmin(realm, {
   baseUrl: "https://api.partner.com",
@@ -177,10 +177,10 @@ const home = await admin.bff.home({ mode: "ops" });
 
 ### Why a separate admin package
 
-Long-term plan: partners build customer-facing apps on `@realmid/web`
-and admin consoles on `@realmid/web-admin`. Keeping them split means a
+Long-term plan: partners build customer-facing apps on `@realm-id/web`
+and admin consoles on `@realm-id/web-admin`. Keeping them split means a
 tenant-app bundle doesn't pull in the admin resource graph (and its
-`@realmid/sdk` dependency) just to log a user in.
+`@realm-id/sdk` dependency) just to log a user in.
 
 ## Configuration
 
@@ -257,11 +257,11 @@ implementation of [`BFF-SPEC.md`](./BFF-SPEC.md). Fork it, or implement
 the contract directly in your existing backend.
 
 If you target the realmid.dev BFF directly, use the
-[`@realmid/web-bff-realmid`](./packages/bff-realmid/README.md) preset:
+[`@realm-id/web-bff-realmid`](./packages/bff-realmid/README.md) preset:
 
 ```ts
-import { createRealm } from "@realmid/web";
-import { realmidBffPreset } from "@realmid/web-bff-realmid";
+import { createRealm } from "@realm-id/web";
+import { realmidBffPreset } from "@realm-id/web-bff-realmid";
 
 const realm = createRealm({
   baseUrl: "https://api.realmid.dev",

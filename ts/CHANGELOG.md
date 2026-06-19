@@ -1,4 +1,4 @@
-# Changelog — `@realmid/sdk` (TypeScript)
+# Changelog — `@realm-id/sdk` (TypeScript)
 
 All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records

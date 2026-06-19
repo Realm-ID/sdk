@@ -1,5 +1,5 @@
 /**
- * Public types for @realmid/web. The SDK speaks a *canonical* internal
+ * Public types for @realm-id/web. The SDK speaks a *canonical* internal
  * shape (camelCase, expiresIn-or-expiresAt). Partner BFFs whose wire
  * shape diverges plug in `adapters` (see ResponseAdapters) and `gates`
  * (see GateRule) to translate. Defaults match BFF-SPEC.md.

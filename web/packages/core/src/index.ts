@@ -1,11 +1,11 @@
 /**
- * @realmid/web — browser SDK for RealmID.
+ * @realm-id/web — browser SDK for RealmID.
  *
  * Talks only to the partner's BFF (per ADR-052). Holds in-memory access
  * tokens; refresh credentials live in an httpOnly cookie set by the BFF.
  *
  * Quick start:
- *   import { createRealm } from "@realmid/web";
+ *   import { createRealm } from "@realm-id/web";
  *   const realm = createRealm({ baseUrl: "https://api.partner.com" });
  *   await realm.ready();
  *   const { providers } = await realm.providers();
@@ -13,7 +13,7 @@
  *   const res = await realm.fetch("/api/orders");
  *
  * Partner BFFs whose wire shape diverges from BFF-SPEC.md plug in
- * `adapters` and `gates`. See @realmid/web-bff-realmid for a worked
+ * `adapters` and `gates`. See @realm-id/web-bff-realmid for a worked
  * example against the realmid.dev reference BFF.
  */
 

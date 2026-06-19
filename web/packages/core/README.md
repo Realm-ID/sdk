@@ -1,11 +1,11 @@
-# @realmid/web
+# @realm-id/web
 
 Browser SDK for RealmID. Talks only to the partner's BFF (per ADR-052),
 holds the access bearer in memory, dedupes refresh-on-401, and exposes a
 framework-agnostic `Realm` facade.
 
 ```ts
-import { createRealm } from "@realmid/web";
+import { createRealm } from "@realm-id/web";
 
 const realm = createRealm({ baseUrl: "https://api.partner.com" });
 await realm.ready();
@@ -15,7 +15,7 @@ const res = await realm.fetch("/api/orders");
 
 ## Persistence
 
-`@realmid/web` survives a page reload out of the box for cookie-based
+`@realm-id/web` survives a page reload out of the box for cookie-based
 BFFs — the HttpOnly cookie travels on `/me` during `autoRestore`. For
 BFFs that hand the SPA an opaque `session_token` in JSON instead, opt
 into a `StorageAdapter` so the SDK can replay the bearer after reload.
@@ -26,11 +26,11 @@ swallow quota / parse errors so a corrupt entry can't brick the boot
 path.
 
 ```ts
-import { createRealm, localStorageAdapter } from "@realmid/web";
+import { createRealm, localStorageAdapter } from "@realm-id/web";
 
 const realm = createRealm({
   baseUrl: "https://api.partner.com",
-  storage: localStorageAdapter(),  // default key "@realmid/web:session"
+  storage: localStorageAdapter(),  // default key "@realm-id/web:session"
 });
 ```
 
@@ -44,6 +44,6 @@ drops back to anonymous and clears the entry.
 
 For admin-UI surfaces (tenants, roles, api keys, platforms, notes,
 signing keys, BFF aggregates) use
-[`@realmid/web-admin`](../admin/README.md). It wraps `realm.fetch` so
+[`@realm-id/web-admin`](../admin/README.md). It wraps `realm.fetch` so
 admin calls inherit Authorization-attach, refresh-on-401, and multi-tab
 logout sync from this package.

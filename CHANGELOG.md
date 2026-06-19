@@ -37,7 +37,7 @@ refresh-authed call. Lockstep across all SDKs + the reference BFF preset.
     `enrollMfa`/`confirmMfa` + `ConfirmMfaRequest` removed.
   - Java: `auth.enrollMfa(SelfEnrollMfaRequest)`; `MfaEnrollment` gained
     `mfaChallengeToken` + `tenantId`. `ConfirmMfaRequest` deleted.
-  - web `@realmid/web-bff-realmid` (0.3.2 → 0.3.3): the
+  - web `@realm-id/web-bff-realmid` (0.3.2 → 0.3.3): the
     `mfa_registration_required` gate now surfaces `sessionToken`
     (`session_token`) — the BFF's pending-MFA session the SPA bears to
     `/auth/mfa/enroll`.
@@ -157,7 +157,7 @@ this round** — it does not yet implement the token manager /
   and create returns a one-time `value` + `{ scope, label? }`. Replaces
   the prior incorrect `displayName` / `scopes[]` / string-timestamp shape
   that never matched the wire. **Breaking** for any caller that read those
-  fields. `@realmid/web-admin` gains `apiKeys.{list,create,revoke}`.
+  fields. `@realm-id/web-admin` gains `apiKeys.{list,create,revoke}`.
 
 ## All SDKs — SDK-surface gap fill (2026-05-26)
 
@@ -226,7 +226,7 @@ SPEC bumped to **v0.6.0**. Versions bump in lockstep:
 
 ## web-admin-v0.2.0 — contact-model surface (2026-05-26)
 
-`@realmid/web-admin` repacked against `@realmid/sdk@0.11.0`. The new
+`@realm-id/web-admin` repacked against `@realm-id/sdk@0.11.0`. The new
 `admin.tenants.driftReviews.*` and `admin.tenants.contactVerifications.*`
 clients flow through automatically (web-admin instantiates the SDK's
 `TenantsClient` directly); index now re-exports `DriftReview`,
@@ -278,14 +278,14 @@ partner audit-event feed. Versions bump in lockstep:
   cookie reflection, SSR handoff) without going through `/login` or
   `/me`. Pairs with the new `realm.peekAccessToken()` getter for
   reading the bearer back out for re-persistence.
-- **`@realmid/web-bff-realmid@0.2.0`** ships matching request adapters
+- **`@realm-id/web-bff-realmid@0.2.0`** ships matching request adapters
   for the reference BFF (`providerToken→token`, `tenantId→tenant_id`,
   `challengeToken→mfa_challenge_token`, body-less `/token`).
 - **`TenantRef.mfaRequired?: boolean`** added (additive). Partners that
   surface a per-tenant MFA policy can populate it through the login or
   /me adapter.
 
-Sibling packages (`@realmid/web-react`, `-firebase`, `-google`) bumped
+Sibling packages (`@realm-id/web-react`, `-firebase`, `-google`) bumped
 to 0.3.0 in lockstep; their public surface is unchanged.
 
 ## web-v0.2.0 — Partner-flexible adapters, gates, tokenless refresh (2026-05-09)
@@ -319,13 +319,13 @@ keep working. Adds the missing primitives that prevented partner BFFs
   populates `state.pendingTenants` for the caller's tenant picker.
 - **Open `LoginMethod` and provider strings** — partners can use
   `apple`, `magic_link`, etc. without forking the SDK.
-- **New companion package `@realmid/web-bff-realmid`** — bundles the
+- **New companion package `@realm-id/web-bff-realmid`** — bundles the
   adapters, gates, endpoints, and refresh flags needed to drop the SDK
   in front of `Realm-ID/bff-api` (the reference BFF) in one import.
 - **BFF-SPEC.md** rewritten around the canonical+adapter model.
 
-Sibling packages (`@realmid/web-react`, `@realmid/web-firebase`,
-`@realmid/web-google`) bumped to 0.2.0 in lockstep; their public surface
+Sibling packages (`@realm-id/web-react`, `@realm-id/web-firebase`,
+`@realm-id/web-google`) bumped to 0.2.0 in lockstep; their public surface
 is unchanged.
 
 ## go-v0.11.0 — Error + session helpers, typed IdentityProviders (2026-05-24)
@@ -658,7 +658,7 @@ browser → RealmID `/auth/login` is rejected with `bff_bearer_required`.
 
 ### What changes in your SDK code
 
-Nothing. Both `@realmid/sdk` (TS) and `realmid-go` already attach the
+Nothing. Both `@realm-id/sdk` (TS) and `realmid-go` already attach the
 platform token to every `/auth/*` call as Bearer — that's been the
 SDK's wire shape since the dual-token surface locked. The 0.4.0 bump
 is the version compatible with the server side that enforces it.
@@ -696,7 +696,7 @@ hardening that makes BFF mode usable end-to-end.
   unchanged behaviour.
 
   ```ts
-  import { createRealm, MemRevocationCache } from "@realmid/sdk";
+  import { createRealm, MemRevocationCache } from "@realm-id/sdk";
 
   const realm = createRealm({
     realmId, apiKey,

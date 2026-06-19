@@ -1,7 +1,7 @@
 /**
  * API-key lifecycle — `/platforms/{id}/api-keys` (SPEC §6.5).
  *
- * The bundled `ApiKeysClient` from `@realmid/sdk/internal` predates the
+ * The bundled `ApiKeysClient` from `@realm-id/sdk/internal` predates the
  * issuer's current wire contract (it models `displayName` + `scopes[]`
  * and string timestamps). This package-local client targets the
  * authoritative issuer shapes — code wins, per `sdk/CLAUDE.md`:

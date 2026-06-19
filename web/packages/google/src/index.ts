@@ -1,5 +1,5 @@
 /**
- * Google Identity Services (GIS) adapter for @realmid/web.
+ * Google Identity Services (GIS) adapter for @realm-id/web.
  *
  * Loads `https://accounts.google.com/gsi/client`, runs an ID-token flow
  * (FedCM-aware on supporting browsers, popup fallback otherwise), and
@@ -13,7 +13,7 @@
  * google.completeRedirect(realm) on app boot.
  */
 
-import type { LoginResponse, Realm } from "@realmid/web";
+import type { LoginResponse, Realm } from "@realm-id/web";
 
 declare global {
   interface Window {

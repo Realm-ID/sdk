@@ -1,5 +1,5 @@
 /**
- * Minimal Express server using @realmid/sdk middleware.
+ * Minimal Express server using @realm-id/sdk middleware.
  *
  * Routes:
  *   POST /login      — handled entirely by SDK middleware; sets refresh cookie
@@ -15,7 +15,7 @@
  */
 
 import express from "express";
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realmId = process.env["REALM_ID"];
 const apiKey = process.env["REALM_API_KEY"];

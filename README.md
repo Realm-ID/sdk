@@ -39,15 +39,15 @@ one cross-language contract: `SPEC.md`.
 
 | Path | Status | Package | Runtime |
 |---|---|---|---|
-| `ts/` | Released | `@realmid/sdk` | Node 20+, Deno, Bun, Workers, modern browsers |
+| `ts/` | Released | `@realm-id/sdk` | Node 20+, Deno, Bun, Workers, modern browsers |
 | `go/` | Released | `github.com/Realm-ID/sdk/go` | Go 1.23+ |
 | `java/` | Released | `dev.realmid:sdk` | Java 17+ |
-| `components/` | Planned | `@realmid/components` | React |
+| `components/` | Planned | `@realm-id/components` | React |
 
 ## Quick Taste
 
 ```ts
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realm = createRealm({
   realmId: process.env.REALM_ID!,

@@ -1,10 +1,10 @@
 /**
  * @internal
  *
- * Internal entry point for sibling browser SDKs (e.g. `@realmid/web-admin`)
+ * Internal entry point for sibling browser SDKs (e.g. `@realm-id/web-admin`)
  * that need to construct the resource clients directly against a custom
  * transport. Not intended for partner consumption — use the top-level
- * `createRealm` facade exported from `@realmid/sdk` for that.
+ * `createRealm` facade exported from `@realm-id/sdk` for that.
  *
  * Stability: the shapes re-exported here are NOT covered by the same
  * semver guarantees as the top-level public surface. They may change in

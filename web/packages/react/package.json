@@ -1,7 +1,7 @@
 {
-  "name": "@realmid/web-react",
+  "name": "@realm-id/web-react",
   "version": "0.4.0",
-  "description": "React bindings for @realmid/web — provider, useRealm, useUser, useTenant.",
+  "description": "React bindings for @realm-id/web — provider, useRealm, useUser, useTenant.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,11 +17,11 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@realmid/web": "^0.4.0",
+    "@realm-id/web": "^0.4.0",
     "react": ">=17"
   },
   "devDependencies": {
-    "@realmid/web": "^0.4.0",
+    "@realm-id/web": "^0.4.0",
     "@types/react": "^19.0.0",
     "react": "^19.0.0",
     "typescript": "^5.5.0"

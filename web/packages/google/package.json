@@ -1,7 +1,7 @@
 {
-  "name": "@realmid/web-google",
+  "name": "@realm-id/web-google",
   "version": "0.4.0",
-  "description": "Google Identity Services adapter for @realmid/web — direct GIS popup/redirect (no Firebase).",
+  "description": "Google Identity Services adapter for @realm-id/web — direct GIS popup/redirect (no Firebase).",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,10 +18,10 @@
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts"
   },
   "peerDependencies": {
-    "@realmid/web": "^0.4.0"
+    "@realm-id/web": "^0.4.0"
   },
   "devDependencies": {
-    "@realmid/web": "^0.4.0",
+    "@realm-id/web": "^0.4.0",
     "typescript": "^5.5.0"
   },
   "engines": {

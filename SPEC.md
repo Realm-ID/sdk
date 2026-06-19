@@ -93,11 +93,11 @@ independently consumable SDKs:
 
 | Package              | Role                                              |
 |----------------------|---------------------------------------------------|
-| `@realmid/web`       | Tenant-app SDK. Auth, login, refresh, storage adapters, multi-tab. Partners building a customer-facing app use this directly. |
-| `@realmid/web-admin` | Admin-UI SDK. Tenants, users, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates. Companion to `@realmid/web` for partners building their own admin console. |
+| `@realm-id/web`       | Tenant-app SDK. Auth, login, refresh, storage adapters, multi-tab. Partners building a customer-facing app use this directly. |
+| `@realm-id/web-admin` | Admin-UI SDK. Tenants, users, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates. Companion to `@realm-id/web` for partners building their own admin console. |
 
-`@realmid/web-admin` reuses the hand-written resource clients shipped
-by the Node SDK (`@realmid/sdk`) via a new `@realmid/sdk/internal`
+`@realm-id/web-admin` reuses the hand-written resource clients shipped
+by the Node SDK (`@realm-id/sdk`) via a new `@realm-id/sdk/internal`
 entry. That means SPEC §6.1 (tenants), §6.2 (invitations), §6.3
 (users), §6.4 (domains), §6.5 (realm self / api keys), §6.7 (token
 revocation) are **shared** between the node and browser admin

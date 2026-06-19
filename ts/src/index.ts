@@ -1,5 +1,5 @@
 /**
- * @realmid/sdk — Partner SDK for Realm ID.
+ * @realm-id/sdk — Partner SDK for Realm ID.
  *
  * Covers login, refresh, MFA, verify, and management (tenants, users,
  * invitations, domains, API keys). Stdlib-only: uses globalThis.fetch
@@ -7,7 +7,7 @@
  * modern browsers.
  *
  * Quick start:
- *   import { createRealm } from "@realmid/sdk";
+ *   import { createRealm } from "@realm-id/sdk";
  *   const realm = createRealm({ realmId, apiKey: "rk_live_..." });
  *   const claims = await realm.verify(accessToken);
  */

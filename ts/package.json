@@ -1,5 +1,5 @@
 {
-  "name": "@realmid/sdk",
+  "name": "@realm-id/sdk",
   "version": "0.15.0",
   "description": "Partner SDK for Realm ID — login, refresh, MFA, verify, and management",
   "type": "module",

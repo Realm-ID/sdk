@@ -1,4 +1,4 @@
-# @realmid/sdk
+# @realm-id/sdk
 
 Partner SDK for [Realm ID](https://realmid.dev) — covers **login,
 refresh, MFA, verify, and management** (tenants, users, invitations,
@@ -8,13 +8,13 @@ runs in Node ≥ 20, Deno, Bun, Cloudflare Workers, and modern browsers.
 Sibling SDKs at [`../go/`](../go) and [`../java/`](../java) follow the same spec.
 
 ```bash
-npm install @realmid/sdk
+npm install @realm-id/sdk
 ```
 
 ## Quick start
 
 ```ts
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realm = createRealm({
   realmId: "01HXYZREALM...",
@@ -46,7 +46,7 @@ verifies bearer tokens on every other route. Mount it once and forget.
 
 ```ts
 import express from "express";
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realm = createRealm({
   realmId: process.env.REALM_ID!,
@@ -85,7 +85,7 @@ When the server returns a 412 envelope with siblings (such as
 `mfa_challenge_token`), they appear on `error.details`:
 
 ```ts
-import { RealmError } from "@realmid/sdk";
+import { RealmError } from "@realm-id/sdk";
 
 try {
   await realm.auth.login({ method: "firebase", providerToken });

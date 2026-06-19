@@ -1,5 +1,5 @@
 {
-  "name": "@realmid/web",
+  "name": "@realm-id/web",
   "version": "0.4.1",
   "description": "Browser SDK for RealmID — token management, login-config discovery, framework-agnostic.",
   "type": "module",

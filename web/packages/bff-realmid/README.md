@@ -1,6 +1,6 @@
-# `@realmid/web-bff-realmid` — preset for the realmid.dev reference BFF
+# `@realm-id/web-bff-realmid` — preset for the realmid.dev reference BFF
 
-Drop-in adapter + gates + endpoints for `@realmid/web` so it talks
+Drop-in adapter + gates + endpoints for `@realm-id/web` so it talks
 correctly to [Realm-ID/api][bff-api] (the canonical reference BFF,
 formerly `Realm-ID/bff-api`; implements [BFF-SPEC.md][spec], with
 realmid-specific extensions).
@@ -31,8 +31,8 @@ import.
 ## Usage
 
 ```ts
-import { createRealm } from "@realmid/web";
-import { realmidBffPreset } from "@realmid/web-bff-realmid";
+import { createRealm } from "@realm-id/web";
+import { realmidBffPreset } from "@realm-id/web-bff-realmid";
 
 const realm = createRealm({
   baseUrl: "https://api.realmid.dev",

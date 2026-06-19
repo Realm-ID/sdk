@@ -123,7 +123,7 @@ deploy pipeline.
 
 ```ts
 // node script, run as a realm owner
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realm = createRealm({
   realmId: process.env.REALM_ID!,
@@ -285,7 +285,7 @@ The fastest path. One line in your HTTP app.
 // express
 import express from "express";
 import cookieParser from "cookie-parser";
-import { createRealm } from "@realmid/sdk";
+import { createRealm } from "@realm-id/sdk";
 
 const realm = createRealm({
   realmId: process.env.REALM_ID!,
@@ -342,7 +342,7 @@ If your service only verifies tokens minted by an upstream gateway
 (common in microservices), skip the middleware and use the verifier:
 
 ```ts
-import { createVerifier } from "@realmid/sdk";
+import { createVerifier } from "@realm-id/sdk";
 
 const verifier = createVerifier({
   baseUrl:  "https://auth.realmid.dev",
@@ -728,7 +728,7 @@ directly or at your BFF.
 
 ```ts
 // src/auth/realm.ts
-import { createRealm } from "@realmid/sdk/browser";
+import { createRealm } from "@realm-id/sdk/browser";
 
 export const realm = createRealm({
   // BFF mode: point at your own backend.

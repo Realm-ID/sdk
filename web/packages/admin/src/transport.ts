@@ -1,8 +1,8 @@
 /**
- * Transport shim: adapts a `@realmid/web` Realm's authenticated `fetch`
- * into an object that quacks like `@realmid/sdk/internal`'s `HttpClient`.
+ * Transport shim: adapts a `@realm-id/web` Realm's authenticated `fetch`
+ * into an object that quacks like `@realm-id/sdk/internal`'s `HttpClient`.
  *
- * Resource classes from `@realmid/sdk` only call `request<T>(opts)`, so
+ * Resource classes from `@realm-id/sdk` only call `request<T>(opts)`, so
  * a single-method shim is enough. The shim:
  *
  *   - prefixes paths with `/api` (default) so requests route through the
@@ -24,17 +24,17 @@
  *     and the dual-form error envelope (`{ error: { code, message } }`
  *     OR root-level `code`/`error`) — see `parseApiError` in
  *     `ui/web/src/api.ts` for the prior art.
- *   - throws `RealmError` from `@realmid/sdk` so callers can `catch`
+ *   - throws `RealmError` from `@realm-id/sdk` so callers can `catch`
  *     uniformly with the resource clients' native error type.
  *
- * The `realm` (from `@realmid/web`) doesn't expose `baseUrl()` on its
+ * The `realm` (from `@realm-id/web`) doesn't expose `baseUrl()` on its
  * public surface, so the caller must pass it explicitly via `opts.baseUrl`.
  */
 
-import type { Realm } from "@realmid/web";
-import { RealmError } from "@realmid/sdk";
-import type { ErrorCode } from "@realmid/sdk";
-import type { RequestOptions } from "@realmid/sdk/internal";
+import type { Realm } from "@realm-id/web";
+import { RealmError } from "@realm-id/sdk";
+import type { ErrorCode } from "@realm-id/sdk";
+import type { RequestOptions } from "@realm-id/sdk/internal";
 
 /** Header marker (case-insensitive). When set to `bff`, the shim
  *  bypasses the `/api` prefix and routes to the BFF's typed routes. */

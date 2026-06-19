@@ -1,5 +1,5 @@
 /**
- * React bindings for @realmid/web.
+ * React bindings for @realm-id/web.
  *
  *   <RealmProvider realm={realm}>
  *     <App />
@@ -20,7 +20,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { AuthState, LoginRequest, LoginResponse, Realm, TenantRef, UserSummary } from "@realmid/web";
+import type { AuthState, LoginRequest, LoginResponse, Realm, TenantRef, UserSummary } from "@realm-id/web";
 
 interface RealmContextValue {
   realm: Realm;

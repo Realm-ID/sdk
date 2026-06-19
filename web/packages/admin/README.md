@@ -1,8 +1,8 @@
-# @realmid/web-admin
+# @realm-id/web-admin
 
-Admin-UI SDK companion to [`@realmid/web`](../core). Wraps the
+Admin-UI SDK companion to [`@realm-id/web`](../core). Wraps the
 hand-written resource clients from
-[`@realmid/sdk/internal`](../../../ts) on top of a thin transport shim
+[`@realm-id/sdk/internal`](../../../ts) on top of a thin transport shim
 that delegates to `realm.fetch`, so the auth SDK keeps ownership of
 Authorization-attach, refresh-on-401, and multi-tab logout sync — admin
 calls inherit all of that for free.
@@ -10,9 +10,9 @@ calls inherit all of that for free.
 ## Quickstart
 
 ```ts
-import { createRealm } from "@realmid/web";
-import { createAdmin } from "@realmid/web-admin";
-import { realmidBffPreset } from "@realmid/web-bff-realmid";
+import { createRealm } from "@realm-id/web";
+import { createAdmin } from "@realm-id/web-admin";
+import { realmidBffPreset } from "@realm-id/web-bff-realmid";
 
 const realm = createRealm({
   baseUrl: "https://api.partner.com",
@@ -32,7 +32,7 @@ const note = await admin.notes.create("plt_42", "investigated");
 
 | Namespace             | Source                                | Routing             |
 |-----------------------|---------------------------------------|---------------------|
-| `tenants` / `roles` / `domains` / `admin` | `@realmid/sdk/internal` | passthrough (`/api/...`) |
+| `tenants` / `roles` / `domains` / `admin` | `@realm-id/sdk/internal` | passthrough (`/api/...`) |
 | `apiKeys`             | this package                          | passthrough         |
 | `platforms`           | this package                          | passthrough         |
 | `notes` / `signingKeys` | this package                        | passthrough (`/api/admin/...` → issuer) |
@@ -50,10 +50,10 @@ BFF-direct 404s; this was the v0.4.0 fix.
 ## Why a separate package
 
 Long-term plan: partner platforms build their own admin consoles on top
-of `@realmid/web-admin` the same way they build their auth UIs on top
-of `@realmid/web`. Keeping the admin surface in its own package means
+of `@realm-id/web-admin` the same way they build their auth UIs on top
+of `@realm-id/web`. Keeping the admin surface in its own package means
 partners can opt out of the larger admin dependency graph (and the
-resource classes it pulls from `@realmid/sdk`) when they only need the
+resource classes it pulls from `@realm-id/sdk`) when they only need the
 auth SDK.
 
 ## Known gaps
@@ -61,7 +61,7 @@ auth SDK.
 Tracked so the next reader doesn't have to grep the consuming UI:
 
 - `apiKeys` is a **package-local** client (not the bundled
-  `@realmid/sdk/internal` one, whose `displayName`/`scopes[]` shape
+  `@realm-id/sdk/internal` one, whose `displayName`/`scopes[]` shape
   predates the issuer contract). It targets the authoritative
   `/platforms/{id}/api-keys` shapes: `create({ scope, label? })` returns
   a one-time `value`; `list()` rows are `APIKeyListItem`
@@ -78,7 +78,7 @@ Tracked so the next reader doesn't have to grep the consuming UI:
   parameter need a follow-up.
 - `bff.home()` and `bff.tenantFull()` return loose
   `{ [k: string]: unknown }` shapes; the rich response types live in
-  `@realmid/sdk/internal` and the admin aggregates package types need a
+  `@realm-id/sdk/internal` and the admin aggregates package types need a
   refresh before they can be re-exported here.
 
 ## Contract

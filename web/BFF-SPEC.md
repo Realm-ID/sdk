@@ -1,14 +1,14 @@
-# BFF-SPEC.md — Contract between `@realmid/web` and a partner BFF
+# BFF-SPEC.md — Contract between `@realm-id/web` and a partner BFF
 
 > **Status**: Draft, v0.2
 > **Owners**: Realm-ID core
 > **Related**: ADR-052 (browser SDK), ADR-050 (api.realmid.dev BFF reference impl)
 
-The browser SDK (`@realmid/web`) talks **only** to the partner's BFF. The
+The browser SDK (`@realm-id/web`) talks **only** to the partner's BFF. The
 BFF holds the API key and brokers calls to `auth.realmid.dev` via the Node
-SDK (`@realmid/sdk`). This document pins the HTTP contract between the SDK
+SDK (`@realm-id/sdk`). This document pins the HTTP contract between the SDK
 and any partner BFF. The companion admin-UI SDK
-[`@realmid/web-admin`](./packages/admin/README.md) consumes the same
+[`@realm-id/web-admin`](./packages/admin/README.md) consumes the same
 contract via `realm.fetch`; routes added to that package are noted
 inline below where they overlap.
 
@@ -281,14 +281,14 @@ true }` if `/token` itself needs the current session bearer for auth.
 Realm-ID's own BFF lives at <https://github.com/Realm-ID/api>. It
 deviates from the canonical wire shape in 6 places (snake_case, status
 discriminator on /login, tokenless /token, flat /me, 412-gated MFA + 412
-session-limit) — the published `@realmid/web-bff-realmid` preset bundles
+session-limit) — the published `@realm-id/web-bff-realmid` preset bundles
 the adapters/gates/refresh flags needed to wire the SDK to it in one
 import. Partners can fork the BFF, fork the preset, or implement the
 canonical contract from scratch.
 
 ## Versioning
 
-This contract follows the same lockstep version as `@realmid/web`. A
+This contract follows the same lockstep version as `@realm-id/web`. A
 breaking change bumps the SDK major and ships an ADR. Backwards-
 compatible additions (new optional fields, new endpoints) are minor
 bumps. v0.2 added adapter and gate config; the canonical wire shape did

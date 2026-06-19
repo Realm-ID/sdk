@@ -1,4 +1,4 @@
-# @realmid/sdk — Go
+# @realm-id/sdk — Go
 
 Go SDK for verifying RealmID-issued JWTs. Sibling TypeScript SDK lives at
 [`../ts/`](../ts).

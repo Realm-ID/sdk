@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createRealm, RealmError } from "@realmid/web";
+import { createRealm, RealmError } from "@realm-id/web";
 import { realmidBffPreset } from "./index.js";
 
 interface MockCall {
