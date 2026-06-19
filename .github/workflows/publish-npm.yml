@@ -54,10 +54,13 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm ci
-          npm run build
-          # order: core first (peers depend on it), then the rest
+          # Build + publish in dependency order — core first, so react and
+          # bff-realmid can resolve @realm-id/web's freshly-built .d.ts. A bare
+          # `npm run build --workspaces` builds in listed order, not topological,
+          # which fails on a clean checkout (no prebuilt dist).
           for pkg in core react bff-realmid; do
             ( cd "packages/$pkg"
+              npm run build
               if npm publish --access=public 2>err.log; then
                 echo "published $pkg"
               elif grep -qiE 'cannot publish over|previously published version' err.log; then
