@@ -71,6 +71,38 @@ describe("realmFetchAsHttpClient", () => {
     assert.equal(calls[0]!.url, "https://api.partner.com/api/admin/platforms/p1/signing-keys/rotate");
   });
 
+  it("GET /identity-providers (no via header) is BFF-direct — the public lookup", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: { providers: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "GET", path: "/identity-providers", query: { platform: "web" } });
+    assert.equal(calls[0]!.url, "https://api.partner.com/identity-providers?platform=web");
+  });
+
+  it("x-realmid-via:api forces /identity-providers through /api passthrough (admin CRUD) and strips the header", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: { items: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({
+      method: "GET",
+      path: "/identity-providers",
+      query: { platform_id: "plt_1" },
+      headers: { "x-realmid-via": "api" },
+    });
+    assert.equal(calls[0]!.url, "https://api.partner.com/api/identity-providers?platform_id=plt_1");
+    // The routing header must never reach the wire.
+    const sent = (calls[0]!.init.headers ?? {}) as Record<string, string>;
+    assert.equal(sent["x-realmid-via"], undefined);
+  });
+
   it("/auth/sessions is NOT BFF-direct — routes through /api to the issuer's authed surface", async () => {
     const { realm, calls } = makeRealm(() =>
       new Response(JSON.stringify({ data: { items: [] } }), {

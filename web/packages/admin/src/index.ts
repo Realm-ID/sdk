@@ -26,6 +26,7 @@ import {
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
 import { ApiKeysClient } from "./api-keys.js";
+import { IdentityProvidersClient } from "./identity-providers.js";
 import { PlatformsClient } from "./platforms.js";
 import { PlatformNotesClient } from "./notes.js";
 import { SigningKeysClient } from "./signing-keys.js";
@@ -37,6 +38,7 @@ export interface Admin {
   tenants: TenantsClient;
   roles: RolesClient;
   apiKeys: ApiKeysClient;
+  identityProviders: IdentityProvidersClient;
   domains: DomainsClient;
   admin: AdminClient;
   platforms: PlatformsClient;
@@ -80,6 +82,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     tenants: new TenantsClient(httpAsClient, rid),
     roles: new RolesClient(httpAsClient, rid),
     apiKeys: new ApiKeysClient(http),
+    identityProviders: new IdentityProvidersClient(http),
     domains: new DomainsClient(httpAsClient),
     admin: new AdminClient(httpAsClient),
     platforms: new PlatformsClient(http),
@@ -95,6 +98,7 @@ export { realmFetchAsHttpClient } from "./transport.js";
 export type { HttpLike, RealmFetchHttpOptions } from "./transport.js";
 
 export { ApiKeysClient } from "./api-keys.js";
+export { IdentityProvidersClient } from "./identity-providers.js";
 export { PlatformsClient } from "./platforms.js";
 export type {
   PlatformCreate,

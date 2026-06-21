@@ -36,8 +36,14 @@ import { RealmError } from "@realm-id/sdk";
 import type { ErrorCode } from "@realm-id/sdk";
 import type { RequestOptions } from "@realm-id/sdk/internal";
 
-/** Header marker (case-insensitive). When set to `bff`, the shim
- *  bypasses the `/api` prefix and routes to the BFF's typed routes. */
+/** Header marker (case-insensitive) used to override path routing:
+ *   - `bff` → bypass the `/api` prefix and hit the BFF's typed routes.
+ *   - `api` → force the `/api` passthrough even for a path that would
+ *     otherwise be BFF-direct. Needed when an *issuer* route shares a
+ *     path with a BFF-direct one — e.g. the admin `/identity-providers`
+ *     CRUD (issuer, `requireRealmAdmin`) collides with the BFF's public
+ *     `GET /identity-providers` lookup. The header is stripped before
+ *     the request hits the wire (see the request builder below). */
 const VIA_HEADER = "x-realmid-via";
 
 /**
@@ -61,7 +67,10 @@ function isTenantFullPath(p: string): boolean {
 function isBffDirect(path: string, headers?: Record<string, string>): boolean {
   if (headers) {
     for (const [k, v] of Object.entries(headers)) {
-      if (k.toLowerCase() === VIA_HEADER && v === "bff") return true;
+      if (k.toLowerCase() === VIA_HEADER) {
+        if (v === "bff") return true; // force BFF-direct
+        if (v === "api") return false; // force /api passthrough (issuer route sharing a BFF-direct prefix)
+      }
     }
   }
   for (const prefix of BFF_DIRECT_PREFIXES) {

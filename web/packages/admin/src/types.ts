@@ -202,3 +202,55 @@ export interface PublicIdentityProviderResponse {
   tenant_id?: string | null;
   providers: PublicIdentityProvider[];
 }
+
+// ---- admin identity-provider CRUD (issuer `/identity-providers`, ADR-046) ----
+//
+// Distinct from the public lookup above: these carry the full admin row
+// (ids, scope, enabled flag, origins) and are owner/realm-admin gated.
+// No `client_secret` exists anywhere — RealmID stores only the public
+// OAuth `client_id` by design.
+
+export type IdpScope = "realm" | "tenant";
+export type IdpClientType = "web" | "ios" | "android" | "desktop" | "other";
+
+export interface AdminIdentityProvider {
+  id: string;
+  /** "realm" → platform-wide; "tenant" → a per-tenant override. */
+  entity_type: IdpScope;
+  /** The realm id (when realm-scoped) or tenant id (when tenant-scoped). */
+  entity_id: string;
+  /** Provider key. Only "google" verifies logins today (ADR-046). */
+  provider: string;
+  client_type: IdpClientType;
+  client_id: string;
+  allowed_origins: string[];
+  comments: string;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface IdpCreateInput {
+  /** Owning realm/platform id. Required by the issuer on every create. */
+  platform_id: string;
+  /** Present → tenant-scoped override; omit → realm-scoped (platform-wide). */
+  tenant_id?: string;
+  provider: string;
+  client_type: IdpClientType;
+  client_id: string;
+  /** Required for `web` client_type; rejected for non-web. */
+  allowed_origins?: string[];
+  comments?: string;
+}
+
+/** Sparse update — only these fields are patchable on the issuer. */
+export interface IdpPatchInput {
+  enabled?: boolean;
+  client_id?: string;
+  allowed_origins?: string[];
+  comments?: string;
+}
+
+export interface IdpListPage {
+  items: AdminIdentityProvider[];
+}
