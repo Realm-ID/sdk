@@ -225,6 +225,8 @@ export interface AdminIdentityProvider {
   client_id: string;
   allowed_origins: string[];
   comments: string;
+  /** Provider-specific PUBLIC config (firebase web config); empty otherwise. */
+  config?: Record<string, string>;
   enabled: boolean;
   created_at: number;
   updated_at: number;
@@ -241,6 +243,8 @@ export interface IdpCreateInput {
   /** Required for `web` client_type; rejected for non-web. */
   allowed_origins?: string[];
   comments?: string;
+  /** Provider-specific PUBLIC config — for firebase: apiKey/authDomain/appId. */
+  config?: Record<string, string>;
 }
 
 /** Sparse update — only these fields are patchable on the issuer. */
@@ -249,6 +253,7 @@ export interface IdpPatchInput {
   client_id?: string;
   allowed_origins?: string[];
   comments?: string;
+  config?: Record<string, string>;
 }
 
 export interface IdpListPage {
