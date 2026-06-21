@@ -13,6 +13,9 @@ type IdentityProvider struct {
 	Type       string `json:"type"`
 	ClientType string `json:"client_type"`
 	ClientID   string `json:"client_id"`
+	// Config carries the provider's PUBLIC config (e.g. the Firebase web
+	// config: apiKey/authDomain/appId); empty/absent for plain-OIDC providers.
+	Config map[string]string `json:"config,omitempty"`
 }
 
 // IdentityProvidersResponse is the typed result of

@@ -91,11 +91,14 @@ interface RealmidTokenBody {
 
 interface RealmidProviderBody {
   id?: string;
+  // Public discovery returns `type`; the admin shape uses `provider`.
+  type?: string;
   provider?: string;
   client_type?: string;
   client_id?: string;
   allowed_origins?: string[];
   enabled?: boolean;
+  config?: Record<string, string>;
 }
 
 interface RealmidProvidersBody {
@@ -187,11 +190,13 @@ const adaptProviders: NonNullable<ResponseAdapters["providers"]> = (raw, _ctx): 
   return {
     providers: list.map((p) => ({
       id: p.id ?? "",
-      provider: p.provider ?? "",
+      // Public discovery uses `type`; fall back to the admin `provider`.
+      provider: p.type ?? p.provider ?? "",
       clientType: (p.client_type ?? "web") as ProvidersResponse["providers"][number]["clientType"],
       clientId: p.client_id,
       allowedOrigins: p.allowed_origins,
       enabled: p.enabled ?? true,
+      config: p.config,
     })),
     signupMode: body.signup_mode as ProvidersResponse["signupMode"],
     allowedSignupDomains: body.allowed_signup_domains,
