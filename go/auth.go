@@ -13,12 +13,13 @@ type AuthClient struct {
 }
 
 // LoginMethod is the upstream identity provider for a login call.
-// "firebase" and "google" are supported today; others are roadmap.
+// "firebase", "google", and "microsoft" have working issuer-side verifiers.
 type LoginMethod string
 
 const (
-	LoginFirebase LoginMethod = "firebase"
-	LoginGoogle   LoginMethod = "google"
+	LoginFirebase  LoginMethod = "firebase"
+	LoginGoogle    LoginMethod = "google"
+	LoginMicrosoft LoginMethod = "microsoft"
 )
 
 // LoginRequest carries the inputs to realm.Auth.Login. Custom claims

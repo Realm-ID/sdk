@@ -8,7 +8,7 @@
 import type { StorageAdapter } from "./storage.js";
 
 /** Login methods the spec recognises; partners may add their own. */
-export type LoginMethod = "firebase" | "google" | "password" | "otp" | (string & {});
+export type LoginMethod = "firebase" | "google" | "microsoft" | "password" | "otp" | (string & {});
 
 export interface LoginRequest {
   method: LoginMethod;
