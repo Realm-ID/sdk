@@ -1,6 +1,15 @@
 import { RealmError } from "./errors.js";
 import { Observable } from "./observable.js";
 import { Transport } from "./transport.js";
+import {
+  buildAuthorizeUrl,
+  exchangeCode,
+  isOidcProvider,
+  readCallback,
+  OIDC_STORAGE_KEY,
+  type PendingOidc,
+} from "./oidc.js";
+import { signInWithFirebase } from "./firebase-driver.js";
 import { TokenManager } from "./token-manager.js";
 import { createTabBus, type TabBus } from "./multi-tab.js";
 import { resolveExpiresIn } from "./util.js";
@@ -9,6 +18,7 @@ import type {
   AuthEvent,
   AuthState,
   GateRule,
+  IdentityProvider,
   LoginRequest,
   LoginResponse,
   MeResponse,
@@ -170,6 +180,111 @@ export class Realm {
       ? this.adapters.providers(res.body, { status: res.status, headers: res.headers })
       : (res.body as ProvidersResponse);
     return adapted;
+  }
+
+  /* -------------------------------------------------- sign-in (provider-driven) */
+
+  /**
+   * Sign in with an identity provider configured in RI. The SDK fetches the
+   * provider's public config from `realm.providers()` — so the app needs NO
+   * provider config of its own, only the BFF base URL.
+   *
+   *  - `microsoft` / `google` (plain OIDC): redirects to the IdP with a PKCE
+   *    challenge; this call does not return (the page navigates away). On the
+   *    way back, call `completeSignIn()` to finish.
+   *  - `firebase`: opens a popup via the lazily-loaded Firebase SDK (init'd
+   *    from RI's served config) and resolves with the LoginResponse.
+   */
+  async signIn(
+    type: string,
+    opts: { tenantId?: string; redirectUri?: string } = {},
+  ): Promise<LoginResponse | void> {
+    const provider = await this.resolveProvider(type, opts.tenantId);
+
+    if (type === "firebase") {
+      const idToken = await signInWithFirebase(provider.config ?? {});
+      return this.login({
+        method: "firebase" as LoginRequest["method"],
+        providerToken: idToken,
+        tenantId: opts.tenantId,
+      });
+    }
+
+    if (!isOidcProvider(type)) {
+      throw new RealmError("unsupported_provider", `sign-in for "${type}" is not supported`);
+    }
+    const clientId = provider.clientId;
+    if (!clientId) {
+      throw new RealmError("provider_not_configured", `no client_id configured for ${type}`);
+    }
+    const store = this.requireOidcStore();
+    const redirectUri = opts.redirectUri ?? defaultRedirectUri();
+    const { url, pending } = await buildAuthorizeUrl({ type, clientId, redirectUri, tenantId: opts.tenantId });
+    store.setItem(OIDC_STORAGE_KEY, JSON.stringify(pending));
+    window.location.assign(url); // navigates away
+  }
+
+  /**
+   * Complete an OIDC redirect sign-in. Call once on app load: if the URL is a
+   * provider callback (`?code&state`), exchanges the code for an id_token and
+   * logs in, returning the LoginResponse; otherwise returns null. Cleans the
+   * OIDC params from the URL on success.
+   */
+  async completeSignIn(): Promise<LoginResponse | null> {
+    const store = this.oidcStore();
+    if (!store || typeof window === "undefined") return null;
+    const cb = readCallback(window.location.search);
+    if (!cb) return null;
+    const raw = store.getItem(OIDC_STORAGE_KEY);
+    if (!raw) return null;
+    let pending: PendingOidc;
+    try {
+      pending = JSON.parse(raw) as PendingOidc;
+    } catch {
+      store.removeItem(OIDC_STORAGE_KEY);
+      return null;
+    }
+    store.removeItem(OIDC_STORAGE_KEY);
+    if (pending.state !== cb.state) {
+      throw new RealmError("oidc_state_mismatch", "OIDC state did not match");
+    }
+    const idToken = await exchangeCode({
+      type: pending.type,
+      code: cb.code,
+      verifier: pending.verifier,
+      clientId: pending.clientId,
+      redirectUri: pending.redirectUri,
+      fetchImpl: this.transport.fetchImpl,
+    });
+    stripOidcParams();
+    return this.login({
+      method: pending.type as LoginRequest["method"],
+      providerToken: idToken,
+      tenantId: pending.tenantId,
+    });
+  }
+
+  private async resolveProvider(type: string, tenantId?: string): Promise<IdentityProvider> {
+    const resp = await this.providers({ tenantId, clientType: "web" });
+    const row = resp.providers.find((p) => p.provider === type || (p as { type?: string }).type === type);
+    if (!row) {
+      throw new RealmError("provider_not_configured", `no ${type} provider configured for this realm`);
+    }
+    return row;
+  }
+
+  private oidcStore(): Storage | null {
+    try {
+      return typeof window !== "undefined" ? window.sessionStorage : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private requireOidcStore(): Storage {
+    const s = this.oidcStore();
+    if (!s) throw new RealmError("no_browser", "signIn() requires a browser environment");
+    return s;
   }
 
   /* -------------------------------------------------- session */
@@ -547,6 +662,21 @@ export class Realm {
 
 export function createRealm(cfg: RealmConfig): Realm {
   return new Realm(cfg);
+}
+
+/** Current page URL without query/hash — the default OIDC redirect_uri. */
+function defaultRedirectUri(): string {
+  if (typeof window === "undefined") return "";
+  return window.location.origin + window.location.pathname;
+}
+
+/** Remove the OIDC callback params (`code`/`state`/`session_state`) from the
+ *  address bar after a successful exchange, without a reload. */
+function stripOidcParams(): void {
+  if (typeof window === "undefined" || !window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  for (const k of ["code", "state", "session_state", "nonce"]) url.searchParams.delete(k);
+  window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : "") + url.hash);
 }
 
 /** Best-effort tenant extraction from a partner BFF's raw 412/200 body. */

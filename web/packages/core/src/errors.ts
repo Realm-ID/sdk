@@ -13,6 +13,10 @@ export type ErrorCode =
   | "tenant_not_found"
   | "bad_request"
   | "server_error"
+  | "unsupported_provider"
+  | "provider_not_configured"
+  | "oidc_state_mismatch"
+  | "no_browser"
   | "unknown";
 
 /**

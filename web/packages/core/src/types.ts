@@ -79,6 +79,13 @@ export interface IdentityProvider {
   clientId?: string;
   allowedOrigins?: string[];
   enabled: boolean;
+  /**
+   * Provider-specific PUBLIC config served by RI for providers that need more
+   * than a client_id to drive sign-in. For `firebase` this is the Firebase
+   * web config (`apiKey`, `authDomain`, `projectId`, `appId`) — all public,
+   * never secrets. Empty/absent for plain-OIDC providers.
+   */
+  config?: Record<string, unknown>;
   [k: string]: unknown;
 }
 
