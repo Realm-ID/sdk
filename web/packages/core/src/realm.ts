@@ -202,7 +202,10 @@ export class Realm {
     const provider = await this.resolveProvider(type, opts.tenantId);
 
     if (type === "firebase") {
-      const idToken = await signInWithFirebase(provider.config ?? {});
+      // The Firebase project id is the row's client_id; the rest of the
+      // public web config (apiKey/authDomain/appId) rides in `config`.
+      const fbConfig = { projectId: provider.clientId, ...(provider.config ?? {}) };
+      const idToken = await signInWithFirebase(fbConfig);
       return this.login({
         method: "firebase" as LoginRequest["method"],
         providerToken: idToken,
