@@ -28,6 +28,11 @@ type LoginRequest struct {
 	Method        LoginMethod
 	ProviderToken string
 	Origin        string // optional override of the SDK-derived Origin header
+	// DeviceName, when set, is sent as the X-Device-Name header and recorded
+	// on the created session as a human-readable device label (e.g. a CLI
+	// hostname), surfaced in Sessions.List so a user can tell sessions apart
+	// for revocation (ADR-062). Optional; the issuer caps/sanitizes it.
+	DeviceName string
 
 	// TenantID disambiguates when the user is a member of multiple
 	// tenants in the realm. When empty and the user has >1 tenants, the
@@ -167,6 +172,9 @@ type SessionInfo struct {
 	LastUsedAt string `json:"last_used_at,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`
 	IP         string `json:"ip,omitempty"`
+	// DeviceName is the human-readable device label recorded at login via
+	// the X-Device-Name header (e.g. a CLI hostname), if any (ADR-062).
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 // ListSessionsRequest selects the user whose sessions to list and how
@@ -229,6 +237,9 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 	}
 	if origin != "" {
 		headers["Origin"] = origin
+	}
+	if req.DeviceName != "" {
+		headers["X-Device-Name"] = req.DeviceName
 	}
 
 	method := req.Method
@@ -559,6 +570,7 @@ func decodeSessionPage(raw map[string]any) ([]SessionInfo, string, error) {
 			LastUsedAt: strField(obj, "last_used_at"),
 			UserAgent:  strField(obj, "user_agent"),
 			IP:         strField(obj, "ip"),
+			DeviceName: strField(obj, "device_name"),
 		})
 	}
 	next, _ := raw["next_cursor"].(string)
