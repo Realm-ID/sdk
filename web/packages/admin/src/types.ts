@@ -105,6 +105,9 @@ export interface ApiKeyListPage {
 export interface ActiveSession {
   id: string;
   origin?: string;
+  /** Human-readable device label recorded at login (e.g. a CLI hostname),
+   *  surfaced so a user can tell sessions apart for revocation (ADR-062). */
+  device_name?: string;
   created_at: number;
   last_seen_at?: number;
 }
