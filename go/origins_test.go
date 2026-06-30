@@ -200,6 +200,59 @@ func TestOrigins_ListPaginates(t *testing.T) {
 	}
 }
 
+// TestOrigins_DecodesNumericCreatedAt is the regression guard for the
+// go/v0.21.0 outage: the issuer serializes created_at as a unix-seconds JSON
+// *number* (toDomainDTO → CreatedAt.Unix()), but Origin.CreatedAt was typed
+// string, so the strict decode of the allowlist threw before login could run
+// ("cannot unmarshal number into Go struct field Origin.items.created_at of
+// type string") — taking the whole BFF /auth/* surface down. The payload here
+// mirrors a real GET /platforms/{id}/origins row, including created_at and a
+// detached_at, which no prior test exercised.
+func TestOrigins_DecodesNumericCreatedAt(t *testing.T) {
+	var mintCount, listCount int32
+	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": []any{
+				map[string]any{
+					"id": "o1", "domain": "app.acme.com",
+					"entity_type": "realm", "entity_id": testRealmID,
+					"verification_id": "v-123",
+					"created_at":      1_751_241_600, // unix seconds, a JSON number
+				},
+			},
+			"next_cursor": nil,
+		})
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+
+	// Validate is the login hot path: it must not error on a populated row.
+	ok, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{
+		RealmID: testRealmID, Origin: "https://app.acme.com",
+	})
+	if err != nil {
+		t.Fatalf("validate errored on numeric created_at (the outage): %v", err)
+	}
+	if !ok {
+		t.Fatal("validate should allow the listed origin")
+	}
+
+	// And the value round-trips as unix seconds.
+	pg, err := r.Origins.List(context.Background(), ListOriginsOptions{RealmID: testRealmID})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	for o, err := range pg.All(context.Background()) {
+		if err != nil {
+			t.Fatalf("iter: %v", err)
+		}
+		if o.CreatedAt != 1_751_241_600 {
+			t.Errorf("CreatedAt = %d, want 1751241600 (unix seconds)", o.CreatedAt)
+		}
+	}
+}
+
 func TestOrigins_ValidateRequiresRealmID(t *testing.T) {
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://localhost:0"})
 	_, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{Origin: "https://x"})

@@ -13,6 +13,42 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go/v0.22.0 — Fix: timestamp fields typed `string` crashed strict decode → BFF `/auth/*` login outage (2026-06-30)
+
+A Go-only hotfix. `Origin.CreatedAt` (and `SessionInfo.CreatedAt`/
+`LastUsedAt`, `Tenant.CreatedAt`/`UpdatedAt`) were typed `string`, but the
+issuer serializes every list/get `created_at`/`updated_at` as a unix-seconds
+JSON **number** (e.g. `toDomainDTO → CreatedAt.Unix()`). Because the BFF
+guards the unauthenticated `/auth/*` proxy routes with `Origins.Validate`
+(`GET /platforms/{realm}/origins`), the strict decode of a populated origins
+row threw — `cannot unmarshal number into Go struct field
+Origin.items.created_at of type string` — **before login could run, taking the
+whole `/auth/*` surface down** (502) for partners on go/v0.21.0.
+
+- **go** `Origin.CreatedAt` `string` → `int64` (the outage). `origins.go`.
+- **go** `SessionInfo.CreatedAt` + `LastUsedAt` `string` → `int64`; the
+  hand-decoder in `decodeSessionPage` switched from `strField` to a new
+  `intField` helper (numbers decode to `float64` in `map[string]any`).
+  `auth.go`.
+- **go** `Tenant.CreatedAt` + `UpdatedAt` `string` → `int64`. `tenants.go`.
+- **test** new `TestOrigins_DecodesNumericCreatedAt` exercises an origins-list
+  decode against a representative server payload (numeric `created_at` +
+  `verification_id`), and `TestAuth_ListSessions_OnBehalfOf` now carries a
+  numeric `created_at` — closing the gap that let the mistype ship (no prior
+  origins/session test populated a timestamp).
+
+**Contract** (confirmed against the issuer): `created_at`/`updated_at` are
+unix-seconds `int64` on every list/get the Go SDK models. The lone server
+exception is the platform-transfer endpoints (ADR-063), which emit RFC3339
+strings — but the Go SDK does not model platform transfers, so the fix is
+plain `int64`, **not** a string-or-number union. (`expires_at` genuinely
+varies per endpoint, but is off the login path.) Two pre-existing latent
+issues surfaced while fixing this are tracked in `TODO.md`
+(`SessionInfo.LastUsedAt` json tag vs server `last_seen_at`; `Origin.DetachedAt`
+not serialized by the issuer).
+
+Pin `go/v0.22.0` to restore login. No TS/Java change.
+
 ## go/v0.19.0 — Platform-intrinsic audience (ADR-064) + on-behalf typed forwarding (ADR-056) — go (2026-06-20)
 
 - **go** `verify`: the expected audience is the platform-intrinsic value

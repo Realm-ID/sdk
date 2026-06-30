@@ -18,8 +18,12 @@ type Origin struct {
 	EntityType     string  `json:"entity_type"`
 	EntityID       string  `json:"entity_id"`
 	VerificationID *string `json:"verification_id,omitempty"`
-	CreatedAt      string  `json:"created_at,omitempty"`
-	DetachedAt     *string `json:"detached_at,omitempty"`
+	// CreatedAt is unix seconds. The issuer serializes every list/get
+	// created_at as a JSON number (toDomainDTO → CreatedAt.Unix()); this was
+	// mistyped as string through go/v0.21.0, which made the strict decode of
+	// the origin allowlist throw on the BFF login hot path. Fixed in v0.22.0.
+	CreatedAt  int64   `json:"created_at,omitempty"`
+	DetachedAt *string `json:"detached_at,omitempty"`
 }
 
 // ListOriginsOptions parameterises Origins.List.

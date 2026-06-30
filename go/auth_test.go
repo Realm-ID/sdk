@@ -183,8 +183,10 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 			gotAuth = r.Header.Get("Authorization")
 			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
 			gotOBOIP = r.Header.Get("X-On-Behalf-Of-IP")
+			// created_at is a unix-seconds JSON number on the wire — assert it
+			// decodes (SessionInfo.CreatedAt was mistyped string pre-v0.22.0).
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items":       []any{map[string]any{"id": "sess-1"}},
+				"items":       []any{map[string]any{"id": "sess-1", "created_at": 1_751_241_600}},
 				"next_cursor": "",
 			})
 		},
@@ -193,6 +195,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var ids []string
+	var createdAt int64
 	for s, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{
 		UserID:       "user-42",
 		OnBehalfOfIP: "203.0.113.7",
@@ -201,9 +204,13 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 			t.Fatalf("list: %v", err)
 		}
 		ids = append(ids, s.ID)
+		createdAt = s.CreatedAt
 	}
 	if len(ids) != 1 || ids[0] != "sess-1" {
 		t.Errorf("ids = %v", ids)
+	}
+	if createdAt != 1_751_241_600 {
+		t.Errorf("CreatedAt = %d, want 1751241600 (unix seconds)", createdAt)
 	}
 	if gotAuth != "Bearer ptok" {
 		t.Errorf("auth = %q (want platform token)", gotAuth)

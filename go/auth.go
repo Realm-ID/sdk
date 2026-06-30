@@ -4,6 +4,7 @@ import (
 	ctxpkg "context"
 	"iter"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -167,9 +168,15 @@ type LogoutRequest struct {
 
 // SessionInfo is one entry in realm.Auth.ListSessions.
 type SessionInfo struct {
-	ID         string `json:"id"`
-	CreatedAt  string `json:"created_at,omitempty"`
-	LastUsedAt string `json:"last_used_at,omitempty"`
+	ID string `json:"id"`
+	// CreatedAt / LastUsedAt are unix seconds — the issuer serializes session
+	// timestamps as JSON numbers (sessionDTO.CreatedAt/LastSeenAt). Mistyped
+	// as string through go/v0.21.0; fixed in v0.22.0.
+	//
+	// NOTE: the issuer field is last_seen_at, not last_used_at — see TODO.md;
+	// LastUsedAt currently reads zero until the json tag is reconciled.
+	CreatedAt  int64  `json:"created_at,omitempty"`
+	LastUsedAt int64  `json:"last_used_at,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`
 	IP         string `json:"ip,omitempty"`
 	// DeviceName is the human-readable device label recorded at login via
@@ -566,8 +573,8 @@ func decodeSessionPage(raw map[string]any) ([]SessionInfo, string, error) {
 		}
 		out = append(out, SessionInfo{
 			ID:         strField(obj, "id"),
-			CreatedAt:  strField(obj, "created_at"),
-			LastUsedAt: strField(obj, "last_used_at"),
+			CreatedAt:  intField(obj, "created_at"),
+			LastUsedAt: intField(obj, "last_used_at"),
 			UserAgent:  strField(obj, "user_agent"),
 			IP:         strField(obj, "ip"),
 			DeviceName: strField(obj, "device_name"),
@@ -582,6 +589,23 @@ func strField(m map[string]any, k string) string {
 		return v
 	}
 	return ""
+}
+
+// intField reads a unix-seconds timestamp from a generically-decoded JSON
+// object. encoding/json decodes numbers into float64 for map[string]any, so
+// that is the live path; the other cases are defensive (a json.Number-mode
+// decoder, or a server that ever emits the value as a numeric string).
+func intField(m map[string]any, k string) int64 {
+	switch v := m[k].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	}
+	return 0
 }
 
 // inferOrigin derives a value for the Origin header from realm metadata.

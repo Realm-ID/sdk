@@ -17,8 +17,11 @@ type Tenant struct {
 	DisplayName string         `json:"display_name,omitempty"`
 	OwnerUserID string         `json:"owner_user_id,omitempty"`
 	Config      map[string]any `json:"config,omitempty"`
-	CreatedAt   string         `json:"created_at,omitempty"`
-	UpdatedAt   string         `json:"updated_at,omitempty"`
+	// CreatedAt / UpdatedAt are unix seconds — the issuer serializes tenant
+	// timestamps as JSON numbers (matching UpdateUserRoleResult.UpdatedAt
+	// below). Mistyped as string through go/v0.21.0; fixed in v0.22.0.
+	CreatedAt int64 `json:"created_at,omitempty"`
+	UpdatedAt int64 `json:"updated_at,omitempty"`
 }
 
 // SignupMode is the per-tenant signup policy (SPEC §6.1, ADR-045).
