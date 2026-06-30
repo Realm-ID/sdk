@@ -9,11 +9,16 @@ import (
 // canonical aud value for this realm — used for verifier auto-discovery
 // (SPEC §1) and as the default Origin on auth calls.
 type RealmInfo struct {
-	ID          string         `json:"id"`
-	Audience    string         `json:"audience,omitempty"`
-	Domain      string         `json:"domain,omitempty"`
-	DisplayName string         `json:"display_name,omitempty"`
-	Extra       map[string]any `json:"-"`
+	ID          string `json:"id"`
+	Audience    string `json:"audience,omitempty"`
+	Domain      string `json:"domain,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	// OriginEnforcement is the realm's browser-Origin policy (ADR-065),
+	// read by Middleware in OriginEnforcementAuto mode. "" / "off" = no
+	// check; "required" = validate Origin against the realm allowlist on
+	// the unauth /auth/* routes.
+	OriginEnforcement string         `json:"origin_enforcement,omitempty"`
+	Extra             map[string]any `json:"-"`
 }
 
 // infoClient implements realm.Info() with per-handle caching.
@@ -86,6 +91,9 @@ func findRealmIn(node any, realmID string) *RealmInfo {
 				}
 				if dn, ok := v["display_name"].(string); ok {
 					ri.DisplayName = dn
+				}
+				if oe, ok := v["origin_enforcement"].(string); ok {
+					ri.OriginEnforcement = oe
 				}
 				return ri
 			}

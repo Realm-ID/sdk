@@ -3,6 +3,10 @@ package realmid
 import (
 	"bytes"
 	"context"
+	// ctxpkg aliases the same standard context package; new exported hook
+	// signatures use ctxpkg.Context to dodge the check-gofr.sh false
+	// positive in SDK code (see sdk/CLAUDE.md).
+	ctxpkg "context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -31,14 +35,83 @@ type MFARule struct {
 type MFAGateReason string
 
 const (
-	MFAReasonNoMFA          MFAGateReason = "no_mfa"
-	MFAReasonStaleMFA       MFAGateReason = "stale_mfa"
-	MFAReasonFreshRequired  MFAGateReason = "fresh_required"
+	MFAReasonNoMFA         MFAGateReason = "no_mfa"
+	MFAReasonStaleMFA      MFAGateReason = "stale_mfa"
+	MFAReasonFreshRequired MFAGateReason = "fresh_required"
 )
 
 // requireFreshWindow is the grace window on RequireFresh routes — gives
 // the client time to retry the original op after /auth/mfa/verify.
 const requireFreshWindow = 30 * time.Second
+
+// AuthFlow identifies which middleware auth route produced an event.
+type AuthFlow int
+
+const (
+	FlowLogin AuthFlow = iota
+	FlowRefresh
+	FlowMFAVerify
+)
+
+// OriginEnforcementMode controls the confused-deputy Origin guard on the
+// middleware's unauthenticated /auth/* routes (ADR-065).
+type OriginEnforcementMode int
+
+const (
+	// OriginEnforcementAuto (default) follows the realm policy from
+	// realm.Info(): enforce iff RealmInfo.OriginEnforcement == "required".
+	OriginEnforcementAuto OriginEnforcementMode = iota
+	// OriginEnforcementOn forces enforcement regardless of realm policy.
+	OriginEnforcementOn
+	// OriginEnforcementOff disables enforcement — the escape hatch for a
+	// non-browser/M2M deployment on a realm whose policy is "required".
+	OriginEnforcementOff
+)
+
+// auth-failure stages (AuthFailureEvent.Stage) — where the failure arose.
+const (
+	stageOrigin      = "origin"
+	stageBeforeLogin = "before_login"
+	stageLogin       = "login"
+	stageRefresh     = "refresh"
+	stageMFAVerify   = "mfa_verify"
+	stageOnSuccess   = "on_success"
+	stageVerify      = "verify"
+)
+
+// AuthSuccessEvent describes a just-completed authentication, delivered to
+// MiddlewareOptions.OnAuthSuccess AFTER the issuer mints tokens but BEFORE
+// the refresh cookie + success body are written (ADR-065).
+//
+// UserID/TenantID/Role are normalized across all three call sites so the
+// hook is a single code path. On login/mfa the identity comes from the
+// Session; on refresh the issuer's MintResult has no user object, so the
+// SDK recovers UserID by verifying the freshly-minted access token's `sub`
+// (done only when OnAuthSuccess is set). Session/Tenants are populated on
+// login/mfa and nil/empty on refresh; Claims is populated where the SDK
+// verified (the refresh path).
+type AuthSuccessEvent struct {
+	Flow        AuthFlow      // FlowLogin | FlowRefresh | FlowMFAVerify
+	Method      LoginMethod   // login method ("" on refresh/mfa)
+	UserID      string        // normalized subject id
+	TenantID    string        // pinned tenant
+	Role        string        // role on the minted token
+	Tenants     []TenantRef   // membership list — login/mfa only
+	Claims      *Claims       // verified access-token claims (refresh path)
+	Session     *Session      // full session on login/mfa; nil on refresh
+	AccessToken string        // always present
+	Request     *http.Request // inbound request — read-only
+}
+
+// AuthFailureEvent describes a failed authentication, delivered to
+// MiddlewareOptions.OnAuthFailure (observe-only — ADR-065). The middleware
+// always writes the canonical {error:{code,message}} envelope; the hook
+// is for side effects (audit, metrics, brute-force counters) only.
+type AuthFailureEvent struct {
+	Stage   string        // one of the stage* constants
+	Err     *RealmError   // the failure
+	Request *http.Request // inbound request — read-only
+}
 
 // MiddlewareOptions configures Realm.Middleware (SPEC §10).
 type MiddlewareOptions struct {
@@ -77,8 +150,38 @@ type MiddlewareOptions struct {
 	CookieSecure   bool          // default true
 	CookieSameSite http.SameSite // default http.SameSiteLaxMode
 
-	// OnAuthFailure overrides the default 401/412 response.
-	OnAuthFailure func(http.ResponseWriter, *http.Request, *RealmError)
+	// OriginEnforcement controls the confused-deputy Origin guard on the
+	// unauthenticated /auth/* routes (ADR-065). Default
+	// OriginEnforcementAuto: follow the realm policy from realm.Info().
+	OriginEnforcement OriginEnforcementMode
+
+	// BeforeLogin, if set, runs after the login body is parsed into a
+	// LoginRequest and before Auth.Login. It may mutate req in place (e.g.
+	// substitute a server-held API key, pin a tenant). A non-nil error
+	// aborts the login (routed to OnAuthFailure). Return a *RealmError to
+	// control the response code/message.
+	BeforeLogin func(ctx ctxpkg.Context, req *LoginRequest) error
+
+	// OnAuthSuccess, if set, runs after a successful login/refresh/mfa mint
+	// and BEFORE the refresh cookie + success body are written (ADR-065).
+	// A non-nil error aborts the response (routed to OnAuthFailure) so no
+	// session reaches the browser.
+	//
+	// For best-effort post-auth work (e.g. a tenant/user mirror reconcile)
+	// handle your own errors and return nil — a non-nil error on the
+	// refresh/mfa paths leaves the just-rotated session unusable (the old
+	// refresh cookie is already dead; the issuer keeps no grace window).
+	// Keep hook work idempotent and fast.
+	OnAuthSuccess func(ctx ctxpkg.Context, ev *AuthSuccessEvent) error
+
+	// OnAuthFailure, if set, is invoked (observe-only) on every auth
+	// failure — origin reject, BeforeLogin/Auth.* error, OnAuthSuccess
+	// error, or bearer verification failure — for side effects such as
+	// audit logging or brute-force counters. The middleware always writes
+	// the canonical {error:{code,message}} envelope; the hook cannot alter
+	// the response. (ADR-065 replaced the former response-owning
+	// func(w,r,*RealmError) signature with this observe-only form.)
+	OnAuthFailure func(ctx ctxpkg.Context, ev *AuthFailureEvent)
 }
 
 // applyDefaults fills in any unset fields with their SPEC defaults.
@@ -244,8 +347,6 @@ func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (st
 	return ct, methods
 }
 
-
-
 func findMFARule(rules []compiledMFARule, path string) *compiledMFARule {
 	for i := range rules {
 		if rules[i].re.MatchString(path) {
@@ -276,15 +377,24 @@ func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handl
 			if req.Method == http.MethodPost {
 				switch path {
 				case opts.LoginPath:
+					if !r.enforceOrigin(w, req, &opts) {
+						return
+					}
 					r.handleLogin(w, req, &opts)
 					return
 				case opts.LogoutPath:
 					r.handleLogout(w, req, &opts)
 					return
 				case opts.RefreshPath:
+					if !r.enforceOrigin(w, req, &opts) {
+						return
+					}
 					r.handleRefresh(w, req, &opts)
 					return
 				case opts.MFAVerifyPath:
+					if !r.enforceOrigin(w, req, &opts) {
+						return
+					}
 					r.handleMFAVerify(w, req, &opts)
 					return
 				}
@@ -293,7 +403,7 @@ func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handl
 			// 6. Bearer fall-through.
 			authz := req.Header.Get("Authorization")
 			if !strings.HasPrefix(strings.ToLower(authz), "bearer ") {
-				r.respondAuthFail(w, req, &opts, &RealmError{
+				r.respondAuthFail(w, req, &opts, stageVerify, &RealmError{
 					Code: ErrCodeUnauthorized, Message: "missing bearer token", HTTPStatus: 401,
 				})
 				return
@@ -305,7 +415,7 @@ func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handl
 				if re.HTTPStatus == 0 {
 					re.HTTPStatus = 401
 				}
-				r.respondAuthFail(w, req, &opts, re)
+				r.respondAuthFail(w, req, &opts, stageVerify, re)
 				return
 			}
 
@@ -354,11 +464,25 @@ func (r *Realm) handleLogin(w http.ResponseWriter, req *http.Request, opts *Midd
 	if provider == "" {
 		provider, _ = body["providerToken"].(string)
 	}
+	// tenant_id passthrough (ADR-065 item 4): pin a multi-tenant login.
+	tenantID, _ := body["tenant_id"].(string)
+	if tenantID == "" {
+		tenantID, _ = body["tenantId"].(string)
+	}
 
-	out, err := r.Auth.Login(req.Context(), LoginRequest{
+	lr := LoginRequest{
 		Method:        LoginMethod(method),
 		ProviderToken: provider,
-	})
+		TenantID:      tenantID,
+	}
+	if opts.BeforeLogin != nil {
+		if err := opts.BeforeLogin(req.Context(), &lr); err != nil {
+			r.respondAuthFail(w, req, opts, stageBeforeLogin, hookError(err))
+			return
+		}
+	}
+
+	out, err := r.Auth.Login(req.Context(), lr)
 	if err != nil {
 		re := asRealmError(err)
 		if re.Code == ErrCodeMFARequired {
@@ -374,7 +498,11 @@ func (r *Realm) handleLogin(w http.ResponseWriter, req *http.Request, opts *Midd
 			})
 			return
 		}
-		writeRealmError(w, re)
+		r.respondAuthFail(w, req, opts, stageLogin, re)
+		return
+	}
+
+	if !r.fireSessionSuccess(w, req, opts, FlowLogin, lr.Method, out) {
 		return
 	}
 
@@ -424,9 +552,31 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		CustomClaims: custom,
 	})
 	if err != nil {
-		writeRealmError(w, asRealmError(err))
+		r.respondAuthFail(w, req, opts, stageRefresh, asRealmError(err))
 		return
 	}
+
+	// OnAuthSuccess (ADR-065). MintResult carries no user object, so recover
+	// UserID by verifying the freshly-minted access token's sub — only when
+	// a hook is registered.
+	if opts.OnAuthSuccess != nil {
+		ev := &AuthSuccessEvent{
+			Flow:        FlowRefresh,
+			TenantID:    out.TenantID,
+			Role:        out.Role,
+			AccessToken: out.AccessToken,
+			Request:     req,
+		}
+		if claims, verr := r.Verify(req.Context(), out.AccessToken, nil); verr == nil && claims != nil {
+			ev.UserID = claims.Subject
+			ev.Claims = claims
+		}
+		if herr := opts.OnAuthSuccess(req.Context(), ev); herr != nil {
+			r.respondAuthFail(w, req, opts, stageOnSuccess, hookError(herr))
+			return
+		}
+	}
+
 	resp := map[string]any{
 		"access_token": out.AccessToken,
 		"expires_in":   out.ExpiresIn,
@@ -455,9 +605,14 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 
 	out, err := r.Auth.MFAVerify(req.Context(), MFAVerifyRequest{ChallengeToken: ct, Code: code})
 	if err != nil {
-		writeRealmError(w, asRealmError(err))
+		r.respondAuthFail(w, req, opts, stageMFAVerify, asRealmError(err))
 		return
 	}
+
+	if !r.fireSessionSuccess(w, req, opts, FlowMFAVerify, "", out) {
+		return
+	}
+
 	resp := map[string]any{
 		"access_token": out.AccessToken,
 		"expires_in":   out.ExpiresIn,
@@ -474,23 +629,122 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 
 // ---- helpers ----
 
-func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions, err *RealmError) {
+func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions, stage string, err *RealmError) {
 	r.logger.Warn("realmid auth failure",
 		slog.String("code", string(err.Code)),
+		slog.String("stage", stage),
 		slog.String("path", req.URL.Path),
 		slog.Int("http_status", err.HTTPStatus),
 	)
+	// Observe-only (ADR-065): the hook never owns the response; the
+	// middleware always writes the canonical envelope below.
 	if opts.OnAuthFailure != nil {
-		opts.OnAuthFailure(w, req, err)
-		return
+		opts.OnAuthFailure(req.Context(), &AuthFailureEvent{Stage: stage, Err: err, Request: req})
 	}
 	status := err.HTTPStatus
 	if status == 0 {
 		status = 401
 	}
-	writeJSON(w, status, map[string]any{
+	body := map[string]any{
 		"error": map[string]any{"code": string(err.Code), "message": err.Message},
-	})
+	}
+	for k, v := range err.Details {
+		body[k] = v
+	}
+	writeJSON(w, status, body)
+}
+
+// enforceOrigin runs the confused-deputy Origin guard when policy is active
+// (ADR-065). Returns true to proceed; on rejection it writes the failure
+// response and returns false.
+func (r *Realm) enforceOrigin(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) bool {
+	if !r.originEnforced(req, opts) {
+		return true
+	}
+	origin := req.Header.Get("Origin")
+	if origin == "" {
+		r.respondAuthFail(w, req, opts, stageOrigin, &RealmError{
+			Code: ErrCodeMissingOrigin, Message: "Origin header required", HTTPStatus: http.StatusForbidden,
+		})
+		return false
+	}
+	ok, err := r.Origins.Validate(req.Context(), ValidateOriginOptions{RealmID: r.realmID, Origin: origin})
+	if err != nil {
+		r.respondAuthFail(w, req, opts, stageOrigin, &RealmError{
+			Code: ErrCodeServerError, Message: err.Error(), HTTPStatus: http.StatusBadGateway,
+		})
+		return false
+	}
+	if !ok {
+		r.respondAuthFail(w, req, opts, stageOrigin, &RealmError{
+			Code: ErrCodeRealmOriginMismatch, Message: "origin not allowlisted for this realm", HTTPStatus: http.StatusForbidden,
+		})
+		return false
+	}
+	return true
+}
+
+// originEnforced resolves whether the Origin guard is active for this
+// request. Auto follows realm.Info(); On/Off force it. On an Auto-mode
+// discovery failure it fails OPEN (don't brick a legitimate login on an RI
+// blip) and logs loudly.
+func (r *Realm) originEnforced(req *http.Request, opts *MiddlewareOptions) bool {
+	switch opts.OriginEnforcement {
+	case OriginEnforcementOn:
+		return true
+	case OriginEnforcementOff:
+		return false
+	default:
+		info, err := r.Info(req.Context())
+		if err != nil || info == nil {
+			msg := ""
+			if err != nil {
+				msg = err.Error()
+			}
+			r.logger.Warn("realmid origin-enforcement policy unavailable; not enforcing",
+				slog.String("error", msg))
+			return false
+		}
+		return info.OriginEnforcement == "required"
+	}
+}
+
+// fireSessionSuccess builds the unified AuthSuccessEvent from a Session
+// (login/mfa paths) and invokes OnAuthSuccess. Returns true to proceed;
+// false if the hook failed (failure response already written).
+func (r *Realm) fireSessionSuccess(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions, flow AuthFlow, method LoginMethod, s *Session) bool {
+	if opts.OnAuthSuccess == nil {
+		return true
+	}
+	ev := &AuthSuccessEvent{
+		Flow:        flow,
+		Method:      method,
+		UserID:      s.User.ID,
+		TenantID:    s.TenantID,
+		Role:        s.Role,
+		Tenants:     s.Tenants,
+		Session:     s,
+		AccessToken: s.AccessToken,
+		Request:     req,
+	}
+	if err := opts.OnAuthSuccess(req.Context(), ev); err != nil {
+		r.respondAuthFail(w, req, opts, stageOnSuccess, hookError(err))
+		return false
+	}
+	return true
+}
+
+// hookError converts a partner-hook error into a *RealmError for the
+// canonical envelope. A *RealmError is honoured as-is (defaulting status to
+// 500); anything else becomes a generic server_error.
+func hookError(err error) *RealmError {
+	if re, ok := err.(*RealmError); ok {
+		if re.HTTPStatus == 0 {
+			re.HTTPStatus = http.StatusInternalServerError
+		}
+		return re
+	}
+	return &RealmError{Code: ErrCodeServerError, Message: err.Error(), HTTPStatus: http.StatusInternalServerError, Cause: err}
 }
 
 func writeRealmError(w http.ResponseWriter, err *RealmError) {
@@ -569,6 +823,31 @@ func clearRefreshCookie(w http.ResponseWriter, opts *MiddlewareOptions) {
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,
 	})
+}
+
+// SetRefreshCookie writes the refresh-token cookie using the same posture
+// the cookie-mode middleware uses (HttpOnly + Secure + SameSite + Name +
+// Domain from opts, with SPEC defaults applied). For partners on custom
+// routing who want to delegate the security-sensitive cookie mechanics
+// without adopting the full middleware (ADR-065 item 5).
+func (r *Realm) SetRefreshCookie(w http.ResponseWriter, opts MiddlewareOptions, value string) {
+	opts.applyDefaults()
+	setRefreshCookie(w, &opts, value)
+}
+
+// ReadRefreshToken reads the refresh token from the request the same way
+// the middleware does — from the cookie (default) or, when
+// opts.TokenDelivery == "body", from the JSON body's refresh_token field.
+func (r *Realm) ReadRefreshToken(req *http.Request, opts MiddlewareOptions) string {
+	opts.applyDefaults()
+	return readRefreshToken(req, &opts)
+}
+
+// ClearRefreshCookie expires the refresh-token cookie (logout) using the
+// same name/domain/posture as SetRefreshCookie.
+func (r *Realm) ClearRefreshCookie(w http.ResponseWriter, opts MiddlewareOptions) {
+	opts.applyDefaults()
+	clearRefreshCookie(w, &opts)
 }
 
 func asRealmError(err error) *RealmError {
