@@ -65,6 +65,7 @@ public final class IdentityProviderConfigClient {
         b.put("client_id", body.clientId());
         if (body.allowedOrigins() != null) b.put("allowed_origins", body.allowedOrigins());
         if (body.comments() != null) b.put("comments", body.comments());
+        if (body.config() != null) b.put("config", body.config());
         JsonNode raw = http.request(HttpTransport.Request.of("POST", "/identity-providers").body(b));
         return http.mapper().convertValue(raw, IdpConfig.class);
     }
@@ -76,6 +77,7 @@ public final class IdentityProviderConfigClient {
         if (patch.clientId() != null) b.put("client_id", patch.clientId());
         if (patch.allowedOrigins() != null) b.put("allowed_origins", patch.allowedOrigins());
         if (patch.comments() != null) b.put("comments", patch.comments());
+        if (patch.config() != null) b.put("config", patch.config());
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "PATCH", "/identity-providers/" + enc(id)).body(b));
         return http.mapper().convertValue(raw, IdpConfig.class);

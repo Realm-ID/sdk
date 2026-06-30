@@ -24,9 +24,14 @@ type IDPConfig struct {
 	ClientID       string   `json:"client_id"`
 	AllowedOrigins []string `json:"allowed_origins"`
 	Comments       string   `json:"comments"`
-	Enabled        bool     `json:"enabled"`
-	CreatedAt      int64    `json:"created_at"`
-	UpdatedAt      int64    `json:"updated_at"`
+	// Config is the provider's PUBLIC config (never secrets) — e.g. the
+	// Firebase web config (apiKey, authDomain, projectId, appId). It is
+	// echoed verbatim on public discovery so a browser SDK can bootstrap
+	// sign-in. Omitted when empty.
+	Config    map[string]string `json:"config,omitempty"`
+	Enabled   bool              `json:"enabled"`
+	CreatedAt int64             `json:"created_at"`
+	UpdatedAt int64             `json:"updated_at"`
 }
 
 // IDPConfigListPage is the list envelope for GET /identity-providers.
@@ -54,6 +59,10 @@ type IDPConfigCreate struct {
 	ClientID       string
 	AllowedOrigins []string
 	Comments       string
+	// Config is the provider's PUBLIC config (never secrets) — e.g. the
+	// Firebase web config (apiKey, authDomain, projectId, appId). Echoed
+	// verbatim on public discovery. Optional; omit for plain OIDC.
+	Config map[string]string
 }
 
 // IDPConfigPatch is the PATCH body. All fields are optional (pointer
@@ -64,6 +73,9 @@ type IDPConfigPatch struct {
 	ClientID       *string
 	AllowedOrigins *[]string
 	Comments       *string
+	// Config, when non-nil, REPLACES the stored provider config map
+	// wholesale (not merged). Publishable values only — never secrets.
+	Config *map[string]string
 }
 
 // IDPConfigDeleteResult is the DELETE acknowledgment.
@@ -134,6 +146,9 @@ func (c *IdentityProviderConfigClient) Create(ctx ctxpkg.Context, body IDPConfig
 	if body.Comments != "" {
 		wire["comments"] = body.Comments
 	}
+	if len(body.Config) > 0 {
+		wire["config"] = body.Config
+	}
 	var out IDPConfig
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
@@ -167,6 +182,9 @@ func (c *IdentityProviderConfigClient) Update(ctx ctxpkg.Context, id string, pat
 	}
 	if patch.Comments != nil {
 		wire["comments"] = *patch.Comments
+	}
+	if patch.Config != nil {
+		wire["config"] = *patch.Config
 	}
 	var out IDPConfig
 	if err := c.realm.http.do(ctx, requestOptions{

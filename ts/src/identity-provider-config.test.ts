@@ -85,6 +85,35 @@ test("idp.create: injects platform_id, maps camel->snake, omits unset", async ()
   assert.equal(out.id, "idp-1");
 });
 
+test("idp.create+update: provider config (Firebase web config) round-trips", async () => {
+  const fb = { apiKey: "AIza-test", authDomain: "demo-app.firebaseapp.com", projectId: "demo-app" };
+
+  // create includes config
+  let fetch = mkFetch((req) => {
+    assert.deepEqual((req.body as Record<string, unknown>)["config"], fb);
+    return new Response(JSON.stringify({ ...SAMPLE, provider: "firebase", config: fb }), {
+      status: 201, headers: { "content-type": "application/json" },
+    });
+  });
+  let realm = createRealm({ ...REALM, fetch });
+  let out = await realm.identityProviderConfig.create({
+    provider: "firebase", clientType: "web", clientId: "demo-app",
+    allowedOrigins: ["https://app.example.com"], config: fb,
+  });
+  assert.deepEqual(out.config, fb);
+
+  // patch replaces config wholesale
+  fetch = mkFetch((req) => {
+    assert.deepEqual(req.body, { config: fb });
+    return new Response(JSON.stringify({ ...SAMPLE, config: fb }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  });
+  realm = createRealm({ ...REALM, fetch });
+  out = await realm.identityProviderConfig.update("idp-1", { config: fb });
+  assert.deepEqual(out.config, fb);
+});
+
 test("idp.create: 409 provider_exists surfaces as RealmError(conflict)", async () => {
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "conflict", message: "provider already configured" },

@@ -27,6 +27,13 @@ export interface IdpConfig {
   client_id: string;
   allowed_origins: string[];
   comments: string;
+  /**
+   * Provider-specific PUBLIC config (never secrets) — e.g. the Firebase
+   * web config (`apiKey`, `authDomain`, `projectId`, `appId`). Echoed
+   * verbatim on public discovery so a browser SDK can bootstrap sign-in.
+   * Absent when empty.
+   */
+  config?: Record<string, string>;
   enabled: boolean;
   created_at: number;
   updated_at: number;
@@ -54,6 +61,12 @@ export interface IdpConfigCreate {
    */
   allowedOrigins?: string[];
   comments?: string;
+  /**
+   * Provider-specific PUBLIC config (never secrets) — e.g. the Firebase
+   * web config (`apiKey`, `authDomain`, `projectId`, `appId`). Echoed
+   * verbatim on public discovery. Omit for plain OIDC.
+   */
+  config?: Record<string, string>;
 }
 
 export interface IdpConfigPatch {
@@ -61,6 +74,11 @@ export interface IdpConfigPatch {
   clientId?: string;
   allowedOrigins?: string[];
   comments?: string;
+  /**
+   * When set, REPLACES the stored provider config map wholesale (not
+   * merged). Publishable values only — never secrets.
+   */
+  config?: Record<string, string>;
 }
 
 export class IdentityProviderConfigClient {
@@ -96,6 +114,7 @@ export class IdentityProviderConfigClient {
     if (body.tenantId !== undefined) wire["tenant_id"] = body.tenantId;
     if (body.allowedOrigins !== undefined) wire["allowed_origins"] = body.allowedOrigins;
     if (body.comments !== undefined) wire["comments"] = body.comments;
+    if (body.config !== undefined) wire["config"] = body.config;
     return this.http.request<IdpConfig>({
       method: "POST",
       path: "/identity-providers",
@@ -113,6 +132,7 @@ export class IdentityProviderConfigClient {
     if (patch.clientId !== undefined) wire["client_id"] = patch.clientId;
     if (patch.allowedOrigins !== undefined) wire["allowed_origins"] = patch.allowedOrigins;
     if (patch.comments !== undefined) wire["comments"] = patch.comments;
+    if (patch.config !== undefined) wire["config"] = patch.config;
     return this.http.request<IdpConfig>({
       method: "PATCH",
       path: `/identity-providers/${encodeURIComponent(id)}`,

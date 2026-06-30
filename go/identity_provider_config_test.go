@@ -219,3 +219,77 @@ func TestIDPConfig_Delete404SurfacesErrIDPNotFound(t *testing.T) {
 		t.Errorf("want ErrIDPNotFound, got %v", err)
 	}
 }
+
+// TestIDPConfig_CreateAndPatchSendConfig covers the provider PUBLIC config
+// map (e.g. the Firebase web config) on both write paths: present-on-create
+// and wholesale-replace-on-patch.
+func TestIDPConfig_CreateAndPatchSendConfig(t *testing.T) {
+	fb := map[string]string{
+		"apiKey":     "AIza-test",
+		"authDomain": "demo-app.firebaseapp.com",
+		"projectId":  "demo-app",
+	}
+
+	t.Run("create includes config", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mintPlatformToken(mux)
+		mux.HandleFunc("/identity-providers", func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := io.ReadAll(r.Body)
+			var got map[string]any
+			_ = json.Unmarshal(raw, &got)
+			cfg, ok := got["config"].(map[string]any)
+			if !ok || cfg["apiKey"] != "AIza-test" || cfg["authDomain"] != "demo-app.firebaseapp.com" {
+				t.Errorf("config not sent on create: %v", got["config"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "idp-1", "entity_type": "realm", "entity_id": testRealmID,
+				"provider": "firebase", "client_type": "web", "client_id": "demo-app",
+				"config": fb, "enabled": true, "created_at": 1, "updated_at": 1,
+			})
+		})
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+
+		r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+		got, err := r.IdentityProviderConfig.Create(context.Background(), IDPConfigCreate{
+			Provider: "firebase", ClientType: "web", ClientID: "demo-app",
+			AllowedOrigins: []string{"https://app.example.com"}, Config: fb,
+		})
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if got.Config["projectId"] != "demo-app" {
+			t.Errorf("config not parsed back: %+v", got.Config)
+		}
+	})
+
+	t.Run("patch replaces config", func(t *testing.T) {
+		mux := http.NewServeMux()
+		mintPlatformToken(mux)
+		mux.HandleFunc("/identity-providers/idp-1", func(w http.ResponseWriter, r *http.Request) {
+			raw, _ := io.ReadAll(r.Body)
+			var got map[string]any
+			_ = json.Unmarshal(raw, &got)
+			cfg, ok := got["config"].(map[string]any)
+			if !ok || cfg["apiKey"] != "AIza-test" {
+				t.Errorf("config not sent on patch: %v", got["config"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "idp-1", "entity_type": "realm", "entity_id": testRealmID,
+				"provider": "firebase", "client_type": "web", "client_id": "demo-app",
+				"config": fb, "enabled": true, "created_at": 1, "updated_at": 9,
+			})
+		})
+		srv := httptest.NewServer(mux)
+		defer srv.Close()
+
+		r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+		got, err := r.IdentityProviderConfig.Update(context.Background(), "idp-1", IDPConfigPatch{Config: &fb})
+		if err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		if got.Config["authDomain"] != "demo-app.firebaseapp.com" {
+			t.Errorf("config not parsed back: %+v", got.Config)
+		}
+	})
+}

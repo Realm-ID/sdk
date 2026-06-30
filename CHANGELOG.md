@@ -13,6 +13,42 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go/v0.24.0 (pending tag) — Middleware extension hooks + RI-driven origin enforcement (ADR-065)
+
+Lets a BFF run the **entire** auth flow through `Realm.Middleware` (login /
+token / logout / mfa / origin / cookie / response) and plug into it via
+callbacks, instead of forking the four `/auth/*` routes. Unblocks a partner's
+P0 (session-survives-reload via cookie mode + in-middleware mirror
+reconcile). Pairs with an issuer change adding `RealmConfig.origin_enforcement`
+(surfaced on `realm.Info()`).
+
+- **go** `MiddlewareOptions.BeforeLogin(ctx, *LoginRequest) error` — mutate
+  the login request before `Auth.Login` (e.g. sync-install key swap).
+- **go** `MiddlewareOptions.OnAuthSuccess(ctx, *AuthSuccessEvent) error` —
+  post-mint / pre-cookie callback; non-nil error fails the request
+  (routed to `OnAuthFailure`). Event is normalized across login/refresh/mfa
+  (`UserID`/`TenantID`/`Role` always set; on refresh the SDK verifies the
+  minted access token to recover `UserID`, only when the hook is set).
+- **go** `MiddlewareOptions.OriginEnforcement` (`Auto`|`On`|`Off`, default
+  `Auto`) — confused-deputy Origin guard; `Auto` follows
+  `realm.Info().OriginEnforcement`. Emits `missing_origin` /
+  `realm_origin_mismatch`. Fails **open** on Auto-mode discovery failure.
+- **go** `handleLogin` now forwards `tenant_id`/`tenantId` from the body
+  into `LoginRequest.TenantID` (was silently dropped).
+- **go** exported `Realm.SetRefreshCookie` / `ReadRefreshToken` /
+  `ClearRefreshCookie` — delegate cookie mechanics without adopting the
+  full middleware.
+- **go** `RealmInfo.OriginEnforcement` added (read from `GET /platforms/mine`).
+- **BREAKING (go)** `MiddlewareOptions.OnAuthFailure` changed from the
+  response-owning `func(http.ResponseWriter, *http.Request, *RealmError)`
+  to the observe-only `func(ctx, *AuthFailureEvent)`. The middleware now
+  always writes the canonical error envelope; the hook is for side effects
+  (audit/metrics) only. Callers that wrote a custom error body must move
+  that logic elsewhere. (No in-repo caller used the old form.)
+- **test** `middleware_hooks_test.go` — tenant_id passthrough + BeforeLogin
+  mutation, OnAuthSuccess on login + refresh (verify-recovered UserID),
+  fail-closed (no Set-Cookie leak), origin enforcement On + Auto.
+
 ## go/v0.22.0 — Fix: timestamp fields typed `string` crashed strict decode → BFF `/auth/*` login outage (2026-06-30)
 
 A Go-only hotfix. `Origin.CreatedAt` (and `SessionInfo.CreatedAt`/
@@ -48,6 +84,30 @@ issues surfaced while fixing this are tracked in `TODO.md`
 not serialized by the issuer).
 
 Pin `go/v0.22.0` to restore login. No TS/Java change.
+
+## All — IdP provider `config` on the admin write surface (SPEC §6.10) — go/v0.23.0, ts 0.16.0, java 0.14.0 (2026-06-29)
+
+The issuer has accepted/served the identity-provider **PUBLIC config** map
+(`config`, e.g. the Firebase web config: `apiKey`, `authDomain`,
+`projectId`, `appId`) on `POST`/`PATCH /identity-providers` and on public
+discovery since issuer **v0.16.0** (ADR-046). The SDKs' admin
+write surface (`identityProviderConfig.create` / `.update`) lagged — it
+exposed only the read side. This release closes that gap so a partner can
+seed/rotate provider config with a released SDK instead of a raw HTTP call.
+
+- **all** `IDPConfigCreate` / `IdpConfigCreate` gain an optional `config`
+  map; sent on create when non-empty.
+- **all** `IDPConfigPatch` / `IdpConfigPatch` gain an optional `config`
+  map. Supplying it **replaces the stored map wholesale** (not merged),
+  matching the server. (Java adds `IdpConfigPatch.onlyConfig(...)` and
+  keeps the prior constructors via a backward-compatible overload.)
+- **all** the read model (`IDPConfig` / `IdpConfig`) now carries a typed
+  `config` field (Go/TS already round-tripped it on discovery).
+- **spec** SPEC §6.10 documents `config` on the `IdpConfig` shape and on
+  `create`/`update`.
+
+No behaviour change for callers that don't set `config`. Publishable
+values only — never put secrets in `config`.
 
 ## go/v0.19.0 — Platform-intrinsic audience (ADR-064) + on-behalf typed forwarding (ADR-056) — go (2026-06-20)
 

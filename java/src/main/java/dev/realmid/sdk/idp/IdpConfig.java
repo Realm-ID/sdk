@@ -33,6 +33,12 @@ public final class IdpConfig {
     @JsonProperty("allowed_origins") @JsonAlias("allowedOrigins")
     private List<String> allowedOrigins = new ArrayList<>();
     private String comments;
+    /**
+     * Provider-specific PUBLIC config (never secrets) — e.g. the Firebase
+     * web config (apiKey, authDomain, projectId, appId). Echoed verbatim on
+     * public discovery. Null/absent when empty.
+     */
+    private Map<String, String> config;
     private boolean enabled;
     @JsonProperty("created_at") @JsonAlias("createdAt")
     private long createdAt;
@@ -50,6 +56,7 @@ public final class IdpConfig {
     public String clientId() { return clientId; }
     public List<String> allowedOrigins() { return allowedOrigins; }
     public String comments() { return comments; }
+    public Map<String, String> config() { return config; }
     public boolean enabled() { return enabled; }
     public long createdAt() { return createdAt; }
     public long updatedAt() { return updatedAt; }
@@ -64,6 +71,7 @@ public final class IdpConfig {
     public void setClientId(String v) { this.clientId = v; }
     public void setAllowedOrigins(List<String> v) { this.allowedOrigins = v; }
     public void setComments(String v) { this.comments = v; }
+    public void setConfig(Map<String, String> v) { this.config = v; }
     public void setEnabled(boolean v) { this.enabled = v; }
     public void setCreatedAt(long v) { this.createdAt = v; }
     public void setUpdatedAt(long v) { this.updatedAt = v; }

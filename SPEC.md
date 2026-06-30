@@ -900,18 +900,27 @@ provider to a single tenant within the realm.
 
 An `IdpConfig` is `{ id, entityType ("realm"|"tenant"), entityId,
 provider, clientType ("web"|"ios"|"android"|"desktop"|"other"),
-clientId, allowedOrigins[], comments, enabled, createdAt, updatedAt }`.
+clientId, allowedOrigins[], comments, config?, enabled, createdAt,
+updatedAt }`.
+
+`config` is a provider-specific **PUBLIC** config map (string→string,
+never secrets) — e.g. the Firebase web config (`apiKey`, `authDomain`,
+`projectId`, `appId`). It is echoed verbatim on the public **discovery**
+surface so a browser SDK can bootstrap sign-in with no app-side config;
+it is omitted from responses when empty.
 
 - `list({ tenantId? })` — `GET /identity-providers`. Returns
   `{ items: IdpConfig[] }`.
 - `create({ provider, clientType, clientId, allowedOrigins?, comments?,
-  tenantId? })` — `POST /identity-providers`. Returns the `IdpConfig`.
-  `clientType: "web"` **requires** non-empty `allowedOrigins`; any other
-  client type **requires** it absent. `provider_exists` (409) if a row
-  for that scope/provider/clientType already exists.
-- `update(id, { enabled?, clientId?, allowedOrigins?, comments? })` —
-  `PATCH /identity-providers/{id}`. At least one field required
-  (`empty_patch` otherwise). Returns the updated `IdpConfig`.
+  config?, tenantId? })` — `POST /identity-providers`. Returns the
+  `IdpConfig`. `clientType: "web"` **requires** non-empty
+  `allowedOrigins`; any other client type **requires** it absent.
+  `provider_exists` (409) if a row for that scope/provider/clientType
+  already exists.
+- `update(id, { enabled?, clientId?, allowedOrigins?, comments?,
+  config? })` — `PATCH /identity-providers/{id}`. At least one field
+  required (`empty_patch` otherwise). A supplied `config` **replaces**
+  the stored map wholesale (not merged). Returns the updated `IdpConfig`.
 - `delete(id)` — `DELETE /identity-providers/{id}`. Returns
   `{ status: "deleted" }`. `provider_not_found` (404) if absent.
 
@@ -1183,7 +1192,14 @@ const middleware = realm.middleware({
   cookieSecure: true,                               // default true in prod
   cookieSameSite: "lax",                            // "lax" | "strict" | "none"
 
-  onAuthFailure?: (req, err) => Response,           // optional override of the 401/412 response
+  // Origin enforcement (ADR-065). "auto" (default) follows the realm
+  // policy from realm.info().origin_enforcement; "on"/"off" force it.
+  originEnforcement: "auto",                        // "auto" | "on" | "off"
+
+  // Extension hooks (ADR-065) — §10.5.
+  beforeLogin?:   (ctx, loginRequest) => void,      // mutate the login request pre-Auth.Login
+  onAuthSuccess?: (ctx, event) => void,             // post-mint, pre-cookie; throw to fail-closed
+  onAuthFailure?: (ctx, event) => void,             // observe-only; SDK still writes the envelope
 });
 ```
 
@@ -1211,6 +1227,66 @@ language-idiomatic types (`time.Duration` for `MaxAge`,
 If you are unsure, you almost certainly want `"cookie"`. A "SPA on
 `app.example.com` calling `api.example.com`" deployment is still
 same-site and should use cookie mode with `cookieDomain: ".example.com"`.
+
+### 10.5 Extension hooks (ADR-065)
+
+The middleware owns the **entire** auth flow (login / token / logout /
+mfa / origin / cookie / response). Partners do **not** hand-roll these
+routes; they register callbacks at four seams. All are optional — the
+zero value reproduces the base behavior.
+
+**`originEnforcement`** — the confused-deputy Origin guard (SPEC §6.6) on
+the unauthenticated `/auth/*` routes:
+
+- `"auto"` (default) — enforce iff the realm policy
+  `realm.info().origin_enforcement == "required"`. The policy is RI-owned
+  (per-realm `RealmConfig.origin_enforcement`, set via
+  `PATCH /platforms/{id}/config`); the SDK only enforces it. On an
+  Auto-mode discovery failure the middleware **fails open** (does not
+  enforce) and logs, to avoid bricking a login on a transient RI outage.
+- `"on"` / `"off"` — force the guard regardless of realm policy. `"off"`
+  is the escape hatch for a non-browser / M2M deployment on a realm whose
+  policy is `"required"`.
+
+When enforcing, the middleware validates the request `Origin` against the
+realm allowlist (`origins.validate`) before dispatch and rejects with
+`missing_origin` (blank Origin) or `realm_origin_mismatch`
+(present-but-unlisted).
+
+**`beforeLogin(ctx, loginRequest)`** — runs after the login body is
+parsed and before `auth.login`. May mutate the request in place (e.g.
+substitute a server-held API key, pin `tenant_id`). Failure aborts the
+login (routed to `onAuthFailure`).
+
+**`onAuthSuccess(ctx, event)`** — runs after a successful
+login/refresh/mfa mint and **before** the refresh cookie + success body
+are written. Failure aborts the response (routed to `onAuthFailure`) so
+no session reaches the browser. The event is **normalized** across all
+three flows — `userId`, `tenantId`, `role` are always populated; on the
+refresh flow the issuer's mint result carries no user object, so the SDK
+recovers `userId` by verifying the freshly-minted access token's `sub`
+(only when the hook is registered). `session`/`tenants` are populated on
+login/mfa and absent on refresh.
+
+> For **best-effort** post-auth work (e.g. a tenant/user mirror
+> reconcile), handle your own errors and return normally — throwing on the
+> refresh/mfa flow leaves the just-rotated session unusable (the old
+> refresh credential is already dead; the issuer keeps no grace window).
+> Keep hook work idempotent and fast.
+
+**`onAuthFailure(ctx, event)`** — **observe-only**, invoked on every auth
+failure (origin reject, `beforeLogin`/`auth.*` error, `onAuthSuccess`
+error, bearer verification failure) for side effects such as audit
+logging or brute-force counters. The middleware **always** writes the
+canonical `{error:{code,message}}` envelope; the hook cannot alter the
+response. The event carries a `stage` discriminator (`origin` |
+`before_login` | `login` | `refresh` | `mfa_verify` | `on_success` |
+`verify`).
+
+> **Breaking change (ADR-065).** `onAuthFailure` was previously a
+> response-**owning** callback (`(req, err) => Response`). It is now
+> observe-only. Partners that wrote a custom error body must move that
+> logic elsewhere or request the planned `errorResponder` option.
 
 ### 10.4 MFA freshness model
 

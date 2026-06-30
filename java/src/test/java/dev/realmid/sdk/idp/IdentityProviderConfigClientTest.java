@@ -144,6 +144,39 @@ class IdentityProviderConfigClientTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void createAndPatchSendProviderConfig() {
+        Map<String, String> fb = Map.of(
+                "apiKey", "AIza-test",
+                "authDomain", "demo-app.firebaseapp.com",
+                "projectId", "demo-app");
+
+        // create includes config and parses it back
+        fs.onJson("POST /identity-providers", (body, rec) -> {
+            assertEquals(fb, body.get("config"));
+            return FakeServer.Reply.json(201, Map.of(
+                    "id", "idp-1", "entity_type", "realm", "entity_id", "01HREALM",
+                    "provider", "firebase", "client_type", "web", "client_id", "demo-app",
+                    "config", fb, "enabled", true, "created_at", 1, "updated_at", 1));
+        });
+        IdpConfig c = realm.identityProviderConfig().create(new IdpConfigCreate(
+                null, "firebase", "web", "demo-app", List.of("https://app.example.com"), null, fb));
+        assertEquals("demo-app", c.config().get("projectId"));
+
+        // patch replaces config wholesale
+        fs.onJson("PATCH /identity-providers/idp-1", (body, rec) -> {
+            assertEquals(fb, body.get("config"));
+            assertFalse(body.containsKey("enabled"), "enabled omitted");
+            return FakeServer.Reply.json(200, Map.of(
+                    "id", "idp-1", "entity_type", "realm", "entity_id", "01HREALM",
+                    "provider", "firebase", "client_type", "web", "client_id", "demo-app",
+                    "config", fb, "enabled", true, "created_at", 1, "updated_at", 9));
+        });
+        IdpConfig u = realm.identityProviderConfig().update("idp-1", IdpConfigPatch.onlyConfig(fb));
+        assertEquals("demo-app.firebaseapp.com", u.config().get("authDomain"));
+    }
+
+    @Test
     void deleteHappy() {
         fs.on("DELETE /identity-providers/idp-1", (ex, body) ->
                 FakeServer.Reply.json(200, Map.of("status", "deleted")));
