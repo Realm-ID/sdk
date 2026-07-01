@@ -13,6 +13,30 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## web/v0.4.4 — reload no longer signs you out (restore sends the session bearer)
+
+`@realm-id/web` browser SDK. Fixes the client-side half of the ">15m reload
+signs me out" bug (the BFF half shipped as api v0.15.4):
+
+- **`restore()` now attaches the session bearer** to its `/me` revalidation
+  (`accessToken: this.tokens.peek()`), like the refresh path already did.
+  Previously it sent a bearerless `/me`; the BFF requires
+  `Authorization: Bearer rsid_…` (`loadSession`) and 401'd `session_missing`,
+  dropping the just-adopted session to anonymous and racing the app's own
+  authed `/me` (the `no current tenant` + sign-out symptoms).
+- **Tokenless mode keeps the durable session across the access-TTL.**
+  `readStoredSession` no longer discards the stored snapshot when its
+  `expiresAt` (the ~15m access-JWT hint) passes — under `refresh.tokenless`
+  the stored `accessToken` is the durable, server-rotated session bearer, so
+  the snapshot is adopted and `restore()` re-validates it. Classic
+  (self-expiring-bearer) mode is unchanged.
+- Rolls up web/v0.4.3 (Firebase `projectId` into the signIn driver), which the
+  admin app had not yet vendored.
+
+Regression tests: `restore()`'s `/me` must carry the bearer; a tokenless reload
+>15m after mint keeps the session. Both reproduced the prod bug (red) against a
+BFF-faithful mock before the fix. RCA: see `DECISIONS.md`.
+
 ## go/v0.24.0 (pending tag) — Middleware extension hooks + RI-driven origin enforcement (ADR-065)
 
 Lets a BFF run the **entire** auth flow through `Realm.Middleware` (login /

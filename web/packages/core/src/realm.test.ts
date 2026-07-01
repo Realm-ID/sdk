@@ -353,6 +353,77 @@ test("storage: pre-seeded entry but /me 401 drops to anonymous and clears storag
   realm.close();
 });
 
+test("storage: restore()'s /me revalidation attaches the session bearer (BFF requires it)", async () => {
+  const storage = memoryStorage();
+  // FRESH snapshot — not expired. The stored accessToken IS the opaque BFF
+  // session bearer (rsid_…, durable ~30d, rotated server-side). On restore the
+  // SDK must forward it on the /me revalidation, exactly like the reference BFF
+  // demands (loadSession → 401 session_missing when the Authorization bearer is
+  // absent). Reproduces the reload sign-out: bearerless /me → session_missing →
+  // restore() drops to anonymous (RCA 2026-07-01).
+  storage.write({
+    accessToken: "rsid_durable",
+    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    tenantId: "t1",
+    user: { id: "u1", email: "u@x" },
+    tenants: [{ id: "t1", role: "owner" }],
+  });
+
+  const meCalls: { hadBearer: boolean }[] = [];
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) {
+      const auth = call.headers["authorization"];
+      meCalls.push({ hadBearer: !!auth });
+      if (!auth) return { status: 401, body: { error: { code: "session_missing", message: "missing session bearer" } } };
+      return { status: 200, body: { user: { id: "u1" }, tenants: [{ id: "t1", role: "owner" }], currentTenantId: "t1" } };
+    }
+    return { status: 404 };
+  });
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, storage });
+  await realm.ready();
+  // The revalidation must have carried the bearer, and the session must survive.
+  assert.ok(meCalls.length > 0, "restore() should call /me");
+  assert.ok(meCalls.every((c) => c.hadBearer), "restore()'s /me must send the session bearer");
+  assert.equal(realm.getState().status, "authenticated");
+  assert.equal(realm.getState().currentTenantId, "t1");
+  realm.close();
+});
+
+test("storage: tokenless reload >15m after mint keeps the durable session (does not discard on access-TTL)", async () => {
+  const storage = memoryStorage();
+  // Snapshot's expiresAt is the ~15m access-JWT hint and is already PAST — but
+  // under tokenless (BFF) rotation the accessToken is the durable session
+  // bearer. The SDK must adopt it and re-validate via an authenticated /me,
+  // NOT discard it and sign the user out (RCA 2026-07-01, the reported bug).
+  storage.write({
+    accessToken: "rsid_durable",
+    expiresAt: Math.floor(Date.now() / 1000) - 60, // access-TTL expired
+    tenantId: "t1",
+    user: { id: "u1", email: "u@x" },
+    tenants: [{ id: "t1", role: "owner" }],
+  });
+
+  let meWithBearer = 0;
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) {
+      if (!call.headers["authorization"])
+        return { status: 401, body: { error: { code: "session_missing", message: "missing session bearer" } } };
+      meWithBearer++;
+      return { status: 200, body: { user: { id: "u1" }, tenants: [{ id: "t1", role: "owner" }], currentTenantId: "t1" } };
+    }
+    return { status: 404 };
+  });
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, storage, refresh: { tokenless: true, sendBearer: true } });
+  await realm.ready();
+  assert.ok(meWithBearer > 0, "an authenticated /me must have re-validated the durable session");
+  assert.equal(realm.getState().status, "authenticated");
+  assert.equal(realm.getState().currentTenantId, "t1");
+  assert.ok(storage.read(), "the session snapshot must survive the reload");
+  realm.close();
+});
+
 test("storage: login writes a session entry", async () => {
   const storage = memoryStorage();
   const { fetch } = mockFetch((call) => {

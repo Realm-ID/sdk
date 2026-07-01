@@ -58,6 +58,7 @@ export class Realm {
   private mfaPending: { challengeId?: string; challengeToken?: string; method?: string } | null = null;
   private restorePromise: Promise<void> | null = null;
   private storage: StorageAdapter;
+  private tokenless: boolean;
 
   constructor(cfg: RealmConfig) {
     this.transport = new Transport(cfg);
@@ -69,6 +70,7 @@ export class Realm {
     this.switchEndpoint = this.transport.endpoints.switchTenant;
     this.loginEndpoint = this.transport.endpoints.login;
     this.storage = cfg.storage ?? memoryStorage();
+    this.tokenless = cfg.refresh?.tokenless ?? false;
 
     const skew = cfg.refreshSkewMs ?? 60_000;
     this.tokens = new TokenManager(this.transport, {
@@ -112,9 +114,18 @@ export class Realm {
   private readStoredSession(): StoredSession | null {
     const s = this.storage.read();
     if (!s) return null;
+    // Tokenless (BFF) rotation: the stored `accessToken` is the DURABLE opaque
+    // session bearer — rotated server-side, the client keeps the same value —
+    // and `expiresAt` is only the short-lived access-JWT hint (~15m). It must
+    // NOT gate session survival. Discarding the snapshot here dropped the
+    // bearer, so the next reload's /me went out unauthenticated → the BFF
+    // 401'd `session_missing` → sign-out on any reload >15m after the last
+    // mint (RCA 2026-07-01). Keep it; restore()'s authenticated /me is the
+    // authority and clears storage on a real 401.
+    if (this.tokenless) return s;
     const nowSec = Math.floor(Date.now() / 1000);
-    // 5s skew — entries within 5s of expiry are treated as expired so the
-    // SDK doesn't paint state we're about to throw away.
+    // Classic (self-expiring bearer): a past-expiry token is genuinely dead —
+    // 5s skew so the SDK doesn't paint state we're about to throw away.
     if (s.expiresAt <= nowSec + 5) {
       this.storage.clear();
       return null;
@@ -295,6 +306,14 @@ export class Realm {
   async restore(): Promise<void> {
     try {
       const res = await this.transport.request<unknown>("GET", this.transport.endpoints.me, {
+        // Attach the current session bearer so the revalidation is
+        // authenticated. The BFF's /me requires it (loadSession → 401
+        // `session_missing` when the Authorization bearer is absent), and the
+        // refresh path already attaches it. Omitting it here sent a bearerless
+        // /me that always 401'd, dropping the just-adopted session to anonymous
+        // and racing the app's own authed /me → the reload sign-out
+        // (RCA 2026-07-01). undefined when there's no session (initial probe).
+        accessToken: this.tokens.peek() ?? undefined,
         gates: this.gates,
       });
       const adapted = this.adapters.me
