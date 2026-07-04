@@ -325,3 +325,31 @@ test("realmid preset: providers query uses platform=", async () => {
   assert.equal(out.signupMode, "open");
   realm.close();
 });
+
+// Regression (2026-07-05): the BFF's public providers response names the
+// provider field `type` (e.g. {"type":"microsoft"}), not `provider`. The
+// adapter must read `type` so `resolveProvider` (used by the OIDC signIn path,
+// i.e. Microsoft) can find the row — otherwise `provider` maps to "" and
+// signIn throws `no <type> provider configured for this realm`. Google/Firebase
+// never hit this path, so it stayed latent until the first Microsoft login.
+test("realmid preset: providers adapter maps wire `type` → `provider`", async () => {
+  const { fetch } = mockFetch((call) => {
+    if (call.url.includes("/identity-providers")) {
+      return {
+        status: 200,
+        body: {
+          // Real wire shape from the BFF/issuer: `type`, no `provider`.
+          providers: [{ type: "microsoft", client_type: "web", client_id: "5076b28d" }],
+        },
+      };
+    }
+    if (call.url.endsWith("/me")) return { status: 401 };
+    return { status: 404 };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  const out = await realm.providers({ clientType: "web" });
+  assert.equal(out.providers[0]?.provider, "microsoft", "wire `type` must map to `provider`");
+  assert.equal(out.providers[0]?.clientId, "5076b28d");
+  realm.close();
+});

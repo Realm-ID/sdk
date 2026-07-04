@@ -7,6 +7,35 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-05 — `web-bff-realmid@0.3.4`: bump forced by a fix that shipped without a version bump
+
+**Symptom.** Microsoft sign-in on prod threw `no microsoft provider configured
+for this realm`, even though the base realm's Microsoft provider was correctly
+configured (verified against the live BFF endpoint). Google/Firebase worked.
+
+**Root cause.** The BFF's public providers response names the provider field
+`type`; the `realmidBffPreset()` `adaptProviders` adapter read `provider`,
+mapping Microsoft's provider to `""`. `resolveProvider` — reached **only** by
+the OIDC/PKCE `signIn` path (Microsoft; Google/Firebase use the Firebase popup)
+— then found no matching row and threw. Latent until the first Microsoft login.
+
+**Why it wasn't caught (the real decision here).** The adapter code was *already
+fixed* in `014bf4e` (`p.type ?? p.provider`), but that commit **did not bump the
+version** — so the vendored `realm-id-web-bff-realmid-0.3.3.tgz` in `ui/web`,
+packed before the fix, still carried the bug. Same version string, two different
+contents. The pre-existing adapter test also mocked the *wrong* wire field
+(`provider:` instead of `type:`), so it passed against buggy code.
+
+**Decision.** Bump to `0.3.4` (content changed ⇒ version must change — the rule
+`014bf4e` broke) to force a re-vendor into `ui/web`, and add a regression test
+that uses the **real** wire shape (`type`, no `provider`). Consumers pin these
+by tarball filename, so a version bump is the only reliable re-vendor trigger.
+
+**Tradeoff / follow-up.** Vendored tarballs (not npm) mean drift like this is
+invisible until someone re-packs. Longer-term fix is publishing `@realm-id/web*`
+to npm (already the stated end-state in `ui/web/vendor/README.md`); until then,
+"bump on every content change" is the discipline that prevents recurrence.
+
 ## 2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)
 
 **Problem.** `Realm-ID/sdk` is a **public** GitHub repo (all sibling repos —

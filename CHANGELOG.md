@@ -13,6 +13,21 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## web-bff-realmid/v0.3.4 — providers adapter reads wire `type` (fixes Microsoft sign-in)
+
+`@realm-id/web-bff-realmid` preset. The public providers response names the
+provider field `type` (`{"type":"microsoft",…}`), but the adapter read
+`provider`, mapping it to `""`. The OIDC `signIn` path (`resolveProvider`) then
+found no row and threw `no <type> provider configured for this realm`. Only
+Microsoft hit this — Google/Firebase sign in via the Firebase popup, which never
+calls `resolveProvider`.
+
+- **`adaptProviders` now reads `p.type ?? p.provider`.** (The source fix landed
+  in `014bf4e` without a version bump, so the vendored `0.3.3` tarball never
+  carried it; this bump forces a re-vendor.)
+- **Regression test** exercises the real wire shape (`type`, no `provider`) —
+  the prior test mocked `provider:`, which is why the gap shipped.
+
 ## web/v0.4.4 — reload no longer signs you out (restore sends the session bearer)
 
 `@realm-id/web` browser SDK. Fixes the client-side half of the ">15m reload
