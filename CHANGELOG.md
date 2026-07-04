@@ -41,8 +41,8 @@ BFF-faithful mock before the fix. RCA: see `DECISIONS.md`.
 
 Lets a BFF run the **entire** auth flow through `Realm.Middleware` (login /
 token / logout / mfa / origin / cookie / response) and plug into it via
-callbacks, instead of forking the four `/auth/*` routes. Unblocks a partner's
-P0 (session-survives-reload via cookie mode + in-middleware mirror
+callbacks, instead of forking the four `/auth/*` routes. Unblocks a
+partner's P0 (session-survives-reload via cookie mode + in-middleware mirror
 reconcile). Pairs with an issuer change adding `RealmConfig.origin_enforcement`
 (surfaced on `realm.Info()`).
 
@@ -144,8 +144,8 @@ values only — never put secrets in `config`.
 - **go** `X-User-Token` (on-behalf-of, ADR-056) is now forwarded on the
   **typed client path** (`Tenants.*`, `Origins.*`, `Auth.*`), not just
   `Realm.Do`. A token stashed via `WithUserToken(ctx)` makes user-scoped typed
-  calls authorize on the user, not the platform principal. Closes the
-  partner-reported gap (a partner §1.3).
+  calls authorize on the user, not the platform principal. Closes a
+  partner-reported on-behalf-of gap.
 - ts/java: no code change for the audience increment — their verifiers resolve
   audience via the info resolver (no domain fallback) and pick up the new
   `realmid:<ref>` value automatically. Lockstep on-behalf forwarding + the
@@ -431,7 +431,7 @@ to 0.3.0 in lockstep; their public surface is unchanged.
 
 **Additive only.** No wire-shape changes; existing v0.1 BFF integrations
 keep working. Adds the missing primitives that prevented partner BFFs
-(including our own `Realm-ID/bff-api`) from being used as drop-in targets:
+(including the realmid.dev reference BFF) from being used as drop-in targets:
 
 - **Response adapters** (`createRealm({ adapters })`) — pluggable
   normalisers for `/login`, `/me`, `/token`, `/providers`. Lets BFFs ship
@@ -460,7 +460,7 @@ keep working. Adds the missing primitives that prevented partner BFFs
   `apple`, `magic_link`, etc. without forking the SDK.
 - **New companion package `@realm-id/web-bff-realmid`** — bundles the
   adapters, gates, endpoints, and refresh flags needed to drop the SDK
-  in front of `Realm-ID/bff-api` (the reference BFF) in one import.
+  in front of the realmid.dev reference BFF (`api.realmid.dev`) in one import.
 - **BFF-SPEC.md** rewritten around the canonical+adapter model.
 
 Sibling packages (`@realm-id/web-react`, `@realm-id/web-firebase`,
@@ -603,7 +603,7 @@ regress while they update.
 
 ### SPEC
 
-- Adds `§X OTP primitive` with full surface + a partner examples.
+- Adds `§X OTP primitive` with full surface + worked examples.
 - Updates `§4.1 login()` and `§4.3 mfaVerify()` to mention
   `otp_internal` and the new typed helpers.
 - Calls out the corrected `mfa_challenge_token` wire-shape on §4.3.
@@ -706,7 +706,7 @@ consumer landed yet.
 
 Cross-cutting **breaking** bump aligning with RealmID v0.5.0
 (ADR-044 + ADR-045). All three SDKs (`ts/`, `go/`, `java/`) bumped in
-lockstep. a partner is on 0.4.0; partners on 0.4.x must upgrade
+lockstep. Early adopters are on 0.4.0; partners on 0.4.x must upgrade
 when they cut over to a v0.5.0 server.
 
 ### Breaking — admin sub-paths moved to `/platforms/{id}/...` (ADR-044)

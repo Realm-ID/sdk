@@ -7,6 +7,49 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-04 — Scrub customer names + private-repo references from the public SDK repo
+
+**Problem.** `Realm-ID/sdk` is a **public** GitHub repo (all sibling repos —
+`issuer`, `api`, `ui`, `project` — are private). It carried real customer
+identifiers and their internal architecture in world-readable files:
+
+- `web/docs/a partner-migration.md` — a customer-named "fit assessment" that
+  described a named partner's private React auth code **and a security
+  weakness** (refresh token in `localStorage` / XSS). Not linked from anywhere.
+- `SPEC.md`, `CHANGELOG.md`, `CLAUDE.md` — customer names (a partner, a partner,
+  a partner) in headings and prose.
+- Test fixtures (`*.go`/`*.ts`/`*.java`) — real customer domains as fixture
+  values (`example.com`, `demo-app.firebaseapp.com`, `app.example.com`,
+  `demo-app` Firebase project/client IDs).
+- Published/READMEs + `docs/operations.md` + `web/BFF-SPEC.md` — links to the
+  **private** `Realm-ID/api` / `Realm-ID/issuer` repos and internal ADR relative
+  paths (dead 404s for consumers that also leak private repo structure).
+
+**Options.** (a) Genericize `a partner-migration.md` in place; (b) delete it.
+Chose **delete** — it was unreferenced, its only value (SDK-mapping walkthrough)
+is already covered by `docs/quickstart.md` + `integration-guide.md`, and keeping
+a genericized copy would be maintenance surface for no consumer benefit.
+
+**Decision.** Customer identifiers → neutral placeholders
+(`example.com`→`example.com`, `demo-app*`→`demo-app*`); customer names in
+prose → "a partner" / "worked examples"; private-repo links → the public
+`api.realmid.dev` endpoint or `BFF-SPEC.md` (the contract partners implement).
+Test scrub verified with `go test ./...` (pass) and `npm test` (113/113).
+
+**Scope tradeoff — bare ADR numbers kept.** `SPEC.md`/`CHANGELOG.md` still cite
+ADR numbers as opaque text (not clickable links to the private repo). Removing
+every ADR number from the locked spec + full changelog history was
+disproportionate to the low leakage of an opaque identifier; only ADR
+*hyperlinks/relative-paths into private repos* were removed. (The public
+**website** partner guide, by contrast, was rewritten with zero ADR references —
+see `website/DECISIONS.md`.)
+
+**⚠️ Git history not rewritten.** These edits sanitize the working tree only.
+The customer names and the deleted `a partner-migration.md` remain in the public
+repo's **git history** and on any existing clones/forks. A history rewrite
+(`git filter-repo` / BFG + force-push, re-tagging releases) is destructive and
+out of scope here — flagged to the owner as a follow-up decision.
+
 ## 2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)
 
 **Symptom.** Reloading `app.realmid.dev` more than ~15 min after the last token

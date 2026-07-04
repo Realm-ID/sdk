@@ -278,12 +278,12 @@ true }` if `/token` itself needs the current session bearer for auth.
 
 ## Reference implementation
 
-Realm-ID's own BFF lives at <https://github.com/Realm-ID/api>. It
+realmid.dev runs a reference BFF at `api.realmid.dev`. It
 deviates from the canonical wire shape in 6 places (snake_case, status
 discriminator on /login, tokenless /token, flat /me, 412-gated MFA + 412
 session-limit) — the published `@realm-id/web-bff-realmid` preset bundles
 the adapters/gates/refresh flags needed to wire the SDK to it in one
-import. Partners can fork the BFF, fork the preset, or implement the
+import. Partners can fork the preset, or implement the
 canonical contract from scratch.
 
 ## Versioning

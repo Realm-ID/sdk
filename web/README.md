@@ -1,11 +1,8 @@
 # `sdk/web/` — RealmID browser SDK
 
-Per [ADR-052][adr-052]: a framework-agnostic TypeScript SDK that runs in
-the browser, talks **only** to the partner's BFF, and handles login-config
-discovery, token management, refresh dedupe, tenant switching, MFA, and
-multi-tab sync.
-
-[adr-052]: ../../issuer/docs/adr/052-browser-sdk.md
+A framework-agnostic TypeScript SDK that runs in the browser, talks
+**only** to the partner's BFF, and handles login-config discovery, token
+management, refresh dedupe, tenant switching, MFA, and multi-tab sync.
 
 ## Packages
 
@@ -16,7 +13,7 @@ multi-tab sync.
 | `@realm-id/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | 0.4.0   |
 | `@realm-id/web-firebase`       | Firebase Auth kickoff adapter (Google popup/redirect, email/password) | 0.4.0   |
 | `@realm-id/web-google`         | Google Identity Services kickoff adapter (FedCM-aware, no Firebase)  | 0.4.0   |
-| `@realm-id/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`Realm-ID/api`) | 0.3.0 |
+| `@realm-id/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`api.realmid.dev`) | 0.3.0 |
 
 > **Release status (2026-06-03).** The `0.4.0` packages above are
 > **UNRELEASED** — they are the versions in this monorepo, not what is on
@@ -31,7 +28,7 @@ multi-tab sync.
 ### BFF-fronted SPA combo
 
 A partner SPA that authenticates **through its own BFF** (the canonical
-ADR-052 topology — the browser never holds an API key and never calls
+browser topology — the browser never holds an API key and never calls
 `auth.realmid.dev` directly) installs `@realm-id/web` plus exactly one
 provider-kickoff adapter, and optionally the React bindings:
 
@@ -43,8 +40,8 @@ provider-kickoff adapter, and optionally the React bindings:
 - **`@realm-id/web-react`** — optional. `RealmProvider` + hooks for React
   apps. Vanilla-JS apps skip it.
 - **`@realm-id/web-bff-realmid`** — optional preset, only if the SPA points
-  at the reference `Realm-ID/api` BFF (wires the canonical wire-shape
-  adapters/gates so you don't hand-configure them).
+  at the realmid.dev reference BFF (`api.realmid.dev`) (wires the canonical
+  wire-shape adapters/gates so you don't hand-configure them).
 
 `@realm-id/web-admin` is **not** part of the customer-facing SPA combo — it
 is the separate admin-console SDK (see "Admin SDK" below).
@@ -252,9 +249,9 @@ Full reference: [BFF-SPEC.md → Response adapters](./BFF-SPEC.md#response-adapt
 
 ## Reference BFF
 
-[`Realm-ID/api`](https://github.com/Realm-ID/api) is the canonical
-implementation of [`BFF-SPEC.md`](./BFF-SPEC.md). Fork it, or implement
-the contract directly in your existing backend.
+[`BFF-SPEC.md`](./BFF-SPEC.md) is the canonical contract your BFF must
+implement. realmid.dev runs a reference BFF at `api.realmid.dev`;
+implement the contract directly in your existing backend.
 
 If you target the realmid.dev BFF directly, use the
 [`@realm-id/web-bff-realmid`](./packages/bff-realmid/README.md) preset:

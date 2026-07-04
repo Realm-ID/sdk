@@ -54,7 +54,7 @@ One locked spec, multiple language-idiomatic implementations.
 Auto-attaches platform JWT; ships optional revocation cache. New partner
 realms default to `require_bff_login=true`. See ADR-041.
 
-## Recent surface fixes (a partner handoff session)
+## Recent surface fixes (partner handoff session)
 
-`Tenants.Create`, `UpdateUserRole` were patched same session as the
-handoff package. Treat those as freshly-stable.
+`Tenants.Create`, `UpdateUserRole` were patched same session as a
+partner handoff package. Treat those as freshly-stable.

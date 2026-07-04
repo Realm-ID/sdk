@@ -1424,7 +1424,7 @@ in `otp_internal` (per-user `mfa_methods` or per-role
 Request: `{ mfaToken, presented }` (TS) / `{ MFAToken, Presented }` (Go).
 Response: same shape as `login()`.
 
-### X.6 a partner worked examples
+### X.6 Worked examples
 
 ```ts
 // Two-factor login

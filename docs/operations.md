@@ -27,10 +27,10 @@ rotation, version policy, hosted environments, roadmap commitments.
   model, and per-realm scoping already isolates config, keys, users,
   and tokens. If your compliance posture strictly requires a separate
   hostname, file an issue — but it is not on the near roadmap.
-- **Local dev:** Run the auth API locally via the docker-compose stack
-  in the `Realm-ID/issuer` repo (`tests/docker-compose.test.yml`). Same
-  wire shape; same SDK code path with `baseUrl` pointed at
-  `http://localhost:<port>`.
+- **Local dev:** For local and CI tests, run against the RealmID test
+  issuer (shipped with the SDK) — same SDK code path with `baseUrl`
+  pointed at `http://localhost:<port>`. For a full local server, contact
+  the RealmID team.
 
 ## 2. Status and incident communication
 
@@ -197,10 +197,8 @@ This may change once formal pricing tiers land.
 ## 8. Where to file feedback
 
 - **SDK bugs / feature requests:** `Realm-ID/sdk` issues.
-- **Server bugs / behavior questions:** `Realm-ID/issuer` issues
-  (private repo; if you don't have access, file via SDK and we'll
-  triage).
+- **Server bugs / behavior questions:** file via `Realm-ID/sdk` issues
+  or your account contact; we triage server-side.
 - **Operational incidents:** status page + your account contact.
-- **ADRs / design discussions:** GitHub Discussions on
-  `Realm-ID/issuer`. Major changes (like ADR-042) are posted there
-  before implementation starts.
+- **Design change proposals:** shared with integration partners ahead of
+  implementation via your account contact.
