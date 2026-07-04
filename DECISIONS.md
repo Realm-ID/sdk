@@ -110,3 +110,19 @@ went red against the pre-fix code, reproducing the prod sign-out, then green.
 authenticated call, not accept it. Any authenticated background call the SDK
 makes on the user's behalf (restore, poll, revalidate) must attach the session
 bearer, mirroring `realm.fetch`. Pairs with api v0.15.4 (`DECISIONS.md` there).
+
+## 2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings
+
+**Symptom.** The UI's `SessionLimitModal` had no `revocation_token`/`active_sessions` to
+list sessions — the BFF flattened the 412 to `{code, message}`.
+
+**Root cause (in the SDK, not the BFF).** The issuer nests the gate fields *inside* the
+error object (`{error:{code,message,revocation_token,active_sessions}}`), but `sdk/go`
+`mapErrorResponse` only collected siblings from the **top level** → `RealmError.Details`
+empty → the BFF had nothing to carry.
+
+**Decision.** `sdk/go` `http.go` now collects nested-error siblings; api `MapSDKError`
+carries `Details` onto the envelope via `ErrWithDetails`. Unit-tested both sides
+(`http_test.go`, `errors_test.go`). The same nested-collection fix also unblocked the
+MFA-registration gate payloads. **Shipped** — `sdk/go` first tag `go/v0.17.0`, `api/go.mod`
+pins `v0.21.0` (≥ the fix), and `session-limit.spec.ts` is un-skipped (verified 2026-07-04).
