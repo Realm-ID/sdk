@@ -7,48 +7,49 @@ did this change happen."
 
 Newest first.
 
-## 2026-07-04 — Scrub customer names + private-repo references from the public SDK repo
+## 2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)
 
 **Problem.** `Realm-ID/sdk` is a **public** GitHub repo (all sibling repos —
-`issuer`, `api`, `ui`, `project` — are private). It carried real customer
-identifiers and their internal architecture in world-readable files:
+`issuer`, `api`, `ui`, `project` — are private). It carried three partner
+names, their real production domains, and their internal architecture in
+world-readable files:
 
-- `web/docs/a partner-migration.md` — a customer-named "fit assessment" that
+- An unreferenced customer-named "fit assessment" doc under `web/docs/` that
   described a named partner's private React auth code **and a security
-  weakness** (refresh token in `localStorage` / XSS). Not linked from anywhere.
-- `SPEC.md`, `CHANGELOG.md`, `CLAUDE.md` — customer names (a partner, a partner,
-  a partner) in headings and prose.
-- Test fixtures (`*.go`/`*.ts`/`*.java`) — real customer domains as fixture
-  values (`example.com`, `demo-app.firebaseapp.com`, `app.example.com`,
-  `demo-app` Firebase project/client IDs).
-- Published/READMEs + `docs/operations.md` + `web/BFF-SPEC.md` — links to the
+  weakness** (refresh token in `localStorage` / XSS).
+- `SPEC.md`, `CHANGELOG.md`, `CLAUDE.md` — partner names in headings and prose.
+- Test fixtures (`*.go`/`*.ts`/`*.java`) — real partner domains and Firebase
+  project/client IDs as fixture values.
+- Published READMEs + `docs/operations.md` + `web/BFF-SPEC.md` — links to the
   **private** `Realm-ID/api` / `Realm-ID/issuer` repos and internal ADR relative
-  paths (dead 404s for consumers that also leak private repo structure).
+  paths (dead 404s that also leak private repo structure).
 
-**Options.** (a) Genericize `a partner-migration.md` in place; (b) delete it.
-Chose **delete** — it was unreferenced, its only value (SDK-mapping walkthrough)
-is already covered by `docs/quickstart.md` + `integration-guide.md`, and keeping
-a genericized copy would be maintenance surface for no consumer benefit.
+**Working-tree scrub.** Partner identifiers → neutral placeholders (a neutral
+`example.com` audience, a `demo-app` Firebase project); partner names in prose →
+"a partner" / "worked examples"; the fit-assessment doc deleted (unreferenced;
+its SDK-mapping value is covered by `docs/quickstart.md` + `integration-guide.md`);
+private-repo links → the public `api.realmid.dev` endpoint or `BFF-SPEC.md`.
+Verified with `go test ./...` (pass) and `npm test` (113/113).
 
-**Decision.** Customer identifiers → neutral placeholders
-(`example.com`→`example.com`, `demo-app*`→`demo-app*`); customer names in
-prose → "a partner" / "worked examples"; private-repo links → the public
-`api.realmid.dev` endpoint or `BFF-SPEC.md` (the contract partners implement).
-Test scrub verified with `go test ./...` (pass) and `npm test` (113/113).
+**History rewrite — decided against the recommendation.** The scrub alone left
+the identifiers in git history and, critically, in the **Go module proxy**:
+`proxy.golang.org` had already cached every published `go/vX.Y.Z` version, and
+those cached zips (with the partner names in test fixtures) are immutable and
+**cannot be recalled** by any GitHub rewrite. The owner chose a full
+`git filter-repo` rewrite anyway, accepting two known costs: (1) it does **not**
+purge the Go-proxy copies, so the honest mitigation remains **notifying the named
+partners**; (2) rewriting the `go/` test fixtures changes the module content
+hash, so `sum.golang.org` will report a checksum mismatch for previously
+published Go versions fetched fresh (cache-miss) after the force-push — existing
+consumers should move to a newly cut version. Executed via `--replace-text`
+(all partner tokens across all blobs) + `--invert-paths` (remove the doc from
+every commit); 48 tags repointed; `main` + tags force-pushed. Pre-rewrite state
+bundled to `/tmp/sdk-history-rewrite/sdk-pre-rewrite.bundle` for recovery.
 
-**Scope tradeoff — bare ADR numbers kept.** `SPEC.md`/`CHANGELOG.md` still cite
-ADR numbers as opaque text (not clickable links to the private repo). Removing
-every ADR number from the locked spec + full changelog history was
-disproportionate to the low leakage of an opaque identifier; only ADR
-*hyperlinks/relative-paths into private repos* were removed. (The public
-**website** partner guide, by contrast, was rewritten with zero ADR references —
-see `website/DECISIONS.md`.)
-
-**⚠️ Git history not rewritten.** These edits sanitize the working tree only.
-The customer names and the deleted `a partner-migration.md` remain in the public
-repo's **git history** and on any existing clones/forks. A history rewrite
-(`git filter-repo` / BFG + force-push, re-tagging releases) is destructive and
-out of scope here — flagged to the owner as a follow-up decision.
+**Scope note — bare ADR numbers kept.** `SPEC.md`/`CHANGELOG.md` still cite ADR
+numbers as opaque text; only ADR *hyperlinks/relative-paths into private repos*
+were removed. (The public **website** partner guide was rewritten with zero ADR
+references — see `website/DECISIONS.md`.)
 
 ## 2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)
 
