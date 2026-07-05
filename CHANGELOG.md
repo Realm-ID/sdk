@@ -13,6 +13,19 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## web-bff-realmid/v0.3.5 — login speaks `grant_type` (retire the deprecated `method` field)
+
+`@realm-id/web-bff-realmid` preset. The login request adapter now sends
+`grant_type=provider_token` + `provider=<idp>` (ADR-051) instead of the
+deprecated `method` field (Sunset 2026-08-01). Previously every web login rode
+the issuer's `legacyMethodToGrant` compat shim — which is why Microsoft login
+broke when that shim lacked a `microsoft` case (fixed issuer v0.27.1). Migrating
+the wire removes the dependency entirely: provider logins (google/microsoft/
+firebase) no longer touch the shim, and the issuer can drop it at Sunset. OTP →
+`grant_type=otp_internal`; native/unknown methods fall back to `method` until
+they gain a first-class grant. Login regression tests updated to assert the new
+wire shape (grant_type + provider, no `method`).
+
 ## web-bff-realmid/v0.3.4 — providers adapter reads wire `type` (fixes Microsoft sign-in)
 
 `@realm-id/web-bff-realmid` preset. The public providers response names the

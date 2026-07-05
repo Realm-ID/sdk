@@ -7,6 +7,36 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-05 — `web-bff-realmid@0.3.5`: migrate login off the deprecated `method` field to `grant_type`
+
+**Problem.** ADR-051 (issuer v0.7.0) reworked `/auth/login` to dispatch on
+`grant_type` and deprecated the `method` field with a hard Sunset of 2026-08-01.
+The server migrated; the web SDK never did — its login adapter still sent
+`{ method }`, so EVERY web login (google/firebase/microsoft) rode the issuer's
+`legacyMethodToGrant` compat shim. The deprecated field was the *only* path the
+live web app used. That inversion caused the Microsoft outage: microsoft was
+added as a provider everywhere except the shim's lookup table, so login failed
+`grant_type is required` (patched issuer-side in v0.27.1 by adding the case).
+
+**Decision.** Fix the client, not just the shim: the adapter now emits
+`grant_type=provider_token` + `provider=<idp>` for provider logins,
+`grant_type=otp_internal` for OTP, `grant_type=password` for native password, and
+falls back to `method` only for methods without a first-class grant. The mapping
+mirrors the issuer's `legacyMethodToGrant` exactly, so downstream behavior is
+identical — only the dispatch key moves onto the wire.
+
+**Why this is the real fix.** The issuer v0.27.1 shim patch unblocked prod, but
+left the deprecated path load-bearing: at Sunset, removing the shim would take
+all web login down. With the SDK on `grant_type`, provider logins no longer
+depend on the shim at all, and the issuer can delete it on schedule. The shim
+stays until Sunset only for any *other* legacy clients.
+
+**Tradeoff.** Requires a re-vendor into `ui/web` (0.3.4 → 0.3.5) and a UI deploy.
+Verified: bff-realmid tests assert the new wire shape (grant_type + provider, no
+`method`); the full ui/web suite is green against the re-vendored SDK. See
+`issuer/DECISIONS.md` (2026-07-05) for the RCA and root `TODO.md` for the shim
+removal at Sunset.
+
 ## 2026-07-05 — `web-bff-realmid@0.3.4`: bump forced by a fix that shipped without a version bump
 
 **Symptom.** Microsoft sign-in on prod threw `no microsoft provider configured

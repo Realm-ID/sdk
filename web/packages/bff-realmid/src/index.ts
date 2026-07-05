@@ -224,7 +224,33 @@ export const realmidBffAdapters: ResponseAdapters = {
 export const realmidBffRequestAdapters: RequestAdapters = {
   login: (canonical: LoginRequest) => {
     const body: Record<string, unknown> = {};
-    if (canonical.method && canonical.method !== "tenant-pin") body.method = canonical.method;
+    // ADR-051: speak `grant_type` (+ `provider` for provider_token) on the
+    // wire, NOT the deprecated `method` field (Sunset 2026-08-01). The issuer
+    // dispatches on grant_type; `method` only survives via a compat shim that
+    // is scheduled for removal. Mirror the issuer's grant mapping here so the
+    // web SDK stops depending on that shim. Unknown/native methods fall back to
+    // the legacy `method` field until they gain a first-class grant_type.
+    const method = canonical.method;
+    if (method && method !== "tenant-pin") {
+      switch (method) {
+        case "google":
+        case "microsoft":
+        case "firebase":
+        case "firebase_phone":
+          body.grant_type = "provider_token";
+          body.provider = method;
+          break;
+        case "otp":
+        case "otp_internal":
+          body.grant_type = "otp_internal";
+          break;
+        case "password":
+          body.grant_type = "password";
+          break;
+        default:
+          body.method = method; // legacy fallback for anything not yet mapped
+      }
+    }
     if (canonical.providerToken) body.token = canonical.providerToken;
     if (canonical.tenantId) body.tenant_id = canonical.tenantId;
     const realmId = (canonical as unknown as { realmId?: unknown }).realmId;
