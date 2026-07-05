@@ -7,6 +7,30 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-05 — `web-bff-realmid@0.3.6`: revert 0.3.5 — the web SDK migration targeted the wrong hop
+
+**What went wrong.** 0.3.5 changed the web SDK's `/login` body from `method` to
+`grant_type=provider_token`+`provider`, on the premise that the web SDK rode the
+ADR-051-deprecated `method` field. It does not. The web SDK talks to the **BFF**
+(`api.realmid.dev`), whose `/login` is a typed handler with its OWN contract —
+`{ method, token }` (`api/internal/handlers/handlers.go` rejects a missing
+`method` with `method and token are required`). The deprecated issuer `method`
+field is on the **BFF→issuer** hop, sent by the **Go SDK** (`sdk/go/auth.go`).
+0.3.5 therefore broke login (`method and token are required`) while touching a
+non-deprecated contract.
+
+**Correction.** Revert the login adapter to send `method` (0.3.6, re-vendored as
+ui v0.11.4). The original Microsoft bug was already fixed by issuer v0.27.1 (the
+shim maps `method:"microsoft"` on the Go SDK hop); the web SDK change was
+unnecessary. The REAL migration — retiring the deprecated field before the
+2026-08-01 sunset — is a **Go SDK** change (`auth.go` login body: send
+`grant_type`+`provider`) plus a BFF go.mod bump, tracked in root `TODO.md`. The
+web↔BFF `method` contract is the BFF's own API and stays.
+
+**Lesson.** Identify which hop owns a field before "migrating" it. Two services
+can name a field `method` and mean different contracts; the deprecation applied
+to only one of them.
+
 ## 2026-07-05 — `web-bff-realmid@0.3.5`: migrate login off the deprecated `method` field to `grant_type`
 
 **Problem.** ADR-051 (issuer v0.7.0) reworked `/auth/login` to dispatch on

@@ -13,6 +13,15 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## web-bff-realmid/v0.3.6 — revert login to `method` (0.3.5 targeted the wrong hop)
+
+`@realm-id/web-bff-realmid` preset. Reverts 0.3.5: the web SDK talks to the
+**BFF**, whose `/login` contract is `{ method, token }` (`api` `handlers.go`
+requires them) — **not** the ADR-051-deprecated issuer field. 0.3.5 sent
+`grant_type` to the BFF and broke login with `method and token are required`.
+The `method`→`grant_type` migration belongs on the **BFF→issuer** hop (the Go
+SDK), not the web↔BFF hop. Login adapter sends `method` again.
+
 ## web-bff-realmid/v0.3.5 — login speaks `grant_type` (retire the deprecated `method` field)
 
 `@realm-id/web-bff-realmid` preset. The login request adapter now sends

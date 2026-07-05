@@ -56,10 +56,9 @@ test("realmid preset: request adapter rewrites /login body to snake_case", async
   await realm.ready();
   await realm.login({ method: "google", providerToken: "g-id", tenantId: "t1" });
   const loginBody = calls.find((c) => c.url.endsWith("/login"))!.body as Record<string, unknown>;
-  // ADR-051: provider login speaks grant_type + provider, NOT the legacy `method`.
-  assert.equal(loginBody.grant_type, "provider_token", "grant_type=provider_token");
-  assert.equal(loginBody.provider, "google", "provider names the IdP");
-  assert.equal(loginBody.method, undefined, "no deprecated `method` field on the wire");
+  // The web SDK speaks the BFF's own contract: { method, token, tenant_id }.
+  // (The ADR-051 method→grant_type migration is on the BFF→issuer hop, not here.)
+  assert.equal(loginBody.method, "google");
   assert.equal(loginBody.token, "g-id", "providerToken → token");
   assert.equal(loginBody.tenant_id, "t1", "tenantId → tenant_id");
   assert.equal(loginBody.providerToken, undefined, "no camelCase leakage");
@@ -67,12 +66,10 @@ test("realmid preset: request adapter rewrites /login body to snake_case", async
   realm.close();
 });
 
-// ADR-051 (2026-07-05): Microsoft login must send grant_type=provider_token +
-// provider=microsoft. Regression guard for the bug where the web SDK rode the
-// deprecated `method` field, which the issuer's compat shim didn't map for
-// microsoft → `grant_type is required`. Migrating the wire removes that
-// dependency entirely (and lets the issuer drop the shim at Sunset 2026-08-01).
-test("realmid preset: microsoft login sends grant_type=provider_token + provider", async () => {
+// Regression (2026-07-05): the web SDK must send `method` to the BFF, whose
+// /login handler requires `method` + `token` (api handlers.go). A brief change
+// to send grant_type instead broke login with `method and token are required`.
+test("realmid preset: microsoft login sends the BFF `method` field", async () => {
   const { fetch, calls } = mockFetch((call) => {
     if (call.url.endsWith("/me")) return { status: 401 };
     if (call.url.endsWith("/login")) {
@@ -93,9 +90,7 @@ test("realmid preset: microsoft login sends grant_type=provider_token + provider
   await realm.ready();
   await realm.login({ method: "microsoft", providerToken: "ms-id-token", tenantId: "t1" });
   const body = calls.find((c) => c.url.endsWith("/login"))!.body as Record<string, unknown>;
-  assert.equal(body.grant_type, "provider_token");
-  assert.equal(body.provider, "microsoft");
-  assert.equal(body.method, undefined, "no deprecated `method` field");
+  assert.equal(body.method, "microsoft", "BFF requires the `method` field");
   assert.equal(body.token, "ms-id-token");
   realm.close();
 });
