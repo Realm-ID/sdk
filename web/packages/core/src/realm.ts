@@ -19,6 +19,7 @@ import type {
   AuthState,
   GateRule,
   IdentityProvider,
+  LoginMethod,
   LoginRequest,
   LoginResponse,
   MeResponse,
@@ -56,6 +57,10 @@ export class Realm {
     currentTenantId: null,
   };
   private mfaPending: { challengeId?: string; challengeToken?: string; method?: string } | null = null;
+  // Provider credential retained across a `tenants_required` gate so the tenant
+  // pick re-submits the SAME token (see resolveTenant) rather than re-running
+  // the provider redirect/popup. Single-use: cleared on session issue / anon.
+  private pendingProviderLogin: { method: LoginMethod; providerToken: string } | null = null;
   private restorePromise: Promise<void> | null = null;
   private storage: StorageAdapter;
   private tokenless: boolean;
@@ -374,10 +379,37 @@ export class Realm {
           if (tenants && tenants.length > 0) {
             this.setState({ ...this.state, pendingTenants: tenants });
           }
+          // Retain the provider token so resolveTenant() can re-submit it with
+          // the chosen tenant — no second provider redirect. Only for
+          // provider-driven logins (a tenant-pin re-call carries no token).
+          if (req.providerToken) {
+            this.pendingProviderLogin = { method: req.method, providerToken: req.providerToken };
+          }
         }
       }
       throw err;
     }
+  }
+
+  /**
+   * Complete a `tenants_required` gate raised by a provider-driven login
+   * (`signIn` / `completeSignIn` / `login`) by re-submitting the SAME provider
+   * token with the chosen tenant. This avoids a second provider redirect/popup
+   * — the redirect flows (microsoft/google OIDC) do not otherwise retain the
+   * exchanged id_token, so without this the app would re-run the whole IdP
+   * round-trip just to attach a tenant. Throws `no_pending_login` if there is
+   * no retained provider login (e.g. the gate came from a non-provider flow, or
+   * the token was already consumed / a session was issued).
+   */
+  async resolveTenant(tenantId: string): Promise<LoginResponse> {
+    const pending = this.pendingProviderLogin;
+    if (!pending) {
+      throw new RealmError(
+        "no_pending_login",
+        "no pending provider login to resolve; sign in again",
+      );
+    }
+    return this.login({ method: pending.method, providerToken: pending.providerToken, tenantId });
   }
 
   async logout(): Promise<void> {
@@ -551,6 +583,7 @@ export class Realm {
       this.tokens.set(tid, "", expiresIn);
       this.tokens.setCurrentTenant(tid);
     }
+    this.pendingProviderLogin = null; // session issued — retained token consumed
     this.setState({
       status: "authenticated",
       user: body.user,
@@ -596,6 +629,7 @@ export class Realm {
   }
 
   private setAnonymous(): void {
+    this.pendingProviderLogin = null;
     this.setState({ status: "anonymous", user: null, tenants: [], currentTenantId: null });
   }
 

@@ -11,6 +11,7 @@ export type ErrorCode =
   | "session_limit_reached"
   | "tenants_required"
   | "tenant_not_found"
+  | "no_pending_login"
   | "bad_request"
   | "server_error"
   | "unsupported_provider"

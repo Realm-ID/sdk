@@ -13,6 +13,17 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## web/v0.4.5 — `@realm-id/web`: `resolveTenant()` completes a tenant picker without a second provider redirect
+
+`@realm-id/web`. Adds `realm.resolveTenant(tenantId)`: when a provider-driven
+login (`signIn` / `completeSignIn` / `login`) gates on `tenants_required`, the
+SDK now retains the provider token and re-submits it with the chosen tenant —
+instead of forcing the app to re-run the whole OIDC redirect. Fixes the
+Microsoft double-round-trip (IdP → picker → IdP → dashboard) on realm-root
+origins. Additive, backward-compatible patch (peers pin `^0.4.0`). Retained
+token is single-use (cleared on session-issue / logout). Rationale +
+tradeoffs in `DECISIONS.md`.
+
 ## go/v0.25.0 — login speaks `grant_type`, retiring the deprecated `method` field (ADR-051)
 
 `github.com/Realm-ID/sdk/go`. `Auth.Login` now sends

@@ -222,6 +222,91 @@ test("switchTenant rejects unknown tenant", async () => {
   realm.close();
 });
 
+test("resolveTenant re-submits the SAME provider token with the chosen tenant (no second redirect)", async () => {
+  // Reproduces the Microsoft double-round-trip: a provider login gated on
+  // tenants_required must be completed by re-sending the retained id_token with
+  // the picked tenant — NOT by re-running signIn (a fresh OIDC redirect).
+  let loginHits = 0;
+  const { fetch, calls } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    if (call.url.endsWith("/login")) {
+      loginHits += 1;
+      const b = call.body as { tenantId?: string };
+      if (!b.tenantId) {
+        // First hop: no tenant → tenant picker gate.
+        return {
+          status: 200,
+          body: {
+            tenantsRequired: true,
+            tenants: [
+              { id: "t1", role: "owner" },
+              { id: "t2", role: "member" },
+            ],
+          },
+        };
+      }
+      // Second hop: tenant chosen → session issued.
+      return {
+        status: 200,
+        body: {
+          accessToken: "at-picked",
+          expiresIn: 3600,
+          user: { id: "u1", email: "u@x" },
+          tenants: [{ id: b.tenantId, role: "member" }],
+          defaultTenantId: b.tenantId,
+        },
+      };
+    }
+    return { status: 404 };
+  });
+
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch });
+  await realm.ready();
+
+  await assert.rejects(
+    () => realm.login({ method: "microsoft", providerToken: "ms-id-token" }),
+    (e) => e instanceof RealmError && e.code === "tenants_required",
+  );
+
+  // Resolve the gate — this must NOT touch signIn/OIDC; it just re-POSTs /login.
+  await realm.resolveTenant("t2");
+
+  const s = realm.getState();
+  assert.equal(s.status, "authenticated");
+  assert.equal(s.currentTenantId, "t2");
+  assert.equal(loginHits, 2, "exactly two /login calls — one gated, one resolved");
+
+  const second = calls.filter((c) => c.url.endsWith("/login"))[1]!.body as {
+    method: string;
+    providerToken: string;
+    tenantId: string;
+  };
+  assert.equal(second.method, "microsoft");
+  assert.equal(second.providerToken, "ms-id-token", "reuses the SAME token, no re-auth");
+  assert.equal(second.tenantId, "t2");
+
+  // Token is single-use: a second resolve has nothing retained.
+  await assert.rejects(
+    () => realm.resolveTenant("t1"),
+    (e) => e instanceof RealmError && e.code === "no_pending_login",
+  );
+  realm.close();
+});
+
+test("resolveTenant without a pending provider login throws no_pending_login", async () => {
+  const { fetch } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    return { status: 404 };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch });
+  await realm.ready();
+  await assert.rejects(
+    () => realm.resolveTenant("t1"),
+    (e) => e instanceof RealmError && e.code === "no_pending_login",
+  );
+  realm.close();
+});
+
 test("logout clears state and fires event", async () => {
   const { fetch } = mockFetch((call) => {
     if (call.url.endsWith("/me")) return { status: 401 };

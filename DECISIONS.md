@@ -7,6 +7,42 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-05 — `@realm-id/web@0.4.5`: `resolveTenant()` — complete a tenant-picker gate without re-running the provider redirect
+
+**Symptom.** Microsoft sign-in on a realm-root origin (`app.realmid.dev`) bounced
+through the IdP **twice**: click "Log in with Microsoft" → Microsoft →
+platform-picker → **Microsoft again** (a flash of the IdP) → dashboard.
+
+**Root cause.** The OIDC redirect driver (`signIn`/`completeSignIn`) exchanges
+the auth code for an `id_token`, calls `login(...)`, and — crucially — **does
+not retain that `id_token`**; it's a local in `completeSignIn`. When the login
+gates on `tenants_required` (a user in ≥2 platforms), the app had no token to
+re-submit, so its only way to attach the chosen tenant was to call `signIn`
+again — a full new OIDC authorize/redirect round-trip. The Firebase/Google-popup
+path never showed this because the *app* (AuthGate) holds that `idToken` in React
+state and re-submits it directly; only the redirect providers (microsoft/google
+OIDC), whose token lives inside the SDK, were affected.
+
+**Options.** (a) Surface the `id_token` in the `tenants_required` error body so
+the app can re-submit it — rejected: leaks the raw provider token into app state
+for no benefit. (b) **Retain the provider credential inside the SDK across the
+gate and expose `resolveTenant(tenantId)`** that re-POSTs `/login` with the same
+`{method, providerToken}` + the picked tenant — chosen: keeps the token
+encapsulated, single-use (cleared on session-issue and on anon/logout), and gives
+the app one uniform call for both popup and redirect providers.
+
+**Tradeoff / scope.** Retention is triggered on `tenants_required` only. The
+`session_limit_reached` provider-retry path still re-redirects (`signIn`); it's a
+rarer flow and a genuine re-auth-after-revoke, tracked in `TODO.md` rather than
+widened here. Reusing the same `id_token` seconds later is well within Entra's
+token lifetime and passes the issuer's Microsoft verifier identically.
+
+**Verified.** Additive + backward-compatible (patch; peers pin `^0.4.0`).
+Unit test `realm.test.ts` "resolveTenant re-submits the SAME provider token…"
+asserts exactly two `/login` calls (gated + resolved), the second carrying the
+original token + chosen tenant, and single-use exhaustion. UI wiring (AuthGate +
+vendored-tarball bump) lands in `Realm-ID/ui`.
+
 ## 2026-07-05 — `go/v0.25.0`: retire the deprecated `method` login field on the RIGHT hop (ADR-051)
 
 **Problem.** ADR-051 deprecated the `method` field on the issuer's `/auth/login`
