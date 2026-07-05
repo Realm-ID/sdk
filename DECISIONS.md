@@ -7,6 +7,39 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-05 — `go/v0.25.0`: retire the deprecated `method` login field on the RIGHT hop (ADR-051)
+
+**Problem.** ADR-051 deprecated the `method` field on the issuer's `/auth/login`
+in favour of `grant_type` (+ `provider`), with a hard Sunset of **2026-08-01**.
+After 0.3.5 mistargeted this on the web SDK (see the 0.3.6 entry below), the
+migration was re-scoped to where the deprecated field actually lives: the
+**BFF→issuer** hop, sent by the Go SDK (`sdk/go/auth.go`).
+
+**Decision.** `Auth.Login` sends `grant_type=provider_token`+`provider=<idp>`;
+`OTPLogin` sends `grant_type=otp_internal`. Both drop `method`.
+
+- **Why fixed grant, not a method→grant map in the SDK?** `Auth.Login` is
+  definitionally a provider-token exchange — `LoginMethod` only ever names an IdP
+  (firebase/google/microsoft). So the grant is a constant and the method string
+  is exactly the `provider` hint the issuer wants. A lookup table would only
+  re-encode what the issuer's `legacyMethodToGrant` already did, on the wrong
+  side of the wire.
+- **Public API preserved.** Callers still pass `LoginMethod`; the change is
+  wire-only. No BFF handler change needed — it already forwards `LoginMethod`
+  through `realmid.LoginRequest`.
+- **Tradeoff / sequencing.** The BFF (`api/`) was pinned at `sdk/go v0.21.0`;
+  shipping this needs a bump to v0.25.0 + a BFF redeploy. Safe: v0.22 (timestamp
+  hotfix) + v0.23/v0.24 (additive) carry no breaking change, verified by building
+  the BFF against the local SDK. Against issuer ≥v0.27.1 there is zero
+  behavioural change (it accepts both forms); the win is that the issuer's compat
+  shim becomes dead code the moment every caller is ≥0.25.0, deletable at sunset.
+- **Not touched.** `MFAVerify`'s `method` is the MFA-factor selector
+  (totp/otp_internal) on `/auth/mfa/verify`, unrelated to the ADR-051 login
+  selector — left as-is.
+
+Links: `CHANGELOG.md` go/v0.25.0; issuer `internal/httpapi/auth.go`
+`legacyMethodToGrant`; ADR-051.
+
 ## 2026-07-05 — `web-bff-realmid@0.3.6`: revert 0.3.5 — the web SDK migration targeted the wrong hop
 
 **What went wrong.** 0.3.5 changed the web SDK's `/login` body from `method` to

@@ -9,8 +9,8 @@ import (
 )
 
 // TestAuth_OTPLogin_SendsCorrectBody asserts the SDK threads identifier +
-// presented + method=otp_internal through to /auth/login (partner OTP
-// proposal §3.2.1).
+// presented + grant_type=otp_internal through to /auth/login (partner OTP
+// proposal §3.2.1; ADR-051 canonical grant_type, not legacy `method`).
 func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 	var gotBody map[string]any
 	srv := authTestServer(t, map[string]http.HandlerFunc{
@@ -39,8 +39,11 @@ func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 	if out.AccessToken != "atok" {
 		t.Errorf("access_token = %q", out.AccessToken)
 	}
-	if gotBody["method"] != "otp_internal" {
-		t.Errorf("method = %v, want otp_internal", gotBody["method"])
+	if gotBody["grant_type"] != "otp_internal" {
+		t.Errorf("grant_type = %v, want otp_internal", gotBody["grant_type"])
+	}
+	if gotBody["method"] != nil {
+		t.Errorf("OTPLogin must not send the deprecated `method` field, got: %v", gotBody["method"])
 	}
 	if gotBody["identifier"] != "+15551234567" || gotBody["presented"] != "123456" {
 		t.Errorf("body missing identifier/presented: %+v", gotBody)

@@ -23,6 +23,13 @@ const (
 	LoginMicrosoft LoginMethod = "microsoft"
 )
 
+// Canonical /auth/login grant_type values (ADR-051). The SDK sends these
+// on the wire instead of the deprecated `method` field (Sunset 2026-08-01).
+const (
+	grantProviderToken = "provider_token"
+	grantOTPInternal   = "otp_internal"
+)
+
 // LoginRequest carries the inputs to realm.Auth.Login. Custom claims
 // are NOT accepted on login (SPEC §4.1) — refresh-token identity only.
 type LoginRequest struct {
@@ -253,13 +260,18 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 	if method == "" {
 		method = LoginFirebase
 	}
+	// ADR-051: send the canonical `grant_type` + `provider` pair, not the
+	// deprecated `method` field (Sunset 2026-08-01). Auth.Login is always a
+	// provider-token exchange — LoginMethod only ever names an IdP
+	// (firebase/google/microsoft) — so the grant is fixed and the method
+	// string carries through as the provider hint. The issuer's
+	// legacyMethodToGrant shim is now unused by this SDK on the login path.
 	body := map[string]any{
-		"realm_id": a.realm.realmID,
-		"method":   string(method),
-		// Field name is "token" on the wire (see api/internal/httpapi/auth.go
-		// loginReq.Token). The SDK historically sent "provider_token";
-		// realigning here keeps Auth.Login working when the BFF talks to
-		// auth.realmid.dev directly. SDK 0.6.0 will document this.
+		"realm_id":   a.realm.realmID,
+		"grant_type": grantProviderToken,
+		"provider":   string(method),
+		// Field name is "token" on the wire (see issuer httpapi/auth.go
+		// loginReq.Token) — the IdP credential for grant_type=provider_token.
 		"token": req.ProviderToken,
 	}
 	if req.TenantID != "" {
@@ -370,9 +382,10 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 	if origin != "" {
 		headers["Origin"] = origin
 	}
+	// ADR-051: canonical grant_type, not the deprecated `method` field.
 	body := map[string]any{
 		"realm_id":   a.realm.realmID,
-		"method":     "otp_internal",
+		"grant_type": grantOTPInternal,
 		"identifier": req.Identifier,
 		"presented":  req.Presented,
 	}

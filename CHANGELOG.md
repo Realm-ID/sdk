@@ -13,6 +13,21 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go/v0.25.0 — login speaks `grant_type`, retiring the deprecated `method` field (ADR-051)
+
+`github.com/Realm-ID/sdk/go`. `Auth.Login` now sends
+`grant_type=provider_token` + `provider=<idp>`, and `OTPLogin` sends
+`grant_type=otp_internal`, instead of the deprecated `method` field
+(Sunset **2026-08-01**). This is the **BFF→issuer** hop — the correct place
+for this migration (the web SDK↔BFF hop keeps the BFF's own `{method, token}`
+contract; see web-bff-realmid/v0.3.6 for why 0.3.5's web-side attempt was
+wrong). Public Go API is unchanged: callers still pass `LoginMethod`
+(firebase/google/microsoft), which now rides through as the `provider` hint.
+Once every caller is on ≥0.25.0, the issuer's `legacyMethodToGrant` shim can be
+deleted at the sunset. No behavioural change against issuer ≥v0.27.1 (which
+handled both forms); `MFAVerify`'s `method` is the MFA-factor field and is
+untouched.
+
 ## web-bff-realmid/v0.3.6 — revert login to `method` (0.3.5 targeted the wrong hop)
 
 `@realm-id/web-bff-realmid` preset. Reverts 0.3.5: the web SDK talks to the

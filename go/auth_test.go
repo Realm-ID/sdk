@@ -77,7 +77,7 @@ func TestAuth_LoginHappy(t *testing.T) {
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.Login(context.Background(), LoginRequest{
-		Method:        LoginFirebase,
+		Method:        LoginMicrosoft,
 		ProviderToken: "pt-xyz",
 	})
 	if err != nil {
@@ -88,6 +88,21 @@ func TestAuth_LoginHappy(t *testing.T) {
 	}
 	if gotBody["realm_id"] != testRealmID {
 		t.Errorf("server got body: %+v", gotBody)
+	}
+	// ADR-051: login speaks canonical grant_type=provider_token + provider,
+	// NOT the deprecated `method` field (Sunset 2026-08-01). The LoginMethod
+	// carries through as the provider hint.
+	if gotBody["grant_type"] != "provider_token" {
+		t.Errorf("grant_type = %v, want provider_token", gotBody["grant_type"])
+	}
+	if gotBody["provider"] != "microsoft" {
+		t.Errorf("provider = %v, want microsoft", gotBody["provider"])
+	}
+	if gotBody["method"] != nil {
+		t.Errorf("login must not send the deprecated `method` field, got: %v", gotBody["method"])
+	}
+	if gotBody["token"] != "pt-xyz" {
+		t.Errorf("token = %v, want pt-xyz", gotBody["token"])
 	}
 	if gotBody["custom_claims"] != nil {
 		t.Errorf("login must not send custom_claims (SPEC §4.1)")
