@@ -21,7 +21,12 @@ public record Session(
         List<TenantRef> tenants,
         String id,
         @JsonProperty("created_at") @JsonAlias("createdAt") String createdAt,
-        @JsonProperty("last_used_at") @JsonAlias("lastUsedAt") String lastUsedAt,
+        // Wire field is `last_seen_at` (issuer httpapi.sessionDTO.LastSeenAt),
+        // NOT `last_used_at`. The accessor keeps the lastUsedAt() name for API
+        // stability and cross-language parity (Go SessionInfo.LastUsedAt).
+        // Before this fix the property read `last_used_at`, so lastUsedAt()
+        // always deserialized to null.
+        @JsonProperty("last_seen_at") @JsonAlias({"lastSeenAt", "last_used_at", "lastUsedAt"}) String lastUsedAt,
         @JsonProperty("user_agent") @JsonAlias("userAgent") String userAgent,
         String ip
 ) {

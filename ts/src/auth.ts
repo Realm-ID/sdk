@@ -115,12 +115,21 @@ export interface MfaChallengeMintResponse {
   methods: string[];
 }
 
+/**
+ * One entry in {@link AuthClient.listSessions}. Fields mirror the issuer's
+ * `sessionDTO` wire shape (`issuer/internal/httpapi/sessions.go`) verbatim —
+ * `listSessions` returns the parsed server JSON without snake→camel mapping,
+ * so these must be the on-the-wire names. Timestamps are unix seconds (JSON
+ * numbers). NOTE: the last-used timestamp is `last_seen_at`, NOT
+ * `last_used_at` — the old camelCase `lastUsedAt`/`createdAt` fields never
+ * populated at runtime.
+ */
 export interface SessionInfo {
   id: string;
-  createdAt?: string;
-  lastUsedAt?: string;
-  userAgent?: string;
-  ip?: string;
+  origin?: string;
+  device_name?: string;
+  created_at?: number;
+  last_seen_at?: number;
   [k: string]: unknown;
 }
 

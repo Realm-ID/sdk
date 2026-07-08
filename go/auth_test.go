@@ -198,10 +198,16 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 			gotAuth = r.Header.Get("Authorization")
 			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
 			gotOBOIP = r.Header.Get("X-On-Behalf-Of-IP")
-			// created_at is a unix-seconds JSON number on the wire — assert it
-			// decodes (SessionInfo.CreatedAt was mistyped string pre-v0.22.0).
+			// created_at / last_seen_at are unix-seconds JSON numbers on the wire —
+			// assert both decode. CreatedAt was mistyped string pre-v0.22.0;
+			// LastUsedAt read zero until the json tag was reconciled to the
+			// issuer's `last_seen_at` field (not `last_used_at`).
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"items":       []any{map[string]any{"id": "sess-1", "created_at": 1_751_241_600}},
+				"items": []any{map[string]any{
+					"id":           "sess-1",
+					"created_at":   1_751_241_600,
+					"last_seen_at": 1_751_245_200,
+				}},
 				"next_cursor": "",
 			})
 		},
@@ -210,7 +216,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var ids []string
-	var createdAt int64
+	var createdAt, lastUsedAt int64
 	for s, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{
 		UserID:       "user-42",
 		OnBehalfOfIP: "203.0.113.7",
@@ -220,12 +226,16 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 		}
 		ids = append(ids, s.ID)
 		createdAt = s.CreatedAt
+		lastUsedAt = s.LastUsedAt
 	}
 	if len(ids) != 1 || ids[0] != "sess-1" {
 		t.Errorf("ids = %v", ids)
 	}
 	if createdAt != 1_751_241_600 {
 		t.Errorf("CreatedAt = %d, want 1751241600 (unix seconds)", createdAt)
+	}
+	if lastUsedAt != 1_751_245_200 {
+		t.Errorf("LastUsedAt = %d, want 1751245200 (decoded from wire last_seen_at)", lastUsedAt)
 	}
 	if gotAuth != "Bearer ptok" {
 		t.Errorf("auth = %q (want platform token)", gotAuth)
@@ -282,6 +292,32 @@ func TestAuth_ListSessions_RequiresUserSelector(t *testing.T) {
 	}
 	if !saw {
 		t.Fatal("iterator never yielded")
+	}
+}
+
+// TestSessionInfo_UnmarshalIssuerPayload is the drift regression guard: a
+// representative issuer sessionDTO payload (which uses `last_seen_at`, NOT
+// `last_used_at`) must populate SessionInfo.LastUsedAt via the struct json
+// tag. Through go/v0.22.0 the tag read `last_used_at`, so LastUsedAt always
+// decoded to zero even after the string→int64 fix.
+func TestSessionInfo_UnmarshalIssuerPayload(t *testing.T) {
+	// Mirrors issuer/internal/httpapi/sessions.go sessionDTO on the wire.
+	payload := []byte(`{
+		"id": "sess-9",
+		"origin": "https://app.realmid.dev",
+		"device_name": "laptop",
+		"created_at": 1751241600,
+		"last_seen_at": 1751245200
+	}`)
+	var si SessionInfo
+	if err := json.Unmarshal(payload, &si); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if si.CreatedAt != 1_751_241_600 {
+		t.Errorf("CreatedAt = %d, want 1751241600", si.CreatedAt)
+	}
+	if si.LastUsedAt != 1_751_245_200 {
+		t.Errorf("LastUsedAt = %d, want 1751245200 — json tag must map to the issuer's last_seen_at field", si.LastUsedAt)
 	}
 }
 

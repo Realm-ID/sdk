@@ -7,6 +7,63 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-08 — `SessionInfo` last-used timestamp reconciled to the issuer's `last_seen_at` field (Go / TS / Java)
+
+**Symptom.** `ListSessions`/`listSessions` returned session records whose
+last-used timestamp was always empty — Go `SessionInfo.LastUsedAt == 0`, Java
+`Session#lastUsedAt() == null`, TS `SessionInfo` never carried the value at
+runtime. Session creation time populated fine; only the "last active" column was
+dead.
+
+**Root cause.** Field-name drift between the issuer's serializer and every SDK.
+The issuer's `sessionDTO` emits the last-used timestamp as **`last_seen_at`**
+(verified: `issuer/internal/httpapi/sessions.go`, `LastSeenAt int64
+\`json:"last_seen_at,omitempty"\``, set via `s.LastSeenAt.Unix()` — int64 unix
+seconds). All three SDKs decoded **`last_used_at`** instead:
+- Go: the `SessionInfo.LastUsedAt` json tag *and* the live `decodeSessionPage`
+  path read `intField(obj, "last_used_at")`.
+- Java: `Session` record `@JsonProperty("last_used_at")`.
+- TS: `SessionInfo` used camelCase `lastUsedAt?: string`, but `listSessions`
+  returns the parsed server JSON with **no snake→camel mapping** (unlike
+  `login`, which maps via `mapAuthResp`), so both the name *and* the case were
+  wrong and the field silently fell into the `[k: string]: unknown` index
+  signature.
+
+This was independent of the v0.22.0 timestamp outage: that fix corrected the
+wire *type* (`string`→`int64`) but left the field *name* wrong, so `LastUsedAt`
+stayed zero.
+
+**Why it wasn't caught.** The existing `ListSessions` tests asserted only
+`id`/`created_at`; no test exercised the last-used field, and `created_at`
+happened to match the wire name, masking the drift. The SDKs are decoded against
+hand-built mock payloads, never against a real issuer `sessionDTO`, so the
+name mismatch never surfaced. TS additionally has no compile-time guard because
+`listSessions` casts untransformed server JSON straight to the interface.
+
+**Fix.** Point every SDK at the verified server field name (`last_seen_at`,
+int64 unix seconds), keeping each language's public accessor name
+(`LastUsedAt`/`lastUsedAt()`) for API stability and cross-language parity:
+- Go: json tag `last_used_at`→`last_seen_at` on `SessionInfo.LastUsedAt`, and
+  `decodeSessionPage` now reads `last_seen_at` (the live path).
+- Java: `Session` `@JsonProperty("last_seen_at")` + `@JsonAlias` retains the old
+  names defensively.
+- TS: `SessionInfo` rewritten to the honest wire shape (`id`, `origin?`,
+  `device_name?`, `created_at?: number`, `last_seen_at?: number`) since
+  `listSessions` does no key mapping — the old camelCase fields were never
+  populated. Dropped the phantom `userAgent`/`ip` fields the `sessionDTO`
+  doesn't emit.
+
+**Regression guard.** Go: a direct-unmarshal test of a representative issuer
+payload (`TestSessionInfo_UnmarshalIssuerPayload`) plus an extended
+`ListSessions` decode assertion. TS: `auth.listSessions` test asserting
+`last_seen_at` decodes. Java: `listSessionsDecodesLastSeenAt`.
+
+**Prevention.** All three regression tests key their payloads off the real
+`sessionDTO` field names, so a future rename on either side breaks a test. TODO
+item ticked off. (Broader class — the SDKs decode against mock payloads, not a
+live issuer response — remains; a contract test against the issuer's actual DTO
+would be the durable fix, noted for later.)
+
 ## 2026-07-05 — `@realm-id/web@0.4.5`: `resolveTenant()` — complete a tenant-picker gate without re-running the provider redirect
 
 **Symptom.** Microsoft sign-in on a realm-root origin (`app.realmid.dev`) bounced

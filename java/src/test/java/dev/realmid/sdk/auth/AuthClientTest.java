@@ -279,4 +279,32 @@ class AuthClientTest {
         assertEquals(403, ex.getHttpStatus());
         assertEquals("insufficient_scope", ex.getDetails().get("code"));
     }
+
+    // ---- List sessions: last-used field drift guard ----
+
+    @Test
+    void listSessionsDecodesLastSeenAt() {
+        // Mirrors issuer/internal/httpapi/sessions.go sessionDTO: the last-used
+        // timestamp field is `last_seen_at`, NOT `last_used_at`. Before the fix
+        // Session#lastUsedAt() always deserialized to null.
+        fs.on("GET /auth/sessions", (ex, body) -> {
+            assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", "sess-1");
+            item.put("origin", "https://app.realmid.dev");
+            item.put("device_name", "laptop");
+            item.put("created_at", 1_751_241_600L);
+            item.put("last_seen_at", 1_751_245_200L);
+            return FakeServer.Reply.json(200, Map.of(
+                    "items", java.util.List.of(item),
+                    "next_cursor", ""));
+        });
+        java.util.List<Session> sessions = realm.auth().listSessions("user-jwt").stream().toList();
+        assertEquals(1, sessions.size());
+        Session s = sessions.get(0);
+        assertEquals("sess-1", s.id());
+        assertEquals("1751241600", s.createdAt());
+        assertNotNull(s.lastUsedAt(), "lastUsedAt must decode from the wire last_seen_at field");
+        assertEquals("1751245200", s.lastUsedAt());
+    }
 }

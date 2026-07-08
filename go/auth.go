@@ -180,10 +180,13 @@ type SessionInfo struct {
 	// timestamps as JSON numbers (sessionDTO.CreatedAt/LastSeenAt). Mistyped
 	// as string through go/v0.21.0; fixed in v0.22.0.
 	//
-	// NOTE: the issuer field is last_seen_at, not last_used_at — see TODO.md;
-	// LastUsedAt currently reads zero until the json tag is reconciled.
+	// The wire field for last-used is `last_seen_at` (issuer
+	// httpapi.sessionDTO.LastSeenAt), NOT `last_used_at`. The Go field keeps
+	// its LastUsedAt name for API stability; only the json tag maps to the
+	// server's `last_seen_at`. (Through v0.22.0 the tag read `last_used_at`,
+	// so LastUsedAt always decoded to zero.)
 	CreatedAt  int64  `json:"created_at,omitempty"`
-	LastUsedAt int64  `json:"last_used_at,omitempty"`
+	LastUsedAt int64  `json:"last_seen_at,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`
 	IP         string `json:"ip,omitempty"`
 	// DeviceName is the human-readable device label recorded at login via
@@ -587,7 +590,7 @@ func decodeSessionPage(raw map[string]any) ([]SessionInfo, string, error) {
 		out = append(out, SessionInfo{
 			ID:         strField(obj, "id"),
 			CreatedAt:  intField(obj, "created_at"),
-			LastUsedAt: intField(obj, "last_used_at"),
+			LastUsedAt: intField(obj, "last_seen_at"),
 			UserAgent:  strField(obj, "user_agent"),
 			IP:         strField(obj, "ip"),
 			DeviceName: strField(obj, "device_name"),

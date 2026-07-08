@@ -171,3 +171,29 @@ test("auth.logout: returns ok", async () => {
   assert.equal(out.status, "ok");
   assert.match(calls[1]!.url, /\/auth\/logout$/);
 });
+
+test("auth.listSessions: decodes issuer sessionDTO fields incl. last_seen_at", async () => {
+  // Mirrors issuer/internal/httpapi/sessions.go sessionDTO on the wire: the
+  // last-used timestamp field is `last_seen_at`, NOT `last_used_at`, and
+  // timestamps are unix-seconds JSON numbers. `listSessions` returns the
+  // parsed server JSON unmapped, so SessionInfo must carry the wire names.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      sessions: [{
+        id: "sess-1",
+        origin: "https://app.realmid.dev",
+        device_name: "laptop",
+        created_at: 1_751_241_600,
+        last_seen_at: 1_751_245_200,
+      }],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const list = await realm.auth.listSessions("u-jwt");
+  // userBearer path uses the JWT directly — no platform-token bootstrap.
+  assert.match(calls[0]!.url, /\/auth\/sessions$/);
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.id, "sess-1");
+  assert.equal(list[0]!.created_at, 1_751_241_600);
+  assert.equal(list[0]!.last_seen_at, 1_751_245_200, "last-used must decode from the wire last_seen_at field");
+});
