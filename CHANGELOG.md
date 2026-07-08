@@ -13,6 +13,23 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## SessionInfo last-used timestamp — decode from issuer `last_seen_at` (go/v0.25.1 · ts-v0.16.1 · java-v0.14.1)
+
+Cross-cutting fix across all three SDKs. `SessionInfo.LastUsedAt` (Go) /
+`lastUsedAt` (TS/Java) was mapped from `last_used_at`, but the issuer's session
+DTO emits `last_seen_at` (int64 unix seconds,
+`issuer/internal/httpapi/sessions.go`), so the field always decoded to zero.
+
+- **Go**: fixed both the `SessionInfo` json tag **and** the live
+  `decodeSessionPage` map key — the struct tag alone wouldn't fix `ListSessions`,
+  which hand-decodes rather than `json.Unmarshal`.
+- **Java**: `@JsonProperty("last_seen_at")` + defensive `@JsonAlias`.
+- **TS**: `listSessions` never snake→camel mapped, so `SessionInfo` was realigned
+  to the honest wire shape (`last_seen_at`, `created_at`, `origin`, `device_name`).
+
+Public accessor names (`LastUsedAt` / `lastUsedAt`) unchanged. Regression guards
+added in all three. RCA in `DECISIONS.md`.
+
 ## web/v0.4.5 — `@realm-id/web`: `resolveTenant()` completes a tenant picker without a second provider redirect
 
 `@realm-id/web`. Adds `realm.resolveTenant(tenantId)`: when a provider-driven

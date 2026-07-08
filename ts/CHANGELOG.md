@@ -4,6 +4,17 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+> **Note:** 0.16.0 was released but not written up here (see `../CHANGELOG.md` /
+> git log); the entry below resumes the log.
+
+## 0.16.1 — decode session last-used from `last_seen_at`
+
+Fix. `listSessions` cast raw server JSON with no snake→camel mapping, so
+`SessionInfo.lastUsedAt`/`createdAt` were never populated. Realigned the
+`SessionInfo` interface to the issuer wire shape (`last_seen_at`, `created_at`,
+`origin`, `device_name`; int64 unix seconds). Cut in lockstep with go/v0.25.1 +
+java-v0.14.1 (`../CHANGELOG.md`).
+
 ## 0.15.0 — Refresh-authed MFA self-enrollment (ADR-061)
 
 Breaking. Mirrors the monorepo lockstep entry (`../CHANGELOG.md`, cut with
