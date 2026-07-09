@@ -47,6 +47,14 @@ export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /**
+   * SPEC §4.1 — absolute wall-clock expiry (unix seconds) of the returned
+   * refresh token, past which it can no longer be rotated (min of the rolling
+   * TTL, the ADR-054 scheduled cutoff, and the ADR-058 absolute session cap).
+   * `undefined` when the issuer does not surface it (pre-refresh_exp issuers);
+   * callers that size a session from it must fall back to their own ceiling.
+   */
+  refreshExp?: number;
   expiresAt?: string;
   user: UserSummary;
   tenants: TenantRef[];
@@ -71,6 +79,8 @@ export interface TokenResponse {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
+  /** SPEC §4.1 — absolute refresh-token expiry (unix seconds); see LoginResponse.refreshExp. */
+  refreshExp?: number;
   /**
    * Minted token's subject class (SPEC §4.2): "user" | "service" |
    * "platform" (ADR-051). The issuer returns it on /auth/token for every
@@ -191,6 +201,7 @@ interface RawAuthResponse {
   access_token: string;
   refresh_token: string;
   expires_in: number;
+  refresh_exp?: number;
   expires_at?: string;
   user: UserSummary;
   tenants?: TenantRef[];
@@ -200,6 +211,7 @@ interface RawTokenResponse {
   access_token: string;
   refresh_token: string;
   expires_in: number;
+  refresh_exp?: number;
   subject_type: string;
   tenant_id: string;
   role: string;
@@ -258,6 +270,7 @@ export class AuthClient {
       accessToken: raw.access_token,
       refreshToken: raw.refresh_token,
       expiresIn: raw.expires_in,
+      refreshExp: raw.refresh_exp,
       subjectType: raw.subject_type,
       tenantId: raw.tenant_id,
       role: raw.role,
@@ -515,6 +528,7 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
     accessToken: r.access_token,
     refreshToken: r.refresh_token,
     expiresIn: r.expires_in,
+    refreshExp: r.refresh_exp,
     expiresAt: r.expires_at,
     user: r.user,
     tenants: r.tenants ?? [],

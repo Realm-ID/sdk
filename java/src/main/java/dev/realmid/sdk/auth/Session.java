@@ -16,6 +16,11 @@ public record Session(
         @JsonProperty("access_token") @JsonAlias("accessToken") String accessToken,
         @JsonProperty("refresh_token") @JsonAlias("refreshToken") String refreshToken,
         @JsonProperty("expires_in") @JsonAlias("expiresIn") long expiresIn,
+        // SPEC §4.1 — absolute wall-clock expiry (unix seconds) of the returned
+        // refresh token, past which it can no longer be rotated. 0 when the
+        // issuer does not surface it (pre-refresh_exp issuers); callers that
+        // size a session from it must fall back to their own ceiling.
+        @JsonProperty("refresh_exp") @JsonAlias("refreshExp") long refreshExp,
         @JsonProperty("expires_at") @JsonAlias("expiresAt") String expiresAt,
         Map<String, Object> user,
         List<TenantRef> tenants,

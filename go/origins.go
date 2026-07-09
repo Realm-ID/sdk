@@ -8,10 +8,12 @@ import (
 )
 
 // Origin is one row in the per-realm origin allowlist (ADR-049 §A.7.2).
-// A live row (DetachedAt == nil) means the bare hostname routes to the
-// referenced realm or tenant entity — and, by extension, is permitted
-// to make unauthenticated proxy calls to the partner backend that
-// fronts platform-token-gated RealmID routes.
+// Every listed row is live: the issuer's GET /platforms/{id}/origins filters
+// detached rows server-side (detached_at IS NULL) and never serializes a
+// detached_at field, so a returned row means the bare hostname routes to the
+// referenced realm or tenant entity — and, by extension, is permitted to make
+// unauthenticated proxy calls to the partner backend that fronts
+// platform-token-gated RealmID routes.
 type Origin struct {
 	ID             string  `json:"id"`
 	Domain         string  `json:"domain"`
@@ -22,8 +24,7 @@ type Origin struct {
 	// created_at as a JSON number (toDomainDTO → CreatedAt.Unix()); this was
 	// mistyped as string through go/v0.21.0, which made the strict decode of
 	// the origin allowlist throw on the BFF login hot path. Fixed in v0.22.0.
-	CreatedAt  int64   `json:"created_at,omitempty"`
-	DetachedAt *string `json:"detached_at,omitempty"`
+	CreatedAt int64 `json:"created_at,omitempty"`
 }
 
 // ListOriginsOptions parameterises Origins.List.
@@ -159,9 +160,6 @@ func (c *OriginsClient) fetchAllowlist(ctx ctxpkg.Context, realmID string) (map[
 			return nil, err
 		}
 		for _, row := range page.Items {
-			if row.DetachedAt != nil && *row.DetachedAt != "" {
-				continue
-			}
 			d := NormalizeOrigin(row.Domain)
 			if d != "" {
 				out[d] = struct{}{}

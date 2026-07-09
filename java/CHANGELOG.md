@@ -4,6 +4,13 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.15.0 — `refresh_exp` on login + token responses
+
+Additive. `Session` and `TokenResponse` gain `refreshExp` (wire `refresh_exp`,
+unix seconds, `long`) — the refresh token's absolute expiry (SPEC §4.1). `0`
+against a pre-refresh_exp issuer. Cut in lockstep with go/v0.26.0 + ts-v0.17.0
+(`../CHANGELOG.md` / `../DECISIONS.md` 2026-07-09).
+
 ## 0.12.0 — workload identity federation (2026-06-02)
 
 Additive (non-breaking). Implements SPEC v0.10.0 §4.0.1 (ADR-057).

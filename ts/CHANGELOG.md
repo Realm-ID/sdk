@@ -4,6 +4,14 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.17.0 — `refresh_exp` on login + token responses
+
+Additive. `LoginResponse` and `TokenResponse` now carry `refreshExp?` (wire
+`refresh_exp`, unix seconds) — the refresh token's absolute expiry (SPEC §4.1).
+`undefined` against a pre-refresh_exp issuer; consumers sizing a session from it
+must fall back to a local ceiling. Cut in lockstep with go/v0.26.0 +
+java-v0.15.0 (`../CHANGELOG.md` / `../DECISIONS.md` 2026-07-09).
+
 ## 0.16.1 — decode session last-used from `last_seen_at`
 
 Fix. `listSessions` cast raw server JSON with no snake→camel mapping, so

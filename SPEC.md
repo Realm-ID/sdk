@@ -359,8 +359,19 @@ The wire response includes a typed `subject_type` ∈ `{user, service,
 platform}` (ADR-051 §3). For user grants the SDK exposes the high-level
 fields:
 
-Response: `{ accessToken, refreshToken, expiresIn, expiresAt, user, tenants }`
+Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, expiresAt, user, tenants }`
 - `tenants`: array of `{ id, role, displayName }` the user belongs to.
+- `refreshExp` (wire `refresh_exp`): absolute wall-clock expiry of the
+  **refresh token**, in **unix seconds** (a JSON number) — the instant past
+  which the refresh token can no longer be rotated. The issuer computes it as
+  the minimum of the rolling `refresh_ttl_seconds` ceiling, the ADR-054
+  scheduled daily cutoff (when the realm opts in), and the ADR-058 absolute
+  user-session cap. Distinct from `expiresIn`, which is the **access token**
+  lifetime in seconds. **Optional / forward-compatible:** older issuers omit
+  it; the SDK decodes an absent field as `0` (Go/Java) / `undefined` (TS), and
+  a consumer that sizes a session from it (e.g. the BFF session store) MUST
+  fall back to its own ceiling on the zero/absent value rather than treating
+  the session as already expired.
 - If the server replies with a 412 `mfa_required`, the SDK throws
   `RealmError` with `code: "mfa_required"` and
   `details.mfa_challenge_token` set. Caller follows up with `mfaVerify()`.
@@ -383,9 +394,12 @@ Request: `{ refreshToken, tenantId, customClaims? }`
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
   services need to authorize without a database lookup.
 
-Response: `{ accessToken, refreshToken, expiresIn, tenantId, role,
-subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
-`tenantId` and `role` are user-only.
+Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, tenantId,
+role, subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
+`tenantId` and `role` are user-only. `refreshExp` (wire `refresh_exp`, unix
+seconds) is the rotated refresh token's absolute expiry — same semantics and
+optionality as §4.1; a rotation carries the recomputed cap forward (anchored
+to first login for the ADR-058 absolute bound).
 
 **Refresh rotation policy (ADR-051):**
 

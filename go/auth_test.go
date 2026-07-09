@@ -170,6 +170,76 @@ func TestAuth_TokenWithCustomClaims(t *testing.T) {
 	}
 }
 
+// TestAuth_DecodesRefreshExp locks the SPEC §4.1 refresh_exp wire field onto
+// both the login (Session) and token (MintResult) responses. The BFF sizes a
+// session's absolute TTL from this value instead of a local 30d guess, so a
+// silent decode drop would resurrect the "session evicted while the refresh
+// token is still valid" divergence (#10). Absence must decode as 0 so callers
+// can fall back to their own ceiling against a pre-refresh_exp issuer.
+func TestAuth_DecodesRefreshExp(t *testing.T) {
+	const wantExp int64 = 1_780_000_000
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/login": func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "atok",
+				"refresh_token": "rtok",
+				"expires_in":    900,
+				"refresh_exp":   wantExp, // unix seconds, a JSON number
+				"user":          map[string]any{"id": "u1"},
+				"tenants":       []any{map[string]any{"id": "t1", "role": "owner"}},
+			})
+		},
+		"/auth/token": func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "atok2",
+				"refresh_token": "rtok2",
+				"expires_in":    900,
+				"refresh_exp":   wantExp,
+				"tenant_id":     "t1",
+				"role":          "owner",
+			})
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+
+	sess, err := r.Auth.Login(context.Background(), LoginRequest{Method: LoginMicrosoft, ProviderToken: "pt"})
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	if sess.RefreshExp != wantExp {
+		t.Errorf("Session.RefreshExp = %d, want %d", sess.RefreshExp, wantExp)
+	}
+
+	mint, err := r.Auth.Token(context.Background(), TokenRequest{RefreshToken: "rtok", TenantID: "t1"})
+	if err != nil {
+		t.Fatalf("token: %v", err)
+	}
+	if mint.RefreshExp != wantExp {
+		t.Errorf("MintResult.RefreshExp = %d, want %d", mint.RefreshExp, wantExp)
+	}
+
+	// A response with no refresh_exp must decode as 0 (fallback signal).
+	srv2 := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/login": func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "a", "refresh_token": "rr", "expires_in": 900,
+				"user": map[string]any{"id": "u1"}, "tenants": []any{map[string]any{"id": "t1"}},
+			})
+		},
+	})
+	defer srv2.Close()
+	r2, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv2.URL})
+	s2, err := r2.Auth.Login(context.Background(), LoginRequest{Method: LoginMicrosoft, ProviderToken: "pt"})
+	if err != nil {
+		t.Fatalf("login2: %v", err)
+	}
+	if s2.RefreshExp != 0 {
+		t.Errorf("absent refresh_exp should decode as 0, got %d", s2.RefreshExp)
+	}
+}
+
 func TestAuth_Logout(t *testing.T) {
 	called := false
 	srv := authTestServer(t, map[string]http.HandlerFunc{

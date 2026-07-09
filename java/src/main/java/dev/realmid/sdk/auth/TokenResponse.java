@@ -18,6 +18,8 @@ public record TokenResponse(
         @JsonProperty("access_token") @JsonAlias("accessToken") String accessToken,
         @JsonProperty("refresh_token") @JsonAlias("refreshToken") String refreshToken,
         @JsonProperty("expires_in") @JsonAlias("expiresIn") long expiresIn,
+        // SPEC §4.1 — absolute refresh-token expiry (unix seconds); see Session.refreshExp.
+        @JsonProperty("refresh_exp") @JsonAlias("refreshExp") long refreshExp,
         @JsonProperty("subject_type") @JsonAlias("subjectType") String subjectType,
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
         String role

@@ -13,6 +13,27 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `refresh_exp` on the wire + drop dead `Origin.DetachedAt` (go/v0.26.0 · ts-v0.17.0 · java-v0.15.0)
+
+Cross-cutting, additive. Two contract changes cut together — see `DECISIONS.md`
+(2026-07-09).
+
+- **`refresh_exp` (SPEC §4.1/§4.2).** Login (`Session`) and token (`MintResult`)
+  responses now carry `refresh_exp` — the refresh token's **absolute** expiry in
+  unix seconds (min of the rolling TTL, the ADR-054 scheduled cutoff, and the
+  ADR-058 absolute session cap). Distinct from `expires_in` (access-token TTL).
+  Exposed as Go `Session.RefreshExp`/`MintResult.RefreshExp` (int64), TS
+  `refreshExp?` (number), Java `refreshExp` (long). **Forward/backward
+  compatible:** absent decodes as `0`/`undefined`; a consumer sizing a session
+  from it (the BFF store) must fall back to a local ceiling on the zero value.
+  Pairs with issuer v0.28.0 (emit) + BFF v0.17.0 (consume, retiring its 30d
+  guess).
+- **Go: removed `Origin.DetachedAt`** (and the dead allowlist filter). The issuer
+  never serialized `detached_at` and already filters detached origins
+  server-side; the field was always nil and its `*string` type re-armed the
+  go/v0.21.0 numeric-`created_at` decode outage. `encoding/json` ignores unknown
+  fields, so removal is safe. Go-only; no TS/Java equivalent existed.
+
 ## SessionInfo last-used timestamp — decode from issuer `last_seen_at` (go/v0.25.1 · ts-v0.16.1 · java-v0.14.1)
 
 Cross-cutting fix across all three SDKs. `SessionInfo.LastUsedAt` (Go) /

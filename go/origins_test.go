@@ -206,8 +206,8 @@ func TestOrigins_ListPaginates(t *testing.T) {
 // string, so the strict decode of the allowlist threw before login could run
 // ("cannot unmarshal number into Go struct field Origin.items.created_at of
 // type string") — taking the whole BFF /auth/* surface down. The payload here
-// mirrors a real GET /platforms/{id}/origins row, including created_at and a
-// detached_at, which no prior test exercised.
+// mirrors a real GET /platforms/{id}/origins row, including a numeric
+// created_at, which no prior test exercised.
 func TestOrigins_DecodesNumericCreatedAt(t *testing.T) {
 	var mintCount, listCount int32
 	srv := originsServer(t, &mintCount, &listCount, func(w http.ResponseWriter, _ *http.Request) {

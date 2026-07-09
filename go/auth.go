@@ -80,14 +80,21 @@ type UserSummary struct {
 // callers don't have to parse Tenants[]. `User` is populated from the
 // access JWT's claims (sub/email) when the wire response omits it.
 type Session struct {
-	AccessToken  string      `json:"access_token"`
-	RefreshToken string      `json:"refresh_token"`
-	ExpiresIn    int         `json:"expires_in"`
-	ExpiresAt    string      `json:"expires_at,omitempty"`
-	TenantID     string      `json:"tenant_id,omitempty"`
-	Role         string      `json:"role,omitempty"`
-	User         UserSummary `json:"user"`
-	Tenants      []TenantRef `json:"tenants"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	// RefreshExp is the absolute wall-clock expiry (unix seconds) of the
+	// returned refresh token — the instant past which it can no longer be
+	// rotated, taking the min of the rolling TTL, the ADR-054 scheduled
+	// cutoff, and the ADR-058 absolute session cap (SPEC §4.1). It is 0 when
+	// the issuer does not surface it (pre-refresh_exp issuers); callers that
+	// size a session from it must fall back to their own ceiling on 0.
+	RefreshExp int64       `json:"refresh_exp,omitempty"`
+	ExpiresAt  string      `json:"expires_at,omitempty"`
+	TenantID   string      `json:"tenant_id,omitempty"`
+	Role       string      `json:"role,omitempty"`
+	User       UserSummary `json:"user"`
+	Tenants    []TenantRef `json:"tenants"`
 }
 
 // NeedsTenantChoice reports whether the issuer returned a tenant
@@ -141,6 +148,10 @@ type MintResult struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresIn    int    `json:"expires_in"`
+	// RefreshExp is the absolute wall-clock expiry (unix seconds) of the
+	// rotated refresh token (SPEC §4.1). 0 when the issuer does not surface
+	// it; see Session.RefreshExp.
+	RefreshExp int64 `json:"refresh_exp,omitempty"`
 	// SubjectType is the minted token's subject class (SPEC §4.2):
 	// "user", "service", or "platform" (ADR-051). The issuer returns it
 	// on /auth/token for every refresh class; TenantID and Role are

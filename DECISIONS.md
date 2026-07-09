@@ -7,6 +7,53 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-09 — `refresh_exp` on the wire (SPEC §4.1) + drop the dead `Origin.DetachedAt`
+
+Two SDK-contract changes cut together (go/v0.26.0 + ts-v0.17.0 + java-v0.15.0).
+
+### `refresh_exp` — surface the refresh token's absolute expiry (#10)
+
+**Problem.** `Session`/`MintResult` carried only `expires_in` (the *access*
+token TTL). The refresh token's absolute expiry — computed issuer-side as the
+min of the rolling TTL, the ADR-054 scheduled cutoff, and the ADR-058 absolute
+session cap — was never surfaced. A consumer that sizes a session from the
+refresh lifetime (the BFF session store) had to *guess* it: `api/` hardcoded a
+30-day ceiling (`buildRecord`). That guess diverges from realm policy — a realm
+with a >30d refresh evicts live sessions early; a <30d realm keeps a dead
+session "alive" until the next refresh fails.
+
+**Decision.** Add `refresh_exp` (unix seconds) to the login (`§4.1`) and token
+(`§4.2`) responses, wired through all three SDKs (`Session.RefreshExp`,
+`MintResult.RefreshExp`; TS `refreshExp?`; Java `refreshExp`). **Optional /
+forward-compatible:** absent decodes as `0`/`undefined`, and consumers MUST fall
+back to a local ceiling on the zero value — so a new SDK against an old issuer,
+or an old SDK against a new issuer, both keep working. Options weighed:
+(a) surface it on the wire *(chosen — honest, one source of truth in realm
+config)*; (b) have the BFF re-read `refresh_absolute_expiry` from realm config
+on every login *(rejected — couples the BFF to issuer config semantics + adds a
+config fetch on the hot path)*; (c) leave the 30d guess *(rejected — wrong for
+any realm that overrides the default)*. Issuer emit lands in `v0.28.0`; BFF
+consume in `v0.17.0`.
+
+### Drop `Origin.DetachedAt` — it was dead code re-arming the v0.21.0 outage (#7)
+
+**Problem.** Go `Origin` declared `DetachedAt *string json:"detached_at"` and
+`fetchAllowlist` skipped rows where it was set. But the issuer's
+`domainMappingDTO` **never serializes `detached_at`**, and the origins list is
+already filtered to live rows server-side (`ListByEntity` → `detached_at IS
+NULL`). So the field was always `nil` and the filter never fired — dead code.
+Worse, it re-armed the exact go/v0.21.0 outage class: the `created_at` comment
+right above it documents that a `*string` field receiving a JSON *number* throws
+on the origins hot-path decode. If anyone ever added `detached_at` to the DTO
+the natural way (`.Unix()` → a number), sign-in would break again.
+
+**Decision.** Delete the field + the dead filter. The SDK uses plain
+`encoding/json` (no `DisallowUnknownFields` — verified), so a future
+`detached_at` on the wire is harmlessly ignored; keeping the mistyped `*string`
+was the *only* dangerous state. Considered retyping to `*int64` for
+forward-compatible defense-in-depth, but the server-side filter is the actual
+contract and removal is the smaller, safer surface.
+
 ## 2026-07-08 — `SessionInfo` last-used timestamp reconciled to the issuer's `last_seen_at` field (Go / TS / Java)
 
 **Symptom.** `ListSessions`/`listSessions` returned session records whose
