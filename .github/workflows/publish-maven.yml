@@ -1,0 +1,49 @@
+name: publish-maven
+
+# Publishes the Java SDK (dev.realmid:sdk) to Maven Central via the Central
+# Portal (central.sonatype.com — OSSRH was sunset 2025).
+#
+# Auth (all repo secrets):
+#   MAVEN_CENTRAL_USERNAME / MAVEN_CENTRAL_PASSWORD — a Central Portal user
+#       token (Account → Generate User Token). NOT the portal login.
+#   MAVEN_GPG_PRIVATE_KEY  — ASCII-armored GPG private key (whole
+#       -----BEGIN PGP PRIVATE KEY BLOCK-----). Its public half must be on a
+#       public keyserver so Central can verify signatures.
+#   MAVEN_GPG_PASSPHRASE   — that key's passphrase.
+#
+# The `dev.realmid` namespace must be verified on the Portal (DNS TXT on
+# realmid.dev) before the first publish will be accepted.
+#
+# Trigger: manual (workflow_dispatch) or pushing a `java-vX.Y.Z` tag. The
+# version published is whatever `java/build.gradle.kts` declares at that ref —
+# keep the tag and the `version` in lockstep. Re-publishing an existing
+# version is rejected by Central (immutable), so bump the version per release.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'java-v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Publish to Maven Central
+        working-directory: java
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --stacktrace
