@@ -4,9 +4,6 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-> **Note:** 0.16.0 was released but not written up here (see `../CHANGELOG.md` /
-> git log); the entry below resumes the log.
-
 ## 0.16.1 — decode session last-used from `last_seen_at`
 
 Fix. `listSessions` cast raw server JSON with no snake→camel mapping, so
@@ -14,6 +11,15 @@ Fix. `listSessions` cast raw server JSON with no snake→camel mapping, so
 `SessionInfo` interface to the issuer wire shape (`last_seen_at`, `created_at`,
 `origin`, `device_name`; int64 unix seconds). Cut in lockstep with go/v0.25.1 +
 java-v0.14.1 (`../CHANGELOG.md`).
+
+## 0.16.0 — IdP provider `config` on the admin write surface
+
+Additive. Mirrors the monorepo lockstep entry (`../CHANGELOG.md`, cut with the
+Go + Java SDKs). `identityProviders` create/update now carry a `config` object
+(provider-specific settings — e.g. Microsoft tenant/authority, Google hosted
+domain) alongside the existing `type` / `client_id` fields, so a platform owner
+can configure an IdP row's provider settings through the SDK rather than only
+issuer-side.
 
 ## 0.15.0 — Refresh-authed MFA self-enrollment (ADR-061)
 
