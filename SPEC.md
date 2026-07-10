@@ -145,6 +145,19 @@ fresh on every call. There is no in-SDK request coalescing.
 
 ## 3. Errors
 
+**Success vs failure boundary.** Every SDK treats the **entire `2xx`
+class** as success — never an exact `200` check. The API uses a uniform
+`200` `{data:...}` envelope (issuer ADR-069): every endpoint returns
+`200` on success, including all DELETEs (which carry a `{status:...}`
+body), EXCEPT genuine resource-creation POSTs (`POST /platforms`,
+`/identity-providers`, `/platforms/{id}/{api-keys,roles,origins,
+federation-bindings}`, `/platforms/{pid}/tenants`, and the invitation
+creates), which return `201 Created`. A response is an error iff its
+status is `>= 400`; `204` (should not occur post-ADR-069) decodes to an
+empty success. This is descriptive — the SDKs already behave this way
+(Go: `< 400`; TS: `resp.ok`; Java: `200 ≤ s < 300`), so ADR-069 requires
+no SDK code change and no version bump.
+
 A single error type, `RealmError`, is thrown / returned for **every**
 SDK failure. It carries:
 

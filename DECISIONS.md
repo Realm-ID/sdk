@@ -7,6 +7,26 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-10 — SPEC §3: document the uniform-200 success/envelope contract (issuer ADR-069)
+
+**Problem.** The issuer reconciled a wire-vs-swagger drift (ADR-069): ~30
+POST/DELETE endpoints had been shipping GoFr-native `201`/`204` while swagger
+documented `200`. The corrected contract is a uniform `200` `{data:...}` envelope
+with `201` only for genuine resource creation, and `200`-with-body for all
+DELETEs. SPEC.md never stated the success-status boundary explicitly.
+
+**Decision.** Add the success-vs-failure rule to SPEC §3: success is the **entire
+`2xx` class** (never an exact `200` check), with the envelope + the 201-create
+exception spelled out. **Descriptive only** — every SDK already implements exactly
+this (Go `< 400`, TS `resp.ok`, Java `200 ≤ s < 300`; the CLI's `exitForStatus`
+treats `< 400` as OK), so ADR-069 is backward-compatible and needs **no SDK code
+change and no version bump**. Verified all three transports + the CLI before
+writing.
+
+**Tradeoff.** Documenting an already-honored behavior risks looking like a no-op,
+but the explicit boundary is what stops a future SDK author (or a raw-HTTP partner)
+from reintroducing an exact-`200` check that the ~30 drifted endpoints would break.
+
 ## 2026-07-09 — `refresh_exp` on the wire (SPEC §4.1) + drop the dead `Origin.DetachedAt`
 
 Two SDK-contract changes cut together (go/v0.26.0 + ts-v0.17.0 + java-v0.15.0).
