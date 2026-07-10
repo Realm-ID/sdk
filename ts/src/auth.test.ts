@@ -130,6 +130,45 @@ test("auth.token: rotate refresh + tenant switch", async () => {
   assert.deepEqual(cc["outlet_ids"], ["o1"]);
 });
 
+test("auth: decodes refresh_exp + idle_ttl onto login + token responses", async () => {
+  // SPEC §4.1 refresh_exp + ADR-070 idle_ttl (sliding idle-timeout duration,
+  // seconds) must map from wire snake_case onto camelCase so the BFF can size /
+  // idle-expire a session. Absence must decode as undefined (→ disabled).
+  const { fetch } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at", refresh_token: "rt", expires_in: 900,
+      refresh_exp: 1_780_000_000, idle_ttl: 1800,
+      user: { id: "u1" }, tenants: [{ id: "t1", role: "owner" }],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const login = await realm.auth.login({ method: "firebase", providerToken: "id_xyz" });
+  assert.equal(login.refreshExp, 1_780_000_000);
+  assert.equal(login.idleTtl, 1800);
+
+  const tok = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at2", refresh_token: "rt2", expires_in: 900,
+      refresh_exp: 1_780_000_000, idle_ttl: 1800, tenant_id: "t2", role: "admin",
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm2 = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: tok.fetch, origin: "https://app.example" });
+  const token = await realm2.auth.token({ refreshToken: "rt", tenantId: "t2" });
+  assert.equal(token.refreshExp, 1_780_000_000);
+  assert.equal(token.idleTtl, 1800);
+
+  // Absent idle_ttl → undefined (idle timeout disabled).
+  const bare = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at", refresh_token: "rt", expires_in: 900,
+      user: { id: "u1" }, tenants: [{ id: "t1" }],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm3 = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: bare.fetch, origin: "https://app.example" });
+  const bareLogin = await realm3.auth.login({ method: "firebase", providerToken: "id" });
+  assert.equal(bareLogin.idleTtl, undefined);
+});
+
 test("auth.otpLogin: sends method=otp_internal + identifier + presented", async () => {
   const { fetch, calls } = recorder([
     () => new Response(JSON.stringify({

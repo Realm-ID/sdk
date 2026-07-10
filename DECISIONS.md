@@ -7,6 +7,36 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-10 — surface `idle_ttl` from login/token/refresh (ADR-070 idle session timeout)
+
+**Problem.** The issuer is gaining a per-realm **sliding-window idle timeout**
+(ADR-070): a session that goes idle longer than a configured duration dies even
+if its refresh token is otherwise still valid. The issuer now emits `idle_ttl`
+(JSON integer, seconds — the idle-window duration) on the login, token, and
+refresh responses, right alongside the existing `refresh_exp`. Nothing in the
+SDKs surfaced it, so the BFF (the session-store owner) couldn't read the value
+to enforce the idle window.
+
+**Decision.** Mirror `refresh_exp`/`RefreshExp` **exactly**, per language, on the
+same result types and the same decode spots — Go `Session.IdleTTL` +
+`MintResult.IdleTTL` (`json:"idle_ttl,omitempty"`); TS `LoginResponse.idleTtl` +
+`TokenResponse.idleTtl` (optional, mapped from wire `idle_ttl` in `mapAuthResp`
+and the token mapper); Java `Session.idleTtl` + `TokenResponse.idleTtl`
+(`@JsonProperty("idle_ttl") @JsonAlias("idleTtl") long`). It rides the exact same
+plumbing, naming, and optionality conventions as `refresh_exp` — the SDK stays a
+pass-through; enforcement is the BFF's job.
+
+**Backward-compatible.** Optional / omitempty everywhere; absent or `0` means "no
+idle timeout" and must decode cleanly to `0` (Go/Java) / `undefined` (TS) —
+callers treat that as *disabled*, never *expire now*. A pre-ADR-070 issuer that
+omits the field is unaffected. Guard tests assert both the present-value decode
+and the absent→0/undefined fallback on Session and the token/mint result across
+all three languages.
+
+**Scope.** SDK slice only — the issuer emit path, the per-realm config knob, and
+the BFF enforcement land in their own repos; the orchestrator tags/releases
+centrally. Version numbers deliberately left as "next"/pending in each CHANGELOG.
+
 ## 2026-07-10 — SPEC §3: document the uniform-200 success/envelope contract (issuer ADR-069)
 
 **Problem.** The issuer reconciled a wire-vs-swagger drift (ADR-069): ~30

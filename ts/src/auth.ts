@@ -55,6 +55,13 @@ export interface LoginResponse {
    * callers that size a session from it must fall back to their own ceiling.
    */
   refreshExp?: number;
+  /**
+   * ADR-070 — sliding-window idle-timeout duration (seconds). Each
+   * authenticated use slides the window forward by this many seconds; the
+   * session dies if idle past it. `undefined`/`0` means no idle timeout —
+   * callers must treat it as "disabled", not "expire now".
+   */
+  idleTtl?: number;
   expiresAt?: string;
   user: UserSummary;
   tenants: TenantRef[];
@@ -81,6 +88,8 @@ export interface TokenResponse {
   expiresIn: number;
   /** SPEC §4.1 — absolute refresh-token expiry (unix seconds); see LoginResponse.refreshExp. */
   refreshExp?: number;
+  /** ADR-070 — sliding-window idle-timeout duration (seconds); see LoginResponse.idleTtl. */
+  idleTtl?: number;
   /**
    * Minted token's subject class (SPEC §4.2): "user" | "service" |
    * "platform" (ADR-051). The issuer returns it on /auth/token for every
@@ -202,6 +211,7 @@ interface RawAuthResponse {
   refresh_token: string;
   expires_in: number;
   refresh_exp?: number;
+  idle_ttl?: number;
   expires_at?: string;
   user: UserSummary;
   tenants?: TenantRef[];
@@ -212,6 +222,7 @@ interface RawTokenResponse {
   refresh_token: string;
   expires_in: number;
   refresh_exp?: number;
+  idle_ttl?: number;
   subject_type: string;
   tenant_id: string;
   role: string;
@@ -271,6 +282,7 @@ export class AuthClient {
       refreshToken: raw.refresh_token,
       expiresIn: raw.expires_in,
       refreshExp: raw.refresh_exp,
+      idleTtl: raw.idle_ttl,
       subjectType: raw.subject_type,
       tenantId: raw.tenant_id,
       role: raw.role,
@@ -529,6 +541,7 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
     refreshToken: r.refresh_token,
     expiresIn: r.expires_in,
     refreshExp: r.refresh_exp,
+    idleTtl: r.idle_ttl,
     expiresAt: r.expires_at,
     user: r.user,
     tenants: r.tenants ?? [],

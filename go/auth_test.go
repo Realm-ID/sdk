@@ -178,6 +178,7 @@ func TestAuth_TokenWithCustomClaims(t *testing.T) {
 // can fall back to their own ceiling against a pre-refresh_exp issuer.
 func TestAuth_DecodesRefreshExp(t *testing.T) {
 	const wantExp int64 = 1_780_000_000
+	const wantIdle int64 = 1800 // ADR-070 sliding idle-timeout duration (seconds)
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/auth/login": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -185,6 +186,7 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 				"refresh_token": "rtok",
 				"expires_in":    900,
 				"refresh_exp":   wantExp, // unix seconds, a JSON number
+				"idle_ttl":      wantIdle,
 				"user":          map[string]any{"id": "u1"},
 				"tenants":       []any{map[string]any{"id": "t1", "role": "owner"}},
 			})
@@ -195,6 +197,7 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 				"refresh_token": "rtok2",
 				"expires_in":    900,
 				"refresh_exp":   wantExp,
+				"idle_ttl":      wantIdle,
 				"tenant_id":     "t1",
 				"role":          "owner",
 			})
@@ -211,6 +214,9 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 	if sess.RefreshExp != wantExp {
 		t.Errorf("Session.RefreshExp = %d, want %d", sess.RefreshExp, wantExp)
 	}
+	if sess.IdleTTL != wantIdle {
+		t.Errorf("Session.IdleTTL = %d, want %d", sess.IdleTTL, wantIdle)
+	}
 
 	mint, err := r.Auth.Token(context.Background(), TokenRequest{RefreshToken: "rtok", TenantID: "t1"})
 	if err != nil {
@@ -219,8 +225,11 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 	if mint.RefreshExp != wantExp {
 		t.Errorf("MintResult.RefreshExp = %d, want %d", mint.RefreshExp, wantExp)
 	}
+	if mint.IdleTTL != wantIdle {
+		t.Errorf("MintResult.IdleTTL = %d, want %d", mint.IdleTTL, wantIdle)
+	}
 
-	// A response with no refresh_exp must decode as 0 (fallback signal).
+	// A response with no refresh_exp / idle_ttl must decode as 0 (fallback signal).
 	srv2 := authTestServer(t, map[string]http.HandlerFunc{
 		"/auth/login": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -237,6 +246,9 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 	}
 	if s2.RefreshExp != 0 {
 		t.Errorf("absent refresh_exp should decode as 0, got %d", s2.RefreshExp)
+	}
+	if s2.IdleTTL != 0 {
+		t.Errorf("absent idle_ttl should decode as 0, got %d", s2.IdleTTL)
 	}
 }
 

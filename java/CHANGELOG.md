@@ -4,6 +4,14 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.16.0 — `idle_ttl` on login + token responses (ADR-070, 2026-07-10)
+
+Additive. `Session` and `TokenResponse` gain `idleTtl` (wire `idle_ttl`,
+seconds, `long`) — the sliding-window idle-timeout **duration** for the session
+(ADR-070). `0` means no idle timeout; the BFF reads it to enforce a per-realm
+idle window. Cut in lockstep with the go + ts SDKs (`../CHANGELOG.md` /
+`../DECISIONS.md` 2026-07-10). Version/tag picked centrally.
+
 ## 0.15.0 — `refresh_exp` on login + token responses
 
 Additive. `Session` and `TokenResponse` gain `refreshExp` (wire `refresh_exp`,

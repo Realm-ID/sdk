@@ -109,6 +109,44 @@ class AuthClientTest {
         assertTrue(cc.containsKey("outlet_ids"));
     }
 
+    // Locks SPEC §4.1 refresh_exp + ADR-070 idle_ttl onto both the login
+    // (Session) and token (TokenResponse) responses; absence must decode as 0
+    // so the BFF can fall back to its own ceiling / treat idle-timeout as off.
+    @Test
+    void decodesRefreshExpAndIdleTtl() {
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-1", "refresh_token", "rt-1", "expires_in", 600,
+                    "refresh_exp", 1_780_000_000L, "idle_ttl", 1800L,
+                    "user", Map.of("id", "u1"), "tenants", java.util.List.of()));
+        });
+        Session s = realm.auth().login(LoginRequest.of("firebase", "provider-tok"));
+        assertEquals(1_780_000_000L, s.refreshExp());
+        assertEquals(1800L, s.idleTtl());
+
+        fs.on("POST /auth/token", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "access_token", "at-2", "refresh_token", "rt-2", "expires_in", 900,
+                "refresh_exp", 1_780_000_000L, "idle_ttl", 1800L,
+                "tenant_id", "t1", "role", "admin")));
+        TokenResponse r = realm.auth().token(TokenRequest.of("rt-1", "t1"));
+        assertEquals(1_780_000_000L, r.refreshExp());
+        assertEquals(1800L, r.idleTtl());
+
+        // Absent idle_ttl / refresh_exp must decode as 0.
+        fs.on("POST /auth/token", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "access_token", "at-3", "refresh_token", "rt-3", "expires_in", 900,
+                "tenant_id", "t1", "role", "admin")));
+        TokenResponse r2 = realm.auth().token(TokenRequest.of("rt-2", "t1"));
+        assertEquals(0L, r2.idleTtl());
+        assertEquals(0L, r2.refreshExp());
+    }
+
     @Test
     void logout() {
         fs.on("POST /auth/logout", (ex, body) -> FakeServer.Reply.json(200, Map.of("status", "ok")));

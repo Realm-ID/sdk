@@ -21,6 +21,10 @@ public record Session(
         // issuer does not surface it (pre-refresh_exp issuers); callers that
         // size a session from it must fall back to their own ceiling.
         @JsonProperty("refresh_exp") @JsonAlias("refreshExp") long refreshExp,
+        // ADR-070 — sliding-window idle-timeout duration (seconds). Each
+        // authenticated use slides the window forward by idleTtl; 0 (absent)
+        // means no idle timeout — treat as "disabled", not "expire now".
+        @JsonProperty("idle_ttl") @JsonAlias("idleTtl") long idleTtl,
         @JsonProperty("expires_at") @JsonAlias("expiresAt") String expiresAt,
         Map<String, Object> user,
         List<TenantRef> tenants,

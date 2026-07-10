@@ -13,6 +13,24 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `idle_ttl` on login/token/refresh — idle session timeout (ADR-070) — go/v0.27.0 + ts-v0.18.0 + java-v0.16.0 (2026-07-10)
+
+Cross-cutting, additive. See `DECISIONS.md` (2026-07-10). Versions/tags picked
+centrally by the orchestrator — headings say "next" until then.
+
+- **`idle_ttl` (ADR-070).** Login and token/refresh responses now carry
+  `idle_ttl` — the sliding-window idle-timeout **duration** in seconds. Each
+  authenticated use slides the window forward; the session dies if idle past it.
+  Surfaced as Go `Session.IdleTTL`/`MintResult.IdleTTL` (int64,
+  `json:"idle_ttl,omitempty"`), TS `LoginResponse.idleTtl`/`TokenResponse.idleTtl`
+  (`number?`, wire `idle_ttl`), Java `Session.idleTtl`/`TokenResponse.idleTtl`
+  (`long`, `@JsonProperty("idle_ttl") @JsonAlias("idleTtl")`).
+- **Backward-compatible.** Optional/omitempty; absent or `0` means *no idle
+  timeout* (Go/Java decode `0`, TS `undefined`) — treat as disabled, never
+  "expire now". The BFF reads it to enforce the per-realm idle window; the SDK is
+  a pass-through. Guard tests cover present-value + absent→0/undefined on both
+  Session and the token/mint result in all three languages.
+
 ## `refresh_exp` on the wire + drop dead `Origin.DetachedAt` (go/v0.26.0 · ts-v0.17.0 · java-v0.15.0)
 
 Cross-cutting, additive. Two contract changes cut together — see `DECISIONS.md`

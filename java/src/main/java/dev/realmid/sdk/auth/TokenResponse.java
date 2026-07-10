@@ -20,6 +20,8 @@ public record TokenResponse(
         @JsonProperty("expires_in") @JsonAlias("expiresIn") long expiresIn,
         // SPEC §4.1 — absolute refresh-token expiry (unix seconds); see Session.refreshExp.
         @JsonProperty("refresh_exp") @JsonAlias("refreshExp") long refreshExp,
+        // ADR-070 — sliding-window idle-timeout duration (seconds); see Session.idleTtl.
+        @JsonProperty("idle_ttl") @JsonAlias("idleTtl") long idleTtl,
         @JsonProperty("subject_type") @JsonAlias("subjectType") String subjectType,
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
         String role

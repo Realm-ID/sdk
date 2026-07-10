@@ -4,6 +4,14 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## ts-v0.18.0 — `idle_ttl` on login + token responses (ADR-070, 2026-07-10)
+
+Additive. `LoginResponse` and `TokenResponse` now carry `idleTtl?` (wire
+`idle_ttl`, seconds) — the sliding-window idle-timeout **duration** for the
+session (ADR-070). `undefined`/`0` means no idle timeout; the BFF reads it to
+enforce a per-realm idle window. Cut in lockstep with the go + java SDKs
+(`../CHANGELOG.md` / `../DECISIONS.md` 2026-07-10). Version/tag picked centrally.
+
 ## 0.17.0 — `refresh_exp` on login + token responses
 
 Additive. `LoginResponse` and `TokenResponse` now carry `refreshExp?` (wire

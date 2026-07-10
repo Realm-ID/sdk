@@ -90,6 +90,11 @@ type Session struct {
 	// the issuer does not surface it (pre-refresh_exp issuers); callers that
 	// size a session from it must fall back to their own ceiling on 0.
 	RefreshExp int64       `json:"refresh_exp,omitempty"`
+	// IdleTTL is the sliding-window idle-timeout duration (seconds) for the
+	// session (ADR-070). Each authenticated use slides the window forward by
+	// IdleTTL; the session dies if idle past it. 0 (absent / omitempty) means
+	// no idle timeout — callers must treat 0 as "disabled", not "expire now".
+	IdleTTL    int64       `json:"idle_ttl,omitempty"`
 	ExpiresAt  string      `json:"expires_at,omitempty"`
 	TenantID   string      `json:"tenant_id,omitempty"`
 	Role       string      `json:"role,omitempty"`
@@ -152,6 +157,10 @@ type MintResult struct {
 	// rotated refresh token (SPEC §4.1). 0 when the issuer does not surface
 	// it; see Session.RefreshExp.
 	RefreshExp int64 `json:"refresh_exp,omitempty"`
+	// IdleTTL is the sliding-window idle-timeout duration (seconds) for the
+	// session (ADR-070). 0 (absent / omitempty) means no idle timeout; see
+	// Session.IdleTTL.
+	IdleTTL int64 `json:"idle_ttl,omitempty"`
 	// SubjectType is the minted token's subject class (SPEC §4.2):
 	// "user", "service", or "platform" (ADR-051). The issuer returns it
 	// on /auth/token for every refresh class; TenantID and Role are
