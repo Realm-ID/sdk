@@ -372,8 +372,18 @@ The wire response includes a typed `subject_type` ∈ `{user, service,
 platform}` (ADR-051 §3). For user grants the SDK exposes the high-level
 fields:
 
-Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, expiresAt, user, tenants }`
+Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, expiresAt, user, tenants }`
 - `tenants`: array of `{ id, role, displayName }` the user belongs to.
+- `idleTtl` (wire `idle_ttl`): the realm's **idle-session timeout** as a
+  sliding-window **duration** in **unix seconds** (a JSON number), ADR-070 —
+  the maximum inactivity before the session is force-logged-out, distinct from
+  `refreshExp` (an absolute instant) and from `expiresIn` (the access-token
+  lifetime). It is per-realm config (`idle_ttl_seconds`), passed straight
+  through with no min-of-N computation, and **sliding**: activity resets the
+  clock. Enforced by the interactive-session holder (the BFF session store),
+  not by machine-to-machine consumers. **Optional / forward-compatible:** a
+  realm with no idle timeout, and any older issuer, omit it; the SDK decodes an
+  absent field as `0` (Go/Java) / `undefined` (TS), meaning **no idle timeout**.
 - `refreshExp` (wire `refresh_exp`): absolute wall-clock expiry of the
   **refresh token**, in **unix seconds** (a JSON number) — the instant past
   which the refresh token can no longer be rotated. The issuer computes it as
@@ -407,12 +417,15 @@ Request: `{ refreshToken, tenantId, customClaims? }`
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
   services need to authorize without a database lookup.
 
-Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, tenantId,
+Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, tenantId,
 role, subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
 `tenantId` and `role` are user-only. `refreshExp` (wire `refresh_exp`, unix
 seconds) is the rotated refresh token's absolute expiry — same semantics and
 optionality as §4.1; a rotation carries the recomputed cap forward (anchored
-to first login for the ADR-058 absolute bound).
+to first login for the ADR-058 absolute bound). `idleTtl` (wire `idle_ttl`)
+carries the realm's idle-timeout duration on refresh with the same semantics as
+§4.1 (0/absent = no idle timeout); the BFF binds the idle window at session
+creation, so refresh preserves it rather than re-arming it.
 
 **Refresh rotation policy (ADR-051):**
 
