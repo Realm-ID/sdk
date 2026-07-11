@@ -5,6 +5,7 @@ name: publish-npm
 #   @realm-id/web              (web/packages/core)
 #   @realm-id/web-react        (web/packages/react)
 #   @realm-id/web-bff-realmid  (web/packages/bff-realmid)
+#   @realm-id/web-admin        (web/packages/admin) — bundles @realm-id/sdk
 #
 # Auth: repo secret NPM_TOKEN — an npm Automation token (bypasses 2FA)
 # owned by a member of the `realm-id` org.
@@ -48,19 +49,34 @@ jobs:
             cat err.log; exit 1
           fi
 
-      - name: Publish web packages (core, react, bff-realmid)
+      - name: Publish web packages (core, react, bff-realmid, admin)
         working-directory: web
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm ci
+          # web-admin bundles @realm-id/sdk (bundledDependencies) so partners
+          # get a self-contained tarball. Build ts once here so it can be staged
+          # into packages/admin below.
+          ( cd ../ts && npm ci && npm run build )
           # Build + publish in dependency order — core first, so react and
           # bff-realmid can resolve @realm-id/web's freshly-built .d.ts. A bare
           # `npm run build --workspaces` builds in listed order, not topological,
-          # which fails on a clean checkout (no prebuilt dist).
-          for pkg in core react bff-realmid; do
+          # which fails on a clean checkout (no prebuilt dist). admin is last (it
+          # peer-deps @realm-id/web and bundles @realm-id/sdk).
+          for pkg in core react bff-realmid admin; do
             ( cd "packages/$pkg"
               npm run build
+              # Repack gotcha (sdk/CLAUDE.md): the workspace install hoists
+              # @realm-id/sdk out of packages/admin/node_modules, so npm would
+              # publish web-admin WITHOUT its bundled dep. Stage a real copy
+              # (fresh dist, no nested node_modules) right before publish.
+              if [ "$pkg" = "admin" ]; then
+                rm -rf node_modules/@realm-id/sdk
+                mkdir -p node_modules/@realm-id
+                cp -R ../../../ts node_modules/@realm-id/sdk
+                rm -rf node_modules/@realm-id/sdk/node_modules
+              fi
               if npm publish --access=public 2>err.log; then
                 echo "published $pkg"
               elif grep -qiE 'cannot publish over|previously published version' err.log; then
