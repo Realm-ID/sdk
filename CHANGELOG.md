@@ -13,6 +13,14 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `is_base` on `MeMembership` — web-admin `@realm-id/web-admin@0.6.1` (2026-07-11)
+
+Browser-admin SDK only, type-only. Adds optional `is_base?: boolean` to
+`MeMembership` so admin UIs can tell the base-realm ops workspace ("RealmID")
+apart from real platforms (the flag is set by the BFF — see the RealmID
+`api/DECISIONS.md`). Optional for back-compat with pre-`is_base` BFFs; no other
+language SDK affected. See `DECISIONS.md` (2026-07-11).
+
 ## `idle_ttl` on login/token/refresh — idle session timeout (ADR-070) — go/v0.27.0 + ts-v0.18.0 + java-v0.16.0 (2026-07-10)
 
 Cross-cutting, additive. See `DECISIONS.md` (2026-07-10). Versions/tags picked

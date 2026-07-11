@@ -184,6 +184,14 @@ export interface MeMembership {
   platform_id: string;
   display_name: string;
   role: string;
+  /**
+   * True for the base realm's admin tenant — the RealmID ops workspace, not a
+   * user-facing platform. Set by the BFF (the issuer's /me is realm-agnostic);
+   * absent/false for every membership on a partner-realm session. Admin UIs use
+   * it to drop "RealmID" from the platform switcher and gate an ops/platform
+   * view toggle. Optional for back-compat with pre-is_base BFFs.
+   */
+  is_base?: boolean;
 }
 
 export interface ProfileResponse {

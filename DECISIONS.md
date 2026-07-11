@@ -7,6 +7,25 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-11 — `is_base` on `MeMembership` (`@realm-id/web-admin@0.6.1`)
+
+**Problem.** The BFF now marks the base-realm admin tenant on `/me` with an
+`is_base` flag (`api/DECISIONS.md`, same date) so admin UIs can drop "RealmID"
+from the platform switcher and gate an Internal-Ops/Platform view toggle. The
+`web-admin` `MeMembership` type didn't carry the field, so the SPA couldn't read
+it type-safely.
+
+**Decision.** Add `is_base?: boolean` to `MeMembership` in
+`sdk/web/packages/admin/src/types.ts`. **Optional**, because a pre-`is_base` BFF
+omits it and partner-realm sessions never set it — treating absent as `false` is
+correct. Bumped `@realm-id/web-admin` 0.6.0 → 0.6.1 and re-vendored the tarball
+into `ui/web` (the vendored-drift rule: a content change must bump the version
+or the `file:` pin masks the fix).
+
+**Scope.** Type-only, admin SDK only. No behavioural/SPEC change; no other
+language SDK touched (this is a browser-admin surface). The repack carried the
+usual bundled-`@realm-id/sdk` staging step (see `sdk/CLAUDE.md`).
+
 ## 2026-07-10 — surface `idle_ttl` from login/token/refresh (ADR-070 idle session timeout)
 
 **Problem.** The issuer is gaining a per-realm **sliding-window idle timeout**
