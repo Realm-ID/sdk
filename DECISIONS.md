@@ -7,6 +7,42 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-13 — roles enable/disable + owner signing-keys client (go/v0.28.0 · ts 0.19.0 · java 0.17.0 · web-admin 0.7.1)
+
+**Problem.** The issuer v0.32.0 realm-settings overhaul shipped new endpoints —
+role `disable`/`enable`, an owner-scoped signing-keys read + self-serve rotate,
+and per-org `role_overrides` / `default_invitation_role` config — but no SDK
+spoke them. `Realm-ID/ui` reached them through hand-rolled `api.ts` shims over
+the BFF `/api/*` catch-all (the same stopgap class as `patchRealmConfig`).
+
+**Decision.** Give all three language SDKs parity and promote the shims:
+
+- **Roles.** Add `disable`/`enable` to `RolesClient` (they POST
+  `…/roles/{id}/disable|enable` and return the role object), a `disabled` /
+  `disabled_at` field, and an `includeSystem` list option (surfaces the
+  server-hidden `platform_api` row). Kept alongside the existing CRUD/rename —
+  the server owns the guard rules (protected role, last-active-role,
+  role-is-default), so the SDK just relays.
+- **Signing keys.** A **new** `SigningKeysClient` (owner-facing) rather than
+  overloading anything: `list()` (keyring + rotation policy) + `rotate()`.
+  Deliberately separate from web-admin's pre-existing base-staff ops client
+  (`admin.signingKeys`, `/admin/platforms/…`) — different authz, different
+  path — so web-admin carries both (`admin.keys` owner, `admin.signingKeys`
+  ops). The partner SDKs only get the owner one (they never had the ops route).
+- **Org config.** ts adds a typed `TenantConfigPatch`; go/java `updateConfig`
+  already took an arbitrary map, so no wire change there.
+
+web-admin reuses the ts `RolesClient` + new `SigningKeysClient` via
+`@realm-id/sdk/internal` (no duplicated transport), was re-vendored into the UI
+as `realm-id-web-admin-0.7.1.tgz` (version bump so the file-pin can't mask the
+change — see the RealmID `ui` vendored-drift note), and the UI's five shims were
+deleted.
+
+**Tradeoffs.** (+) One owner signing-keys client, consistent across languages;
+the UI now speaks the SDK, not ad-hoc fetches. (−) web-admin exposes two
+signing-key surfaces (`keys` vs `signingKeys`) whose names don't self-explain
+the ops/owner split — documented on each. All additive + backward compatible.
+
 ## 2026-07-11 — `is_base` on `MeMembership` (`@realm-id/web-admin@0.6.1`)
 
 **Problem.** The BFF now marks the base-realm admin tenant on `/me` with an

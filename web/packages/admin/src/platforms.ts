@@ -13,6 +13,7 @@ import type {
   CreateApiKeyResponse,
   InvitationSummary,
   DomainClaimResponse,
+  PendingDomain,
 } from "./types.js";
 
 export interface PlatformCreate {
@@ -113,5 +114,19 @@ export class PlatformsClient {
       path: "/domains/verify",
       body: input,
     });
+  }
+
+  /**
+   * GET /domains/pending — the caller's non-expired in-progress domain
+   * verifications, so a UI can resume one after a refresh dropped the
+   * client-side claim state. Each row carries the same TXT record the
+   * original claim returned.
+   */
+  async listPendingDomains(): Promise<PendingDomain[]> {
+    const resp = await this.http.request<{ items?: PendingDomain[] }>({
+      method: "GET",
+      path: "/domains/pending",
+    });
+    return resp?.items ?? [];
   }
 }

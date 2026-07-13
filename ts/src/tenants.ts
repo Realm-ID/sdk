@@ -46,6 +46,25 @@ export interface TenantPatch {
   [k: string]: unknown;
 }
 
+/**
+ * Per-tenant (org) config PATCH body (PATCH /tenants/{id}/config).
+ * Governance keys an org owner controls over the realm-defined role
+ * catalog (roles/signing-keys overhaul):
+ *  - `role_overrides`: names of realm roles this org disables for itself
+ *    (disable-only; an org cannot re-enable a realm-disabled role).
+ *  - `default_invitation_role`: the role new invites default to, chosen
+ *    from the roles still active for this org.
+ * Also carries the existing per-org `mfa_policy` / `signup_mode` keys.
+ * Open index signature: the endpoint allowlists keys server-side.
+ */
+export interface TenantConfigPatch {
+  role_overrides?: string[];
+  default_invitation_role?: string;
+  mfa_policy?: string;
+  signup_mode?: SignupMode;
+  [k: string]: unknown;
+}
+
 export interface Invitation {
   id: string;
   identifier: string;
@@ -325,7 +344,7 @@ export class TenantsClient {
     });
   }
 
-  async updateConfig(id: string, patch: Record<string, unknown>): Promise<Tenant> {
+  async updateConfig(id: string, patch: TenantConfigPatch): Promise<Tenant> {
     return this.http.request<Tenant>({
       method: "PATCH",
       path: `/tenants/${encodeURIComponent(id)}/config`,

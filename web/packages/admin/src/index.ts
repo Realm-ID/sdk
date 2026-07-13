@@ -22,6 +22,7 @@ import {
   RolesClient,
   DomainsClient,
   AdminClient,
+  SigningKeysClient as OwnerSigningKeysClient,
 } from "@realm-id/sdk/internal";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
@@ -44,6 +45,8 @@ export interface Admin {
   platforms: PlatformsClient;
   notes: PlatformNotesClient;
   signingKeys: SigningKeysClient;
+  /** Owner-facing signing-key read + self-serve rotate (/platforms/{id}/signing-keys). */
+  keys: OwnerSigningKeysClient;
   bff: BffClient;
   sessions: SessionsClient;
   me: MeClient;
@@ -88,6 +91,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     platforms: new PlatformsClient(http),
     notes: new PlatformNotesClient(http),
     signingKeys: new SigningKeysClient(http),
+    keys: new OwnerSigningKeysClient(httpAsClient, rid),
     bff: new BffClient(http),
     sessions: new SessionsClient(http),
     me: new MeClient(http),
@@ -129,6 +133,7 @@ export type {
   Tenant,
   TenantCreate,
   TenantPatch,
+  TenantConfigPatch,
   Invitation,
   InvitationCreate,
   User,
@@ -144,6 +149,10 @@ export type {
   RoleListOpts,
   RoleCreate,
   RolePatch,
+  SigningKey,
+  SigningKeyRotation,
+  SigningKeysResponse,
+  RotateSigningKeyResult,
   DomainClaim,
   DomainVerifyResult,
   PlatformOwner,

@@ -16,6 +16,7 @@ import dev.realmid.sdk.platformtoken.CredentialSources;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.roles.RolesClient;
+import dev.realmid.sdk.signingkeys.SigningKeysClient;
 import dev.realmid.sdk.tenants.TenantsClient;
 import dev.realmid.sdk.tokens.TokensClient;
 import dev.realmid.sdk.admin.AdminClient;
@@ -46,6 +47,7 @@ public final class Realm {
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
     private final RolesClient roles;
+    private final SigningKeysClient signingKeys;
     private final IdentityProviderConfigClient identityProviderConfig;
     private final OriginsClient origins;
     private final TokensClient tokens;
@@ -98,6 +100,7 @@ public final class Realm {
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.roles = new RolesClient(this.http, this.realmId);
+        this.signingKeys = new SigningKeysClient(this.http, this.realmId);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
         this.tokens = new TokensClient(clock);
@@ -123,6 +126,8 @@ public final class Realm {
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }
     public RolesClient roles() { return roles; }
+    /** Owner-facing signing-key read + self-serve rotate (roles/signing-keys overhaul). */
+    public SigningKeysClient signingKeys() { return signingKeys; }
     /** Identity-provider config CRUD (admin resource; distinct from IdP discovery). */
     public IdentityProviderConfigClient identityProviderConfig() { return identityProviderConfig; }
     public OriginsClient origins() { return origins; }

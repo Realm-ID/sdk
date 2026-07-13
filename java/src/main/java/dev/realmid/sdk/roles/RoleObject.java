@@ -22,6 +22,16 @@ public final class RoleObject {
     private List<String> permissions = new ArrayList<>();
     @JsonProperty("is_system") @JsonAlias("isSystem")
     private boolean isSystem;
+    /**
+     * Whether the role is soft-disabled: it stays in the catalog but is
+     * hidden and no longer assignable. Toggle with {@link RolesClient#disable}
+     * / {@link RolesClient#enable}. Absent on older servers (decodes to false).
+     */
+    @JsonProperty("disabled")
+    private boolean disabled;
+    /** Unix-seconds timestamp the role was disabled; 0 when active. */
+    @JsonProperty("disabled_at") @JsonAlias("disabledAt")
+    private long disabledAt;
     @JsonProperty("created_at") @JsonAlias("createdAt")
     private long createdAt;
     @JsonProperty("updated_at") @JsonAlias("updatedAt")
@@ -35,6 +45,8 @@ public final class RoleObject {
     public String displayName() { return displayName; }
     public List<String> permissions() { return permissions; }
     public boolean isSystem() { return isSystem; }
+    public boolean disabled() { return disabled; }
+    public long disabledAt() { return disabledAt; }
     public long createdAt() { return createdAt; }
     public long updatedAt() { return updatedAt; }
     @JsonAnyGetter public Map<String, Object> extra() { return extra; }
@@ -45,6 +57,8 @@ public final class RoleObject {
     public void setDisplayName(String v) { this.displayName = v; }
     public void setPermissions(List<String> v) { this.permissions = v; }
     public void setIsSystem(boolean v) { this.isSystem = v; }
+    public void setDisabled(boolean v) { this.disabled = v; }
+    public void setDisabledAt(long v) { this.disabledAt = v; }
     public void setCreatedAt(long v) { this.createdAt = v; }
     public void setUpdatedAt(long v) { this.updatedAt = v; }
 }

@@ -233,3 +233,75 @@ func TestRoles_RenamePostsTo(t *testing.T) {
 		t.Errorf("name=%q", got.Name)
 	}
 }
+
+func TestRoles_ListForwardsIncludeSystem(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
+		if v := r.URL.Query().Get("include_system"); v != "true" {
+			t.Errorf("include_system=%q", v)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "next_cursor": nil})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	if _, err := r.Roles.List(context.Background(), &RoleListOpts{IncludeSystem: true}); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+}
+
+func TestRoles_DisablePostsAndDecodesDisabledFields(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/role-x/disable", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("method=%s", r.Method)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "role-x", "name": "salesman", "permissions": []string{},
+			"is_system": false, "disabled": true, "disabled_at": 42,
+			"created_at": 1, "updated_at": 2,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	got, err := r.Roles.Disable(context.Background(), "role-x")
+	if err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if !got.Disabled {
+		t.Errorf("want Disabled=true")
+	}
+	if got.DisabledAt != 42 {
+		t.Errorf("DisabledAt=%d, want 42", got.DisabledAt)
+	}
+}
+
+func TestRoles_EnablePosts(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/role-x/enable", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("method=%s", r.Method)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "role-x", "name": "salesman", "permissions": []string{},
+			"is_system": false, "disabled": false, "created_at": 1, "updated_at": 3,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	got, err := r.Roles.Enable(context.Background(), "role-x")
+	if err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if got.Disabled {
+		t.Errorf("want Disabled=false")
+	}
+}

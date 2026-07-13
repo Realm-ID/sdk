@@ -17,12 +17,14 @@ import java.util.Map;
  *
  * <p>Each realm owns a {@code realm_roles} catalog. Only {@code owner}
  * and {@code member} are system roles; everything else is partner-
- * defined per realm. The five CRUD methods below mirror the wire
- * surface in ADR-040 §Wire surface.
+ * defined per realm. The CRUD methods below mirror the wire surface in
+ * ADR-040 §Wire surface; {@link #disable}/{@link #enable} soft-toggle a
+ * role's availability (roles/signing-keys overhaul).
  *
  * <p>Server-specific error codes ({@code role_in_use},
  * {@code system_role_immutable}, {@code role_exists},
- * {@code unknown_role}) flow through as {@link RealmException} with the
+ * {@code unknown_role}, {@code role_protected}, {@code last_active_role},
+ * {@code role_is_default}) flow through as {@link RealmException} with the
  * canonical {@link ErrorCode} mapped from the HTTP status. The
  * server's role-specific code string is preserved on
  * {@link RealmException#getDetails} (e.g. as {@code details.get("code")}
@@ -45,6 +47,7 @@ public final class RolesClient {
         if (opts != null) {
             if (opts.cursor() != null) q.put("cursor", opts.cursor());
             if (opts.limit() != null) q.put("limit", opts.limit());
+            if (opts.includeSystem()) q.put("include_system", "true");
         }
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "GET", "/platforms/" + enc(realmId) + "/roles").query(q));
@@ -89,6 +92,29 @@ public final class RolesClient {
         b.put("to", to);
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "POST", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId) + "/rename").body(b));
+        return http.mapper().convertValue(raw, RoleObject.class);
+    }
+
+    /**
+     * POST /platforms/{id}/roles/{roleId}/disable. Soft-disables the role;
+     * it stays in the catalog but is hidden and no longer assignable. The
+     * server rejects disabling a protected role ({@code owner}/{@code
+     * platform_api}), the realm's current default invitation role, or the
+     * last remaining active role.
+     */
+    public RoleObject disable(String roleId) {
+        return setDisabled(roleId, true);
+    }
+
+    /** POST /platforms/{id}/roles/{roleId}/enable — re-enable a disabled role. */
+    public RoleObject enable(String roleId) {
+        return setDisabled(roleId, false);
+    }
+
+    private RoleObject setDisabled(String roleId, boolean disabled) {
+        String action = disabled ? "disable" : "enable";
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId) + "/" + action));
         return http.mapper().convertValue(raw, RoleObject.class);
     }
 

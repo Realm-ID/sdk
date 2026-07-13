@@ -34,8 +34,15 @@ type RoleObject struct {
 	DisplayName string   `json:"display_name,omitempty"`
 	Permissions []string `json:"permissions"`
 	IsSystem    bool     `json:"is_system"`
-	CreatedAt   int64    `json:"created_at"`
-	UpdatedAt   int64    `json:"updated_at"`
+	// Disabled reports whether the role has been soft-disabled: it stays
+	// in the catalog but is hidden and no longer assignable. Toggle with
+	// Disable/Enable. Absent on older servers (decodes to false).
+	Disabled bool `json:"disabled"`
+	// DisabledAt is the unix-seconds timestamp the role was disabled;
+	// zero when active.
+	DisabledAt int64 `json:"disabled_at,omitempty"`
+	CreatedAt  int64 `json:"created_at"`
+	UpdatedAt  int64 `json:"updated_at"`
 }
 
 // RoleListPage is one page of `/platforms/{id}/roles` in the locked
@@ -50,6 +57,10 @@ type RoleListPage struct {
 type RoleListOpts struct {
 	Cursor string
 	Limit  int
+	// IncludeSystem asks the server to also return system roles it hides
+	// by default (currently `platform_api`). `owner`/`member` are always
+	// returned. Maps to `?include_system=true`.
+	IncludeSystem bool
 }
 
 // RoleCreate is the POST body.
@@ -100,6 +111,9 @@ func (c *RolesClient) List(ctx ctxpkg.Context, opts *RoleListOpts) (*RoleListPag
 		}
 		if opts.Limit > 0 {
 			q["limit"] = strconv.Itoa(opts.Limit)
+		}
+		if opts.IncludeSystem {
+			q["include_system"] = "true"
 		}
 	}
 	var page RoleListPage
@@ -190,6 +204,40 @@ func (c *RolesClient) Rename(ctx ctxpkg.Context, roleID string, to string) (*Rol
 		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(roleID) + "/rename",
 		Bearer: tok,
 		Body:   map[string]string{"to": to},
+	}, &r); err != nil {
+		return nil, mapRoleErr(err)
+	}
+	return &r, nil
+}
+
+// Disable soft-disables a custom role (POST …/roles/{id}/disable). The
+// role stays in the catalog but is hidden and no longer assignable. The
+// server rejects disabling a protected role (`owner`/`platform_api`), the
+// realm's current default invitation role, or the last remaining active
+// role (400 with a role-specific code).
+func (c *RolesClient) Disable(ctx ctxpkg.Context, roleID string) (*RoleObject, error) {
+	return c.setDisabled(ctx, roleID, true)
+}
+
+// Enable re-enables a previously disabled role (POST …/roles/{id}/enable).
+func (c *RolesClient) Enable(ctx ctxpkg.Context, roleID string) (*RoleObject, error) {
+	return c.setDisabled(ctx, roleID, false)
+}
+
+func (c *RolesClient) setDisabled(ctx ctxpkg.Context, roleID string, disabled bool) (*RoleObject, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	action := "enable"
+	if disabled {
+		action = "disable"
+	}
+	var r RoleObject
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(roleID) + "/" + action,
+		Bearer: tok,
 	}, &r); err != nil {
 		return nil, mapRoleErr(err)
 	}

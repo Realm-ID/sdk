@@ -25,6 +25,14 @@ export interface RoleObject {
   display_name?: string;
   permissions: string[];
   is_system: boolean;
+  /**
+   * A disabled role stays in the catalog but is hidden from the roles
+   * surface and rejected as an invitation target. Toggle with
+   * `disable()` / `enable()`. Absent on older servers (treat as false).
+   */
+  disabled?: boolean;
+  /** Unix seconds the role was disabled; omitted when active. */
+  disabled_at?: number;
   created_at: number;
   updated_at: number;
   [k: string]: unknown;
@@ -39,6 +47,12 @@ export interface RoleListPage {
 export interface RoleListOpts {
   cursor?: string;
   limit?: number;
+  /**
+   * Include system roles the server hides by default (currently
+   * `platform_api`). `owner`/`member` are always returned. Maps to
+   * `?include_system=true`.
+   */
+  includeSystem?: boolean;
 }
 
 export interface RoleCreate {
@@ -68,7 +82,11 @@ export class RolesClient {
     const raw = await this.http.request<unknown>({
       method: "GET",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles`,
-      query: { cursor: opts?.cursor, limit: opts?.limit },
+      query: {
+        cursor: opts?.cursor,
+        limit: opts?.limit,
+        include_system: opts?.includeSystem ? "true" : undefined,
+      },
     });
     return normalizePage(raw);
   }
@@ -107,6 +125,27 @@ export class RolesClient {
       method: "POST",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}/rename`,
       body: { to: opts.to },
+    });
+  }
+
+  /**
+   * Soft-disable a custom role (POST …/roles/{id}/disable). The role stays
+   * in the catalog but is hidden and no longer assignable. The server
+   * rejects disabling a protected role (`owner`/`platform_api`), the realm's
+   * current default invitation role, or the last remaining active role.
+   */
+  async disable(roleId: string): Promise<RoleObject> {
+    return this.http.request<RoleObject>({
+      method: "POST",
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}/disable`,
+    });
+  }
+
+  /** Re-enable a previously disabled role (POST …/roles/{id}/enable). */
+  async enable(roleId: string): Promise<RoleObject> {
+    return this.http.request<RoleObject>({
+      method: "POST",
+      path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}/enable`,
     });
   }
 }

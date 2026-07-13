@@ -15,6 +15,7 @@ import { InfoClient, type RealmInfo } from "./info.js";
 import { ApiKeysClient } from "./api-keys.js";
 import { ConfigClient } from "./config.js";
 import { RolesClient } from "./roles.js";
+import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
@@ -89,6 +90,8 @@ export interface Realm {
   readonly apiKeys: ApiKeysClient;
   readonly config: ConfigClient;
   readonly roles: RolesClient;
+  /** Owner-facing signing-key read + self-serve rotate. */
+  readonly signingKeys: SigningKeysClient;
   /**
    * Realm-admin CRUD for social/OIDC identity-provider configs. Distinct
    * from the public IdP discovery surface.
@@ -195,6 +198,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     apiKeys: new ApiKeysClient(http, cfg.realmId),
     config: new ConfigClient(http, cfg.realmId),
     roles: new RolesClient(http, cfg.realmId),
+    signingKeys: new SigningKeysClient(http, cfg.realmId),
     identityProviderConfig: new IdentityProviderConfigClient(http, cfg.realmId),
     origins: new OriginsClient(http, platformTokens),
     tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),

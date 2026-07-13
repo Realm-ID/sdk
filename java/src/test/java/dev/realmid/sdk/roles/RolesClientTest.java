@@ -4,6 +4,7 @@ import dev.realmid.sdk.ErrorCode;
 import dev.realmid.sdk.FakeServer;
 import dev.realmid.sdk.Realm;
 import dev.realmid.sdk.RealmException;
+import com.sun.net.httpserver.HttpExchange;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,5 +137,36 @@ class RolesClientTest {
         });
         RoleObject r = realm.roles().rename("role-oldname", "newname");
         assertEquals("newname", r.name());
+    }
+
+    @Test
+    void listForwardsIncludeSystem() {
+        fs.on("GET /platforms/01HREALM/roles", (HttpExchange ex, byte[] body) -> {
+            String q = ex.getRequestURI().getRawQuery();
+            assertNotNull(q);
+            assertTrue(q.contains("include_system=true"), "query=" + q);
+            return FakeServer.Reply.json(200, Map.of("items", List.of()));
+        });
+        realm.roles().list(RoleListOpts.includingSystem());
+    }
+
+    @Test
+    void disablePostsAndDecodesDisabledFields() {
+        fs.on("POST /platforms/01HREALM/roles/role-x/disable", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "id", "role-x", "name", "salesman", "permissions", List.of(),
+                "is_system", false, "disabled", true, "disabled_at", 42,
+                "created_at", 1, "updated_at", 2)));
+        RoleObject r = realm.roles().disable("role-x");
+        assertTrue(r.disabled());
+        assertEquals(42L, r.disabledAt());
+    }
+
+    @Test
+    void enablePosts() {
+        fs.on("POST /platforms/01HREALM/roles/role-x/enable", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "id", "role-x", "name", "salesman", "permissions", List.of(),
+                "is_system", false, "disabled", false, "created_at", 1, "updated_at", 3)));
+        RoleObject r = realm.roles().enable("role-x");
+        assertFalse(r.disabled());
     }
 }

@@ -13,6 +13,37 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Roles enable/disable + owner signing-keys client — go/v0.28.0 + ts-v0.19.0 + java-v0.17.0 + web-admin 0.7.1 (2026-07-13)
+
+Cross-cutting, additive — SDK parity for the issuer v0.32.0 roles/signing-keys
+overhaul (endpoints already shipped; swagger reconciled). See `DECISIONS.md`
+(2026-07-13).
+
+- **Roles disable/enable.** `RolesClient` gains `disable(roleId)` /
+  `enable(roleId)` (POST `…/roles/{id}/disable|enable`) and a `disabled` /
+  `disabled_at` field on the role object; `RoleListOpts` gains
+  `includeSystem` (→ `?include_system=true`, surfaces the server-hidden
+  `platform_api` row). go/ts/java + web-admin (reuses the ts `RolesClient`).
+- **Owner signing-keys client.** New `SigningKeysClient` — `list()` (GET
+  `/platforms/{id}/signing-keys`: keyring newest-first + rotation policy) and
+  `rotate()` (POST `…/rotate`, self-serve owner rotate; shares the server rate
+  limiter). Exposed as `realm.signingKeys` (go/ts/java) and `admin.keys`
+  (web-admin, reusing the ts client via `@realm-id/sdk/internal`). Distinct
+  from web-admin's existing base-staff `admin.signingKeys` ops client
+  (`/admin/platforms/…`).
+- **Per-tenant (org) config typing.** ts `TenantsClient.updateConfig` gains a
+  typed `TenantConfigPatch` (`role_overrides` / `default_invitation_role`);
+  go/java `updateConfig` already accepted an arbitrary config map (no change).
+
+- **web-admin: `platforms.listPendingDomains()`** (+ `PendingDomain` type) —
+  wraps issuer `GET /domains/pending` so the onboarding UI can list/resume
+  in-progress domain verifications (issuer v0.33.0). Browser-admin only.
+
+Fully backward compatible (absent `disabled`/`is_current` etc. decode to
+zero-values). web-admin (0.7.1) re-vendored into `Realm-ID/ui`, retiring the UI's
+`disableRole`/`enableRole`/`listSigningKeys`/`rotateSigningKey`/`patchTenantConfig`
+`api.ts` shims.
+
 ## `is_base` on `MeMembership` — web-admin `@realm-id/web-admin@0.6.1` (2026-07-11)
 
 Browser-admin SDK only, type-only. Adds optional `is_base?: boolean` to

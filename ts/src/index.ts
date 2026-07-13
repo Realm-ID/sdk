@@ -64,6 +64,7 @@ export type {
   Tenant,
   TenantCreate,
   TenantPatch,
+  TenantConfigPatch,
   Invitation,
   InvitationCreate,
   User,
@@ -90,6 +91,14 @@ export type {
   RoleCreate,
   RolePatch,
 } from "./roles.js";
+
+export { SigningKeysClient } from "./signing-keys.js";
+export type {
+  SigningKey,
+  SigningKeyRotation,
+  SigningKeysResponse,
+  RotateSigningKeyResult,
+} from "./signing-keys.js";
 
 export { IdentityProviderConfigClient } from "./identity-provider-config.js";
 export type {

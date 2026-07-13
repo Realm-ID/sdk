@@ -41,6 +41,13 @@ export interface DomainClaimResponse {
   status: string;
 }
 
+/** A pending domain claim as listed by GET /domains/pending — the claim
+ *  response shape plus when it was created and when the token expires. */
+export interface PendingDomain extends DomainClaimResponse {
+  created_at: number;
+  expires_at: number;
+}
+
 export interface PlatformCreatedResponse {
   platform_id: string;
   admin_tenant_id: string;

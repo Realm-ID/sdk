@@ -21,6 +21,7 @@ export {
   type Tenant,
   type TenantCreate,
   type TenantPatch,
+  type TenantConfigPatch,
   type SignupMode,
   type Invitation,
   type InvitationCreate,
@@ -45,6 +46,14 @@ export {
   type RoleCreate,
   type RolePatch,
 } from "./roles.js";
+
+export {
+  SigningKeysClient,
+  type SigningKey,
+  type SigningKeyRotation,
+  type SigningKeysResponse,
+  type RotateSigningKeyResult,
+} from "./signing-keys.js";
 
 export {
   ApiKeysClient,

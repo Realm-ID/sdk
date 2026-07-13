@@ -4,6 +4,20 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.17.0 — roles disable/enable + owner signing-keys client (2026-07-13)
+
+Additive. Parity for the issuer v0.32.0 roles/signing-keys overhaul.
+
+- **`RolesClient`** gains `disable(roleId)` / `enable(roleId)`; `RoleObject`
+  gains `disabled()` / `disabledAt()`; `RoleListOpts` gains `includeSystem`
+  (`RoleListOpts.includingSystem()`, → `?include_system=true`).
+- **`SigningKeysClient`** (new, `realm.signingKeys()`) in package
+  `dev.realmid.sdk.signingkeys` — `list()` returns `SigningKeysResponse`
+  (`keys` + `rotation`); `rotate()` returns `RotateSigningKeyResult`
+  (`kid` + `retiredKids`). Owner-scoped (`/platforms/{id}/signing-keys`).
+- Per-tenant `updateConfig` already accepts an arbitrary config map — no
+  change needed for `role_overrides` / `default_invitation_role`.
+
 ## java-v0.16.0 — `idle_ttl` on login + token responses (ADR-070, 2026-07-10)
 
 Additive. `Session` and `TokenResponse` gain `idleTtl` (wire `idle_ttl`,

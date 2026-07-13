@@ -131,6 +131,56 @@ test("roles.delete: 409 role_in_use surfaces as RealmError(conflict)", async () 
   });
 });
 
+test("roles.list: forwards include_system when requested", async () => {
+  const fetch = mkFetch((req) => {
+    assert.match(req.url, /include_system=true/);
+    return new Response(JSON.stringify({ items: [], next_cursor: null }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await realm.roles.list({ includeSystem: true });
+});
+
+test("roles.disable: POSTs …/disable and surfaces disabled fields", async () => {
+  const fetch = mkFetch((req) => {
+    assert.equal(req.method, "POST");
+    assert.match(req.url, /\/platforms\/r\/roles\/role-salesman\/disable$/);
+    return new Response(JSON.stringify({
+      id: "role-salesman", name: "salesman", permissions: [], is_system: false,
+      disabled: true, disabled_at: 42, created_at: 1, updated_at: 2,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const r = await realm.roles.disable("role-salesman");
+  assert.equal(r.disabled, true);
+  assert.equal(r.disabled_at, 42);
+});
+
+test("roles.enable: POSTs …/enable", async () => {
+  const fetch = mkFetch((req) => {
+    assert.equal(req.method, "POST");
+    assert.match(req.url, /\/platforms\/r\/roles\/role-salesman\/enable$/);
+    return new Response(JSON.stringify({
+      id: "role-salesman", name: "salesman", permissions: [], is_system: false,
+      disabled: false, created_at: 1, updated_at: 3,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const r = await realm.roles.enable("role-salesman");
+  assert.equal(r.disabled, false);
+});
+
+test("roles.disable: 400 last_active_role surfaces as RealmError", async () => {
+  const fetch = mkFetch(() => new Response(JSON.stringify({
+    error: { code: "bad_request", message: "a realm must keep at least one active role besides owner" },
+  }), { status: 400, headers: { "content-type": "application/json" } }));
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await assert.rejects(() => realm.roles.disable("role-last"), (e: Error) => {
+    return e instanceof RealmError && e.httpStatus === 400;
+  });
+});
+
 test("roles.rename: posts {to: <new>}", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "POST");

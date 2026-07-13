@@ -8,7 +8,7 @@ One locked spec, multiple language-idiomatic implementations.
 | `go/` | Released | `github.com/Realm-ID/sdk/go` |
 | `java/` | Released | `dev.realmid:sdk` |
 | `web/packages/core/` | Released | `@realm-id/web@0.4.5` (tenant-app browser SDK) |
-| `web/packages/admin/` | Released | `@realm-id/web-admin@0.6.1` (admin-UI browser SDK) |
+| `web/packages/admin/` | Released | `@realm-id/web-admin@0.7.1` (admin-UI browser SDK) |
 | `web/packages/react/` | Released | `@realm-id/web-react@0.4.0` |
 | `web/packages/firebase/` | Released | `@realm-id/web-firebase@0.4.0` |
 | `web/packages/google/` | Released | `@realm-id/web-google@0.4.0` |

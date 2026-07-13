@@ -4,6 +4,21 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.19.0 — roles disable/enable + owner signing-keys client (2026-07-13)
+
+Additive. Parity for the issuer v0.32.0 roles/signing-keys overhaul.
+
+- **`RolesClient`** gains `disable(roleId)` / `enable(roleId)`; `RoleObject`
+  gains `disabled` / `disabled_at`; `RoleListOpts` gains `includeSystem`
+  (→ `?include_system=true`).
+- **`SigningKeysClient`** (new, `realm.signingKeys`) — `list()` returns the
+  keyring + rotation policy (`{ keys, rotation }`); `rotate()` self-serve
+  rotates and returns `{ kid, retired_kids }`. Owner-scoped
+  (`/platforms/{id}/signing-keys`).
+- **`TenantConfigPatch`** — typed `updateConfig` body for the org-governance
+  keys (`role_overrides`, `default_invitation_role`).
+- Re-exported from `@realm-id/sdk/internal` for `@realm-id/web-admin`.
+
 ## ts-v0.18.0 — `idle_ttl` on login + token responses (ADR-070, 2026-07-10)
 
 Additive. `LoginResponse` and `TokenResponse` now carry `idleTtl?` (wire
