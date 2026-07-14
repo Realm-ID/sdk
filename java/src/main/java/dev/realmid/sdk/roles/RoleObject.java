@@ -20,6 +20,13 @@ public final class RoleObject {
     @JsonProperty("display_name") @JsonAlias("displayName")
     private String displayName;
     private List<String> permissions = new ArrayList<>();
+    /**
+     * ADR-075 per-role MFA method set — every holder must satisfy MFA via one
+     * of these methods at login. Only {@code "totp"}/{@code "otp"} are accepted
+     * server-side; empty means the role imposes no MFA requirement of its own.
+     */
+    @JsonProperty("required_mfa_methods") @JsonAlias("requiredMfaMethods")
+    private List<String> requiredMfaMethods = new ArrayList<>();
     @JsonProperty("is_system") @JsonAlias("isSystem")
     private boolean isSystem;
     /**
@@ -44,6 +51,7 @@ public final class RoleObject {
     public String name() { return name; }
     public String displayName() { return displayName; }
     public List<String> permissions() { return permissions; }
+    public List<String> requiredMfaMethods() { return requiredMfaMethods; }
     public boolean isSystem() { return isSystem; }
     public boolean disabled() { return disabled; }
     public long disabledAt() { return disabledAt; }
@@ -56,6 +64,7 @@ public final class RoleObject {
     public void setName(String v) { this.name = v; }
     public void setDisplayName(String v) { this.displayName = v; }
     public void setPermissions(List<String> v) { this.permissions = v; }
+    public void setRequiredMfaMethods(List<String> v) { this.requiredMfaMethods = v; }
     public void setIsSystem(boolean v) { this.isSystem = v; }
     public void setDisabled(boolean v) { this.disabled = v; }
     public void setDisabledAt(long v) { this.disabledAt = v; }

@@ -24,6 +24,12 @@ export interface RoleObject {
   name: string;
   display_name?: string;
   permissions: string[];
+  /**
+   * ADR-075 per-role MFA method set — every holder must satisfy MFA via one
+   * of these methods at login. Always an array; only `"totp"`/`"otp"` are
+   * accepted server-side. Empty means the role imposes no MFA requirement.
+   */
+  required_mfa_methods: string[];
   is_system: boolean;
   /**
    * A disabled role stays in the catalog but is hidden from the roles
@@ -71,11 +77,21 @@ export interface RoleCreate {
   name: string;
   displayName?: string;
   permissions?: string[];
+  /**
+   * ADR-075 per-role MFA requirement (subset of `["totp","otp"]`).
+   * Omit/empty for none.
+   */
+  requiredMfaMethods?: string[];
 }
 
 export interface RolePatch {
   displayName?: string;
   permissions?: string[];
+  /**
+   * Overwrites the ADR-075 per-role MFA method set when provided. Send `[]`
+   * to clear it; omit to leave it untouched (PATCH semantics).
+   */
+  requiredMfaMethods?: string[];
 }
 
 export class RolesClient {
@@ -107,6 +123,8 @@ export class RolesClient {
     const wire: Record<string, unknown> = { name: body.name };
     if (body.displayName !== undefined) wire["display_name"] = body.displayName;
     if (body.permissions !== undefined) wire["permissions"] = body.permissions;
+    if (body.requiredMfaMethods !== undefined)
+      wire["required_mfa_methods"] = body.requiredMfaMethods;
     return this.http.request<RoleObject>({
       method: "POST",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles`,
@@ -118,6 +136,8 @@ export class RolesClient {
     const wire: Record<string, unknown> = {};
     if (patch.displayName !== undefined) wire["display_name"] = patch.displayName;
     if (patch.permissions !== undefined) wire["permissions"] = patch.permissions;
+    if (patch.requiredMfaMethods !== undefined)
+      wire["required_mfa_methods"] = patch.requiredMfaMethods;
     return this.http.request<RoleObject>({
       method: "PATCH",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}`,

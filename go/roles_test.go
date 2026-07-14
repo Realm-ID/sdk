@@ -115,6 +115,39 @@ func TestRoles_CreateMapsWireShape(t *testing.T) {
 	}
 }
 
+func TestRoles_CreateForwardsRequiredMFA(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var got map[string]any
+		_ = json.Unmarshal(raw, &got)
+		mfa, ok := got["required_mfa_methods"].([]any)
+		if !ok || len(mfa) != 1 || mfa[0] != "otp" {
+			t.Errorf("required_mfa_methods=%v", got["required_mfa_methods"])
+		}
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "role-cashier", "name": "cashier", "display_name": "Cashier",
+			"permissions": []string{}, "required_mfa_methods": []string{"otp"},
+			"is_system": false, "created_at": 1, "updated_at": 1,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	got, err := r.Roles.Create(context.Background(), RoleCreate{
+		Name: "cashier", DisplayName: "Cashier", RequiredMFAMethods: []string{"otp"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(got.RequiredMFAMethods) != 1 || got.RequiredMFAMethods[0] != "otp" {
+		t.Errorf("decoded required_mfa_methods=%v", got.RequiredMFAMethods)
+	}
+}
+
 func TestRoles_UpdateSendsOnlyProvidedFields(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)

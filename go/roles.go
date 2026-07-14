@@ -33,7 +33,12 @@ type RoleObject struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name,omitempty"`
 	Permissions []string `json:"permissions"`
-	IsSystem    bool     `json:"is_system"`
+	// RequiredMFAMethods is the ADR-075 per-role MFA method set — every holder
+	// of this role must satisfy MFA via one of these methods at login. Always an
+	// array. Only "totp"/"otp" are accepted server-side. Empty means the role
+	// imposes no MFA requirement of its own.
+	RequiredMFAMethods []string `json:"required_mfa_methods"`
+	IsSystem           bool     `json:"is_system"`
 	// Disabled reports whether the role has been soft-disabled: it stays
 	// in the catalog but is hidden and no longer assignable. Toggle with
 	// Disable/Enable. Absent on older servers (decodes to false).
@@ -83,6 +88,9 @@ type RoleCreate struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
+	// RequiredMFAMethods sets the ADR-075 per-role MFA requirement
+	// (subset of {"totp","otp"}). Omit/empty for none.
+	RequiredMFAMethods []string `json:"required_mfa_methods,omitempty"`
 }
 
 // RolePatch is the PATCH body. Pointer fields signal "include in
@@ -90,6 +98,10 @@ type RoleCreate struct {
 type RolePatch struct {
 	DisplayName *string   `json:"display_name,omitempty"`
 	Permissions *[]string `json:"permissions,omitempty"`
+	// RequiredMFAMethods overwrites the ADR-075 per-role MFA method set when
+	// non-nil. Send a pointer to an empty slice to clear it; nil leaves it
+	// untouched (PATCH semantics).
+	RequiredMFAMethods *[]string `json:"required_mfa_methods,omitempty"`
 }
 
 // RoleDeleteResult is the DELETE acknowledgment.

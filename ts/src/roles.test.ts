@@ -92,6 +92,24 @@ test("roles.create: maps displayName + permissions to wire shape", async () => {
   assert.equal(r.is_system, false);
 });
 
+test("roles.create: forwards requiredMfaMethods (ADR-075)", async () => {
+  const fetch = mkFetch((req) => {
+    assert.deepEqual(req.body, {
+      name: "cashier",
+      display_name: "Cashier",
+      required_mfa_methods: ["otp"],
+    });
+    return new Response(JSON.stringify({
+      id: "role-cashier", name: "cashier", display_name: "Cashier",
+      permissions: [], required_mfa_methods: ["otp"],
+      is_system: false, created_at: 1, updated_at: 1,
+    }), { status: 201, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const r = await realm.roles.create({ name: "cashier", displayName: "Cashier", requiredMfaMethods: ["otp"] });
+  assert.deepEqual(r.required_mfa_methods, ["otp"]);
+});
+
 test("roles.update: sends only provided fields", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "PATCH");

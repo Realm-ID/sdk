@@ -59,6 +59,12 @@ export interface Platform {
   domain: string;
   admin_tenant_id: string;
   display_name: string;
+  /**
+   * ADR-075 platform-level MFA tri-state ("disabled"/"enabled"/"enforced").
+   * Surfaced on GET /platforms/mine so the Settings MFA tab can prime the
+   * control (the config PATCH has no GET counterpart). Omitted = "disabled".
+   */
+  mfa_policy?: "disabled" | "enabled" | "enforced";
 }
 
 export interface CreateApiKeyResponse {

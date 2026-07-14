@@ -62,6 +62,7 @@ public final class RolesClient {
         b.put("name", body.name());
         if (body.displayName() != null) b.put("display_name", body.displayName());
         if (body.permissions() != null) b.put("permissions", body.permissions());
+        if (body.requiredMfaMethods() != null) b.put("required_mfa_methods", body.requiredMfaMethods());
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "POST", "/platforms/" + enc(realmId) + "/roles").body(b));
         return http.mapper().convertValue(raw, RoleObject.class);
@@ -72,6 +73,7 @@ public final class RolesClient {
         Map<String, Object> b = new LinkedHashMap<>();
         if (patch.displayName() != null) b.put("display_name", patch.displayName());
         if (patch.permissions() != null) b.put("permissions", patch.permissions());
+        if (patch.requiredMfaMethods() != null) b.put("required_mfa_methods", patch.requiredMfaMethods());
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "PATCH", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId)).body(b));
         return http.mapper().convertValue(raw, RoleObject.class);

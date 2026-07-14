@@ -13,6 +13,27 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-075 roles: `required_mfa_methods` write surface — go 0.32.0 (`go/v0.32.0`) · ts 0.22.0 (`ts-v0.22.0`) · java 0.20.0 (`java-v0.20.0`) · web-admin 0.8.5 (2026-07-15)
+
+Additive across all four SDKs. Fans out the per-role MFA requirement
+(ADR-075 §4) to the role CRUD surface.
+
+- **`RoleObject.required_mfa_methods` / `.requiredMfaMethods()`** — the role's
+  MFA method set (subset of `{"totp","otp"}`), always an array. Decoded on
+  list/create/update responses.
+- **`RoleCreate` / `RolePatch` gain `requiredMfaMethods`** — forwarded as the
+  `required_mfa_methods` wire field on `POST` / `PATCH /platforms/{id}/roles`.
+  go: `RoleCreate.RequiredMFAMethods []string`, `RolePatch.RequiredMFAMethods
+  *[]string` (nil = don't touch, `&[]{}` = clear). ts: optional
+  `requiredMfaMethods?: string[]`. java: added record component + back-compat
+  constructors (`RoleCreate(name,display,perms)` still compiles;
+  `RolePatch.onlyRequiredMfaMethods(...)`).
+- **web-admin 0.8.5** re-vendored: `Platform.mfa_policy`
+  (`"disabled"|"enabled"|"enforced"`, ADR-075) added to the type; bundled
+  `@realm-id/sdk` carries the new roles surface.
+- The platform `mfa_policy` config key itself rides the existing generic
+  realm-config PATCH (no new typed SDK method). No breaking change.
+
 ## ADR-074 roles: `listPermissions()` + delete `migrate_to` — go 0.31.0 (`go/v0.31.0`) · ts 0.21.0 (`ts-v0.21.0`) · java 0.19.0 (`java-v0.19.0`) · web-admin 0.8.4 (2026-07-14)
 
 **All SDKs, additive.** Surfaces the two new issuer capabilities from ADR-074

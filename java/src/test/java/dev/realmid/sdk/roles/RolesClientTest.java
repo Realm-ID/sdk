@@ -86,6 +86,20 @@ class RolesClientTest {
     }
 
     @Test
+    void createForwardsRequiredMfaMethods() {
+        fs.onJson("POST /platforms/01HREALM/roles", (body, rec) -> {
+            assertEquals(List.of("otp"), body.get("required_mfa_methods"));
+            return FakeServer.Reply.json(201, Map.of(
+                    "name", "cashier", "display_name", "Cashier", "id", "role-cashier",
+                    "permissions", List.of(), "required_mfa_methods", List.of("otp"),
+                    "is_system", false, "created_at", 1, "updated_at", 1));
+        });
+        RoleObject r = realm.roles().create(new RoleCreate(
+                "cashier", "Cashier", List.of(), List.of("otp")));
+        assertEquals(List.of("otp"), r.requiredMfaMethods());
+    }
+
+    @Test
     void updateSendsOnlyProvidedFields() {
         fs.onJson("PATCH /platforms/01HREALM/roles/role-salesman", (body, rec) -> {
             assertFalse(body.containsKey("display_name"), "display_name should be omitted");

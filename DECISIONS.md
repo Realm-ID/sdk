@@ -7,6 +7,22 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-15 — ADR-075: role `required_mfa_methods` write surface
+
+**Problem.** ADR-075 makes the per-role MFA requirement writable; the SDKs
+carried `RoleObject.permissions` but not the sibling `required_mfa_methods`, and
+create/update had no way to set it.
+
+**Decision.** Mirror `permissions` exactly across go/ts/java: decode
+`required_mfa_methods` on `RoleObject`, add `requiredMfaMethods` to
+`RoleCreate`/`RolePatch`, forward it as the wire field. Java's records took a new
+component with **back-compat constructors** (existing 3-arg `RoleCreate` /
+2-arg `RolePatch` callers keep compiling) rather than a breaking signature bump.
+The platform `mfa_policy` config key rides the existing generic realm-config
+PATCH — no new typed SDK method, since it's one enum on a map already exposed via
+the UI shim. web-admin 0.8.5 re-vendored with `Platform.mfa_policy` on the type +
+the new bundled roles surface. go/v0.32.0 · ts0.22.0 · java0.20.0 · web-admin0.8.5.
+
 ## 2026-07-14 — ADR-074: `roles.listPermissions()` + delete `migrate_to`
 
 **Problem.** ADR-074 made the issuer enforce `realm_roles.permissions` and added

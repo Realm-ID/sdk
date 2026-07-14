@@ -4,6 +4,19 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.20.0 — roles: required_mfa_methods write surface (ADR-075) (2026-07-15)
+
+Additive port of the go/ts surface. See `../CHANGELOG.md`.
+
+- **`RoleObject.requiredMfaMethods()`** decodes the role's ADR-075 MFA method set
+  (`required_mfa_methods`, subset of `{"totp","otp"}`).
+- **`RoleCreate` / `RolePatch` gain a `requiredMfaMethods` component**, forwarded
+  as `required_mfa_methods` on create/patch. Back-compat constructors preserved
+  (the 3-arg `RoleCreate` and 2-arg `RolePatch` still compile);
+  `RolePatch.onlyRequiredMfaMethods(...)` added.
+- No breaking change; the platform `mfa_policy` config key rides the generic
+  realm-config PATCH (no new typed method).
+
 ## java-v0.19.0 — roles: listPermissions + delete migrate_to (ADR-074) (2026-07-14)
 
 Additive port of the go/ts surface. See `../CHANGELOG.md`.
