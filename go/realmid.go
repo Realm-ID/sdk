@@ -124,7 +124,15 @@ type Realm struct {
 	Sources *SourcesClient
 }
 
-// Version is the published SDK version (semver). 0.17.0 is additive over
+// Version is the published SDK version (semver). As of 0.30.0 it is
+// REALIGNED to the resolvable Go module tag (`go/vX.Y.Z`) and MUST be
+// kept in lockstep with it on every release — the two had drifted (tag
+// go/v0.29.0 shipped this const reading "0.20.0", which misled a partner
+// into thinking the ADR-071/072 service-account surface was unreleased).
+// The value you `go get` is the source of truth; this const now mirrors
+// it. 0.20.0 (this const's prior value) carried the ADR-071/072 surface:
+// service accounts, sources registry, and the OTP login grant rename
+// (`otp_internal` → `otp`). 0.17.0 is additive over
 // 0.16.0 (ADR-057, SPEC v0.10.0): the CredentialSource abstraction +
 // workload-identity-federation sources (StaticAPIKey, GoogleWorkloadIdentity,
 // GitHubActionsOIDC, zero-config auto-detect). APIKey config is now sugar for
@@ -146,7 +154,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.20.0"
+const Version = "0.30.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

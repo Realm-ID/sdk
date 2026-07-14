@@ -7,6 +7,36 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — Realign Go `const Version` to the module tag (`go/v0.30.0`)
+
+**Problem.** The Go SDK carries two version counters that had silently diverged:
+the resolvable module tag (`go/vX.Y.Z`, source of truth for `go get`) and an
+in-code `const Version` (a hand-maintained semver that tracked ADR feature
+rounds). At `go/v0.29.0` the tag said `v0.29.0` but the const said `"0.20.0"`. The
+Traide team keyed off the const and concluded the ADR-071/072 service-account
+surface was **unreleased** — when it was live in `go/v0.29.0`. This is the second
+such drift (the const already "skipped 0.15.0" per its own doc comment).
+
+**Options.** (A) Keep the two-counter model, cut the next semantic bump
+(`0.20.0→0.21.0`) — perpetuates the divergence, the const would still not match
+the tag a partner `go get`s. (B) **Realign the const to the module-tag scheme** and
+keep them in lockstep every release.
+
+**Decision — (B).** Set `const Version = "0.30.0"` and cut `go/v0.30.0` so
+`realmid.Version` == the module version a partner resolves. Documented the
+lockstep rule in the const's doc comment. No functional change — the ADR-071/072
+surface is identical to `go/v0.29.0`; this release exists solely to make the
+reported version honest. Only the Go SDK is affected (TS/Java version from their
+own package manifests, which already match what's published).
+
+**Related (not built, by decision).** The service-session refresh **grace window**
+Traide asked about (single-previous-refresh tolerance for a lost rotation
+response) — decided **not** to build; on a lost `/auth/token` response the
+unattended agent re-provisions (owner re-issues a login OTP). Recorded because it
+was weighed and declined, not merely deferred. Note there is no reuse-detection
+chain-revoke on the refresh path today, so a stale-token retry only 401s that one
+call; it does not kill the live session.
+
 ## 2026-07-14 — ADR-073 Release B: `users.importUsers` (`@realm-id/web-admin` 0.8.3)
 
 **What.** New `UsersClient.importUsers(tenantId, rows)` on `@realm-id/sdk`'s

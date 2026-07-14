@@ -13,6 +13,18 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Go `const Version` realigned to the module tag — go 0.30.0 (`go/v0.30.0`) (2026-07-14)
+
+**Go SDK only, no functional change.** `realmid.Version` had drifted from the
+resolvable module tag: `go/v0.29.0` shipped with `const Version = "0.20.0"`, which
+led the Traide integration team to read the ADR-071/072 service-account surface as
+"unreleased" (it was live in `go/v0.29.0`). Realigned the const to the module-tag
+scheme — `go/v0.30.0` now reports `Version = "0.30.0"` — and documented that the two
+MUST stay in lockstep every release. The value you `go get` is the source of truth.
+No API/behavior change; the ADR-071/072 surface is unchanged from `go/v0.29.0`.
+TS (`@realm-id/sdk`) and Java (`dev.realmid:sdk`) are versioned from their own
+package manifests and are unaffected.
+
 ## Service accounts + OTP-login cutover + sources registry — go 0.20.0 + ts 0.20.0 + java 0.18.0 (tags TBD) (2026-07-14)
 
 ADR-071/072 SDK surface (go reference; **ts + java parity shipped in WP6**):
