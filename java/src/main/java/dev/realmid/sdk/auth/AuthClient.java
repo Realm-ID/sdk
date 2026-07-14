@@ -89,16 +89,18 @@ public final class AuthClient {
 
     /**
      * SPEC §X.4 — partner OTP single-factor login. Wraps {@code POST
-     * /auth/login} with {@code method=otp_internal}; {@code identifier} is an
-     * E.164 phone or email the server resolves to a tenant-scoped user,
-     * {@code presented} is the manager-issued OTP value the user typed.
-     * Realm precondition: {@code otp_login_enabled = true}. Mirrors Go's
-     * {@code Auth.OTPLogin} / TS's {@code auth.otpLogin}.
+     * /auth/login} with {@code grant_type=otp} (ADR-071 §4 renamed the grant
+     * value from {@code otp_internal}; direct cutover — the issuer no longer
+     * accepts the old name); {@code identifier} is an E.164 phone or email the
+     * server resolves to a tenant-scoped user, {@code presented} is the
+     * manager-issued OTP value the user typed. Realm precondition:
+     * {@code otp_login_enabled = true}. Mirrors Go's {@code Auth.OTPLogin} /
+     * TS's {@code auth.otpLogin}.
      */
     public Session otpLogin(OtpLoginRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
-        body.put("method", "otp_internal");
+        body.put("grant_type", "otp");
         body.put("identifier", req.identifier());
         body.put("presented", req.presented());
         if (req.tenantId() != null && !req.tenantId().isEmpty()) body.put("tenant_id", req.tenantId());
@@ -110,15 +112,15 @@ public final class AuthClient {
 
     /**
      * SPEC §X.5 — partner OTP second-factor verify. Thin wrapper over
-     * {@link #mfaVerify(MFAVerifyRequest)} with {@code method=otp_internal}
-     * pre-set; the {@code mfaToken} comes from a prior {@code /auth/login}
-     * response that advertised {@code "otp_internal"} in {@code methods[]}.
-     * Realm precondition: {@code otp_mfa_enabled = true} and the user is
-     * enrolled in {@code otp_internal}. Mirrors Go's {@code Auth.MFAVerifyOTP}
-     * / TS's {@code auth.mfaVerifyOtp}.
+     * {@link #mfaVerify(MFAVerifyRequest)} with {@code method=otp} pre-set
+     * (ADR-071 §4 renamed the value from {@code otp_internal}); the
+     * {@code mfaToken} comes from a prior {@code /auth/login} response that
+     * advertised {@code "otp"} in {@code methods[]}. Realm precondition:
+     * {@code otp_mfa_enabled = true} and the user is enrolled in {@code otp}.
+     * Mirrors Go's {@code Auth.MFAVerifyOTP} / TS's {@code auth.mfaVerifyOtp}.
      */
     public Session mfaVerifyOtp(MfaVerifyOtpRequest req) {
-        return mfaVerify(new MFAVerifyRequest(req.mfaToken(), req.presented(), "otp_internal", req.origin()));
+        return mfaVerify(new MFAVerifyRequest(req.mfaToken(), req.presented(), "otp", req.origin()));
     }
 
     /** SPEC §4.4. */

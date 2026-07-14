@@ -16,7 +16,9 @@ import dev.realmid.sdk.platformtoken.CredentialSources;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.roles.RolesClient;
+import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
+import dev.realmid.sdk.sources.SourcesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
 import dev.realmid.sdk.tokens.TokensClient;
 import dev.realmid.sdk.admin.AdminClient;
@@ -47,6 +49,8 @@ public final class Realm {
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
     private final RolesClient roles;
+    private final ServiceAccountsClient serviceAccounts;
+    private final SourcesClient sources;
     private final SigningKeysClient signingKeys;
     private final IdentityProviderConfigClient identityProviderConfig;
     private final OriginsClient origins;
@@ -100,6 +104,8 @@ public final class Realm {
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.roles = new RolesClient(this.http, this.realmId);
+        this.serviceAccounts = new ServiceAccountsClient(this.http);
+        this.sources = new SourcesClient(this.http, this.realmId);
         this.signingKeys = new SigningKeysClient(this.http, this.realmId);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
@@ -126,6 +132,10 @@ public final class Realm {
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }
     public RolesClient roles() { return roles; }
+    /** Owner/admin service-account surface (ADR-071). */
+    public ServiceAccountsClient serviceAccounts() { return serviceAccounts; }
+    /** Owner/admin app/source registry (ADR-072). */
+    public SourcesClient sources() { return sources; }
     /** Owner-facing signing-key read + self-serve rotate (roles/signing-keys overhaul). */
     public SigningKeysClient signingKeys() { return signingKeys; }
     /** Identity-provider config CRUD (admin resource; distinct from IdP discovery). */

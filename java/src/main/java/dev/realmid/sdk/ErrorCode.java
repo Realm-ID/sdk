@@ -55,6 +55,15 @@ public enum ErrorCode {
     INVALID_PURPOSE("invalid_purpose"),
     INVALID_SUBJECT_REF("invalid_subject_ref"),
 
+    // service accounts (ADR-071) + sources (ADR-072)
+    HANDLE_TAKEN("handle_taken"),
+    INVALID_ROLE("invalid_role"),
+    SERVICE_ACCOUNT_NOT_FOUND("service_account_not_found"),
+    NOT_SERVICE("not_service"),
+    METHOD_VIOLATES_KIND("method_violates_kind"),
+    SOURCE_NOT_FOUND("source_not_found"),
+    USER_NOT_FOUND("user_not_found"),
+
     // management / generic
     UNAUTHORIZED("unauthorized"),
     FORBIDDEN("forbidden"),

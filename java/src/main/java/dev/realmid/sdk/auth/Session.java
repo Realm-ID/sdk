@@ -26,6 +26,11 @@ public record Session(
         // means no idle timeout — treat as "disabled", not "expire now".
         @JsonProperty("idle_ttl") @JsonAlias("idleTtl") long idleTtl,
         @JsonProperty("expires_at") @JsonAlias("expiresAt") String expiresAt,
+        // ADR-071 §8 — the owner/admin who minted the login OTP that produced
+        // this service-account session (attribution/provenance). null for
+        // human/provider logins and M2M sessions. Decoded from the issuer's
+        // `initiated_by_user_id`.
+        @JsonProperty("initiated_by_user_id") @JsonAlias("initiatedByUserId") String initiatedByUserId,
         Map<String, Object> user,
         List<TenantRef> tenants,
         String id,

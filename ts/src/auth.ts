@@ -63,6 +63,13 @@ export interface LoginResponse {
    */
   idleTtl?: number;
   expiresAt?: string;
+  /**
+   * ADR-071 §8 — the owner/admin who minted the login OTP that produced this
+   * service-account session (attribution/provenance). `undefined` for
+   * human/provider logins and M2M sessions. Decoded from the issuer's
+   * `initiated_by_user_id`.
+   */
+  initiatedByUserId?: string;
   user: UserSummary;
   tenants: TenantRef[];
 }
@@ -213,6 +220,7 @@ interface RawAuthResponse {
   refresh_exp?: number;
   idle_ttl?: number;
   expires_at?: string;
+  initiated_by_user_id?: string;
   user: UserSummary;
   tenants?: TenantRef[];
 }
@@ -310,7 +318,9 @@ export class AuthClient {
       headers,
       body: {
         realm_id: this.realmId,
-        method: "otp_internal",
+        // ADR-071 §4: canonical grant_type, value renamed otp_internal→otp
+        // (direct cutover — the issuer no longer accepts the old name).
+        grant_type: "otp",
         identifier: req.identifier,
         presented: req.presented,
         ...(req.tenantId ? { tenant_id: req.tenantId } : {}),
@@ -321,9 +331,9 @@ export class AuthClient {
 
   /**
    * Partner OTP §3.2.2 — second-factor MFA verify with a manager-issued
-   * OTP. Thin wrapper over mfaVerify with method=otp_internal pre-set.
-   * The mfa_challenge_token comes from a prior /auth/login response that
-   * advertised "otp_internal" in `methods[]`.
+   * OTP. Thin wrapper over mfaVerify with method=otp pre-set (ADR-071 §4
+   * renamed the wire value from otp_internal). The mfa_challenge_token comes
+   * from a prior /auth/login response that advertised "otp" in `methods[]`.
    */
   async mfaVerifyOtp(req: {
     mfaToken: string;
@@ -333,7 +343,7 @@ export class AuthClient {
     return this.mfaVerify({
       challengeToken: req.mfaToken,
       code: req.presented,
-      method: "otp_internal",
+      method: "otp",
       origin: req.origin,
     });
   }
@@ -543,6 +553,7 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
     refreshExp: r.refresh_exp,
     idleTtl: r.idle_ttl,
     expiresAt: r.expires_at,
+    initiatedByUserId: r.initiated_by_user_id,
     user: r.user,
     tenants: r.tenants ?? [],
   };

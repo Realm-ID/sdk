@@ -12,9 +12,25 @@
 
 import type { HttpClient } from "./http.js";
 
+/**
+ * OTP delivery modes (ADR-071 §4). v1 supports `view_bff` only: the plaintext
+ * OTP is returned to the BFF for display, never delivered out-of-band.
+ */
+export type OtpDeliveryMode = "view_bff";
+
+/** Convenience constant for {@link OtpIssueRequest.deliveryMode}. */
+export const DELIVERY_MODE_VIEW_BFF: OtpDeliveryMode = "view_bff";
+
 export interface OtpIssueRequest {
   subjectRef: string;
   purpose: string;
+  /**
+   * How the OTP reaches the end-user (ADR-071 §4). v1 supports `"view_bff"`
+   * only (the plaintext value is returned for BFF display). Omitted defers to
+   * the issuer default. A `purpose="login"` OTP for a service account requires
+   * `view_bff`.
+   */
+  deliveryMode?: OtpDeliveryMode;
   /** End-user access JWT (Authorization: Bearer). */
   userBearer?: string;
 }
@@ -81,11 +97,16 @@ export class OtpClient {
 
   /** POST /auth/otp/issue */
   async issue(req: OtpIssueRequest): Promise<OtpIssueResponse> {
+    const body: Record<string, unknown> = {
+      subject_ref: req.subjectRef,
+      purpose: req.purpose,
+    };
+    if (req.deliveryMode !== undefined) body["delivery_mode"] = req.deliveryMode;
     const raw = await this.http.request<RawIssueResp>({
       method: "POST",
       path: "/auth/otp/issue",
       bearer: req.userBearer,
-      body: { subject_ref: req.subjectRef, purpose: req.purpose },
+      body,
     });
     return {
       id: raw.id,

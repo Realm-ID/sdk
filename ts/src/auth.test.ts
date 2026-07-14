@@ -169,23 +169,28 @@ test("auth: decodes refresh_exp + idle_ttl onto login + token responses", async 
   assert.equal(bareLogin.idleTtl, undefined);
 });
 
-test("auth.otpLogin: sends method=otp_internal + identifier + presented", async () => {
+test("auth.otpLogin: sends grant_type=otp + identifier + presented (ADR-071 §4)", async () => {
   const { fetch, calls } = recorder([
     () => new Response(JSON.stringify({
       access_token: "at", refresh_token: "rt", expires_in: 900,
+      initiated_by_user_id: "u-owner",
       user: { id: "u-bob" }, tenants: [{ id: "t1", role: "member" }],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const out = await realm.auth.otpLogin({ identifier: "+15551234567", presented: "123456" });
   assert.equal(out.accessToken, "at");
+  // ADR-071 §8 provenance decodes onto the session.
+  assert.equal(out.initiatedByUserId, "u-owner");
   const body = calls[1]!.body as Record<string, unknown>;
-  assert.equal(body["method"], "otp_internal");
+  assert.equal(body["grant_type"], "otp");
+  // Direct cutover — the deprecated `method` field must not be sent.
+  assert.equal(body["method"], undefined);
   assert.equal(body["identifier"], "+15551234567");
   assert.equal(body["presented"], "123456");
 });
 
-test("auth.mfaVerifyOtp: routes through /auth/mfa/verify with method=otp_internal", async () => {
+test("auth.mfaVerifyOtp: routes through /auth/mfa/verify with method=otp (ADR-071 §4)", async () => {
   const { fetch, calls } = recorder([
     () => new Response(JSON.stringify({
       access_token: "at2", refresh_token: "rt2", expires_in: 900,
@@ -196,7 +201,7 @@ test("auth.mfaVerifyOtp: routes through /auth/mfa/verify with method=otp_interna
   await realm.auth.mfaVerifyOtp({ mfaToken: "ch_9", presented: "654321" });
   assert.match(calls[1]!.url, /\/auth\/mfa\/verify$/);
   const body = calls[1]!.body as Record<string, unknown>;
-  assert.equal(body["method"], "otp_internal");
+  assert.equal(body["method"], "otp");
   assert.equal(body["mfa_challenge_token"], "ch_9");
   assert.equal(body["code"], "654321");
 });

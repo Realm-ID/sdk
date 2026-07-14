@@ -13,9 +13,9 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Service accounts + OTP-login cutover + sources registry — go (0.20.0; tag TBD) (2026-07-14)
+## Service accounts + OTP-login cutover + sources registry — go 0.20.0 + ts 0.20.0 + java 0.18.0 (tags TBD) (2026-07-14)
 
-ADR-071/072 SDK surface (go reference; ts/java parity to follow):
+ADR-071/072 SDK surface (go reference; **ts + java parity shipped in WP6**):
 
 - **OTP login grant renamed** `otp_internal` → `otp` (ADR-071 §4 direct cutover).
   `Auth.OTPLogin` sends `grant_type=otp`; `Auth.MFAVerifyOTP` sends `method=otp`.
@@ -34,6 +34,21 @@ ADR-071/072 SDK surface (go reference; ts/java parity to follow):
 - SPEC.md updated: `otp_internal` → `otp` across the grant/method tables.
 
 Dep-free; stdlib tests. Tag `go/vX.Y.Z` (TBD) at the coordinated release.
+
+**WP6 — ts + java parity port (2026-07-14).** Same surface ported to `@realm-id/sdk`
+(0.19.0 → **0.20.0**) and `dev.realmid:sdk` (0.17.0 → **0.18.0**), matching the go
+reference exactly: `auth.otpLogin` sends `grant_type=otp` (drops the deprecated
+`method` field); `auth.mfaVerifyOtp` sends `method=otp`; `otp.issue` gains
+`deliveryMode` (`view_bff`, TS `DELIVERY_MODE_VIEW_BFF` / Java
+`OtpIssueRequest.DELIVERY_MODE_VIEW_BFF`); the login/verify session decodes
+`initiated_by_user_id` (TS `initiatedByUserId`, Java `Session.initiatedByUserId`);
+new `realm.serviceAccounts` (TS) / `realm.serviceAccounts()` (Java) and
+`realm.sources` / `realm.sources()` clients. New server error codes
+(`handle_taken`, `invalid_role`, `service_account_not_found`, `not_service`,
+`method_violates_kind`, `source_not_found`, `user_not_found`) surface on the
+existing `RealmError.code` (TS) / `ErrorCode` + `RealmException` (Java) convention.
+TS suite 136/136, Java suite 121/121 green. Tags `ts-vX.Y.Z` / `java-vX.Y.Z` held
+for the coordinated release.
 
 ## Roles enable/disable + owner signing-keys client — go/v0.28.0 + ts-v0.19.0 + java-v0.17.0 + web-admin 0.7.1 (2026-07-13)
 

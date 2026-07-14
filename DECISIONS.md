@@ -7,6 +7,45 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — ADR-071/072 WP6: ts + java parity port (ts 0.20.0 · java 0.18.0)
+
+**What.** Ported the WP5 go surface to `@realm-id/sdk` and `dev.realmid:sdk`,
+one-to-one with the go reference (SPEC is law; go is the surface truth).
+
+**Decisions / how the go semantics mapped to each language's idioms:**
+
+- **OTP login sends `grant_type=otp`, not `method`.** The go reference (WP5)
+  posts `grant_type: "otp"` on the OTP login path (the ADR-051 canonical
+  discriminator); ts/java `otpLogin` still posted the *legacy* `method` field
+  with value `otp_internal`. WP6 aligns them to the go wire shape — `grant_type:
+  "otp"`, deprecated `method` dropped — rather than the smaller edit of just
+  renaming the `method` value. Rationale: rule #1 of the port is "match the go
+  reference exactly," and the issuer's frozen contract (proven by the shipped go
+  SDK) accepts `grant_type` on this path. `mfaVerifyOtp` keeps the `method`
+  field (that endpoint is method-keyed) with value `otp`.
+- **Typed errors via the existing per-language convention, not new sentinels.**
+  Go uses `errors.Is` sentinels; ts uses the `RealmError.code` string union +
+  `KNOWN_CODES`; java uses the `ErrorCode` enum + `fromWire`. Rather than invent
+  a parallel sentinel layer, WP6 adds the new server codes (`handle_taken`,
+  `invalid_role`, `service_account_not_found`, `not_service`,
+  `method_violates_kind`, `source_not_found`, `user_not_found`) to those
+  existing discriminants so callers branch the idiomatic way. Without this the
+  ts/java error mapper would have collapsed them to the HTTP-status fallback
+  (`conflict`/`bad_request`/`not_found`) and lost the specific code.
+- **ServiceAccounts/Sources auth = platform token**, mirroring `RolesClient`
+  (no on-behalf ceremony in the SDK) — same call the go reference makes.
+- **Surface naming follows each SDK's siblings.** DTO shapes mirror the Roles
+  client (raw snake_case response fields in ts `ServiceAccount`/`Source`;
+  camelCase mapped inputs like `RoleCreate`). Java uses Jackson records with
+  `@JsonProperty` like `Session`/`RoleObject`.
+- **Java `OtpIssueRequest` back-compat.** Adding `deliveryMode` to the record
+  would break its 5-arg canonical constructor (used by tests + the `forUser`/
+  `withBearer` factories), so a delegating 5-arg constructor + a
+  `withDeliveryMode(...)` wither were added — no caller breakage.
+
+**Verification.** TS `npm test` 136/136; Java `./gradlew test` 121/121. Tags held
+for the coordinated release (WP-level, not per-SDK).
+
 ## 2026-07-14 — ADR-071/072 WP5: service accounts + OTP-login cutover + sources (go reference)
 
 **What.** The go SDK (the reference the ts/java ports copy) learns the ADR-071/072

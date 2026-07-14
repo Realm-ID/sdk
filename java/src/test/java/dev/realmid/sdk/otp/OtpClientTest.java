@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OtpClientTest {
@@ -143,5 +144,34 @@ class OtpClientTest {
         RealmException ex = assertThrows(RealmException.class, () -> realm.otp().issue(
                 new OtpIssueRequest("booking:X", "delivery", "u1", "user-jwt", null)));
         assertEquals(ErrorCode.BAD_REQUEST, ex.getCode());
+    }
+
+    @Test
+    void issueThreadsDeliveryModeViewBff() {
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/otp/issue", (ex, body) -> {
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "id", "otp-1", "value", "123456",
+                    "expires_at", "2026-07-14T00:00:00Z",
+                    "purpose", "login", "subject_ref", "user:sa-1"));
+        });
+        realm.otp().issue(OtpIssueRequest.forUser("user:sa-1", "login", "u-owner")
+                .withDeliveryMode(OtpIssueRequest.DELIVERY_MODE_VIEW_BFF));
+        assertEquals("view_bff", seen.get().bodyAsMap().get("delivery_mode"));
+    }
+
+    @Test
+    void issueOmitsDeliveryModeWhenUnset() {
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/otp/issue", (ex, body) -> {
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "id", "otp-2", "value", "222222",
+                    "expires_at", "2026-07-14T00:00:00Z",
+                    "purpose", "delivery", "subject_ref", "booking:X"));
+        });
+        realm.otp().issue(OtpIssueRequest.forUser("booking:X", "delivery", "u1"));
+        assertFalse(seen.get().bodyAsMap().containsKey("delivery_mode"));
     }
 }

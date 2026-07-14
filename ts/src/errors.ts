@@ -43,6 +43,14 @@ export type ErrorCode =
   | "otp_not_found"
   | "invalid_purpose"
   | "invalid_subject_ref"
+  // service accounts (ADR-071) + sources (ADR-072)
+  | "handle_taken"
+  | "invalid_role"
+  | "service_account_not_found"
+  | "not_service"
+  | "method_violates_kind"
+  | "source_not_found"
+  | "user_not_found"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -105,6 +113,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "bad_request", "network", "server_error",
   "invalid_otp", "otp_expired", "otp_locked", "otp_not_found",
   "invalid_purpose", "invalid_subject_ref",
+  "handle_taken", "invalid_role", "service_account_not_found",
+  "not_service", "method_violates_kind", "source_not_found", "user_not_found",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

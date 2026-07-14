@@ -22,6 +22,8 @@ import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
 import { AuditEventsClient } from "./audit-events.js";
 import { OtpClient } from "./otp.js";
+import { ServiceAccountsClient } from "./service-accounts.js";
+import { SourcesClient } from "./sources.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
@@ -104,6 +106,10 @@ export interface Realm {
   readonly auditEvents: AuditEventsClient;
   /** Partner OTP primitive (issue / view / verify). See proposal in auth repo. */
   readonly otp: OtpClient;
+  /** Owner/admin service-account surface (ADR-071). */
+  readonly serviceAccounts: ServiceAccountsClient;
+  /** Owner/admin app/source registry (ADR-072). */
+  readonly sources: SourcesClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -205,6 +211,8 @@ export function createRealm(cfg: RealmConfig): Realm {
     admin: new AdminClient(http),
     auditEvents: new AuditEventsClient(http, cfg.realmId),
     otp: new OtpClient(http),
+    serviceAccounts: new ServiceAccountsClient(http),
+    sources: new SourcesClient(http, cfg.realmId),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

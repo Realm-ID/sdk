@@ -131,6 +131,26 @@ export type {
 export { AuditEventsClient } from "./audit-events.js";
 export type { AuditEventsResponse, ListAuditEventsOpts } from "./audit-events.js";
 
+export { OtpClient, DELIVERY_MODE_VIEW_BFF } from "./otp.js";
+export type {
+  OtpDeliveryMode,
+  OtpIssueRequest,
+  OtpIssueResponse,
+  OtpViewResponse,
+  OtpVerifyRequest,
+  OtpVerifyResponse,
+} from "./otp.js";
+
+export { ServiceAccountsClient } from "./service-accounts.js";
+export type {
+  ServiceAccount,
+  ServiceAccountCreate,
+  ServiceAccountRevokeResult,
+} from "./service-accounts.js";
+
+export { SourcesClient } from "./sources.js";
+export type { Source, SourceCreate, SourcePatch } from "./sources.js";
+
 export { createMiddleware, globMatch } from "./middleware.js";
 export type {
   MiddlewareConfig,

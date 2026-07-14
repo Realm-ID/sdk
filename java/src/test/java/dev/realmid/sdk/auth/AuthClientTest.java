@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -177,7 +178,7 @@ class AuthClientTest {
     // ---- Partner OTP login / verify (SPEC §X.4 / §X.5) ----
 
     @Test
-    void otpLoginSendsMethodOtpInternalWithIdentifierAndPresented() {
+    void otpLoginSendsGrantTypeOtpWithIdentifierAndPresented() {
         AtomicReference<Map<String, Object>> seen = new AtomicReference<>();
         fs.on("POST /auth/login", (ex, body) -> {
             Map<String, Object> b = fs.last().bodyAsMap();
@@ -190,17 +191,22 @@ class AuthClientTest {
             return FakeServer.Reply.json(200, Map.of(
                     "access_token", "at-otp", "refresh_token", "rt-otp",
                     "expires_in", 900, "user", Map.of("id", "u-bob"),
+                    "initiated_by_user_id", "u-owner",
                     "tenants", java.util.List.of()));
         });
         Session s = realm.auth().otpLogin(OtpLoginRequest.of("+15551234567", "123456"));
         assertEquals("at-otp", s.accessToken());
-        assertEquals("otp_internal", seen.get().get("method"));
+        // ADR-071 §8 provenance decodes onto the session.
+        assertEquals("u-owner", s.initiatedByUserId());
+        // ADR-071 §4: grant_type=otp on the wire, deprecated `method` dropped.
+        assertEquals("otp", seen.get().get("grant_type"));
+        assertNull(seen.get().get("method"));
         assertEquals("+15551234567", seen.get().get("identifier"));
         assertEquals("123456", seen.get().get("presented"));
     }
 
     @Test
-    void mfaVerifyOtpRoutesThroughMfaVerifyWithOtpInternal() {
+    void mfaVerifyOtpRoutesThroughMfaVerifyWithOtp() {
         AtomicReference<Map<String, Object>> seen = new AtomicReference<>();
         fs.on("POST /auth/mfa/verify", (ex, body) -> {
             seen.set(fs.last().bodyAsMap());
@@ -210,7 +216,7 @@ class AuthClientTest {
         });
         Session s = realm.auth().mfaVerifyOtp(MfaVerifyOtpRequest.of("ch-9", "654321"));
         assertEquals("at-otp2", s.accessToken());
-        assertEquals("otp_internal", seen.get().get("method"));
+        assertEquals("otp", seen.get().get("method"));
         assertEquals("ch-9", seen.get().get("mfa_challenge_token"));
         assertEquals("654321", seen.get().get("code"));
     }

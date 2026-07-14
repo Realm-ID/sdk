@@ -38,6 +38,9 @@ public final class OtpClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("subject_ref", req.subjectRef());
         body.put("purpose", req.purpose());
+        if (req.deliveryMode() != null && !req.deliveryMode().isEmpty()) {
+            body.put("delivery_mode", req.deliveryMode());
+        }
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/otp/issue").body(body);
         applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
         JsonNode raw = http.request(r);

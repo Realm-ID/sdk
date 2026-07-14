@@ -2,6 +2,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { DELIVERY_MODE_VIEW_BFF } from "./otp.js";
 
 interface Recorded {
   url: string;
@@ -119,4 +120,38 @@ test("otp.view: returns issuerUserId", async () => {
   const out = await realm.otp.view("otp-1", { userBearer: "manager-jwt" });
   assert.equal(out.value, "654321");
   assert.equal(out.issuerUserId, "manager-A");
+});
+
+test("otp.issue: threads delivery_mode=view_bff onto the issue body (ADR-071 §4)", async () => {
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      id: "otp-1",
+      value: "123456",
+      expires_at: "2026-07-14T00:00:00Z",
+      purpose: "login",
+      subject_ref: "user:sa-1",
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  await realm.otp.issue({
+    subjectRef: "user:sa-1",
+    purpose: "login",
+    deliveryMode: DELIVERY_MODE_VIEW_BFF,
+    userBearer: "owner-jwt",
+  });
+  const body = calls[0]!.body as Record<string, unknown>;
+  assert.equal(body["delivery_mode"], "view_bff");
+});
+
+test("otp.issue: omits delivery_mode when unset", async () => {
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      id: "otp-2", value: "222222", expires_at: "2026-07-14T00:00:00Z",
+      purpose: "delivery", subject_ref: "booking:X",
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  await realm.otp.issue({ subjectRef: "booking:X", purpose: "delivery", userBearer: "u" });
+  const body = calls[0]!.body as Record<string, unknown>;
+  assert.equal("delivery_mode" in body, false);
 });

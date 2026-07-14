@@ -4,6 +4,28 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.18.0 — service accounts + OTP-login cutover + sources (ADR-071/072) (2026-07-14)
+
+Additive parity port of the go reference SDK (WP6). See `../CHANGELOG.md`.
+
+- **OTP login grant cutover** — `auth().otpLogin(...)` now sends
+  `grant_type=otp` on `POST /auth/login` (was `method=otp_internal`; ADR-071 §4
+  direct cutover, no dual-accept). `auth().mfaVerifyOtp(...)` sends `method=otp`.
+- **`otp().issue(...)` gains delivery mode** — `OtpIssueRequest` gains a
+  `deliveryMode` component (+ `withDeliveryMode(...)` and
+  `DELIVERY_MODE_VIEW_BFF`), threaded onto the body as `delivery_mode`. The
+  back-compat 5-arg constructor is preserved.
+- **`Session.initiatedByUserId()`** — decodes the issuer's
+  `initiated_by_user_id` provenance (ADR-071 §8).
+- **`realm.serviceAccounts()`** (new `ServiceAccountsClient`) — `create` /
+  `list` / `get` / `resetHandle` / `suspend` / `unsuspend` / `deactivate` /
+  `revoke` over `/tenants/{id}/service-accounts`.
+- **`realm.sources()`** (new `SourcesClient`, ADR-072) — `list` / `create` /
+  `update` / `delete` over `/sources`.
+- **New `ErrorCode` constants**: `HANDLE_TAKEN`, `INVALID_ROLE`,
+  `SERVICE_ACCOUNT_NOT_FOUND`, `NOT_SERVICE`, `METHOD_VIOLATES_KIND`,
+  `SOURCE_NOT_FOUND`, `USER_NOT_FOUND`.
+
 ## java-v0.17.0 — roles disable/enable + owner signing-keys client (2026-07-13)
 
 Additive. Parity for the issuer v0.32.0 roles/signing-keys overhaul.
