@@ -26,6 +26,11 @@ type OTPClient struct{ realm *Realm }
 type IssueRequest struct {
 	SubjectRef string
 	Purpose    string
+	// DeliveryMode selects how the OTP reaches the end-user (ADR-071 §4). v1
+	// supports "view_bff" only (the plaintext Value is returned for BFF display
+	// — use DeliveryModeViewBFF). Empty defers to the issuer default. A
+	// purpose="login" OTP for a service account requires view_bff.
+	DeliveryMode string
 
 	// Auth: exactly one of UserID or UserBearer.
 	UserID     string
@@ -88,6 +93,9 @@ func (c *OTPClient) Issue(ctx ctxpkg.Context, req IssueRequest) (*IssueResponse,
 	body := map[string]any{
 		"subject_ref": req.SubjectRef,
 		"purpose":     req.Purpose,
+	}
+	if req.DeliveryMode != "" {
+		body["delivery_mode"] = req.DeliveryMode
 	}
 	var resp IssueResponse
 	if err := c.realm.http.do(ctx, requestOptions{

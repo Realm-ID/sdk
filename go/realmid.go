@@ -118,6 +118,10 @@ type Realm struct {
 	// OTP exposes the partner OTP primitive (issue / view / verify) —
 	// see docs/proposals/partner-otp-primitive.md in the auth repo.
 	OTP *OTPClient
+	// ServiceAccounts is the owner/admin service-account surface (ADR-071).
+	ServiceAccounts *ServiceAccountsClient
+	// Sources is the owner/admin app/source registry (ADR-072).
+	Sources *SourcesClient
 }
 
 // Version is the published SDK version (semver). 0.17.0 is additive over
@@ -142,7 +146,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.19.0"
+const Version = "0.20.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -193,6 +197,8 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Admin = newAdminClient(r)
 	r.AuditEvents = newAuditEventsClient(r)
 	r.OTP = &OTPClient{realm: r}
+	r.ServiceAccounts = &ServiceAccountsClient{realm: r}
+	r.Sources = &SourcesClient{realm: r}
 
 	return r, nil
 }

@@ -27,7 +27,21 @@ const (
 // on the wire instead of the deprecated `method` field (Sunset 2026-08-01).
 const (
 	grantProviderToken = "provider_token"
-	grantOTPInternal   = "otp_internal"
+	// grantOTP is the OTP login grant. ADR-071 §4 renamed the wire value
+	// "otp_internal" → "otp" (direct cutover — the issuer no longer accepts the
+	// old name). Safe because otp_login_enabled is default-off, so no live
+	// consumer was on the old grant.
+	grantOTP = "otp"
+)
+
+// otpMethodMFA is the /auth/mfa/verify method arm for an OTP second factor —
+// renamed "otp_internal" → "otp" in the ADR-071 §4 cutover.
+const otpMethodMFA = "otp"
+
+// OTP delivery modes (ADR-071 §4). v1 supports view_bff only: the plaintext OTP
+// is returned to the BFF for display, never delivered out-of-band.
+const (
+	DeliveryModeViewBFF = "view_bff"
 )
 
 // LoginRequest carries the inputs to realm.Auth.Login. Custom claims
@@ -89,17 +103,23 @@ type Session struct {
 	// cutoff, and the ADR-058 absolute session cap (SPEC §4.1). It is 0 when
 	// the issuer does not surface it (pre-refresh_exp issuers); callers that
 	// size a session from it must fall back to their own ceiling on 0.
-	RefreshExp int64       `json:"refresh_exp,omitempty"`
+	RefreshExp int64 `json:"refresh_exp,omitempty"`
 	// IdleTTL is the sliding-window idle-timeout duration (seconds) for the
 	// session (ADR-070). Each authenticated use slides the window forward by
 	// IdleTTL; the session dies if idle past it. 0 (absent / omitempty) means
 	// no idle timeout — callers must treat 0 as "disabled", not "expire now".
-	IdleTTL    int64       `json:"idle_ttl,omitempty"`
-	ExpiresAt  string      `json:"expires_at,omitempty"`
-	TenantID   string      `json:"tenant_id,omitempty"`
-	Role       string      `json:"role,omitempty"`
-	User       UserSummary `json:"user"`
-	Tenants    []TenantRef `json:"tenants"`
+	IdleTTL   int64  `json:"idle_ttl,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	TenantID  string `json:"tenant_id,omitempty"`
+	Role      string `json:"role,omitempty"`
+	// InitiatedByUserID is the owner/admin who minted the login OTP that
+	// produced this service-account session (ADR-071 §8 attribution). Empty for
+	// human/provider logins and M2M sessions. Surfaced from the issuer's
+	// `initiated_by_user_id` session provenance; omitempty so a human session
+	// keeps it off the wire.
+	InitiatedByUserID string      `json:"initiated_by_user_id,omitempty"`
+	User              UserSummary `json:"user"`
+	Tenants           []TenantRef `json:"tenants"`
 }
 
 // NeedsTenantChoice reports whether the issuer returned a tenant
@@ -165,9 +185,9 @@ type MintResult struct {
 	// "user", "service", or "platform" (ADR-051). The issuer returns it
 	// on /auth/token for every refresh class; TenantID and Role are
 	// populated only when SubjectType == "user".
-	SubjectType  string `json:"subject_type"`
-	TenantID     string `json:"tenant_id"`
-	Role         string `json:"role"`
+	SubjectType string `json:"subject_type"`
+	TenantID    string `json:"tenant_id"`
+	Role        string `json:"role"`
 }
 
 // MFAVerifyRequest carries an MFA challenge response (SPEC §4.3).
@@ -219,12 +239,12 @@ type SessionInfo struct {
 //
 // Exactly one of UserID or UserBearer must be set:
 //   - UserID:     BFF mode. The SDK uses its cached platform token as
-//                 the bearer and sends X-On-Behalf-Of-User: <UserID>.
-//                 Required when realm.config.require_bff_login=true
-//                 (ADR-041 §7).
+//     the bearer and sends X-On-Behalf-Of-User: <UserID>.
+//     Required when realm.config.require_bff_login=true
+//     (ADR-041 §7).
 //   - UserBearer: legacy / public-client mode. The user's access JWT
-//                 rides as Authorization: Bearer. Subject is read from
-//                 the JWT.
+//     rides as Authorization: Bearer. Subject is read from
+//     the JWT.
 //
 // OnBehalfOfIP, when set, is forwarded as X-On-Behalf-Of-IP so the
 // issuer's per-IP rate limits see the SPA's IP, not the BFF's egress
@@ -408,7 +428,7 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 	// ADR-051: canonical grant_type, not the deprecated `method` field.
 	body := map[string]any{
 		"realm_id":   a.realm.realmID,
-		"grant_type": grantOTPInternal,
+		"grant_type": grantOTP,
 		"identifier": req.Identifier,
 		"presented":  req.Presented,
 	}
@@ -453,7 +473,7 @@ func (a *AuthClient) MFAVerifyOTP(ctx ctxpkg.Context, req MFAVerifyOTPRequest) (
 	return a.MFAVerify(ctx, MFAVerifyRequest{
 		ChallengeToken: req.MFAToken,
 		Code:           req.Presented,
-		Method:         "otp_internal",
+		Method:         otpMethodMFA,
 		OnBehalfOfIP:   req.OnBehalfOfIP,
 	})
 }

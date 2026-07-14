@@ -9,7 +9,7 @@ import (
 )
 
 // TestAuth_OTPLogin_SendsCorrectBody asserts the SDK threads identifier +
-// presented + grant_type=otp_internal through to /auth/login (partner OTP
+// presented + grant_type=otp through to /auth/login (partner OTP
 // proposal §3.2.1; ADR-051 canonical grant_type, not legacy `method`).
 func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 	var gotBody map[string]any
@@ -39,8 +39,8 @@ func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 	if out.AccessToken != "atok" {
 		t.Errorf("access_token = %q", out.AccessToken)
 	}
-	if gotBody["grant_type"] != "otp_internal" {
-		t.Errorf("grant_type = %v, want otp_internal", gotBody["grant_type"])
+	if gotBody["grant_type"] != "otp" {
+		t.Errorf("grant_type = %v, want otp", gotBody["grant_type"])
 	}
 	if gotBody["method"] != nil {
 		t.Errorf("OTPLogin must not send the deprecated `method` field, got: %v", gotBody["method"])
@@ -51,7 +51,7 @@ func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 }
 
 // TestAuth_MFAVerifyOTP_SendsMethodOTP asserts MFAVerifyOTP routes
-// through /auth/mfa/verify with method=otp_internal (proposal §3.2.2).
+// through /auth/mfa/verify with method=otp (proposal §3.2.2).
 func TestAuth_MFAVerifyOTP_SendsMethodOTP(t *testing.T) {
 	var gotBody map[string]any
 	srv := authTestServer(t, map[string]http.HandlerFunc{
@@ -73,8 +73,8 @@ func TestAuth_MFAVerifyOTP_SendsMethodOTP(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("MFAVerifyOTP: %v", err)
 	}
-	if gotBody["method"] != "otp_internal" {
-		t.Errorf("method = %v, want otp_internal", gotBody["method"])
+	if gotBody["method"] != "otp" {
+		t.Errorf("method = %v, want otp", gotBody["method"])
 	}
 	if gotBody["code"] != "654321" {
 		t.Errorf("code = %v", gotBody["code"])

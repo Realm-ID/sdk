@@ -232,7 +232,7 @@ POST /auth/token   refresh token → rotated refresh + access pair
 | ---                | ---                   | ---            | --- |
 | `provider_token`   | platform access JWT   | `user`         | `auth.login({ method: "firebase" \| "google" })` |
 | `password`         | platform access JWT   | `user`         | (roadmap — native u/p) |
-| `otp_internal`     | platform access JWT   | `user`         | `auth.otpLogin(...)` |
+| `otp`              | platform access JWT   | `user`/`service` | `auth.otpLogin(...)` (ADR-071 §4 renamed from `otp_internal`) |
 | `api_key`          | none (raw key in body) | `service`     | (server-only today) |
 | `platform_api_key` | none (raw key in body) | `platform`    | the SDK's platform-session bootstrap |
 | `urn:ietf:params:oauth:grant-type:token-exchange` | none (workload OIDC JWT in body) | `platform` | the SDK's zero-config workload bootstrap (§4.0.1) |
@@ -354,12 +354,12 @@ SDK posts to `POST /auth/login` with a `grant_type` discriminator
 | ---              | ---                | --- |
 | `"firebase"`     | `"provider_token"` | `provider: "firebase_phone"`, `token: <id token>` |
 | `"google"`       | `"provider_token"` | `provider: "google"`, `token: <id token>` |
-| `"otp_internal"` | `"otp_internal"`   | `identifier`, `presented` (use the `auth.otpLogin` helper) |
+| `"otp"`          | `"otp"`            | `identifier`, `presented` (use the `auth.otpLogin` helper; ADR-071 §4 renamed the grant from `otp_internal`) |
 
 Request (Go/TS surface unchanged from 0.9.x): `{ method, providerToken, origin? }`
-- `method`: `"firebase" | "google" | "otp_internal"`. `otp_internal`
-  is the partner OTP login (see §X), gated server-side by
-  `realms.config.otp_login_enabled`. When `method == "otp_internal"`,
+- `method`: `"firebase" | "google" | "otp"`. `otp` (ADR-071 §4;
+  formerly `otp_internal`) is the partner OTP login (see §X), gated
+  server-side by `realms.config.otp_login_enabled`. When `method == "otp"`,
   callers should use the typed helper `auth.otpLogin(...)` /
   `Auth.OTPLogin(...)` rather than the generic `login()` — it
   carries the `identifier` + `presented` body shape directly.
@@ -529,8 +529,8 @@ holds a live platform session.)
 Completes an MFA challenge.
 
 Request: `{ challengeToken, code, method? }` — `method` defaults to
-`"totp"`. Set `"otp_internal"` to consume a manager-issued partner
-OTP as the second factor (see §X); the typed helper
+`"totp"`. Set `"otp"` (ADR-071 §4; formerly `otp_internal`) to consume
+a manager-issued partner OTP as the second factor (see §X); the typed helper
 `auth.mfaVerifyOtp(...)` / `Auth.MFAVerifyOTP(...)` wraps this. On
 the wire the request body uses `mfa_challenge_token` (not
 `challenge_token`) — the SDK serialises it correctly; partners
@@ -1447,8 +1447,9 @@ Errors:
 
 ### X.4 `auth.otpLogin(req)` / `Auth.OTPLogin(...)` — single factor
 
-Wraps `POST /auth/login` with `method=otp_internal`. Realm
-precondition: `otp_login_enabled = true`.
+Wraps `POST /auth/login` with `grant_type=otp` (ADR-071 §4; formerly
+`otp_internal`). Optional `deliveryMode` (`view_bff`) selects OTP
+delivery. Realm precondition: `otp_login_enabled = true`.
 
 Request: `{ realmId, identifier, presented }` — `identifier` is an
 E.164 phone or email; the server resolves it to a tenant-scoped user.
@@ -1456,9 +1457,9 @@ Response: same shape as `login()`.
 
 ### X.5 `auth.mfaVerifyOtp(req)` / `Auth.MFAVerifyOTP(...)` — second factor
 
-Wraps `POST /auth/mfa/verify` with `method=otp_internal`. Realm
-precondition: `otp_mfa_enabled = true` **and** the user is enrolled
-in `otp_internal` (per-user `mfa_methods` or per-role
+Wraps `POST /auth/mfa/verify` with `method=otp` (ADR-071 §4; formerly
+`otp_internal`). Realm precondition: `otp_mfa_enabled = true` **and**
+the user is enrolled in `otp` (per-user `mfa_methods` or per-role
 `required_mfa_methods`).
 
 Request: `{ mfaToken, presented }` (TS) / `{ MFAToken, Presented }` (Go).

@@ -13,6 +13,28 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Service accounts + OTP-login cutover + sources registry — go (0.20.0; tag TBD) (2026-07-14)
+
+ADR-071/072 SDK surface (go reference; ts/java parity to follow):
+
+- **OTP login grant renamed** `otp_internal` → `otp` (ADR-071 §4 direct cutover).
+  `Auth.OTPLogin` sends `grant_type=otp`; `Auth.MFAVerifyOTP` sends `method=otp`.
+  No dual-accept — safe because `otp_login_enabled` is default-off.
+- **`OTP.Issue` gains `DeliveryMode`** (`DeliveryModeViewBFF = "view_bff"`), threaded
+  onto `/auth/otp/issue` as `delivery_mode`.
+- **`Session.InitiatedByUserID`** — decodes the issuer's `initiated_by_user_id`
+  provenance (the owner/admin who minted a service account's login OTP, ADR-071 §8).
+- **`realm.ServiceAccounts`** (new client) — Create / List / Get / ResetHandle /
+  Suspend / Unsuspend / Deactivate / Revoke over `/tenants/{id}/service-accounts`
+  with typed error sentinels (`ErrServiceAccountHandleTaken`, `…InvalidRole`,
+  `…NotFound`).
+- **`realm.Sources`** (new client, ADR-072) — List / Create / Update / Delete over
+  `/sources` (the app/source registry; `allowed_methods` = mapping-2), with
+  `ErrSourceMethodViolatesKind` / `ErrSourceNotFound`.
+- SPEC.md updated: `otp_internal` → `otp` across the grant/method tables.
+
+Dep-free; stdlib tests. Tag `go/vX.Y.Z` (TBD) at the coordinated release.
+
 ## Roles enable/disable + owner signing-keys client — go/v0.28.0 + ts-v0.19.0 + java-v0.17.0 + web-admin 0.7.1 (2026-07-13)
 
 Cross-cutting, additive — SDK parity for the issuer v0.32.0 roles/signing-keys

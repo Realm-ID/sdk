@@ -7,6 +7,34 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — ADR-071/072 WP5: service accounts + OTP-login cutover + sources (go reference)
+
+**What.** The go SDK (the reference the ts/java ports copy) learns the ADR-071/072
+surface now that the issuer contract is frozen.
+
+- **`otp_internal` → `otp`** on the wire (grant_type + mfa method arm). Chose a
+  **direct cutover, no dual-accept** — mirrors the issuer (ADR-071 §4), safe
+  because `otp_login_enabled` is default-off so no live consumer is on the old
+  grant. The constants are named `grantOTP`/`otpMethodMFA` and the SPEC tables
+  were corrected in the same commit (spec-is-law).
+- **`ServiceAccounts` + `Sources` clients** authenticate with the realm's
+  **platform token** (the realm's own M2M admin identity — `requireServiceAccountManage`
+  / `requireRealmAdmin` accept it), matching the existing `RolesClient` pattern
+  rather than inventing an on-behalf ceremony in the SDK. A BFF that needs
+  human attribution uses the on-behalf transport (WP7); the issuer already runs
+  `effectiveActor`.
+- Added `Sources` to the go SDK even though the plan scoped WP5 to
+  `ServiceAccounts` — it's the frozen contract, trivially small, and gives the
+  ts/java port + web-admin a reference. `allowed_methods` is passed through
+  verbatim; the mapping-1 invariant is validated server-side (the SDK doesn't
+  duplicate it).
+- **`Session.InitiatedByUserID`** decodes the provenance field (omitempty).
+
+**Tradeoffs.** No on-behalf params on the SDK service-account methods yet — a
+partner integrating via go acts as the realm admin. If a partner ever needs to
+attribute a service-account mutation to a specific human via the go SDK, add an
+optional on-behalf option (mirror `OTP.Issue`'s `UserID`/`UserBearer`). Deferred.
+
 ## 2026-07-13 — roles enable/disable + owner signing-keys client (go/v0.28.0 · ts 0.19.0 · java 0.17.0 · web-admin 0.7.1)
 
 **Problem.** The issuer v0.32.0 realm-settings overhaul shipped new endpoints —
