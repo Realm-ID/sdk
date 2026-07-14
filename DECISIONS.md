@@ -7,6 +7,20 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — ADR-073 Release A: `PlatformCreate.domain` optional (`@realm-id/web-admin` 0.8.2)
+
+**What.** `PlatformsClient.create`'s `PlatformCreate.domain` is now optional and
+`slug` is a first-class field on the interface (it was previously bolted on via a
+`& { slug: string }` cast at the call site). Omitting `domain` creates a
+domainless platform on `<slug>.realmid.dev` (ADR-073 Release A); the issuer
+handles the rest. No transport change — the client already POSTs the body
+verbatim; this is a types-only relaxation so the UI can legally omit `domain`.
+
+**Why bump.** ui/web vendors the tarball by filename and pins it; a content
+change that isn't version-bumped is masked by the pin (the Microsoft-login prod
+bug, 2026-06). Bumped 0.8.1 → 0.8.2, re-packed (with the bundled `@realm-id/sdk`
+repack gotcha handled), re-vendored into `ui/web/vendor/`.
+
 ## 2026-07-14 — ADR-071/072 WP8: web-admin service-accounts + sources surface (`@realm-id/web-admin` 0.8.0)
 
 **What.** Exposed the WP6 service-accounts, sources, and OTP clients on the

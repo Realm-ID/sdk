@@ -17,7 +17,17 @@ import type {
 } from "./types.js";
 
 export interface PlatformCreate {
-  domain: string;
+  /**
+   * Optional custom apex (ADR-073 Release A). Omit to create a domainless
+   * platform whose routing domain is `<slug>.realmid.dev`; a custom domain
+   * can be added later via the realm-origins claim/verify flow.
+   */
+  domain?: string;
+  /**
+   * URL-safe globally-unique identifier; derives the `<slug>.realmid.dev`
+   * hosted-login surface. Required by the issuer.
+   */
+  slug?: string;
   display_name?: string;
 }
 
