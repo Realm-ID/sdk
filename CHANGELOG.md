@@ -13,6 +13,25 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-074 roles: `listPermissions()` + delete `migrate_to` — go 0.31.0 (`go/v0.31.0`) · ts 0.21.0 (`ts-v0.21.0`) · java 0.19.0 (`java-v0.19.0`) · web-admin 0.8.4 (2026-07-14)
+
+**All SDKs, additive.** Surfaces the two new issuer capabilities from ADR-074
+(real permission enforcement):
+
+- **`ListPermissions()` / `listPermissions()`** on the roles client — returns the
+  live catalog (`GET /platforms/{id}/permissions`) as `[]Permission{key, resource,
+  action, label}`. Served live (not a static SDK const) so consumers never drift
+  from the server's catalog. `Permission` is re-exported from `@realm-id/web-admin`
+  (0.8.3→**0.8.4**, re-vendored into `ui/`).
+- **`Delete(roleID, migrate_to)`** — ts `delete(id, {migrateTo})`, go variadic
+  `RoleDeleteOpts{MigrateTo}`, java `delete(id, migrateTo)` overload. Forwards
+  `?migrate_to=<name>` so an in-use role's holders are reassigned server-side in
+  one transaction instead of a 409.
+
+Purely additive — `RoleObject.permissions` already existed and catalog validation
+is server-side; absent the query param, delete is unchanged. No BFF change
+(generic `/api/*` passthrough).
+
 ## Go `const Version` realigned to the module tag — go 0.30.0 (`go/v0.30.0`) (2026-07-14)
 
 **Go SDK only, no functional change.** `realmid.Version` had drifted from the

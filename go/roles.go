@@ -53,6 +53,21 @@ type RoleListPage struct {
 	Total      *int         `json:"total,omitempty"`
 }
 
+// Permission is one grantable permission from the fixed ADR-074 catalog,
+// as returned by GET /platforms/{id}/permissions. These gate RI admin-console
+// operations for the platform — not the partner's own product RBAC.
+type Permission struct {
+	Key      string `json:"key"`
+	Resource string `json:"resource"`
+	Action   string `json:"action"`
+	Label    string `json:"label"`
+}
+
+// permissionCatalog is the wire envelope for GET …/permissions.
+type permissionCatalog struct {
+	Permissions []Permission `json:"permissions"`
+}
+
 // RoleListOpts are the optional pagination inputs.
 type RoleListOpts struct {
 	Cursor string
@@ -80,6 +95,14 @@ type RolePatch struct {
 // RoleDeleteResult is the DELETE acknowledgment.
 type RoleDeleteResult struct {
 	Status string `json:"status"`
+}
+
+// RoleDeleteOpts are the optional inputs to Delete (ADR-074/Phase 3).
+type RoleDeleteOpts struct {
+	// MigrateTo, when set, reassigns every holder of the deleted role to this
+	// target role (server-side, one transaction) instead of failing with
+	// ErrRoleInUse. Maps to `?migrate_to=<name>`.
+	MigrateTo string
 }
 
 // Typed errors mirrored from the server taxonomy. Use errors.Is to
@@ -172,16 +195,21 @@ func (c *RolesClient) Update(ctx ctxpkg.Context, roleID string, patch RolePatch)
 // Delete removes a custom role. Returns ErrRoleInUse (409) when the
 // role is still attached to users/invitations, ErrSystemRoleImmutable
 // (400) for `owner`/`member`.
-func (c *RolesClient) Delete(ctx ctxpkg.Context, roleID string) (*RoleDeleteResult, error) {
+func (c *RolesClient) Delete(ctx ctxpkg.Context, roleID string, opts ...RoleDeleteOpts) (*RoleDeleteResult, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
+	}
+	var q map[string]string
+	if len(opts) > 0 && opts[0].MigrateTo != "" {
+		q = map[string]string{"migrate_to": opts[0].MigrateTo}
 	}
 	var out RoleDeleteResult
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "DELETE",
 		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/roles/" + url.PathEscape(roleID),
 		Bearer: tok,
+		Query:  q,
 	}, &out); err != nil {
 		return nil, mapRoleErr(err)
 	}
@@ -242,6 +270,28 @@ func (c *RolesClient) setDisabled(ctx ctxpkg.Context, roleID string, disabled bo
 		return nil, mapRoleErr(err)
 	}
 	return &r, nil
+}
+
+// ListPermissions returns the fixed catalog of grantable permissions
+// (ADR-074) from GET /platforms/{id}/permissions. Served live (not a static
+// const) so callers can't drift from the server's catalog.
+func (c *RolesClient) ListPermissions(ctx ctxpkg.Context) ([]Permission, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out permissionCatalog
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "GET",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/permissions",
+		Bearer: tok,
+	}, &out); err != nil {
+		return nil, mapRoleErr(err)
+	}
+	if out.Permissions == nil {
+		out.Permissions = []Permission{}
+	}
+	return out.Permissions, nil
 }
 
 // mapRoleErr translates server error envelopes to the typed sentinel

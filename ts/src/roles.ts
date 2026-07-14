@@ -44,6 +44,18 @@ export interface RoleListPage {
   total?: number;
 }
 
+/**
+ * A grantable permission from the fixed ADR-074 catalog
+ * (`GET /platforms/{id}/permissions`). These gate RI *admin-console*
+ * operations for the platform — not the partner's own product RBAC.
+ */
+export interface Permission {
+  key: string;
+  resource: string;
+  action: string;
+  label: string;
+}
+
 export interface RoleListOpts {
   cursor?: string;
   limit?: number;
@@ -113,10 +125,19 @@ export class RolesClient {
     });
   }
 
-  async delete(roleId: string): Promise<{ status: "deleted" }> {
+  /**
+   * DELETE /platforms/{id}/roles/{roleId}. Pass `migrateTo` (ADR-074/Phase 3)
+   * to reassign every holder of this role to another role server-side (one
+   * transaction) instead of getting a 409 `role_in_use`.
+   */
+  async delete(
+    roleId: string,
+    opts?: { migrateTo?: string },
+  ): Promise<{ status: "deleted" }> {
     return this.http.request<{ status: "deleted" }>({
       method: "DELETE",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}`,
+      query: opts?.migrateTo ? { migrate_to: opts.migrateTo } : undefined,
     });
   }
 
@@ -147,6 +168,20 @@ export class RolesClient {
       method: "POST",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}/enable`,
     });
+  }
+
+  /**
+   * GET /platforms/{id}/permissions — the fixed catalog of grantable
+   * permissions (ADR-074). Drives a grouped checklist in the admin UI so it
+   * never hardcodes the list. Served live (not a static const) so the UI can't
+   * drift from the server's catalog.
+   */
+  async listPermissions(): Promise<Permission[]> {
+    const raw = await this.http.request<{ permissions?: Permission[] }>({
+      method: "GET",
+      path: `/platforms/${encodeURIComponent(this.realmId)}/permissions`,
+    });
+    return Array.isArray(raw?.permissions) ? raw.permissions : [];
   }
 }
 

@@ -195,3 +195,21 @@ test("roles.rename: posts {to: <new>}", async () => {
   const r = await realm.roles.rename("role-oldname", { to: "newname" });
   assert.equal(r.name, "newname");
 });
+
+test("roles.listPermissions: returns the ADR-074 catalog", async () => {
+  const fetch = mkFetch((req) => {
+    assert.equal(req.method, "GET");
+    assert.match(req.url, /\/platforms\/r\/permissions/);
+    return new Response(JSON.stringify({
+      permissions: [
+        { key: "users:read", resource: "users", action: "read", label: "View users" },
+        { key: "users:manage", resource: "users", action: "manage", label: "Manage users" },
+      ],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const perms = await realm.roles.listPermissions();
+  assert.equal(perms.length, 2);
+  assert.equal(perms[0]!.key, "users:read");
+  assert.equal(perms[1]!.resource, "users");
+});

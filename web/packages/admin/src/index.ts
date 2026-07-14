@@ -165,6 +165,7 @@ export type {
   RoleListOpts,
   RoleCreate,
   RolePatch,
+  Permission,
   SigningKey,
   SigningKeyRotation,
   SigningKeysResponse,

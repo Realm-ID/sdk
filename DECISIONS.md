@@ -7,6 +7,30 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — ADR-074: `roles.listPermissions()` + delete `migrate_to`
+
+**Problem.** ADR-074 made the issuer enforce `realm_roles.permissions` and added
+a live catalog endpoint (`GET /platforms/{id}/permissions`) plus a `?migrate_to=`
+option on role delete. The SDKs needed to surface both so the admin UI (and
+partners) can render a checklist and reassign-on-delete without hand-rolling
+requests.
+
+**Decision.**
+- **`ListPermissions()` / `listPermissions()`** on the roles client (go/ts/java)
+  returns the catalog `[]Permission{key,resource,action,label}`. Served **live**,
+  not shipped as a static SDK const — chosen so the UI can never drift from the
+  server's catalog (a const would need an SDK re-release on every catalog edit).
+  `Permission` is also re-exported from `@realm-id/web-admin` for the browser UI.
+- **`Delete(roleID, {migrateTo})`** (ts opts / go variadic `RoleDeleteOpts` / java
+  overload) forwards `?migrate_to=<name>` as a raw query param — the simplest
+  wire shape, and the BFF `/api/*` passthrough forwards it unchanged (no BFF
+  change; pinned by `passthrough_contract_test.go`).
+
+**Compat.** Purely additive — `RoleObject.permissions` already existed; catalog
+validation is server-side. Absent the query param, delete behaves exactly as
+before (409 on an in-use role). No breaking change; go/ts/java minor bumps +
+web-admin 0.8.3→0.8.4 (re-vendored into ui).
+
 ## 2026-07-14 — Realign Go `const Version` to the module tag (`go/v0.30.0`)
 
 **Problem.** The Go SDK carries two version counters that had silently diverged:

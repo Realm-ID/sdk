@@ -4,6 +4,17 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.19.0 — roles: listPermissions + delete migrate_to (ADR-074) (2026-07-14)
+
+Additive port of the go/ts surface. See `../CHANGELOG.md`.
+
+- **`roles().listPermissions()`** returns the live ADR-074 catalog
+  (`GET /platforms/{id}/permissions`) as `List<Permission>`
+  (`Permission{key, resource, action, label}`).
+- **`roles().delete(roleId, migrateTo)`** overload forwards `?migrate_to=<name>`
+  to reassign an in-use role's holders server-side instead of a 409.
+- No breaking change; `RoleObject.permissions()` already existed.
+
 ## java-v0.18.0 — service accounts + OTP-login cutover + sources (ADR-071/072) (2026-07-14)
 
 Additive parity port of the go reference SDK (WP6). See `../CHANGELOG.md`.

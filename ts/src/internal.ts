@@ -48,6 +48,7 @@ export {
   type RoleListOpts,
   type RoleCreate,
   type RolePatch,
+  type Permission,
 } from "./roles.js";
 
 export {

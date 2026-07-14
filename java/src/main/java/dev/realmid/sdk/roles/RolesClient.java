@@ -78,9 +78,22 @@ public final class RolesClient {
     }
 
     /** DELETE /platforms/{id}/roles/{roleId}. */
-    public RoleDeleteResult delete(String roleId) {
-        JsonNode raw = http.request(HttpTransport.Request.of(
-                "DELETE", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId)));
+    public RoleDeleteResult delete(String roleId) { return delete(roleId, null); }
+
+    /**
+     * DELETE /platforms/{id}/roles/{roleId}. Pass {@code migrateTo}
+     * (ADR-074/Phase 3) to reassign every holder of this role to another role
+     * server-side (one transaction) instead of getting a 409 {@code role_in_use}.
+     */
+    public RoleDeleteResult delete(String roleId, String migrateTo) {
+        HttpTransport.Request req = HttpTransport.Request.of(
+                "DELETE", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId));
+        if (migrateTo != null && !migrateTo.isEmpty()) {
+            Map<String, Object> q = new LinkedHashMap<>();
+            q.put("migrate_to", migrateTo);
+            req = req.query(q);
+        }
+        JsonNode raw = http.request(req);
         if (raw == null) return new RoleDeleteResult("deleted");
         JsonNode s = raw.get("status");
         return new RoleDeleteResult(s != null && s.isTextual() ? s.asText() : "deleted");
@@ -116,6 +129,21 @@ public final class RolesClient {
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "POST", "/platforms/" + enc(realmId) + "/roles/" + enc(roleId) + "/" + action));
         return http.mapper().convertValue(raw, RoleObject.class);
+    }
+
+    /**
+     * GET /platforms/{id}/permissions — the fixed catalog of grantable
+     * permissions (ADR-074). Served live (not a static constant) so callers
+     * can't drift from the server's catalog.
+     */
+    public List<Permission> listPermissions() {
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "GET", "/platforms/" + enc(realmId) + "/permissions"));
+        List<Permission> out = new ArrayList<>();
+        if (raw != null && raw.has("permissions") && raw.get("permissions").isArray()) {
+            for (JsonNode n : raw.get("permissions")) out.add(http.mapper().convertValue(n, Permission.class));
+        }
+        return out;
     }
 
     private RoleListPage readPage(JsonNode raw) {
