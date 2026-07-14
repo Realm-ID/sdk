@@ -241,6 +241,12 @@ export interface AdminIdentityProvider {
   provider: string;
   client_type: IdpClientType;
   client_id: string;
+  /**
+   * The `sources.id` this registration is bound to (ADR-072 § Amendment).
+   * Empty/absent = legacy/unrestricted. App-first registration sets it so the
+   * row's `client_id` is attributed to a specific app.
+   */
+  app_id?: string;
   allowed_origins: string[];
   comments: string;
   /** Provider-specific PUBLIC config (firebase web config); empty otherwise. */
@@ -258,6 +264,12 @@ export interface IdpCreateInput {
   provider: string;
   client_type: IdpClientType;
   client_id: string;
+  /**
+   * Bind this registration to a human app (`sources.id`) so its `client_id` is
+   * attributed to that app (ADR-072 § Amendment / app-first registration).
+   * The issuer validates the source is a human app on the same platform.
+   */
+  app_id?: string;
   /** Required for `web` client_type; rejected for non-web. */
   allowed_origins?: string[];
   comments?: string;
@@ -269,6 +281,8 @@ export interface IdpCreateInput {
 export interface IdpPatchInput {
   enabled?: boolean;
   client_id?: string;
+  /** Re-bind (or, with "", clear) this row's app binding (ADR-072 § Amendment). */
+  app_id?: string;
   allowed_origins?: string[];
   comments?: string;
   config?: Record<string, string>;
