@@ -7,6 +7,37 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — ADR-071/072 WP8: web-admin service-accounts + sources surface (`@realm-id/web-admin` 0.8.0)
+
+**What.** Exposed the WP6 service-accounts, sources, and OTP clients on the
+browser admin SDK so the owner console (`ui/web`) can reach them through the BFF
+`/api/*` passthrough. `admin.serviceAccounts` (ADR-071 `/tenants/{id}/service-accounts`
+lifecycle), `admin.sources` (ADR-072 `/sources` CRUD, bound to the admin's
+`realmId`), and `admin.otp` (`/auth/otp/issue` — mint a `view_bff` login OTP).
+
+**Decisions.**
+- **Reuse the ts resource classes, don't re-implement.** The three clients
+  already exist in `@realm-id/sdk` (WP6). Roles/Tenants are exposed on web-admin
+  by re-exporting from `@realm-id/sdk/internal`; these weren't in that barrel
+  (they're only on the top-level `createRealm` facade). Added them to
+  `ts/src/internal.ts` and wired them into `createAdmin` exactly like
+  `RolesClient` — one construction path, no duplicated wire logic. The clients
+  only call `http.request()`, so the web-admin `HttpLike` transport shim
+  satisfies them via the same cast used for `TenantsClient`.
+- **Version bump 0.7.1 → 0.8.0 is mandatory (vendored-drift rule).** `ui/web`
+  pins web-admin as a `file:` tarball by filename; a content change that reused
+  the old version would be masked by the pin (the Microsoft-login prod bug).
+  Bumped the version and re-vendored `realm-id-web-admin-0.8.0.tgz`.
+- **Repack gotcha honored.** Root `npm install` hoists `@realm-id/sdk` out of
+  `packages/admin/node_modules/@realm-id/sdk`; refreshed that copy with a
+  freshly-built `ts/` (dist included) before `npm pack` so the tarball carries
+  the bundled dep with the new internal exports. Verified `internal.d.ts` in the
+  tarball exports `ServiceAccountsClient`/`SourcesClient`/`OtpClient`.
+
+**Tests.** web-admin build + suite green in Docker (node:20-bookworm, 17/17
+transport tests). No SPEC change — this is packaging/exposure of an
+already-specced WP6 surface. No npm publish (release held/gated).
+
 ## 2026-07-14 — ADR-071/072 WP6: ts + java parity port (ts 0.20.0 · java 0.18.0)
 
 **What.** Ported the WP5 go surface to `@realm-id/sdk` and `dev.realmid:sdk`,

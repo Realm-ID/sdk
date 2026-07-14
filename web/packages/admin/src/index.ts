@@ -23,6 +23,9 @@ import {
   DomainsClient,
   AdminClient,
   SigningKeysClient as OwnerSigningKeysClient,
+  ServiceAccountsClient,
+  SourcesClient,
+  OtpClient,
 } from "@realm-id/sdk/internal";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
@@ -47,6 +50,12 @@ export interface Admin {
   signingKeys: SigningKeysClient;
   /** Owner-facing signing-key read + self-serve rotate (/platforms/{id}/signing-keys). */
   keys: OwnerSigningKeysClient;
+  /** Service accounts (ADR-071) — kind=service identities per tenant. */
+  serviceAccounts: ServiceAccountsClient;
+  /** Platform app/source registry (ADR-072). Bound to the admin's realmId. */
+  sources: SourcesClient;
+  /** OTP primitive (ADR-071 §4) — mint a `view_bff` service-account login OTP. */
+  otp: OtpClient;
   bff: BffClient;
   sessions: SessionsClient;
   me: MeClient;
@@ -92,6 +101,9 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     notes: new PlatformNotesClient(http),
     signingKeys: new SigningKeysClient(http),
     keys: new OwnerSigningKeysClient(httpAsClient, rid),
+    serviceAccounts: new ServiceAccountsClient(httpAsClient),
+    sources: new SourcesClient(httpAsClient, rid),
+    otp: new OtpClient(httpAsClient),
     bff: new BffClient(http),
     sessions: new SessionsClient(http),
     me: new MeClient(http),
@@ -122,6 +134,10 @@ export {
   RolesClient,
   DomainsClient,
   AdminClient,
+  ServiceAccountsClient,
+  SourcesClient,
+  OtpClient,
+  DELIVERY_MODE_VIEW_BFF,
 } from "@realm-id/sdk/internal";
 
 // Wire types.
@@ -165,6 +181,18 @@ export type {
   AdminSearchResponse,
   ListPlatformsOpts,
   ListEventsOpts,
+  ServiceAccount,
+  ServiceAccountCreate,
+  ServiceAccountRevokeResult,
+  Source,
+  SourceCreate,
+  SourcePatch,
+  OtpDeliveryMode,
+  OtpIssueRequest,
+  OtpIssueResponse,
+  OtpViewResponse,
+  OtpVerifyRequest,
+  OtpVerifyResponse,
 } from "@realm-id/sdk/internal";
 
 export { RealmError } from "@realm-id/sdk";

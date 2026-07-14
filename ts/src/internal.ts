@@ -94,3 +94,34 @@ export {
 // custom transport. The web-admin SDK is expected to pass an object with
 // a `.request()` method matching `HttpClient["request"]`.
 export { HttpClient, type RequestOptions, type HttpClientOptions } from "./http.js";
+
+// Service accounts (ADR-071) — kind=service identities managed by the
+// owner/admin console over /tenants/{id}/service-accounts.
+export {
+  ServiceAccountsClient,
+  type ServiceAccount,
+  type ServiceAccountCreate,
+  type ServiceAccountRevokeResult,
+} from "./service-accounts.js";
+
+// Sources (ADR-072) — platform-level app/source registry with per-source
+// allowed_methods (mapping-2, gated by mapping-1).
+export {
+  SourcesClient,
+  type Source,
+  type SourceCreate,
+  type SourcePatch,
+} from "./sources.js";
+
+// OTP primitive (ADR-071 §4) — the admin console mints a `view_bff` login
+// OTP for a service account and shows the plaintext value once.
+export {
+  OtpClient,
+  DELIVERY_MODE_VIEW_BFF,
+  type OtpDeliveryMode,
+  type OtpIssueRequest,
+  type OtpIssueResponse,
+  type OtpViewResponse,
+  type OtpVerifyRequest,
+  type OtpVerifyResponse,
+} from "./otp.js";
