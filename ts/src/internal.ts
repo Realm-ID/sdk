@@ -33,6 +33,9 @@ export {
   type DriftRejectResult,
   type ContactVerification,
   type ContactVerificationResult,
+  type ImportUserRow,
+  type ImportUserRowResult,
+  type ImportUsersResult,
 } from "./tenants.js";
 
 export {

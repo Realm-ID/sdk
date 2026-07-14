@@ -193,6 +193,9 @@ export type {
   OtpViewResponse,
   OtpVerifyRequest,
   OtpVerifyResponse,
+  ImportUserRow,
+  ImportUserRowResult,
+  ImportUsersResult,
 } from "@realm-id/sdk/internal";
 
 export { RealmError } from "@realm-id/sdk";

@@ -123,6 +123,40 @@ export class InvitationsClient {
   }
 }
 
+/** One row for UsersClient.importUsers (ADR-073 Release B). >=1 of email/phone. */
+export interface ImportUserRow {
+  /** Optional UUID. Becomes users.id (bring-your-own); reconciles if it exists
+   *  in THIS tenant, rejects the file if it exists in another. Absent → minted. */
+  user_id?: string;
+  email?: string;
+  /** E.164 (leading '+'). */
+  phone?: string;
+  role: string;
+  display_name?: string;
+  /** With provider_uid, writes an exact first-SSO binding. */
+  provider?: "google" | "microsoft" | "apple" | "facebook" | "firebase";
+  provider_uid?: string;
+}
+
+export interface ImportUserRowResult {
+  line: number;
+  /** Bring-your-own or minted-and-returned users.id. */
+  user_id?: string;
+  identifier?: string;
+  status: "created" | "updated" | "failed" | "ok";
+  error?: string;
+  error_hint?: string;
+}
+
+export interface ImportUsersResult {
+  /** false → validation rejected the file; nothing was written. */
+  committed: boolean;
+  imported: number;
+  updated: number;
+  failed: number;
+  rows: ImportUserRowResult[];
+}
+
 export class UsersClient {
   constructor(private readonly http: HttpClient) {}
 
@@ -179,6 +213,21 @@ export class UsersClient {
     await this.http.request({
       method: "DELETE",
       path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/mfa`,
+    });
+  }
+
+  /**
+   * Bulk-import pre-provisioned ACTIVE users into a tenant (ADR-073 Release B).
+   * Two-phase, whole-file-atomic: when `committed` is false NOTHING was written
+   * and each failing row carries `error`+`error_hint`. A row may bring its own
+   * `user_id` (becomes `users.id`); rows without one get a minted id returned.
+   * Always resolves HTTP 200 — inspect `committed`, not the status code.
+   */
+  async importUsers(tenantId: string, rows: ImportUserRow[]): Promise<ImportUsersResult> {
+    return this.http.request<ImportUsersResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/import`,
+      body: { users: rows },
     });
   }
 }

@@ -7,6 +7,22 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-14 — ADR-073 Release B: `users.importUsers` (`@realm-id/web-admin` 0.8.3)
+
+**What.** New `UsersClient.importUsers(tenantId, rows)` on `@realm-id/sdk`'s
+TenantsClient (`admin.tenants.users.importUsers` in web-admin) → `POST
+/tenants/{id}/users/import`, plus the wire types `ImportUserRow`,
+`ImportUserRowResult`, `ImportUsersResult`, threaded through `@realm-id/sdk/internal`
+and re-exported from web-admin for UI consumers.
+
+**Why the shape.** Returns the full report object (never throws on a rejected
+file — `committed:false` carries the per-row errors), mirroring the issuer's
+200-with-report contract (ADR-069 uniform-200). Rows are plain objects so the UI
+can build them from parsed CSV without ceremony.
+
+**Bump.** web-admin 0.8.2 → 0.8.3, re-bundled (fresh sdk/ts dist) + re-packed +
+re-vendored into ui — the vendored-tarball pin mandates a version bump.
+
 ## 2026-07-14 — ADR-073 Release A: `PlatformCreate.domain` optional (`@realm-id/web-admin` 0.8.2)
 
 **What.** `PlatformsClient.create`'s `PlatformCreate.domain` is now optional and
