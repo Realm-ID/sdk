@@ -1,86 +1,13 @@
-# Realm ID SDK — cross-language specification (v0.10.0)
+# Realm ID SDK — cross-language specification
 
-## v0.10.0 — workload identity federation (token-exchange grant, additive, ADR-057)
+**Current as of 2026-07-15 — go `go/v0.32.0` · ts `ts-v0.22.0` · java
+`java-v0.20.0`** (see §12 for the tag matrix).
 
-Additive (non-breaking on the wire). Adds a sixth `/auth/login` grant —
-`urn:ietf:params:oauth:grant-type:token-exchange` — letting a partner
-workload authenticate with its **ambient** cloud OIDC token (GCP Cloud
-Run/GKE/GCE or GitHub Actions) instead of a stored `rk_live_` API key.
-The workload token is treated as **≡ the API key**: a bootstrap
-credential presented once and exchanged for the *identical*
-`class="platform"` session — below the exchange line everything is the
-same as the API-key path. SDKs gain a pluggable **`CredentialSource`**
-(the static API key becomes one implementation; the ambient-token
-providers are the others) plus a zero-config auto-detecting default.
-Trust is configured RI-side per platform via `federation_bindings`; the
-SDK carries **no secret**. Go ships first; TS/Java follow in lockstep.
-See §4.0.1.
-
-## v0.9.0 — verified on-behalf-of via `X-User-Token` (additive, ADR-056)
-
-Additive (non-breaking on the wire). Documents the verified on-behalf-of
-variant: a BFF holding the user's access JWT forwards it as `X-User-Token`
-alongside the platform bearer, so the issuer authorizes a cryptographically
-verified principal instead of a spoofable `X-On-Behalf-Of-User` id. The
-issuer prefers the token and rejects (no downgrade) a present-but-invalid
-one. Server-side only — the **Go** SDK exposes it now
-(`PassthroughOptions.OnBehalfOfUserToken` + `WithUserToken`); TS/Java inherit
-it through the existing on-behalf parity gap. See §4.10's "Verified
-on-behalf-of" note.
-
-## v0.8.0 — token manager + refresh_invalid + api-key DTO (additive)
-
-Additive (non-breaking on the wire). Adds the `refresh_invalid` error
-code (§3.1), the long-lived-client **token manager** construct (§4.2.1),
-and pins the api-key list/row DTO to the issuer's authoritative shape
-(§6.5 — `role`/`prefix`/unix-second timestamps; the create `value` is a
-one-time secret). Go + TS ship this; Java parity is a tracked follow-up.
-
-## Breaking changes from 0.5.x
-
-v0.6.0 aligns the SDKs with the server's v0.11.0 contact model
-(ADR-042). A user's identifiers (email / phone) are no longer columns
-on the user row — they are `user_contacts` rows with an independent
-verification lifecycle. The SDK surface changes accordingly:
-
-1. **Invitations are keyed by `identifier`, not `email`** (§6.2).
-   `invitations.create(tenantId, { identifier, role? })` replaces
-   `{ email, role? }`. `identifier` is an email **or** an E.164 phone.
-   The response is now `{ id, identifier, role, status, expiresAt }`
-   where `id` is the **stable user id** allocated at invite time
-   (invites pre-provision the user row in `invited` status). Re-inviting
-   a still-pending identifier is idempotent.
-
-2. **New admin review surfaces** (additive): `realm.tenants.driftReviews.*`
-   (§6.8) for the returning-login contact-drift queue, and
-   `realm.tenants.contactVerifications.*` (§6.9) for the first-login
-   step-up gate on recycled identifier slots.
-
-3. **`users.updateContact`** (§6.3) — admin email/phone changes now go
-   through a dedicated method that soft-releases the old contact and
-   issues a new one; the old `users.update`-style contact mutation is
-   gone.
-
-See `CHANGELOG.md` and ADR-042 for full details.
-
-## Breaking changes from 0.4.x
-
-v0.5.0 is a clean cut aligned with the server's v0.5.0 release. Two
-breaking changes; no deprecation window, no compat shims.
-
-1. **Admin sub-paths moved from `/realms/{id}/...` to
-   `/platforms/{id}/...`** (ADR-044). Affected: `apiKeys.*`,
-   `config.update`, `roles.*`. The OIDC discovery surface
-   (`/realms/{realm}/.well-known/...`) is unchanged. The high-level
-   SDK methods kept their names — only the wire path moved.
-
-2. **`open_signup` bool replaced by `signup_mode` enum** (ADR-045).
-   `TenantCreate` and `TenantConfig` carry `signup_mode:
-   "closed" | "allowlist" | "open"` instead of an `open_signup`
-   boolean. `open` is rejected on any tenant other than the base
-   admin tenant.
-
-See `CHANGELOG.md` and the ADRs for full details.
+> **Revision history.** This body is kept **current** — it always
+> describes the shipped surface, not an amendment trail. The
+> per-release changelog (what changed when, breaking-change notes,
+> per-language rollout state) lives in `sdk/CHANGELOG.md` + git tags;
+> design rationale lives in the referenced ADRs and `DECISIONS.md`.
 
 This document is the contract every official SDK in this repository
 implements. The TypeScript SDK is the canonical reference; the Go and
@@ -369,8 +296,11 @@ Request (Go/TS surface unchanged from 0.9.x): `{ method, providerToken, origin? 
   Origin derived from the realm's claimed domain (see §1).
 
 The wire response includes a typed `subject_type` ∈ `{user, service,
-platform}` (ADR-051 §3). For user grants the SDK exposes the high-level
-fields:
+platform}` (ADR-051 §3). `service` is minted for a **service account**
+(ADR-071: a `kind=service` user logging in via a `view_bff`-delivered
+OTP, or a raw `api_key` grant) — its session is `class="service"` with
+its own refresh-TTL clamp. For user grants the SDK exposes the
+high-level fields:
 
 Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, expiresAt, user, tenants }`
 - `tenants`: array of `{ id, role, displayName }` the user belongs to.
@@ -552,6 +482,14 @@ Server-side revoke of a specific session id.
 Returns sessions for the current user (the user identified by the
 caller's bearer token; this is a user-token operation, not API-key).
 
+Each row (`SessionInfo` / `Session`) mirrors the issuer's session DTO:
+`{ id, class, created_at, last_seen_at, device_name?, ... }`. Note the
+last-used timestamp's wire field is **`last_seen_at`** (unix seconds) —
+the SDKs decode it into their last-used accessor (Go
+`SessionInfo.LastUsedAt`, Java `Session.lastUsedAt`, TS keeps the raw
+`last_seen_at`); there is no `last_used_at` field on this DTO (that
+name exists only on the api-key DTO, §6.5).
+
 ### 4.7 `revokeAllSessions(req)`
 
 Revokes **every** session for the current user in one call —
@@ -662,8 +600,12 @@ every list endpoint (see §7).
   `allowedDomains: string[]` (auto-provision domain allowlist),
   `signupMode: "closed" | "allowlist" | "open"` (per-tenant signup
   policy, ADR-045 — `open` is reserved for the base admin tenant and
-  rejected on partner tenants). Server enforces an allowlist of
-  accepted keys; unknown keys → `RealmError(bad_request)`.
+  rejected on partner tenants), `role_overrides` (per-org role
+  remapping) and `default_invitation_role` (the role a bare invite
+  gets) — the latter two are **typed** in ts (`TenantConfigPatch`);
+  go/java accept them through the generic config map. Server enforces
+  an allowlist of accepted keys; unknown keys →
+  `RealmError(bad_request)`.
 - `delete(id)` — soft delete.
 - `transferOwner(id, newOwnerUserId)` — atomic owner swap; the previous
   owner becomes a `member`.
@@ -724,6 +666,21 @@ the invitee accepts → user record is provisioned.
 - `enrollMfa(tenantId, userId)`, `confirmMfa(tenantId, userId, code)`,
   `resetMfa(tenantId, userId)` — admin-initiated MFA flows. The
   self-service equivalents on `auth.mfa.*` are roadmap (§11).
+- `importUsers(tenantId, rows)` — **bulk user import** (ADR-073
+  Release B), `POST /tenants/{id}/users/import`, owner/admin. Two-phase,
+  **whole-file-atomic** import of pre-provisioned `status='active'`
+  users with verified contacts, bound to their provider identity on
+  first SSO (by `provider_uid` when supplied, else email/phone). Each
+  row is `{ email? | phone?, provider?, providerUid?, role?, userId? }`
+  (≥1 of email/phone). A row may bring its own `user_id` (becomes
+  `users.id`; a `user_id` already in another tenant rejects the whole
+  file); rows without one get a minted UUIDv7 **returned**, so the
+  platform holds only UUIDs, never PII. Response is HTTP 200 +
+  `ImportUsersResult { committed, results[] }` (ADR-069 uniform-200;
+  `committed: false` → nothing was written). **Language coverage:** ts
+  `realm.tenants.users.importUsers` (+ re-exported on
+  `@realm-id/web-admin` for the UI CSV uploader); a go/java port is a
+  parity follow-up.
 
 #### Roles (custom, platform-defined — shipped in server v0.11.x, ADR-040)
 
@@ -731,15 +688,54 @@ The role space is **no longer a fixed enum**. Roles are platform-authored
 per realm and validated against a `realm_roles` catalog. Declare every
 role your app gates on at bootstrap via `realm.roles.*`:
 
-- `realm.roles.create({ name, displayName?, permissions? })` — `POST /platforms/{id}/roles`
-- `realm.roles.list()` — `GET /platforms/{id}/roles`
-- `realm.roles.update(roleId, { displayName?, permissions? })` — `PATCH`
+- `realm.roles.create({ name, displayName?, permissions?,
+  requiredMfaMethods? })` — `POST /platforms/{id}/roles`
+- `realm.roles.list({ includeSystem?, disabled? })` — `GET
+  /platforms/{id}/roles`. `includeSystem` (→ `?include_system=true`)
+  also returns system roles the server hides by default (e.g. the
+  `platform_api` row).
+- `realm.roles.update(roleId, { displayName?, permissions?,
+  requiredMfaMethods? })` — `PATCH`
 - `realm.roles.rename(roleId, newName)` — atomic rename
-- `realm.roles.delete(roleId)` — `DELETE`
+- `realm.roles.disable(roleId)` / `realm.roles.enable(roleId)` —
+  `POST …/roles/{id}/disable|enable`. Soft-disable: the role stays
+  assigned but is hidden from new assignment; the role object carries
+  `disabled` (+ `disabled_at`, unix seconds).
+- `realm.roles.delete(roleId, { migrateTo? })` — `DELETE`. Plain delete
+  409s `role_in_use` when holders exist; passing `migrateTo` (→
+  `?migrate_to=<name>`, ADR-074 phase 3) reassigns every holder to the
+  target role and deletes the source in one server-side transaction.
+  (go: variadic `RoleDeleteOpts{MigrateTo}`; java: `delete(id,
+  migrateTo)` overload.)
+- `realm.roles.listPermissions()` — `GET /platforms/{id}/permissions`
+  (ADR-074). Returns the live, closed permission catalog as
+  `Permission { key, resource, action, label }` rows. Served live —
+  never a static SDK constant — so consumers can't drift from the
+  server's catalog.
 
 Assigning a role not present in the catalog returns `unknown_role`;
 creating a duplicate returns `role_exists`. The `role` value in the
 access token is sourced free-form from the catalog.
+
+**Permissions are enforced (ADR-074).** `permissions[]` on a role is a
+set of catalog `resource:action` strings. Since ADR-074 the issuer
+**enforces** them at request time, resolved **from the DB per request**
+(no JWT claim — a grant/revoke takes effect on the next request, and
+the wire is unchanged). Write-time validation rejects strings outside
+the catalog (`unknown_permission`); a new custom role defaults to
+**empty** permissions (grants nothing until a permission is added).
+Owner and platform/service tokens are implicit-all. Only the inlined
+JWT *claim* remains deferred (§11).
+
+**Per-role required MFA (ADR-075).** `required_mfa_methods` on a role
+(subset of `{"totp","otp"}`; unknown values → 400 `unknown_mfa_method`)
+forces every holder of the role to satisfy MFA with one of the listed
+methods. Precedence with per-user/per-org MFA config is **union/floor
+(monotonic)** — a role requirement can only add to what's required,
+never weaken it. Surfaced as `RoleObject.required_mfa_methods` (always
+an array) and writable via `RoleCreate`/`RolePatch.requiredMfaMethods`
+(go: `RequiredMFAMethods []string` / `*[]string` on patch — nil = don't
+touch, pointer-to-empty = clear).
 
 These four ship as **system roles** by default, but you may add any others
 (`accounts`, `salesman`, `dispatch`, …):
@@ -751,13 +747,25 @@ These four ship as **system roles** by default, but you may add any others
 | `member`   | Default role for invited users. Can use the application; no admin operations.                                     |
 | `viewer`   | Read-only access. Useful for stakeholders / observers.                                                            |
 
-> **`permissions[]` is stored but not yet surfaced in the JWT** (ADR-040
-> §2). Gate on role *name* for now; when the permissions claim lands it
-> will be additive (non-breaking). See §11.
+> **`permissions[]` in the JWT** — the permission *sets* are enforced
+> server-side at request time (ADR-074, DB-resolved; see above). The
+> access token itself still carries only `role`, not a `permissions[]`
+> claim; partners doing offline authz gate on role *name* until the
+> claim lands (additive, non-breaking). See §11.
 
 ### 6.4 Domains — `realm.domains.*`
 
-`claim({ hostname })`, `verify({ claimToken })`.
+`claim({ hostname })`, `verify({ claimToken })`. `claim` is
+**idempotent** — re-claiming a still-pending domain returns the same
+TXT challenge instead of erroring, so onboarding is resumable.
+
+> **Browser-admin only:** `@realm-id/web-admin` additionally ships
+> `platforms.listPendingDomains()` (+ `PendingDomain` type), wrapping
+> issuer `GET /domains/pending`, so an admin UI can list and resume
+> in-progress domain verifications. Not on the go/ts/java partner SDKs.
+> Since ADR-073 (Release A) a platform can also be created **without**
+> a domain at all (hosted `<slug>.realmid.dev` login) — the domain
+> claim/verify flow is optional onboarding, attachable later.
 
 ### 6.6 Origin allowlist enforcement — `realm.origins.*`
 
@@ -882,8 +890,16 @@ Promoted from a nested namespace for ergonomics:
     returned by `list`. `revoke(id)` is a soft-delete (sets
     `revokedAt`).
 - `realm.config.update(patch)` — patch realm-level config (TTL
-  overrides, default audience, etc., subject to the server's
-  configurable-keys allowlist).
+  overrides, default audience, `idle_ttl_seconds` (ADR-070),
+  `otp_login_enabled`/`otp_mfa_enabled` (ADR-071), `mfa_policy`
+  (ADR-075: `"disabled" | "enabled" | "enforced"` — the platform-wide
+  MFA floor; `enforced` requires MFA for every org end-user and forces
+  first-login enrollment, `enabled` is a UI hint only), etc., subject
+  to the server's configurable-keys allowlist). There is no typed
+  per-key SDK method — config keys ride this generic PATCH.
+  > `mfa_policy` is also **readable**: the platform DTO returned by
+  > `GET /platforms/mine` carries it, typed on `@realm-id/web-admin`'s
+  > `Platform.mfa_policy` (0.8.5) so admin UIs can prime the control.
 
 ### 6.8 Contact drift reviews — `realm.tenants.driftReviews.*`
 
@@ -963,6 +979,73 @@ it is omitted from responses when empty.
   the stored map wholesale (not merged). Returns the updated `IdpConfig`.
 - `delete(id)` — `DELETE /identity-providers/{id}`. Returns
   `{ status: "deleted" }`. `provider_not_found` (404) if absent.
+
+### 6.11 Service accounts — `realm.serviceAccounts.*` (ADR-071)
+
+First-class machine identities inside a tenant: `users.kind =
+"service"` rows that authenticate **only** via a `view_bff`-delivered
+OTP login (mapping-1 — a human can never use that path; a service
+account can use no other). Provisioned active-from-birth (no invite
+expiry, so the invite reaper never touches them) with a unique
+email-shaped handle and any non-`owner`/non-`platform_api` role.
+
+Surface — symmetric across go/ts/java, over
+`/tenants/{id}/service-accounts` (owner/admin gated):
+
+- `create(tenantId, { handle, role, displayName? })` — mints the
+  account. `handle_taken` (409) / `invalid_role` (400) on conflict.
+- `list(tenantId, opts?)` / `get(tenantId, id)` —
+  `service_account_not_found` (404); operating on a human user via this
+  surface fails `not_service`.
+- Lifecycle: `suspend` / `unsuspend` / `revoke` (kill sessions) /
+  `resetHandle` / `deactivate`.
+
+**Login flow:** an owner/admin issues an OTP with
+`otp.issue({ ..., deliveryMode: "view_bff" })` (§X.1) — the plaintext
+comes back to the caller (the BFF/console) instead of being delivered
+to the subject — hands it to the workload, which calls
+`auth.otpLogin(...)`. The minted session is `subject_type: "service"`
+(`class="service"`, own refresh-TTL clamp) and carries
+`initiated_by_user_id` — the owner/admin who minted the login OTP
+(ADR-071 §8 attribution) — decoded on `Session` in all three SDKs.
+
+### 6.12 App/source registry — `realm.sources.*` (ADR-072)
+
+Platform-owned registry of the **apps/sources** allowed to log users
+in, and with which methods (mapping-2: App↔Method; enforced by the
+issuer at `aud`-resolution — a `client_id` is accepted only if its
+source lists the method; a legacy empty-`app_id` row is unrestricted).
+Single-kind invariant: a source is a *human* app or a *bot* app, never
+both.
+
+Surface — symmetric across go/ts/java, over `/sources`:
+
+- `list()` / `create({ name, kind, allowedMethods, ... })` /
+  `update(id, patch)` / `delete(id)`.
+- `allowed_methods` must be compatible with the source's kind —
+  violations fail `method_violates_kind` (400); missing rows
+  `source_not_found` (404).
+- A **human** app additionally registers its per-provider `client_id`s
+  as `identity_providers` rows bound to the app (`app_id`, typed
+  end-to-end incl. `@realm-id/web-admin`); once a provider has ≥1
+  app-bound registration it flips to a **hard allow-list** (only those
+  client_ids accepted). Firebase stays project-coarse (no per-app
+  restriction, ADR-072 §4).
+
+### 6.13 Signing keys — `realm.signingKeys.*`
+
+Owner self-serve view + rotation of the realm's JWT signing keyring:
+
+- `list()` — `GET /platforms/{id}/signing-keys`: the keyring
+  newest-first (current key flagged) + the auto-rotation policy.
+- `rotate()` — `POST …/rotate`: self-serve owner rotation; shares the
+  server-side rate limiter with ops-initiated rotation.
+
+Exposed as `realm.signingKeys` (go/ts/java) and `admin.keys`
+(`@realm-id/web-admin`, reusing the ts client via
+`@realm-id/sdk/internal`). **Distinct from** web-admin's pre-existing
+`admin.signingKeys`, which is the base-realm **staff/ops** client over
+`/admin/platforms/…` — `admin.keys` is the platform-owner surface.
 
 ## 7. Pagination
 
@@ -1416,7 +1499,13 @@ delivery / approval gate. Authoritative reference:
 Mints a code for `(subject_ref, purpose)`. Multiple issuers may issue
 concurrently; codes stack until consumed or expired.
 
-Request: `{ subjectRef, purpose }` — both opaque tenant-scoped strings.
+Request: `{ subjectRef, purpose, deliveryMode? }` — `subjectRef` /
+`purpose` are opaque tenant-scoped strings. `deliveryMode` (ADR-071):
+`"view_bff"` returns the plaintext OTP to the **caller** (the
+BFF/manager console) rather than delivering it to the subject — the
+handoff used to log service accounts in (§6.11). Constants:
+go `DeliveryModeViewBFF`, ts `DELIVERY_MODE_VIEW_BFF`, java
+`OtpIssueRequest.DELIVERY_MODE_VIEW_BFF`.
 Response: `{ id, value, expiresAt, purpose, subjectRef }`.
 
 Length and TTL come from `realms.config.otp_length` (default 6) and
@@ -1517,18 +1606,18 @@ _, _ = r.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{
 
 Detailed proposals tracked in repo `TODO.md`. Headlines:
 
-- **`permissions[]` JWT claim** — `realm_roles.permissions` is stored and
-  editable today (§6.3) but not yet inlined into the access token. When
-  demand materializes it's added non-breakingly by sourcing from the
-  catalog. No committed ETA. (Platform-defined custom *roles* themselves
-  already shipped — see §6.3, ADR-040 — and are no longer roadmap.)
+- **`permissions[]` JWT claim** — `realm_roles.permissions` is stored,
+  editable, **and enforced server-side at request time** (ADR-074,
+  DB-resolved — see §6.3); only inlining the claim into the access
+  token remains deferred. The claim is explicitly *not* needed for
+  enforcement — it would serve partner-side **offline** authorization
+  only. When demand materializes it's added non-breakingly by sourcing
+  from the catalog. No committed ETA.
 - Webhooks (`realm.webhooks.verify(payload, signature)`)
-- Service-to-service tokens (`auth.serviceToken()`)
 - OpenID Connect discovery (`/.well-known/openid-configuration`)
 - Impersonation (`auth.impersonate({ targetUserId, reason })`)
 - WebAuthn / passkeys
 - Custom domains for hosted UIs
-- Bulk user import
 - CSRF protection layer in the middleware (double-submit-cookie pattern)
 - BFF on-behalf-of (`userId` + `X-On-Behalf-Of-User`) parity for the TS
   SDK's current-user session/MFA methods (§4.5–4.10) — Go and Java
@@ -1554,13 +1643,12 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.18.0`        | slash form; resolved by `go get`. ADR-057 federation + ADR-056 `X-User-Token`. |
-| TS       | `ts-v0.15.0`        | token manager + `refresh_invalid` + api-key DTO + federation. |
-| Java     | `java-v0.10.0`      | v0.8.0 parity + ADR-051 migration. Federation lockstep tag pending. |
+| Go       | `go/v0.32.0`        | slash form; resolved by `go get`. ADR-075 `required_mfa_methods` write surface. |
+| TS       | `ts-v0.22.0`        | `@realm-id/sdk@0.22.0` on npm. Same ADR-075 surface. |
+| Java     | `java-v0.20.0`      | `dev.realmid:sdk:0.20.0` on Maven Central. Same ADR-075 surface. |
 
-> **SPEC v0.10.0 (ADR-057 workload identity federation, §4.0.1) is
-> released for Go (`go/v0.18.0`) and TS (`ts-v0.15.0`).** Java's
-> lockstep federation tag (`java-v0.11.0`) is still pending — until it
-> lands, the Java federation surface ships only from `main`. The SPEC
-> header tracks the *implemented* surface (CLAUDE.md "spec is law / code
-> wins"), which may lead the newest released tag.
+> The three languages ship in lockstep per SPEC change (matching
+> CHANGELOG entries); this matrix drifts between releases — `git tag`
+> in this repo is the source of truth. Browser packages
+> (`@realm-id/web@0.4.5`, `@realm-id/web-admin@0.8.5`, adapters) are
+> versioned per-package under `web/`.

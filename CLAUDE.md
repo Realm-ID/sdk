@@ -8,12 +8,15 @@ One locked spec, multiple language-idiomatic implementations.
 | `go/` | Released | `github.com/Realm-ID/sdk/go` |
 | `java/` | Released | `dev.realmid:sdk` |
 | `web/packages/core/` | Released | `@realm-id/web@0.4.5` (tenant-app browser SDK) |
-| `web/packages/admin/` | Released | `@realm-id/web-admin@0.7.1` (admin-UI browser SDK) |
+| `web/packages/admin/` | Released | `@realm-id/web-admin@0.8.5` (admin-UI browser SDK) |
 | `web/packages/react/` | Released | `@realm-id/web-react@0.4.0` |
 | `web/packages/firebase/` | Released | `@realm-id/web-firebase@0.4.0` |
 | `web/packages/google/` | Released | `@realm-id/web-google@0.4.0` |
-| `web/packages/bff-realmid/` | Released | `@realm-id/web-bff-realmid@0.3.0` |
+| `web/packages/bff-realmid/` | Released | `@realm-id/web-bff-realmid@0.3.6` |
 | `components/` | Planned | `@realm-id/components` (React) |
+
+> Version pins above drift; the per-package `package.json` + git tags +
+> `CHANGELOG.md` are the source of truth for the current release.
 
 ## Authoritative docs
 

@@ -7,6 +7,19 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-15 — SPEC.md rewritten to current surface (doc sweep)
+
+Part of the workspace-wide doc sweep (umbrella `DECISIONS.md` 2026-07-15).
+SPEC.md was "locked" at v0.10.0 while the SDKs shipped ~14 further releases.
+Decision (user): rewrite the body to the current surface rather than append
+amendment blocks — git + `CHANGELOG.md` carry the trail; a patch-on-patch spec
+is harder to implement from. Added the shipped surface (listPermissions,
+required_mfa_methods, service accounts + view_bff, sources, signing keys,
+importUsers, mfa_policy, refresh_exp/idle_ttl/subject_type); refreshed the tag
+matrix (go/v0.32.0 · ts-v0.22.0 · java-v0.20.0). Found while writing:
+**importUsers exists only in ts + web-admin — go/java parity gap**, noted in
+SPEC as a follow-up and logged in the umbrella code-vs-docs review.
+
 ## 2026-07-15 — ADR-075: role `required_mfa_methods` write surface
 
 **Problem.** ADR-075 makes the per-role MFA requirement writable; the SDKs
