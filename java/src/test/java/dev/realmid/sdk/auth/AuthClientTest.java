@@ -66,6 +66,14 @@ class AuthClientTest {
         assertEquals("rt-1", s.refreshToken());
         // Must use the platform token, not raw API key.
         assertEquals("Bearer pt-12345", seen.get().header("authorization"));
+        // ADR-051: issuer reads grant_type/provider/token, not
+        // method/provider_token — the latter never reached the server (S-02 fix).
+        Map<String, Object> b = seen.get().bodyAsMap();
+        assertEquals("provider_token", b.get("grant_type"));
+        assertEquals("firebase", b.get("provider"));
+        assertEquals("provider-tok", b.get("token"));
+        assertNull(b.get("method"), "deprecated `method` field must not be sent");
+        assertNull(b.get("provider_token"), "issuer never reads `provider_token`");
     }
 
     @Test

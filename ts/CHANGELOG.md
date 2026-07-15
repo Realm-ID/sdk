@@ -4,6 +4,16 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.22.1 — fix: auth.login wire body mismatch (2026-07-15)
+
+Bug fix, no SPEC change. `auth.login` was posting
+`{ method, provider_token }` — the issuer's `/auth/login` handler reads
+`grant_type`/`provider`/`token` and never had a `provider_token` field, so
+the provider credential silently never reached the server; `method` rode
+the deprecated `legacyMethodToGrant` shim (Sunset 2026-08-01). Now sends
+`{ grant_type: "provider_token", provider, token }`, mirroring the Go
+reference SDK (`sdk/go/auth.go`). See `sdk/DECISIONS.md`.
+
 ## 0.20.0 — service accounts + OTP-login cutover + sources (ADR-071/072) (2026-07-14)
 
 Additive parity port of the go reference SDK (WP6). See `../CHANGELOG.md`.

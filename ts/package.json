@@ -1,6 +1,6 @@
 {
   "name": "@realm-id/sdk",
-  "version": "0.22.0",
+  "version": "0.22.1",
   "description": "Partner SDK for Realm ID — login, refresh, MFA, verify, and management",
   "type": "module",
   "main": "dist/index.js",

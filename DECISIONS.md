@@ -7,6 +7,52 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-15 — fix: TS + Java `auth.login` wire body diverged from the issuer contract (S-01/S-02)
+
+**Symptom.** `POST /auth/login` reads `grant_type` (`provider_token`),
+`provider` (the IdP name), and `token` (the IdP credential) — see
+`sdk/go/auth.go` `Login`, the reference implementation, which already sends
+exactly that triple. The TS SDK's `auth.login` instead posted
+`{ realm_id, method, provider_token }`; the Java SDK posted
+`{ realm_id, method, token, provider_token }`. Neither field the issuer
+reads includes `provider_token`, so in TS the actual IdP credential
+(carried only under `provider_token`) never reached the server — the
+credential was silently dropped. Java sent the credential correctly under
+`token` but also carried the dead `provider_token` key and the doomed
+`method` field, which is Sunset 2026-08-01 and due for removal from the
+issuer.
+
+**Root cause.** Both language ports were written against an earlier/assumed
+wire shape and never reconciled against the issuer's actual `loginReq`
+struct or the Go reference SDK, which had already been fixed for ADR-051.
+The mock tests in both suites asserted the wrong (as-shipped, not
+as-contracted) body fields, so they passed the divergence straight through
+CI instead of catching it — mocking your own bug and then asserting the bug
+is not the same as testing the contract.
+
+**Fix.** `sdk/ts/src/auth.ts` `login()` and
+`sdk/java/.../auth/AuthClient.java` `login()` now send exactly
+`{ grant_type: "provider_token", provider: <method>, token: <providerToken> }`
+(plus `realm_id`), mirroring `sdk/go/auth.go` verbatim. Removed the `method`
+and `provider_token` fields entirely from both. `LoginRequest` shape is
+otherwise unchanged (no `tenantId` field existed on either — not invented
+here, matches Go's optional-only-when-present threading). Mock tests
+(`ts/src/auth.test.ts`, `java/.../AuthClientTest.java`) rewritten to assert
+the real wire fields (`grant_type`/`provider`/`token`) and assert absence of
+`method`/`provider_token`, so a regression back to the old shape fails the
+suite instead of passing it. Verified via Docker (`node:22` — 138/138 TS
+tests + `tsc` build; `gradle:8-jdk17` — full Java suite including
+`AuthClientTest`). Version bumps only: ts 0.22.0→0.22.1, java
+0.20.0→0.20.1; no tag/publish in this change — a human coordinates the
+release tags separately (`sdk/CHANGELOG.md` per-package entries added).
+
+**Prevention.** The mock-response pattern in both suites now doubles as the
+wire-contract guard by asserting the *complete* expected body (present
+fields present, deprecated fields explicitly absent) rather than a loose
+subset — the same discipline the Go SDK's tests already followed. No new
+tooling; TS/Java should periodically be diffed against `sdk/go/auth.go` as
+the reference when touching `/auth/login`-adjacent code.
+
 ## 2026-07-15 — SPEC.md rewritten to current surface (doc sweep)
 
 Part of the workspace-wide doc sweep (umbrella `DECISIONS.md` 2026-07-15).

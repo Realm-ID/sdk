@@ -260,8 +260,14 @@ export class AuthClient {
       headers,
       body: {
         realm_id: this.realmId,
-        method: req.method,
-        provider_token: req.providerToken,
+        // ADR-051: canonical grant_type/provider/token triple (mirrors Go's
+        // Auth.Login and the issuer's loginReq). The deprecated `method` +
+        // `provider_token` fields rode the doomed legacyMethodToGrant shim
+        // (Sunset 2026-08-01) and the issuer never read `provider_token` at
+        // all — the credential silently never reached the server.
+        grant_type: "provider_token",
+        provider: req.method,
+        token: req.providerToken,
       },
     });
     return mapAuthResp(raw);

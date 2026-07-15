@@ -29,14 +29,16 @@ public final class AuthClient {
     public Session login(LoginRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
-        body.put("method", req.method());
-        // Wire field is "token" (server loginReq.Token); the SDK historically
-        // sent "provider_token". The platform access token is auto-attached as
-        // the Authorization bearer by HttpTransport — the two-step exchange of
+        // ADR-051: the issuer's loginReq reads grant_type/provider/token —
+        // it never reads "provider_token" and the deprecated "method" field
+        // rides a legacyMethodToGrant shim (Sunset 2026-08-01). Mirrors Go's
+        // Auth.Login. The platform access token is auto-attached as the
+        // Authorization bearer by HttpTransport — the two-step exchange of
         // ADR-051 §4.0: platform bearer authorizes the caller, this token
         // authenticates the user.
+        body.put("grant_type", "provider_token");
+        body.put("provider", req.method());
         body.put("token", req.providerToken());
-        body.put("provider_token", req.providerToken());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);

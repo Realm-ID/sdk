@@ -85,8 +85,13 @@ test("auth.login: happy path mints platform token first, then logs in", async ()
   assert.equal(calls[1]!.headers.get("origin"), "https://app.example");
   const body = calls[1]!.body as Record<string, unknown>;
   assert.equal(body["realm_id"], REALM_ID);
-  assert.equal(body["method"], "firebase");
-  assert.equal(body["provider_token"], "id_xyz");
+  // ADR-051: issuer reads grant_type/provider/token, not method/provider_token
+  // — the latter never reached the server (S-01 fix).
+  assert.equal(body["grant_type"], "provider_token");
+  assert.equal(body["provider"], "firebase");
+  assert.equal(body["token"], "id_xyz");
+  assert.equal(body["method"], undefined, "deprecated `method` field must not be sent");
+  assert.equal(body["provider_token"], undefined, "issuer never reads `provider_token`");
   assert.equal(body["custom_claims"], undefined, "login must not carry custom_claims (SPEC §4.1)");
 });
 

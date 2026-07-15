@@ -4,6 +4,15 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.20.1 — fix: AuthClient.login wire body mismatch (2026-07-15)
+
+Bug fix, no SPEC change. `login()` was putting `method`, `token`, AND a
+redundant `provider_token` — the issuer's `/auth/login` handler reads
+`grant_type`/`provider`/`token`, never `provider_token`, and `method` rode
+the deprecated `legacyMethodToGrant` shim (Sunset 2026-08-01). Now puts
+`{ grant_type: "provider_token", provider, token }` only, mirroring the Go
+reference SDK (`sdk/go/auth.go`). See `sdk/DECISIONS.md`.
+
 ## java-v0.20.0 — roles: required_mfa_methods write surface (ADR-075) (2026-07-15)
 
 Additive port of the go/ts surface. See `../CHANGELOG.md`.
