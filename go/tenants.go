@@ -332,10 +332,24 @@ type InvitationsClient struct {
 	realm *Realm
 }
 
-func (c *InvitationsClient) List(ctx context.Context, tenantID string) *Paginated[Invitation] {
+// InvitationListOpts filters InvitationsClient.List (SPEC §6.2). Status is
+// optional (pending|accepted|revoked|expired); empty omits the filter.
+type InvitationListOpts struct {
+	Status string
+}
+
+func (c *InvitationsClient) List(ctx context.Context, tenantID string, opts *InvitationListOpts) *Paginated[Invitation] {
+	o := InvitationListOpts{}
+	if opts != nil {
+		o = *opts
+	}
 	path := "/tenants/" + url.PathEscape(tenantID) + "/invitations"
-	return newPaginated(func(ctx context.Context, opts PageOpts) (*Page[Invitation], error) {
-		return fetchPage[Invitation](ctx, c.realm, path, opts)
+	return newPaginated(func(ctx context.Context, po PageOpts) (*Page[Invitation], error) {
+		extra := map[string]string{}
+		if o.Status != "" {
+			extra["status"] = o.Status
+		}
+		return fetchFilteredPage[Invitation](ctx, c.realm, path, po, extra)
 	})
 }
 
@@ -373,10 +387,33 @@ type UsersClient struct {
 	realm *Realm
 }
 
-func (c *UsersClient) List(ctx context.Context, tenantID string) *Paginated[User] {
+// UserListOpts filters UsersClient.List (SPEC §6.3). All fields are
+// optional; empty fields are omitted from the query. Invalid Role/Status
+// values are rejected server-side with 400 invalid_role / invalid_status.
+type UserListOpts struct {
+	Role   string // exact match: owner|admin|member|viewer
+	Status string // exact match: active|suspended|invited|deactivated
+	Q      string // case-insensitive substring match on email
+}
+
+func (c *UsersClient) List(ctx context.Context, tenantID string, opts *UserListOpts) *Paginated[User] {
+	o := UserListOpts{}
+	if opts != nil {
+		o = *opts
+	}
 	path := "/tenants/" + url.PathEscape(tenantID) + "/users"
-	return newPaginated(func(ctx context.Context, opts PageOpts) (*Page[User], error) {
-		return fetchPage[User](ctx, c.realm, path, opts)
+	return newPaginated(func(ctx context.Context, po PageOpts) (*Page[User], error) {
+		extra := map[string]string{}
+		if o.Role != "" {
+			extra["role"] = o.Role
+		}
+		if o.Status != "" {
+			extra["status"] = o.Status
+		}
+		if o.Q != "" {
+			extra["q"] = o.Q
+		}
+		return fetchFilteredPage[User](ctx, c.realm, path, po, extra)
 	})
 }
 
@@ -458,11 +495,22 @@ func (c *UsersClient) ResetMFA(ctx context.Context, tenantID, userID string) err
 // management endpoints. It enforces the locked wire shape from SPEC §7
 // (rejects any other shape with a server_error RealmError).
 func fetchPage[T any](ctx context.Context, r *Realm, path string, opts PageOpts) (*Page[T], error) {
+	return fetchFilteredPage[T](ctx, r, path, opts, nil)
+}
+
+// fetchFilteredPage is fetchPage with an optional set of extra query
+// parameters (e.g. role/status/q filters) merged alongside cursor/limit.
+func fetchFilteredPage[T any](ctx context.Context, r *Realm, path string, opts PageOpts, extra map[string]string) (*Page[T], error) {
 	tok, err := r.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
 	}
 	q := map[string]string{}
+	for k, v := range extra {
+		if v != "" {
+			q[k] = v
+		}
+	}
 	if opts.Cursor != "" {
 		q["cursor"] = opts.Cursor
 	}

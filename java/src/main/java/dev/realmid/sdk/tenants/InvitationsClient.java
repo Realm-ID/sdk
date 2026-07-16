@@ -16,11 +16,19 @@ public final class InvitationsClient {
 
     public InvitationsClient(HttpTransport http) { this.http = http; }
 
-    public Paginated<Invitation> list(String tenantId) {
-        return Paginated.of(opts -> {
+    public Paginated<Invitation> list(String tenantId) { return list(tenantId, null); }
+
+    /**
+     * List invitations in a tenant (SPEC §6.2). {@code opts.status} filters by
+     * invitation status (pending|accepted|revoked|expired); null → unfiltered.
+     */
+    public Paginated<Invitation> list(String tenantId, InvitationListOpts opts) {
+        String status = opts == null ? null : opts.status();
+        return Paginated.of(pageOpts -> {
             Map<String, Object> q = new LinkedHashMap<>();
-            if (opts.cursor() != null) q.put("cursor", opts.cursor());
-            if (opts.limit() != null) q.put("limit", opts.limit());
+            if (status != null) q.put("status", status);
+            if (pageOpts.cursor() != null) q.put("cursor", pageOpts.cursor());
+            if (pageOpts.limit() != null) q.put("limit", pageOpts.limit());
             JsonNode raw = http.request(HttpTransport.Request.of(
                     "GET", "/tenants/" + enc(tenantId) + "/invitations").query(q));
             return PageReader.read(http.mapper(), raw, Invitation.class);

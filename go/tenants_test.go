@@ -447,3 +447,49 @@ func TestTenants_ImportUsers(t *testing.T) {
 		t.Errorf("unexpected minted row: %+v", res.Rows[1])
 	}
 }
+
+// TestTenants_ListFilters verifies role/status/q thread onto the user-list
+// query and status onto the invitation-list query (SPEC §6.2/§6.3, S-07).
+func TestTenants_ListFilters(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
+	})
+	var userQuery, invQuery string
+	mux.HandleFunc("/tenants/t1/users", func(w http.ResponseWriter, r *http.Request) {
+		userQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "u1"}}, "next_cursor": ""})
+	})
+	mux.HandleFunc("/tenants/t1/invitations", func(w http.ResponseWriter, r *http.Request) {
+		invQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "i1"}}, "next_cursor": ""})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+
+	if _, err := r.Tenants.Users.List(context.Background(), "t1", &UserListOpts{Role: "admin", Status: "active", Q: "acme"}).Page(context.Background(), nil); err != nil {
+		t.Fatalf("Users.List: %v", err)
+	}
+	for _, want := range []string{"role=admin", "status=active", "q=acme"} {
+		if !strings.Contains(userQuery, want) {
+			t.Errorf("user query %q missing %q", userQuery, want)
+		}
+	}
+
+	// nil opts → no filter params.
+	if _, err := r.Tenants.Users.List(context.Background(), "t1", nil).Page(context.Background(), nil); err != nil {
+		t.Fatalf("Users.List nil: %v", err)
+	}
+	if strings.Contains(userQuery, "role=") || strings.Contains(userQuery, "status=") || strings.Contains(userQuery, "q=") {
+		t.Errorf("nil-opts user query should carry no filters: %q", userQuery)
+	}
+
+	if _, err := r.Tenants.Invitations.List(context.Background(), "t1", &InvitationListOpts{Status: "pending"}).Page(context.Background(), nil); err != nil {
+		t.Fatalf("Invitations.List: %v", err)
+	}
+	if !strings.Contains(invQuery, "status=pending") {
+		t.Errorf("invitation query %q missing status=pending", invQuery)
+	}
+}

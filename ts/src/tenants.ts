@@ -102,15 +102,35 @@ export interface User {
 
 export type UserStatus = "active" | "suspended" | "deactivated";
 
+/** Optional filters for {@link UsersClient.list} (SPEC §6.3, S-07). */
+export interface UserListOpts {
+  /** Exact match: owner|admin|member|viewer. */
+  role?: string;
+  /** Exact match: active|suspended|invited|deactivated. */
+  status?: string;
+  /** Case-insensitive substring match on email. */
+  q?: string;
+}
+
+/** Optional filters for {@link InvitationsClient.list} (SPEC §6.2, S-07). */
+export interface InvitationListOpts {
+  /** Exact match: pending|accepted|revoked|expired. */
+  status?: string;
+}
+
 export class InvitationsClient {
   constructor(private readonly http: HttpClient) {}
 
-  list(tenantId: string, opts?: PageOpts): Paginated<Invitation> {
+  /**
+   * List invitations in a tenant (SPEC §6.2). `opts.status` filters by
+   * invitation status (pending|accepted|revoked|expired) server-side.
+   */
+  list(tenantId: string, opts?: InvitationListOpts & PageOpts): Paginated<Invitation> {
     return paginate<Invitation>(async (po) => {
       const raw = await this.http.request<unknown>({
         method: "GET",
         path: `/tenants/${encodeURIComponent(tenantId)}/invitations`,
-        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+        query: { status: opts?.status, cursor: po.cursor, limit: po.limit ?? opts?.limit },
       });
       return readPage<Invitation>(raw);
     });
@@ -169,12 +189,23 @@ export interface ImportUsersResult {
 export class UsersClient {
   constructor(private readonly http: HttpClient) {}
 
-  list(tenantId: string, opts?: PageOpts): Paginated<User> {
+  /**
+   * List users in a tenant (SPEC §6.3). `opts` may carry `role`/`status`/`q`
+   * filters (server-side exact match on role/status, case-insensitive email
+   * substring for `q`) alongside pagination.
+   */
+  list(tenantId: string, opts?: UserListOpts & PageOpts): Paginated<User> {
     return paginate<User>(async (po) => {
       const raw = await this.http.request<unknown>({
         method: "GET",
         path: `/tenants/${encodeURIComponent(tenantId)}/users`,
-        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+        query: {
+          role: opts?.role,
+          status: opts?.status,
+          q: opts?.q,
+          cursor: po.cursor,
+          limit: po.limit ?? opts?.limit,
+        },
       });
       return readPage<User>(raw);
     });

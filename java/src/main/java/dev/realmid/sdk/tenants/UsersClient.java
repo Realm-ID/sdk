@@ -18,13 +18,25 @@ public final class UsersClient {
 
     public UsersClient(HttpTransport http) { this.http = http; }
 
-    public Paginated<User> list(String tenantId) {
-        return Paginated.of(opts -> {
-            Map<String, Object> q = new LinkedHashMap<>();
-            if (opts.cursor() != null) q.put("cursor", opts.cursor());
-            if (opts.limit() != null) q.put("limit", opts.limit());
+    public Paginated<User> list(String tenantId) { return list(tenantId, null); }
+
+    /**
+     * List users in a tenant (SPEC §6.3). {@code opts} may carry
+     * {@code role}/{@code status}/{@code q} filters (S-07); null → unfiltered.
+     */
+    public Paginated<User> list(String tenantId, UserListOpts opts) {
+        String role = opts == null ? null : opts.role();
+        String status = opts == null ? null : opts.status();
+        String q = opts == null ? null : opts.q();
+        return Paginated.of(pageOpts -> {
+            Map<String, Object> query = new LinkedHashMap<>();
+            if (role != null) query.put("role", role);
+            if (status != null) query.put("status", status);
+            if (q != null) query.put("q", q);
+            if (pageOpts.cursor() != null) query.put("cursor", pageOpts.cursor());
+            if (pageOpts.limit() != null) query.put("limit", pageOpts.limit());
             JsonNode raw = http.request(HttpTransport.Request.of(
-                    "GET", "/tenants/" + enc(tenantId) + "/users").query(q));
+                    "GET", "/tenants/" + enc(tenantId) + "/users").query(query));
             return PageReader.read(http.mapper(), raw, User.class);
         });
     }

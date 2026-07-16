@@ -7,6 +7,36 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — feat: list filters (role/status/q on users, status on invitations) across all SDKs (S-07)
+
+**Problem.** The issuer supports `role`/`status`/`q` query filters on
+`GET /tenants/{id}/users` and `status` on `GET /tenants/{id}/invitations`
+(`swagger.yaml`), but no SDK threaded them — a partner could only page the
+full list and filter client-side.
+
+**Decision.** Added optional filter inputs to both list methods in all three
+SDKs, following each language's existing filtered-list convention:
+- **Go** — `UsersClient.List(ctx, tenantID, *UserListOpts{Role,Status,Q})` and
+  `InvitationsClient.List(ctx, tenantID, *InvitationListOpts{Status})`,
+  matching the `DriftReviewsClient.List` / `ContactVerificationsClient.List`
+  opts-pointer shape. Refactored the shared `fetchPage` into
+  `fetchFilteredPage` (extra query map merged with cursor/limit); `fetchPage`
+  now delegates with nil extra, so Tenants.List is unchanged.
+- **TS** — `users.list(id, opts?: UserListOpts & PageOpts)` and
+  `invitations.list(id, opts?: InvitationListOpts & PageOpts)`; undefined
+  filter values are dropped by the http query builder.
+- **Java** — overloads `list(tenantId, UserListOpts)` /
+  `list(tenantId, InvitationListOpts)` beside the existing single-arg forms
+  (mirrors `ContactVerificationsClient.list`).
+
+Signature changes on Go's `Users.List`/`Invitations.List` (added opts param)
+are safe: no SDK-internal or test callers existed. Empty/null filters are
+omitted from the query (unfiltered == prior behavior).
+
+**Why.** Server contract shipped; pure port-to-parity. Each language's test
+asserts the built query string carries the filters (and that nil opts adds
+none).
+
 ## 2026-07-16 — feat: `users.importUsers` ported to Go + Java (S-03, ADR-073 Release B)
 
 **Problem.** TS shipped `admin.tenants.users.importUsers`

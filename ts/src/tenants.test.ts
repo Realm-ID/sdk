@@ -240,3 +240,41 @@ test("tenants.transferOwner: PUTs owner_user_id and optional ADR-076 knobs", asy
   assert.equal(hitBody.outgoing_owner_role, "admin");
   assert.equal(hitBody.leave_entirely, true);
 });
+
+test("tenants.users.list: threads role/status/q filters onto the query (S-07)", async () => {
+  let hitUrl = "";
+  const fetch = mkFetch((url) => {
+    hitUrl = url;
+    return new Response(JSON.stringify({ items: [{ id: "u1" }], next_cursor: null }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await realm.tenants.users.list("t1", { role: "admin", status: "active", q: "acme" }).page();
+  assert.match(hitUrl, /role=admin/);
+  assert.match(hitUrl, /status=active/);
+  assert.match(hitUrl, /q=acme/);
+});
+
+test("tenants.users.list: no filter opts → no filter params", async () => {
+  let hitUrl = "";
+  const fetch = mkFetch((url) => {
+    hitUrl = url;
+    return new Response(JSON.stringify({ items: [], next_cursor: null }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await realm.tenants.users.list("t1").page();
+  assert.doesNotMatch(hitUrl, /role=|status=|[?&]q=/);
+});
+
+test("tenants.invitations.list: threads status filter onto the query (S-07)", async () => {
+  let hitUrl = "";
+  const fetch = mkFetch((url) => {
+    hitUrl = url;
+    return new Response(JSON.stringify({ items: [{ id: "i1" }], next_cursor: null }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await realm.tenants.invitations.list("t1", { status: "pending" }).page();
+  assert.match(hitUrl, /status=pending/);
+});

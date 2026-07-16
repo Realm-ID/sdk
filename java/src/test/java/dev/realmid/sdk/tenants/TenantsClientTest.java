@@ -61,6 +61,37 @@ class TenantsClientTest {
     }
 
     @Test
+    void userListThreadsRoleStatusQFilters() {
+        java.util.concurrent.atomic.AtomicReference<String> query = new java.util.concurrent.atomic.AtomicReference<>("");
+        fs.on("GET /tenants/t1/users", (ex, body) -> {
+            query.set(ex.getRequestURI().getRawQuery());
+            java.util.Map<String, Object> page = new java.util.LinkedHashMap<>();
+            page.put("items", List.of(Map.of("id", "u1")));
+            page.put("next_cursor", null);
+            return FakeServer.Reply.json(200, page);
+        });
+        realm.tenants().users().list("t1", new UserListOpts("admin", "active", "acme")).stream().toList();
+        String q = query.get();
+        org.junit.jupiter.api.Assertions.assertTrue(q.contains("role=admin"), q);
+        org.junit.jupiter.api.Assertions.assertTrue(q.contains("status=active"), q);
+        org.junit.jupiter.api.Assertions.assertTrue(q.contains("q=acme"), q);
+    }
+
+    @Test
+    void invitationListThreadsStatusFilter() {
+        java.util.concurrent.atomic.AtomicReference<String> query = new java.util.concurrent.atomic.AtomicReference<>("");
+        fs.on("GET /tenants/t1/invitations", (ex, body) -> {
+            query.set(ex.getRequestURI().getRawQuery());
+            java.util.Map<String, Object> page = new java.util.LinkedHashMap<>();
+            page.put("items", List.of(Map.of("id", "i1")));
+            page.put("next_cursor", null);
+            return FakeServer.Reply.json(200, page);
+        });
+        realm.tenants().invitations().list("t1", InvitationListOpts.withStatus("pending")).stream().toList();
+        org.junit.jupiter.api.Assertions.assertTrue(query.get().contains("status=pending"), query.get());
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void importUsersPostsUsersArrayAndDecodesReport() {
         fs.on("POST /tenants/t1/users/import", (ex, body) -> FakeServer.Reply.json(200, Map.of(

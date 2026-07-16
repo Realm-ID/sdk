@@ -71,6 +71,8 @@ export type {
   InvitationCreate,
   User,
   UserStatus,
+  UserListOpts,
+  InvitationListOpts,
   ImportUserRow,
   ImportUserRowResult,
   ImportUsersResult,
