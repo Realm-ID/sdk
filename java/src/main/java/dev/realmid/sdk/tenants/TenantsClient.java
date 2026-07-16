@@ -13,13 +13,15 @@ import java.util.Map;
 /** SPEC §6.1. */
 public final class TenantsClient {
     private final HttpTransport http;
+    private final String realmId;
     private final InvitationsClient invitations;
     private final UsersClient users;
     private final DriftReviewsClient driftReviews;
     private final ContactVerificationsClient contactVerifications;
 
-    public TenantsClient(HttpTransport http) {
+    public TenantsClient(HttpTransport http, String realmId) {
         this.http = http;
+        this.realmId = realmId;
         this.invitations = new InvitationsClient(http);
         this.users = new UsersClient(http);
         this.driftReviews = new DriftReviewsClient(http);
@@ -46,12 +48,18 @@ public final class TenantsClient {
         return http.mapper().convertValue(raw, Tenant.class);
     }
 
+    /**
+     * Create a tenant under the calling platform (SPEC §6.1). The realm is
+     * implicit (the API key's realm), so this routes to
+     * {@code POST /platforms/{realmId}/tenants}.
+     */
     public Tenant create(TenantCreate body) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("display_name", body.displayName());
-        if (body.ownerUserId() != null) b.put("owner_user_id", body.ownerUserId());
-        if (body.config() != null) b.put("config", body.config());
-        JsonNode raw = http.request(HttpTransport.Request.of("POST", "/tenants").body(b));
+        if (body.allowedDomains() != null) b.put("allowed_domains", body.allowedDomains());
+        if (body.signupMode() != null) b.put("signup_mode", body.signupMode());
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/platforms/" + enc(realmId) + "/tenants").body(b));
         return http.mapper().convertValue(raw, Tenant.class);
     }
 

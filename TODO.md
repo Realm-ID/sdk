@@ -38,4 +38,4 @@ MFA-verify wire field + add OTP surface parity`):
 
 ## Found during SDK parity work (2026-07-16)
 - [ ] `issuer/docs/swagger.yaml` — `TransferOwnerRequest` schema is stale: shows only `new_owner_email`, but the ADR-076 handler reads `{owner_user_id, outgoing_owner_role?, leave_entirely?}` (`issuer/internal/httpapi/tenants.go:924`). Backfill the schema.
-- [ ] `sdk/java/.../tenants/TenantsClient.java` — `create()` POSTs to `/tenants` with `{display_name, owner_user_id, config}`, whereas Go/TS POST to `/platforms/{realmId}/tenants` with `{display_name, allowed_domains, signup_mode}`. Java create route + body diverge from the other SDKs and SPEC §6.1; reconcile.
+- [x] `sdk/java/.../tenants/TenantsClient.java` — `create()` POSTs to `/tenants` with `{display_name, owner_user_id, config}`, whereas Go/TS POST to `/platforms/{realmId}/tenants` with `{display_name, allowed_domains, signup_mode}`. Java create route + body diverge from the other SDKs and SPEC §6.1; reconcile. (Fixed 2026-07-16 — route + body aligned, `TenantCreate` fields corrected, two pinning tests added; RCA in `sdk/DECISIONS.md`.)

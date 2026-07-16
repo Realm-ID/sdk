@@ -126,6 +126,36 @@ class TenantsClientTest {
     }
 
     @Test
+    void createRoutesToPlatformScopeAndSendsContractBody() {
+        // Pins SPEC §6.1 / swagger POST /platforms/{realmId}/tenants: the realm
+        // is implicit (the API key's realm, "01HREALM" here). GoFr returns 201.
+        fs.on("POST /platforms/01HREALM/tenants", (ex, body) -> FakeServer.Reply.json(201,
+                Map.of("id", "t-new", "display_name", "Acme")));
+
+        Tenant t = realm.tenants().create(
+                new TenantCreate("Acme", List.of("acme.com"), "allowlist"));
+        assertEquals("t-new", t.id());
+        assertEquals("Acme", t.displayName());
+
+        Map<String, Object> b = fs.last().bodyAsMap();
+        assertEquals("Acme", b.get("display_name"));
+        assertEquals(List.of("acme.com"), b.get("allowed_domains"));
+        assertEquals("allowlist", b.get("signup_mode"));
+        // Divergence guard: the retired create fields must never reappear.
+        assertEquals(false, b.containsKey("owner_user_id"));
+        assertEquals(false, b.containsKey("config"));
+    }
+
+    @Test
+    void createOmitsOptionalFieldsWhenNull() {
+        fs.on("POST /platforms/01HREALM/tenants", (ex, body) -> FakeServer.Reply.json(201,
+                Map.of("id", "t2", "display_name", "Bare")));
+        realm.tenants().create(TenantCreate.of("Bare"));
+        Map<String, Object> b = fs.last().bodyAsMap();
+        assertEquals(Map.of("display_name", "Bare"), b);
+    }
+
+    @Test
     void transferOwnerSendsOwnerPointerAndOptionalKnobs() {
         fs.on("PUT /tenants/t1/owner", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("id", "t1", "owner_user_id", "u-new")));

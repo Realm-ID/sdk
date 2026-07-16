@@ -7,6 +7,47 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — fix: Java `tenants().create` diverged from the contract (route + body)
+
+**Symptom.** The Java SDK's `TenantsClient.create` posted to `POST /tenants`
+with a body of `{display_name, owner_user_id?, config?}`. The canonical contract
+(`SPEC.md` §6.1, `swagger.yaml` `POST /platforms/{pid}/tenants`) and both peer
+SDKs (Go `Create` → `/platforms/{realmID}/tenants`; TS `create` → same, body
+`{display_name, allowed_domains?, signup_mode?}`) route platform-scoped and send
+a different body. Against the real issuer the Java path would 404/405 (no
+`POST /tenants` route) and, even if routed, would send unknown fields
+(`owner_user_id`/`config` are not accepted on create) while omitting the
+`allowed_domains`/`signup_mode` the contract defines.
+
+**Root cause.** The Java `create` was authored against an imagined shape rather
+than the locked SPEC: it invented `owner_user_id` (ownership on create is not a
+thing — ADR-076 ownership is set by the seat/invite path, transferred via
+`PUT …/owner`) and `config` (config is a separate `PATCH …/config` surface), and
+it never carried the implicit realm into the path. `TenantsClient` wasn't even
+constructed with the `realmId`, so it *couldn't* build the platform-scoped route
+— the divergence was structural, not a typo.
+
+**Why it wasn't caught.** `TenantsClientTest` had no `create` case at all (it
+covered list/users/invitations/import/transfer/role but not create), so nothing
+asserted the route or body. The record compiled fine because `owner_user_id`/
+`config` are valid Java — the mismatch was purely against the wire contract,
+which unit tests never exercised.
+
+**Fix.** `TenantCreate` now carries the contract fields
+`(displayName, allowedDomains, signupMode)` (dropping `ownerUserId`/`config`);
+`TenantsClient` takes `realmId` in its constructor (wired from `Realm`) and
+`create` posts to `/platforms/{realmId}/tenants` with
+`{display_name, allowed_domains?, signup_mode?}`, omitting the optionals when
+null. Matches Go/TS byte-for-byte on the wire.
+
+**Prevention.** Added two pinning tests —
+`createRoutesToPlatformScopeAndSendsContractBody` (asserts the
+`POST /platforms/{realmId}/tenants` route, the three body fields, **and** that
+the retired `owner_user_id`/`config` keys never reappear) and
+`createOmitsOptionalFieldsWhenNull`. A silent re-divergence now fails the suite.
+No contract/Go/TS change (the contract was already right); Java-only alignment,
+no version bump.
+
 ## 2026-07-16 — feat: federation-bindings client in all three SDKs (S-06, ADR-057)
 
 **Problem.** The workload-identity federation trust-binding surface

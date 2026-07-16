@@ -104,7 +104,7 @@ public final class Realm {
                 b.cacheTtl, b.leeway, clock, this.logger);
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin);
         this.otp = new OtpClient(this.http);
-        this.tenants = new TenantsClient(this.http);
+        this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.roles = new RolesClient(this.http, this.realmId);
