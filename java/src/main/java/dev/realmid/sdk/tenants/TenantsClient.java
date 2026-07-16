@@ -71,9 +71,25 @@ public final class TenantsClient {
         http.request(HttpTransport.Request.of("DELETE", "/tenants/" + enc(id)));
     }
 
+    /** Plain ownership hand-over (ADR-076). Outgoing owner demoted to the server default. */
     public Tenant transferOwner(String id, String newOwnerUserId) {
+        return transferOwner(id, newOwnerUserId, null);
+    }
+
+    /**
+     * Reassign tenant ownership to {@code newOwnerUserId} — the ADR-076 direct
+     * owner-pointer op (PUT /tenants/{id}/owner). The recipient must be an
+     * active member of the tenant. {@code opts} is optional (pass {@code null}
+     * for a plain hand-over): set {@code outgoingOwnerRole} / {@code
+     * leaveEntirely} to control the outgoing owner's fate.
+     */
+    public Tenant transferOwner(String id, String newOwnerUserId, TransferOwnerOptions opts) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("owner_user_id", newOwnerUserId);
+        if (opts != null) {
+            if (opts.outgoingOwnerRole() != null) b.put("outgoing_owner_role", opts.outgoingOwnerRole());
+            if (opts.leaveEntirely() != null) b.put("leave_entirely", opts.leaveEntirely());
+        }
         JsonNode raw = http.request(HttpTransport.Request.of("PUT", "/tenants/" + enc(id) + "/owner").body(b));
         return http.mapper().convertValue(raw, Tenant.class);
     }

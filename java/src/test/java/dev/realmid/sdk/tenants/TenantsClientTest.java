@@ -61,6 +61,24 @@ class TenantsClientTest {
     }
 
     @Test
+    void transferOwnerSendsOwnerPointerAndOptionalKnobs() {
+        fs.on("PUT /tenants/t1/owner", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("id", "t1", "owner_user_id", "u-new")));
+
+        // null opts → owner_user_id only.
+        Tenant t = realm.tenants().transferOwner("t1", "u-new");
+        assertEquals("t1", t.id());
+        assertEquals(Map.of("owner_user_id", "u-new"), fs.last().bodyAsMap());
+
+        // opts → both knobs present.
+        realm.tenants().transferOwner("t1", "u-new", new TransferOwnerOptions("admin", true));
+        Map<String, Object> b = fs.last().bodyAsMap();
+        assertEquals("u-new", b.get("owner_user_id"));
+        assertEquals("admin", b.get("outgoing_owner_role"));
+        assertEquals(true, b.get("leave_entirely"));
+    }
+
+    @Test
     void updateUserRoleHitsRoleEndpoint() {
         fs.on("PATCH /tenants/t1/users/u9/role", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("id", "u9", "role", "admin", "tenant_id", "t1", "updated_at", 1730000000L)));

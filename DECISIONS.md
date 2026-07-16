@@ -7,6 +7,43 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — feat: owner-transfer optional params across all three SDKs (WP6, ADR-076)
+
+**Problem.** ADR-076 replaced the propose→accept handshake with a direct
+owner-pointer op: `PUT /tenants/{id}/owner` now accepts
+`{owner_user_id, outgoing_owner_role?, leave_entirely?}` (issuer
+`internal/httpapi/tenants.go` `TransferOwnerRequest`). All three SDKs only
+sent `owner_user_id`, so a partner could not, in one call, also demote the
+outgoing owner to a chosen role or remove them from the tenant.
+
+**Decision.** Threaded the two optional knobs through every SDK, primary
+recipient still positional:
+- **Go** — `TransferOwner(ctx, id, newOwnerUserID, opts *TransferOwnerOptions)`
+  (`OutgoingOwnerRole`, `LeaveEntirely`). Signature gained an `opts` param
+  (pre-release, no external callers); body switched from `map[string]string`
+  to `map[string]any` so `leave_entirely` rides as a real bool.
+- **TS** — `transferOwner(id, newOwnerUserId, opts?)` with
+  `TransferOwnerOptions { outgoingOwnerRole?, leaveEntirely? }`.
+- **Java** — overload `transferOwner(id, newOwnerUserId, TransferOwnerOptions)`
+  plus the existing 2-arg form (delegates with null opts), keeping source
+  compat.
+
+Optional fields are omitted from the body unless set, so the default call is
+byte-identical to before (strictly widening).
+
+**Owner fields.** `Tenant.owner_user_id` already existed in all three type
+models (Go `OwnerUserID`, TS `owner_user_id`, Java `ownerUserId`) — no change
+needed. The ADR-076 `is_owner` flag lives only on the BFF/SPA `/me` response,
+which is **not** part of the partner SDK surface (no `/me` client in any
+language), so nothing to add there. The swagger `TransferOwnerRequest` schema
+is still stale (shows only `new_owner_email`); the issuer handler is the
+source of truth per the "code wins" rule — flagged in TODO for a swagger
+backfill.
+
+**Why.** Server contract shipped (issuer v0.40.0 live); pure port-to-parity.
+Tests in each language assert owner_user_id-only body with nil opts and both
+knobs present with opts.
+
 ## 2026-07-16 — feat: Java `tenants.updateUserRole` parity (S-04)
 
 **Problem.** The Go (`tenants_role.go`) and TS (`tenants.ts`) SDKs both wrap

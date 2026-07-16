@@ -46,6 +46,15 @@ export interface TenantPatch {
   [k: string]: unknown;
 }
 
+/** Optional knobs for {@link TenantsClient.transferOwner} (ADR-076). */
+export interface TransferOwnerOptions {
+  /** Role the outgoing owner is demoted to (defaults server-side to admin).
+   *  Ignored when `leaveEntirely` is true. */
+  outgoingOwnerRole?: string;
+  /** Remove the outgoing owner from the tenant entirely instead of demoting. */
+  leaveEntirely?: boolean;
+}
+
 /**
  * Per-tenant (org) config PATCH body (PATCH /tenants/{id}/config).
  * Governance keys an org owner controls over the realm-defined role
@@ -408,11 +417,21 @@ export class TenantsClient {
     });
   }
 
-  async transferOwner(id: string, newOwnerUserId: string): Promise<Tenant> {
+  /**
+   * Reassign tenant ownership to `newOwnerUserId` — the ADR-076 direct
+   * owner-pointer op (PUT /tenants/{id}/owner). The recipient must be an
+   * active member of the tenant. `opts` is optional: omit for a plain
+   * hand-over (outgoing owner demoted to the server default), or set
+   * `outgoingOwnerRole` / `leaveEntirely` to control the outgoing owner's fate.
+   */
+  async transferOwner(id: string, newOwnerUserId: string, opts?: TransferOwnerOptions): Promise<Tenant> {
+    const body: Record<string, unknown> = { owner_user_id: newOwnerUserId };
+    if (opts?.outgoingOwnerRole !== undefined) body.outgoing_owner_role = opts.outgoingOwnerRole;
+    if (opts?.leaveEntirely !== undefined) body.leave_entirely = opts.leaveEntirely;
     return this.http.request<Tenant>({
       method: "PUT",
       path: `/tenants/${encodeURIComponent(id)}/owner`,
-      body: { owner_user_id: newOwnerUserId },
+      body,
     });
   }
 

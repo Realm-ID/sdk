@@ -203,3 +203,40 @@ test("tenants.updateUserRole: PATCHes /tenants/{id}/users/{uid}/role", async () 
   assert.match(hitUrl, /\/tenants\/t1\/users\/u9\/role$/);
   assert.equal(hitBody.role, "admin");
 });
+
+test("tenants.transferOwner: PUTs owner_user_id and optional ADR-076 knobs", async () => {
+  let hitUrl = "";
+  let hitMethod = "";
+  let hitBody: Record<string, unknown> = {};
+  const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/auth/login")) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }
+    hitUrl = url;
+    if (init?.method) hitMethod = init.method;
+    if (init?.body) hitBody = JSON.parse(init.body as string);
+    return new Response(
+      JSON.stringify({ id: "t1", owner_user_id: "u-new" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+
+  // nil opts → owner_user_id only.
+  const t = await realm.tenants.transferOwner("t1", "u-new");
+  assert.equal(hitMethod, "PUT");
+  assert.match(hitUrl, /\/tenants\/t1\/owner$/);
+  assert.equal(t.owner_user_id, "u-new");
+  assert.equal(hitBody.owner_user_id, "u-new");
+  assert.equal("outgoing_owner_role" in hitBody, false);
+  assert.equal("leave_entirely" in hitBody, false);
+
+  // opts → both knobs present.
+  await realm.tenants.transferOwner("t1", "u-new", { outgoingOwnerRole: "admin", leaveEntirely: true });
+  assert.equal(hitBody.outgoing_owner_role, "admin");
+  assert.equal(hitBody.leave_entirely, true);
+});

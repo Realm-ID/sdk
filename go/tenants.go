@@ -284,18 +284,43 @@ func (c *TenantsClient) VerifyDomain(ctx ctxpkg.Context, platformID, tenantID, d
 	return &resp, nil
 }
 
-// TransferOwner reassigns tenant ownership.
-func (c *TenantsClient) TransferOwner(ctx context.Context, id, newOwnerUserID string) (*Tenant, error) {
+// TransferOwnerOptions carries the optional ADR-076 direct-transfer knobs
+// for TransferOwner. The zero value is a plain hand-over.
+type TransferOwnerOptions struct {
+	// OutgoingOwnerRole is the role the outgoing owner is demoted to after
+	// the transfer. Empty defers to the server default (admin). Ignored
+	// when LeaveEntirely is set.
+	OutgoingOwnerRole string
+	// LeaveEntirely removes the outgoing owner from the tenant entirely
+	// instead of demoting them.
+	LeaveEntirely bool
+}
+
+// TransferOwner reassigns tenant ownership to newOwnerUserID — the ADR-076
+// direct owner-pointer op (PUT /tenants/{id}/owner). The recipient must be
+// an active member of the tenant. opts is optional: pass nil for a plain
+// hand-over (outgoing owner demoted to the server default), or set
+// OutgoingOwnerRole / LeaveEntirely to control the outgoing owner's fate.
+func (c *TenantsClient) TransferOwner(ctx context.Context, id, newOwnerUserID string, opts *TransferOwnerOptions) (*Tenant, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
+	}
+	body := map[string]any{"owner_user_id": newOwnerUserID}
+	if opts != nil {
+		if opts.OutgoingOwnerRole != "" {
+			body["outgoing_owner_role"] = opts.OutgoingOwnerRole
+		}
+		if opts.LeaveEntirely {
+			body["leave_entirely"] = true
+		}
 	}
 	var t Tenant
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "PUT",
 		Path:   "/tenants/" + url.PathEscape(id) + "/owner",
 		Bearer: tok,
-		Body:   map[string]string{"owner_user_id": newOwnerUserID},
+		Body:   body,
 	}, &t); err != nil {
 		return nil, err
 	}

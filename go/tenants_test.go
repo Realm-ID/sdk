@@ -337,3 +337,60 @@ func TestContactVerifications_Approve(t *testing.T) {
 		t.Errorf("unexpected approve result: %+v", res)
 	}
 }
+
+// TestTenants_TransferOwner verifies the ADR-076 direct transfer body:
+// owner_user_id always, plus the optional outgoing_owner_role /
+// leave_entirely knobs only when supplied.
+func TestTenants_TransferOwner(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
+	})
+	var gotBody map[string]any
+	var gotMethod, gotPath string
+	mux.HandleFunc("/tenants/t1/owner", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "t1", "owner_user_id": "u-new"})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+
+	// nil opts → owner_user_id only.
+	tnt, err := r.Tenants.TransferOwner(context.Background(), "t1", "u-new", nil)
+	if err != nil {
+		t.Fatalf("TransferOwner: %v", err)
+	}
+	if gotMethod != "PUT" || gotPath != "/tenants/t1/owner" {
+		t.Errorf("wrong wire call: %s %s", gotMethod, gotPath)
+	}
+	if tnt.OwnerUserID != "u-new" {
+		t.Errorf("unexpected tenant: %+v", tnt)
+	}
+	if gotBody["owner_user_id"] != "u-new" {
+		t.Errorf("body owner_user_id: %v", gotBody["owner_user_id"])
+	}
+	if _, ok := gotBody["outgoing_owner_role"]; ok {
+		t.Errorf("outgoing_owner_role should be omitted when unset, got %v", gotBody)
+	}
+	if _, ok := gotBody["leave_entirely"]; ok {
+		t.Errorf("leave_entirely should be omitted when false, got %v", gotBody)
+	}
+
+	// opts → both knobs present.
+	_, err = r.Tenants.TransferOwner(context.Background(), "t1", "u-new", &TransferOwnerOptions{
+		OutgoingOwnerRole: "admin",
+		LeaveEntirely:     true,
+	})
+	if err != nil {
+		t.Fatalf("TransferOwner opts: %v", err)
+	}
+	if gotBody["outgoing_owner_role"] != "admin" {
+		t.Errorf("body outgoing_owner_role: %v", gotBody["outgoing_owner_role"])
+	}
+	if gotBody["leave_entirely"] != true {
+		t.Errorf("body leave_entirely: %v", gotBody["leave_entirely"])
+	}
+}
