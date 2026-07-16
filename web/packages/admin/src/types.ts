@@ -48,6 +48,37 @@ export interface PendingDomain extends DomainClaimResponse {
   expires_at: number;
 }
 
+/**
+ * A realm SPA origin as listed by GET /platforms/{id}/origins (ADR-049).
+ * Rows map a bare host to the realm; a `verification_id` links the
+ * `domain_verifications` row that proved control (shared from a verified
+ * parent apex under the trusted-by-parent shortcut, ADR-049 §3).
+ */
+export interface Origin {
+  id: string;
+  domain: string;
+  entity_type: string;
+  entity_id: string;
+  verification_id?: string;
+  created_at: number;
+}
+
+/**
+ * Result of binding a verified domain as a realm origin
+ * (POST /platforms/{id}/origins). `trusted_by_parent` + `parent_domain`
+ * are set when the origin inherited a verified parent apex's DV row
+ * instead of needing its own claim/verify (ADR-049 §3).
+ */
+export interface OriginBindResult {
+  id: string;
+  domain: string;
+  entity_type: string;
+  entity_id: string;
+  verification_id: string;
+  trusted_by_parent?: boolean;
+  parent_domain?: string;
+}
+
 export interface PlatformCreatedResponse {
   platform_id: string;
   admin_tenant_id: string;

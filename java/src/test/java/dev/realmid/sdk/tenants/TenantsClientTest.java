@@ -59,4 +59,16 @@ class TenantsClientTest {
         assertEquals("t3", all.get(2).id());
         assertEquals(2, calls.get());
     }
+
+    @Test
+    void updateUserRoleHitsRoleEndpoint() {
+        fs.on("PATCH /tenants/t1/users/u9/role", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("id", "u9", "role", "admin", "tenant_id", "t1", "updated_at", 1730000000L)));
+        UpdateUserRoleResult res = realm.tenants().updateUserRole("t1", "u9", "admin");
+        assertEquals("u9", res.id());
+        assertEquals("admin", res.role());
+        assertEquals("t1", res.tenantId());
+        assertEquals(1730000000L, res.updatedAt());
+        assertEquals(Map.of("role", "admin"), fs.last().bodyAsMap());
+    }
 }

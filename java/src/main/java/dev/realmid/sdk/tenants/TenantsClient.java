@@ -78,5 +78,20 @@ public final class TenantsClient {
         return http.mapper().convertValue(raw, Tenant.class);
     }
 
+    /**
+     * Set a user's role within a tenant (PATCH /tenants/{id}/users/{uid}/role).
+     * The role name must exist in the realm's role catalog. Setting
+     * {@code role=owner} is rejected — use {@link #transferOwner} for the
+     * explicit handover. Demoting the last owner returns
+     * {@code RealmException(last_owner)}.
+     */
+    public UpdateUserRoleResult updateUserRole(String tenantId, String userId, String role) {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("role", role);
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "PATCH", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/role").body(b));
+        return http.mapper().convertValue(raw, UpdateUserRoleResult.class);
+    }
+
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
 }

@@ -32,6 +32,7 @@ import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
 import { ApiKeysClient } from "./api-keys.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
 import { PlatformsClient } from "./platforms.js";
+import { OriginsClient } from "./origins.js";
 import { PlatformNotesClient } from "./notes.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { BffClient } from "./bff.js";
@@ -46,6 +47,9 @@ export interface Admin {
   domains: DomainsClient;
   admin: AdminClient;
   platforms: PlatformsClient;
+  /** Realm SPA origins / custom domains (ADR-049) — attach a custom apex
+   *  to an existing platform via the claim → verify → bind flow. */
+  origins: OriginsClient;
   notes: PlatformNotesClient;
   signingKeys: SigningKeysClient;
   /** Owner-facing signing-key read + self-serve rotate (/platforms/{id}/signing-keys). */
@@ -98,6 +102,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     domains: new DomainsClient(httpAsClient),
     admin: new AdminClient(httpAsClient),
     platforms: new PlatformsClient(http),
+    origins: new OriginsClient(http),
     notes: new PlatformNotesClient(http),
     signingKeys: new SigningKeysClient(http),
     keys: new OwnerSigningKeysClient(httpAsClient, rid),
@@ -121,6 +126,7 @@ export type {
   PlatformApiKeyCreate,
   PlatformOwnerInvite,
 } from "./platforms.js";
+export { OriginsClient } from "./origins.js";
 export { PlatformNotesClient } from "./notes.js";
 export { SigningKeysClient } from "./signing-keys.js";
 export { BffClient } from "./bff.js";

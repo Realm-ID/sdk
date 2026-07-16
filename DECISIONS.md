@@ -7,6 +7,26 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — feat: Java `tenants.updateUserRole` parity (S-04)
+
+**Problem.** The Go (`tenants_role.go`) and TS (`tenants.ts`) SDKs both wrap
+`PATCH /tenants/{id}/users/{uid}/role` for changing a member's role; Java had
+no equivalent, so a Java partner could not change a member role without hand-
+rolling the request.
+
+**Decision.** Added `TenantsClient.updateUserRole(tenantId, userId, role)` +
+an `UpdateUserRoleResult` record (`id`/`role`/`tenant_id`/`updated_at`),
+mirroring the Go signature and response shape verbatim. Placed on
+`TenantsClient` (not `UsersClient`) to match Go/TS, and next to
+`transferOwner` since role=owner is rejected there and steered to the
+transfer path. `updated_at` typed `Long` (unix seconds JSON number), matching
+Go's `int64`.
+
+**Why.** Contract already shipped on the issuer (`swagger.yaml`
+`/tenants/{id}/users/{uid}/role`); this is pure port-to-parity, no new server
+surface. Test drives the real client against the FakeServer and asserts the
+`{role}` body + decoded result.
+
 ## 2026-07-15 — fix: TS + Java `auth.login` wire body diverged from the issuer contract (S-01/S-02)
 
 **Symptom.** `POST /auth/login` reads `grant_type` (`provider_token`),

@@ -12,6 +12,9 @@ coverage/
 # Go
 *.test
 *.out
+# Docker-run build caches (see DECISIONS: tests run in golang/temurin containers)
+go/.gocache/
+java/.gradle-home/
 # Built example binaries (named after their parent directory by `go build`).
 go/examples/verify-token/verify-token
 
