@@ -119,6 +119,13 @@ export type {
   IdpClientType,
 } from "./identity-provider-config.js";
 
+export { IdentityProvidersClient } from "./identity-providers.js";
+export type {
+  IdentityProvider,
+  IdentityProvidersResponse,
+  IdentityProvidersOptions,
+} from "./identity-providers.js";
+
 export type { Paginated, Page, PageOpts } from "./pagination.js";
 
 export { AdminClient } from "./admin.js";

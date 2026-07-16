@@ -17,6 +17,7 @@ import { ConfigClient } from "./config.js";
 import { RolesClient } from "./roles.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
+import { IdentityProvidersClient } from "./identity-providers.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
@@ -99,6 +100,8 @@ export interface Realm {
    * from the public IdP discovery surface.
    */
   readonly identityProviderConfig: IdentityProviderConfigClient;
+  /** Public IdP discovery (SPEC §6.10) — the login provider list for SPAs. */
+  readonly identityProviders: IdentityProvidersClient;
   readonly origins: OriginsClient;
   readonly tokens: TokensClient;
   readonly admin: AdminClient;
@@ -206,6 +209,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     roles: new RolesClient(http, cfg.realmId),
     signingKeys: new SigningKeysClient(http, cfg.realmId),
     identityProviderConfig: new IdentityProviderConfigClient(http, cfg.realmId),
+    identityProviders: new IdentityProvidersClient(http, cfg.realmId),
     origins: new OriginsClient(http, platformTokens),
     tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
     admin: new AdminClient(http),

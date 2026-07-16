@@ -15,6 +15,7 @@ import dev.realmid.sdk.platformtoken.CredentialSource;
 import dev.realmid.sdk.platformtoken.CredentialSources;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.idp.IdentityProviderConfigClient;
+import dev.realmid.sdk.idp.IdentityProvidersClient;
 import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
@@ -53,6 +54,7 @@ public final class Realm {
     private final SourcesClient sources;
     private final SigningKeysClient signingKeys;
     private final IdentityProviderConfigClient identityProviderConfig;
+    private final IdentityProvidersClient identityProviders;
     private final OriginsClient origins;
     private final TokensClient tokens;
     private final AdminClient admin;
@@ -108,6 +110,7 @@ public final class Realm {
         this.sources = new SourcesClient(this.http, this.realmId);
         this.signingKeys = new SigningKeysClient(this.http, this.realmId);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
+        this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
         this.tokens = new TokensClient(clock);
         this.admin = new AdminClient(this.http);
@@ -140,6 +143,8 @@ public final class Realm {
     public SigningKeysClient signingKeys() { return signingKeys; }
     /** Identity-provider config CRUD (admin resource; distinct from IdP discovery). */
     public IdentityProviderConfigClient identityProviderConfig() { return identityProviderConfig; }
+    /** Public IdP discovery (SPEC §6.10) — the login provider list for SPAs. */
+    public IdentityProvidersClient identityProviders() { return identityProviders; }
     public OriginsClient origins() { return origins; }
     /** SPEC §6.7 — access-token revocation cache. */
     public TokensClient tokens() { return tokens; }

@@ -7,6 +7,35 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — feat: IdP discovery surface ported to TS + Java (S-05, SPEC §6.10)
+
+**Problem.** Public identity-provider discovery
+(`GET /platforms/{id}/identity-providers` — the login-provider list a partner
+backend fetches for its SPA) existed only in the Go SDK
+(`Realm.IdentityProviders`). TS/Java partners had no typed way to call it and
+were driven to the raw HTTP path or the wrong client (the admin `IdP config`
+CRUD, which is a different resource).
+
+**Decision.** Ported the Go surface into both, keeping the response/opts shape:
+- **TS** — new `identity-providers.ts`: `IdentityProvidersClient` wired as
+  `realm.identityProviders`, method `discover(opts?)` →
+  `{ tenant_id?, providers[] }`; `IdentityProvider` carries `type` /
+  `client_type` / `client_id` / optional `config`. `opts.origin` rides as the
+  `Origin` header (ADR-047 tenant resolution); `platform`/`tenantId` as query.
+- **Java** — new `idp.IdentityProvidersClient` wired as
+  `realm.identityProviders()`, `discover()` / `discover(opts)` with
+  `PublicIdentityProvider` / `IdentityProvidersResponse` /
+  `IdentityProvidersOptions` records.
+
+Named `identityProviders` to sit clearly beside the pre-existing
+`identityProviderConfig` (admin CRUD) — the two are distinct resources and the
+Realm doc-comments say so. Platform token is auto-attached by each SDK's
+transport (no manual bearer).
+
+**Why.** Server contract shipped; pure port-to-parity. Tests assert the
+`/platforms/{realmId}/identity-providers` path, the `platform`/`tenant_id`
+query, the `Origin` header, and the decoded providers incl. Firebase `config`.
+
 ## 2026-07-16 — feat: list filters (role/status/q on users, status on invitations) across all SDKs (S-07)
 
 **Problem.** The issuer supports `role`/`status`/`q` query filters on
