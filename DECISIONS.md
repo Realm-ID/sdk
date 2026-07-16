@@ -7,6 +7,34 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — feat: federation-bindings client in all three SDKs (S-06, ADR-057)
+
+**Problem.** The workload-identity federation trust-binding surface
+(`/platforms/{id}/federation-bindings` list/create/revoke, ADR-057) had no SDK
+client in any language — a partner using WIF had to hand-roll the HTTP.
+
+**Decision.** Added a `federationBindings` client to each SDK, realm-scoped
+(the platform id == the realm's id):
+- **Go** — `federation_bindings.go`: `FederationBindingsClient` on
+  `realm.FederationBindings` with `List` / `Create` / `Revoke`, plus
+  `FederationBinding` / `FederationBindingCreate` /
+  `FederationBindingRevokeResult` types. All exported funcs use the `ctxpkg`
+  context alias (check-gofr hook requirement).
+- **TS** — `federation-bindings.ts`: `FederationBindingsClient` on
+  `realm.federationBindings` (`list`/`create`/`revoke`); create maps
+  camelCase `matchClaims`/`mappedRole` to the snake_case wire.
+- **Java** — `federation` package: `FederationBindingsClient` on
+  `realm.federationBindings()` with matching records; create omits null
+  `mapped_role`/`scope`.
+
+Create sends `{issuer, match_claims, mapped_role?, scope?}` per swagger;
+`audience` is server-forced (read-only in the response type). List uses the
+shared paginated envelope. Revoke returns `{status:"revoked", id}`.
+
+**Why.** Server contract shipped (ADR-057). Tests in each language exercise
+list + create (asserting the snake_case body and, for TS/Java, the
+omitted-optional case) + revoke.
+
 ## 2026-07-16 — feat: IdP discovery surface ported to TS + Java (S-05, SPEC §6.10)
 
 **Problem.** Public identity-provider discovery

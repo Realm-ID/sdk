@@ -126,6 +126,13 @@ export type {
   IdentityProvidersOptions,
 } from "./identity-providers.js";
 
+export { FederationBindingsClient } from "./federation-bindings.js";
+export type {
+  FederationBinding,
+  FederationBindingCreate,
+  FederationBindingRevokeResult,
+} from "./federation-bindings.js";
+
 export type { Paginated, Page, PageOpts } from "./pagination.js";
 
 export { AdminClient } from "./admin.js";

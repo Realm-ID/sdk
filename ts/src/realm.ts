@@ -18,6 +18,7 @@ import { RolesClient } from "./roles.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
+import { FederationBindingsClient } from "./federation-bindings.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
@@ -113,6 +114,8 @@ export interface Realm {
   readonly serviceAccounts: ServiceAccountsClient;
   /** Owner/admin app/source registry (ADR-072). */
   readonly sources: SourcesClient;
+  /** Workload-identity federation trust bindings (ADR-057). */
+  readonly federationBindings: FederationBindingsClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -217,6 +220,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     otp: new OtpClient(http),
     serviceAccounts: new ServiceAccountsClient(http),
     sources: new SourcesClient(http, cfg.realmId),
+    federationBindings: new FederationBindingsClient(http, cfg.realmId),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

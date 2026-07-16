@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.realmid.sdk.apikeys.APIKeysClient;
 import dev.realmid.sdk.auth.AuthClient;
 import dev.realmid.sdk.domains.DomainsClient;
+import dev.realmid.sdk.federation.FederationBindingsClient;
 import dev.realmid.sdk.http.HttpTransport;
 import dev.realmid.sdk.info.ConfigClient;
 import dev.realmid.sdk.info.RealmInfo;
@@ -52,6 +53,7 @@ public final class Realm {
     private final RolesClient roles;
     private final ServiceAccountsClient serviceAccounts;
     private final SourcesClient sources;
+    private final FederationBindingsClient federationBindings;
     private final SigningKeysClient signingKeys;
     private final IdentityProviderConfigClient identityProviderConfig;
     private final IdentityProvidersClient identityProviders;
@@ -108,6 +110,7 @@ public final class Realm {
         this.roles = new RolesClient(this.http, this.realmId);
         this.serviceAccounts = new ServiceAccountsClient(this.http);
         this.sources = new SourcesClient(this.http, this.realmId);
+        this.federationBindings = new FederationBindingsClient(this.http, this.realmId);
         this.signingKeys = new SigningKeysClient(this.http, this.realmId);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
@@ -139,6 +142,8 @@ public final class Realm {
     public ServiceAccountsClient serviceAccounts() { return serviceAccounts; }
     /** Owner/admin app/source registry (ADR-072). */
     public SourcesClient sources() { return sources; }
+    /** Workload-identity federation trust bindings (ADR-057). */
+    public FederationBindingsClient federationBindings() { return federationBindings; }
     /** Owner-facing signing-key read + self-serve rotate (roles/signing-keys overhaul). */
     public SigningKeysClient signingKeys() { return signingKeys; }
     /** Identity-provider config CRUD (admin resource; distinct from IdP discovery). */

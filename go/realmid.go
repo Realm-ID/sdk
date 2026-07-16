@@ -122,6 +122,9 @@ type Realm struct {
 	ServiceAccounts *ServiceAccountsClient
 	// Sources is the owner/admin app/source registry (ADR-072).
 	Sources *SourcesClient
+	// FederationBindings is the platform's workload-identity federation
+	// trust-binding surface (ADR-057).
+	FederationBindings *FederationBindingsClient
 }
 
 // Version is the published SDK version (semver). As of 0.30.0 it is
@@ -207,6 +210,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.OTP = &OTPClient{realm: r}
 	r.ServiceAccounts = &ServiceAccountsClient{realm: r}
 	r.Sources = &SourcesClient{realm: r}
+	r.FederationBindings = &FederationBindingsClient{realm: r}
 
 	return r, nil
 }
