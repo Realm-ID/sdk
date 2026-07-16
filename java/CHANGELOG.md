@@ -4,6 +4,28 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.22.0 — fix: tenants().create route + body alignment (2026-07-16)
+
+Source-breaking fix. `tenants().create` posted to `POST /tenants` with
+`{display_name, owner_user_id?, config?}` — no such route exists (404 against
+the live issuer), and neither `owner_user_id` nor `config` is accepted on
+create. Now issues the contract call `POST /platforms/{realmId}/tenants` with
+`{display_name, allowed_domains?, signup_mode?}`, matching SPEC §6.1 / swagger
+and the Go + TS SDKs. `TenantCreate` is now `(displayName, allowedDomains,
+signupMode)` — the removed `ownerUserId`/`config` accessors are a compile-break
+for any caller that set them (the old call could never have succeeded).
+Ownership is set via the seat/invite path + `PUT …/owner`; per-tenant config via
+`PATCH …/config`. Two pinning tests guard the route/body + the retired keys.
+See `../DECISIONS.md`.
+
+## java-v0.21.0 — parity batch: S-03/04/05/06/07 + WP6 (2026-07-15)
+
+Additive parity port (changelog backfill — the tag shipped without an entry).
+`users.importUsers` (S-03, ADR-073), `tenants.updateUserRole` (S-04), IdP
+discovery surface (S-05), federation-bindings client (S-06, ADR-057), list
+filters `role`/`status`/`q` + invitation status (S-07), owner-transfer optional
+params (WP6, ADR-076). See git log + `../CHANGELOG.md`.
+
 ## java-v0.20.1 — fix: AuthClient.login wire body mismatch (2026-07-15)
 
 Bug fix, no SPEC change. `login()` was putting `method`, `token`, AND a
