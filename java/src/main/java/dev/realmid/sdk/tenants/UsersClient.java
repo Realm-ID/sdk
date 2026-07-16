@@ -7,7 +7,9 @@ import dev.realmid.sdk.pagination.Paginated;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** SPEC §6.3. */
@@ -69,6 +71,35 @@ public final class UsersClient {
     public void resetMfa(String tenantId, String userId) {
         http.request(HttpTransport.Request.of(
                 "DELETE", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/mfa"));
+    }
+
+    /**
+     * Bulk-import pre-provisioned ACTIVE users into a tenant (ADR-073 Release
+     * B, POST /tenants/{id}/users/import). Two-phase, whole-file-atomic on
+     * validation: when {@link ImportUsersResult#committed()} is false NOTHING
+     * was written and each failing row carries {@code error}+{@code errorHint}.
+     * A row may bring its own {@code userId} (becomes {@code users.id}); rows
+     * without one get a minted id returned. Always resolves HTTP 200 — inspect
+     * {@code committed}, not the status code.
+     */
+    public ImportUsersResult importUsers(String tenantId, List<ImportUserRow> rows) {
+        List<Map<String, Object>> wire = new ArrayList<>();
+        for (ImportUserRow r : rows) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            if (r.userId() != null) m.put("user_id", r.userId());
+            if (r.email() != null) m.put("email", r.email());
+            if (r.phone() != null) m.put("phone", r.phone());
+            if (r.role() != null) m.put("role", r.role());
+            if (r.displayName() != null) m.put("display_name", r.displayName());
+            if (r.provider() != null) m.put("provider", r.provider());
+            if (r.providerUid() != null) m.put("provider_uid", r.providerUid());
+            wire.add(m);
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("users", wire);
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/tenants/" + enc(tenantId) + "/users/import").body(body));
+        return http.mapper().convertValue(raw, ImportUsersResult.class);
     }
 
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }

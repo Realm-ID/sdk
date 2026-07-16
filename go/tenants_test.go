@@ -394,3 +394,56 @@ func TestTenants_TransferOwner(t *testing.T) {
 		t.Errorf("body leave_entirely: %v", gotBody["leave_entirely"])
 	}
 }
+
+// TestTenants_ImportUsers verifies the ADR-073 bulk-import wrapper posts
+// {users:[...]} to /tenants/{id}/users/import and decodes the committed
+// report (including the minted user_id returned for a row without one).
+func TestTenants_ImportUsers(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
+	})
+	var gotBody map[string]any
+	var gotMethod, gotPath string
+	mux.HandleFunc("/tenants/t1/users/import", func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"committed": true,
+			"imported":  2,
+			"updated":   0,
+			"failed":    0,
+			"rows": []any{
+				map[string]any{"line": 1, "user_id": "byo-1", "identifier": "a@x.com", "status": "created"},
+				map[string]any{"line": 2, "user_id": "minted-2", "identifier": "b@x.com", "status": "created"},
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	res, err := r.Tenants.Users.ImportUsers(context.Background(), "t1", []ImportUserRow{
+		{UserID: "byo-1", Email: "a@x.com", Role: "member"},
+		{Email: "b@x.com", Role: "member"},
+	})
+	if err != nil {
+		t.Fatalf("ImportUsers: %v", err)
+	}
+	if gotMethod != "POST" || gotPath != "/tenants/t1/users/import" {
+		t.Errorf("wrong wire call: %s %s", gotMethod, gotPath)
+	}
+	users, ok := gotBody["users"].([]any)
+	if !ok || len(users) != 2 {
+		t.Fatalf("body users malformed: %v", gotBody["users"])
+	}
+	if first := users[0].(map[string]any); first["user_id"] != "byo-1" || first["role"] != "member" {
+		t.Errorf("row 0 wire: %v", first)
+	}
+	if !res.Committed || res.Imported != 2 || len(res.Rows) != 2 {
+		t.Errorf("unexpected result: %+v", res)
+	}
+	if res.Rows[1].UserID != "minted-2" || res.Rows[1].Status != "created" {
+		t.Errorf("unexpected minted row: %+v", res.Rows[1])
+	}
+}

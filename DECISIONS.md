@@ -7,6 +7,30 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-16 — feat: `users.importUsers` ported to Go + Java (S-03, ADR-073 Release B)
+
+**Problem.** TS shipped `admin.tenants.users.importUsers`
+(`POST /tenants/{id}/users/import`) for whole-file-atomic bulk import; Go and
+Java had no equivalent, so those partners could not pre-provision users.
+
+**Decision.** Ported the TS surface verbatim:
+- **Go** — new `tenants_import.go`: `UsersClient.ImportUsers(ctx, tenantID,
+  []ImportUserRow) (*ImportUsersResult, error)` + `ImportUserRow` /
+  `ImportUserRowResult` / `ImportUsersResult` types. Body is `{users: rows}`.
+- **Java** — `UsersClient.importUsers(tenantId, List<ImportUserRow>)` +
+  `ImportUserRow` / `ImportUserRowResult` / `ImportUsersResult` records. Each
+  row is hand-serialized to a snake_case map omitting null fields (mirrors the
+  existing `create`/`updateContact` body-building style) so an absent
+  bring-your-own `user_id` is omitted, not sent as null.
+
+Both keep the TS contract: the call resolves HTTP 200 regardless (ADR-069
+uniform-200) and the caller inspects `committed`, not the status code; a row
+without a `user_id` gets a minted id back in its row result.
+
+**Why.** Server contract shipped (issuer live); pure port-to-parity. Tests
+assert the `{users:[...]}` body (including the omitted-`user_id` row) and
+decode the committed report + minted row id.
+
 ## 2026-07-16 — feat: owner-transfer optional params across all three SDKs (WP6, ADR-076)
 
 **Problem.** ADR-076 replaced the propose→accept handshake with a direct

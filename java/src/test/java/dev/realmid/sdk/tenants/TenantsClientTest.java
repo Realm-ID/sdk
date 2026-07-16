@@ -61,6 +61,40 @@ class TenantsClientTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void importUsersPostsUsersArrayAndDecodesReport() {
+        fs.on("POST /tenants/t1/users/import", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "committed", true,
+                "imported", 2,
+                "updated", 0,
+                "failed", 0,
+                "rows", List.of(
+                        Map.of("line", 1, "user_id", "byo-1", "identifier", "a@x.com", "status", "created"),
+                        Map.of("line", 2, "user_id", "minted-2", "identifier", "b@x.com", "status", "created")))));
+
+        ImportUsersResult res = realm.tenants().users().importUsers("t1", List.of(
+                new ImportUserRow("byo-1", "a@x.com", null, "member", null, null, null),
+                ImportUserRow.of("b@x.com", "member")));
+
+        assertEquals(true, res.committed());
+        assertEquals(2, res.imported());
+        assertEquals(2, res.rows().size());
+        assertEquals("minted-2", res.rows().get(1).userId());
+        assertEquals("created", res.rows().get(1).status());
+
+        Map<String, Object> sent = fs.last().bodyAsMap();
+        List<Object> users = (List<Object>) sent.get("users");
+        assertEquals(2, users.size());
+        Map<String, Object> row0 = (Map<String, Object>) users.get(0);
+        assertEquals("byo-1", row0.get("user_id"));
+        assertEquals("member", row0.get("role"));
+        Map<String, Object> row1 = (Map<String, Object>) users.get(1);
+        assertEquals("b@x.com", row1.get("email"));
+        // row without user_id must omit the key (bring-your-own optional).
+        assertEquals(false, row1.containsKey("user_id"));
+    }
+
+    @Test
     void transferOwnerSendsOwnerPointerAndOptionalKnobs() {
         fs.on("PUT /tenants/t1/owner", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("id", "t1", "owner_user_id", "u-new")));
