@@ -205,6 +205,36 @@ export interface RevokeAllSessionsRequest {
   userBearer?: string;
 }
 
+export interface ListAuthenticatorsRequest {
+  /** The user's own access JWT, sent as the bearer for this call. */
+  userBearer?: string;
+}
+
+/** One enrolled MFA factor (ADR-080). Today only TOTP; the list has 0 or 1
+ *  entries. created_at/confirmed_at are unix seconds (confirmed_at 0 until confirmed). */
+export interface Authenticator {
+  type: string;
+  confirmed: boolean;
+  created_at: number;
+  confirmed_at: number;
+  [k: string]: unknown;
+}
+
+export interface AuthenticatorList {
+  authenticators: Authenticator[];
+  backup_codes_remaining: number;
+}
+
+export interface RegenerateRecoveryCodesRequest {
+  /** The user's own access JWT, sent as the bearer for this call. */
+  userBearer?: string;
+}
+
+export interface RecoveryCodesResult {
+  status: string;
+  recovery_codes: string[];
+}
+
 interface RawMfaEnrollment {
   secret: string;
   qr_url: string;
@@ -543,6 +573,33 @@ export class AuthClient {
    */
   newTokenManager(refreshToken: string, opts?: TokenManagerOptions): TokenManager {
     return new TokenManager(this, refreshToken, opts);
+  }
+
+  /**
+   * List the current user's enrolled MFA authenticator(s) and remaining
+   * backup-code count — `GET /auth/mfa/authenticators`. A read, NOT MFA-gated.
+   */
+  async listAuthenticators(req?: ListAuthenticatorsRequest): Promise<AuthenticatorList> {
+    return this.http.request<AuthenticatorList>({
+      method: "GET",
+      path: "/auth/mfa/authenticators",
+      bearer: req?.userBearer,
+    });
+  }
+
+  /**
+   * Regenerate the current user's recovery codes — `POST
+   * /auth/mfa/recovery/regenerate`, invalidating the previous set. Requires a
+   * CONFIRMED enrollment (RealmError conflict, `not_enrolled`) and a FRESH TOTP
+   * within the elevated window (RealmError mfa_required, 412, until re-verified).
+   * Codes are shown once and also emailed (ADR-079).
+   */
+  async regenerateRecoveryCodes(req?: RegenerateRecoveryCodesRequest): Promise<RecoveryCodesResult> {
+    return this.http.request<RecoveryCodesResult>({
+      method: "POST",
+      path: "/auth/mfa/recovery/regenerate",
+      bearer: req?.userBearer,
+    });
   }
 
   private async originHeaders(perCall?: string): Promise<Record<string, string>> {

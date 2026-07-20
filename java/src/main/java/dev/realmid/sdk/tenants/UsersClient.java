@@ -114,5 +114,45 @@ public final class UsersClient {
         return http.mapper().convertValue(raw, ImportUsersResult.class);
     }
 
+    /**
+     * Delink a contact's provider binding (ADR-080 Part 2, POST
+     * /tenants/{id}/users/{uid}/contacts/{contactId}/delink): every active
+     * {@code contact_verifications} row bound to the contact is revoked, leaving
+     * the {@code user_contacts} row ACTIVE but unmapped so a new provider
+     * identity can bind on the next verified login (subject to the Phase A
+     * verified-email gate). The explicit owner action that unblocks a
+     * {@link dev.realmid.sdk.ErrorCode#CONTACT_ADMIN_REQUIRED} login — a
+     * different provider claiming an address already bound to another identity —
+     * without ever silently transferring the binding. Owner/admin only
+     * ({@code users:manage}). Idempotent.
+     */
+    public DelinkContactResult delinkContact(String tenantId, String userId, String contactId) {
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/tenants/" + enc(tenantId) + "/users/" + enc(userId)
+                        + "/contacts/" + enc(contactId) + "/delink"));
+        return http.mapper().convertValue(raw, DelinkContactResult.class);
+    }
+
+    /**
+     * Hand an account back (ADR-080 Part 3, POST
+     * /tenants/{id}/users/{uid}/hand-back): the OLD account ({@code userId},
+     * currently deactivated) is reactivated and the mistakenly-created NEW
+     * account's ({@code fromUserId}) current email identity is moved onto it,
+     * then the new account is disabled — the explicit, audited recovery for a
+     * drift/rebind that created a separate account. The user's next verified
+     * login rebinds the same provider UID to the old account. Owner/admin only
+     * ({@code users:manage}). A missing {@code fromUserId} / same user /
+     * source-with-no-email yields {@code RealmException(bad_request)}; a
+     * deactivated-target requirement failure surfaces as
+     * {@code RealmException(conflict)}.
+     */
+    public HandBackResult handBack(String tenantId, String userId, String fromUserId) {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("from_user_id", fromUserId);
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/hand-back").body(b));
+        return http.mapper().convertValue(raw, HandBackResult.class);
+    }
+
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
 }

@@ -13,6 +13,32 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-080 Phase B + session-revoke + MFA-self parity — go 0.34.0 (`go/v0.34.0`) · ts 0.24.0 (`ts-v0.24.0`) · java 0.23.0 (`java-v0.23.0`) · web-admin 0.8.7 (2026-07-20)
+
+Typed parity for the 8 issuer v0.50.0 surfaces (backend already live; these
+were reachable via the BFF `/api/*` passthrough, now typed). Go is the
+reference; ts/java/web-admin mirror it idiomatically.
+
+- **Contact-binding (ADR-080 Part 2/3):** `Users.DelinkContact` /
+  `Users.HandBack`; drift `Reject` is now the SOFT (non-destructive) reject and
+  `RejectHard` parks the account. `DriftRejectResult` reshaped to `{ id, status,
+  mode, parked?, revoked_bindings? }` (old `new_user_id`/`original_value` removed).
+- **Session-revoke (ADR-080):** new `Sessions` client — `RevokeUser(tenant,user)`
+  (admin force-logout) + realm-wide mass logout (`RevokeAll` in go/ts/java;
+  `revokeRealmSessions(realmId)` in web-admin, where `revokeAll` was already the
+  self op). Distinct from `Auth.RevokeAllSessions` (the caller's own sessions).
+- **MFA self-service:** `Auth.ListAuthenticators` + `Auth.RegenerateRecoveryCodes`
+  (the latter may surface `mfa_required` 412 step-up / `conflict` not_enrolled).
+  In web-admin these live on `admin.mfa`.
+- **Error code:** `contact_admin_required` (409) added to each SDK's known-code
+  set (web-admin exposes an `isContactAdminRequired()` helper since it can't widen
+  the bundled `@realm-id/sdk` union).
+- **Error-decoder fix (go + java):** the decoders only read the specific `code`
+  from the *nested* `{error:{code}}` envelope; the issuer's `apiErr` shape is FLAT
+  (`{error:"<str>",code}`), so codes like `contact_admin_required`/`refresh_invalid`
+  silently degraded to the HTTP-class code. Both now read the top-level `code` (and
+  fall back to the `error` string for the message). TS already handled it.
+
 ## ADR-075 roles: `required_mfa_methods` write surface — go 0.32.0 (`go/v0.32.0`) · ts 0.22.0 (`ts-v0.22.0`) · java 0.20.0 (`java-v0.20.0`) · web-admin 0.8.5 (2026-07-15)
 
 Additive across all four SDKs. Fans out the per-role MFA requirement

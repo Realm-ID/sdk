@@ -253,6 +253,34 @@ public final class AuthClient {
     }
 
     /**
+     * List the current user's enrolled MFA authenticator(s) and remaining
+     * backup-code count — {@code GET /auth/mfa/authenticators} (issuer v0.50.0).
+     * A read, NOT MFA-gated. Current-user op; dual-mode bearer; no body.
+     */
+    public AuthenticatorList listAuthenticators(ListAuthenticatorsRequest req) {
+        HttpTransport.Request r = HttpTransport.Request.of("GET", "/auth/mfa/authenticators");
+        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        JsonNode raw = http.request(r);
+        return http.mapper().convertValue(raw, AuthenticatorList.class);
+    }
+
+    /**
+     * Mint a fresh set of recovery codes for the current user — {@code POST
+     * /auth/mfa/recovery/regenerate} (issuer v0.50.0), invalidating the previous
+     * set. Requires a CONFIRMED enrollment (else {@code RealmException(conflict)},
+     * 409, code {@code not_enrolled}) and is gated on a FRESH TOTP within the
+     * elevated window ({@code RealmException(mfa_required)}, 412, until
+     * re-verified). Codes are shown once and also emailed (ADR-079). Current-user
+     * op; dual-mode bearer; no body.
+     */
+    public RecoveryCodes regenerateRecoveryCodes(RegenerateRecoveryCodesRequest req) {
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery/regenerate");
+        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        JsonNode raw = http.request(r);
+        return http.mapper().convertValue(raw, RecoveryCodes.class);
+    }
+
+    /**
      * Resolve the dual-mode bearer trio onto a request, mirroring the model
      * used by {@link #revokeSession} / {@link #listSessions}: exactly one of
      * {@code userBearer} (legacy mode, sent as the Authorization bearer) or

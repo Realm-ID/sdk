@@ -4,6 +4,24 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.24.0 — ADR-080 Phase B + session-revoke + MFA-self parity (2026-07-20)
+
+Additive parity port of the Go reference SDK (issuer v0.50.0). No SPEC break.
+
+- **Contact-binding (ADR-080 Part 2/3):** `users.delinkContact(tenantId, userId,
+  contactId)` and `users.handBack(tenantId, userId, fromUserId)`. `driftReviews.reject`
+  is now the SOFT (non-destructive) reject; new `driftReviews.rejectHard` parks the
+  account. `DriftRejectResult` reshaped to `{ id, status, mode, parked?, revoked_bindings? }`
+  (the old `new_user_id`/`original_value` fields are removed — the reject no longer
+  forks a user).
+- **Session-revoke (ADR-080):** new `realm.sessions` client — `revokeUser(tenantId,
+  userId)` (admin force-logout) and `revokeAll()` (realm-wide mass logout). Distinct
+  from `auth.revokeAllSessions` (the caller's own sessions).
+- **MFA self-service:** `auth.listAuthenticators()` and `auth.regenerateRecoveryCodes()`
+  (the latter may surface `mfa_required` (412) step-up or `conflict`/`not_enrolled`).
+- **Error code:** `contact_admin_required` (409) added to the `ErrorCode` union +
+  KNOWN_CODES so `isCode()` matches it on login.
+
 ## 0.22.1 — fix: auth.login wire body mismatch (2026-07-15)
 
 Bug fix, no SPEC change. `auth.login` was posting

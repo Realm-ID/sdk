@@ -4,6 +4,37 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.23.0 — ADR-080 Phase B + session-revoke + MFA-self parity (2026-07-20)
+
+Additive parity port of the 8 backend surfaces shipped in issuer v0.50.0
+(already reachable via the BFF `/api/*` passthrough). Mirrors the Go reference
+SDK (`sdk/go/{drift_reviews,sessions,user_binding,mfa_recovery}.go`).
+
+- **New error code** `CONTACT_ADMIN_REQUIRED` (`contact_admin_required`, login
+  409) — the ADR-080 Phase B new-provider approval gate. The flat error
+  envelope `{ "error": "<msg>", "code": "<code>" }` now surfaces the `error`
+  string as the exception message (previously left as a stray detail); the
+  top-level `code` was already decoded.
+- **`tenants().users().delinkContact(tenantId, userId, contactId)`** (ADR-080
+  Part 2) → `DelinkContactResult{status, contactId, revokedBindings}`.
+- **`tenants().users().handBack(tenantId, userId, fromUserId)`** (ADR-080
+  Part 3) → `HandBackResult{status, userId, email}`.
+- **`tenants().driftReviews().rejectHard(tenantId, reviewId)`** — hard reject
+  (parks the account). `reject(...)` (soft) is unchanged. `DriftRejectResult`
+  reshaped to `{id, status, mode, parked, revokedBindings}` — the pre-ADR-080
+  `newUserId`/`originalValue` fields are **removed** (compile-break for any
+  caller that read them; the old wire fields no longer exist).
+- **New `sessions()` client** — `revokeUser(tenantId, userId)` (member force
+  logout) and `revokeAll()` (realm-wide mass logout, targets the SDK's own
+  realm) → `SessionRevokeResult{status, revoked}`. Owner/admin
+  (`sessions:revoke`).
+- **`auth().listAuthenticators(req)`** → `AuthenticatorList{authenticators[],
+  backupCodesRemaining}` and **`auth().regenerateRecoveryCodes(req)`** →
+  `RecoveryCodes{status, recoveryCodes[]}` (409 `not_enrolled`, 412
+  `mfa_required` step-up). Dual-mode bearer trio like `disableMfa`.
+
+Backend-only backing; no SPEC change. See `../CHANGELOG.md` + `../DECISIONS.md`.
+
 ## java-v0.22.0 — fix: tenants().create route + body alignment (2026-07-16)
 
 Source-breaking fix. `tenants().create` posted to `POST /tenants` with

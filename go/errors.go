@@ -43,6 +43,12 @@ const (
 	ErrCodeTenantInvalid        ErrorCode = "tenant_invalid"
 	ErrCodeAccountSuspended     ErrorCode = "account_suspended"
 	ErrCodeAccountDeactivated   ErrorCode = "account_deactivated"
+	// ErrCodeContactAdminRequired (409) is returned by POST /auth/login when a
+	// DIFFERENT provider identity asserts an email/phone already bound to an
+	// existing account (ADR-080 Part 2). The issuer refuses to silently link —
+	// an owner must first delink the current binding
+	// (UsersClient.DelinkContact) before the new provider can bind.
+	ErrCodeContactAdminRequired ErrorCode = "contact_admin_required"
 	ErrCodeRealmOriginMismatch  ErrorCode = "realm_origin_mismatch"
 	// ErrCodeRealmMismatch is the ADR-041 client-side realm pin: the SDK
 	// was constructed for realm A but the platform access token's iss
@@ -189,7 +195,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeMFARegistrationRequired: {},
 	ErrCodeSessionLimitReached:     {}, ErrCodeTenantRequired: {},
 	ErrCodeTenantInvalid: {}, ErrCodeAccountSuspended: {},
-	ErrCodeAccountDeactivated: {}, ErrCodeRealmOriginMismatch: {},
+	ErrCodeAccountDeactivated: {}, ErrCodeContactAdminRequired: {},
+	ErrCodeRealmOriginMismatch: {},
 	ErrCodeRealmMismatch: {},
 	ErrCodeMissingOrigin: {}, ErrCodeRefreshInvalid: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},

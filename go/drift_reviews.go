@@ -38,12 +38,17 @@ type DriftAcceptResult struct {
 	NewContactID  string `json:"new_contact_id"`
 }
 
-// DriftRejectResult is the response from DriftReviewsClient.Reject.
+// DriftRejectResult is the response from DriftReviewsClient.Reject /
+// RejectHard (ADR-080 Part 3). Mode is "soft" (default: dismiss the asserted
+// change, keep the account and its binding, notify the owner) or "hard"
+// (park the account by severing its provider binding). Parked +
+// RevokedBindings are populated only on a hard reject.
 type DriftRejectResult struct {
-	ID            string `json:"id"`
-	Status        string `json:"status"`
-	NewUserID     string `json:"new_user_id"`
-	OriginalValue string `json:"original_value"`
+	ID              string `json:"id"`
+	Status          string `json:"status"`
+	Mode            string `json:"mode"`
+	Parked          bool   `json:"parked,omitempty"`
+	RevokedBindings int64  `json:"revoked_bindings,omitempty"`
 }
 
 // DriftReviewsClient is realm.Tenants.DriftReviews (SPEC §6.8).
@@ -112,19 +117,37 @@ func (c *DriftReviewsClient) Accept(ctx ctxpkg.Context, tenantID, reviewID strin
 	return &out, nil
 }
 
-// Reject treats the drift as a different person: the asserting login is
-// split off onto a fresh deactivated user and the original contact is
-// left intact.
+// Reject is a SOFT reject (ADR-080 Part 3, the default): dismiss the asserted
+// identity change, keep the account and its original provider binding intact,
+// and notify the original-email owner. Non-destructive. For the "this looks
+// like a takeover" escalation that parks the account, use RejectHard.
 func (c *DriftReviewsClient) Reject(ctx ctxpkg.Context, tenantID, reviewID string) (*DriftRejectResult, error) {
+	return c.reject(ctx, tenantID, reviewID, false)
+}
+
+// RejectHard parks the account (ADR-080 Part 3): the provider binding is
+// severed, leaving the account unmapped (NOT silently re-invited). Recovery is
+// the explicit hand-back flow (UsersClient.HandBack). A deliberate,
+// audited "this looks like a takeover" action.
+func (c *DriftReviewsClient) RejectHard(ctx ctxpkg.Context, tenantID, reviewID string) (*DriftRejectResult, error) {
+	return c.reject(ctx, tenantID, reviewID, true)
+}
+
+func (c *DriftReviewsClient) reject(ctx ctxpkg.Context, tenantID, reviewID string, hard bool) (*DriftRejectResult, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
+	}
+	var body map[string]any
+	if hard {
+		body = map[string]any{"hard": true}
 	}
 	var out DriftRejectResult
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/tenants/" + url.PathEscape(tenantID) + "/contact-drift-reviews/" + url.PathEscape(reviewID) + "/reject",
 		Bearer: tok,
+		Body:   body,
 	}, &out); err != nil {
 		return nil, err
 	}

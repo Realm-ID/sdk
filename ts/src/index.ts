@@ -55,6 +55,11 @@ export type {
   MfaEnrollment,
   DisableMfaRequest,
   RevokeAllSessionsRequest,
+  ListAuthenticatorsRequest,
+  Authenticator,
+  AuthenticatorList,
+  RegenerateRecoveryCodesRequest,
+  RecoveryCodesResult,
 } from "./auth.js";
 
 export { TokenManager } from "./token-manager.js";
@@ -79,9 +84,14 @@ export type {
   DriftReview,
   DriftAcceptResult,
   DriftRejectResult,
+  DelinkContactResult,
+  HandBackResult,
   ContactVerification,
   ContactVerificationResult,
 } from "./tenants.js";
+
+export { SessionsClient } from "./sessions.js";
+export type { SessionRevokeResult } from "./sessions.js";
 
 export type { DomainClaim, DomainVerifyResult } from "./domains.js";
 export { OriginsClient, normalizeOrigin } from "./origins.js";

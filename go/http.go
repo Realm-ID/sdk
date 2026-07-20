@@ -165,44 +165,51 @@ func mapErrorResponse(status int, raw []byte, method, path string) *RealmError {
 	var generic map[string]any
 	if len(raw) > 0 && json.Unmarshal(raw, &generic) == nil && generic != nil {
 		// Envelope: { error: { code, message }, ...siblings }
-		if envRaw, ok := generic["error"]; ok {
-			if env, ok := envRaw.(map[string]any); ok {
-				if c, ok := env["code"].(string); ok && isKnownCode(c) {
-					code = ErrorCode(c)
-				}
-				if m, ok := env["message"].(string); ok && m != "" {
-					message = m
-				}
-				siblings := map[string]any{}
-				for k, v := range generic {
-					if k == "error" {
-						continue
-					}
-					siblings[k] = v
-				}
-				// Gate payloads (revocation_token, active_sessions,
-				// mfa_challenge_token, …) are nested INSIDE the error object by
-				// the issuer, not alongside it. Collect those too — otherwise
-				// SessionLimitModal / MfaPrompt get an empty Details map.
-				for k, v := range env {
-					if k == "code" || k == "message" || k == "error" {
-						continue
-					}
-					siblings[k] = v
-				}
-				if len(siblings) > 0 {
-					details = siblings
-				}
+		if env, ok := generic["error"].(map[string]any); ok {
+			if c, ok := env["code"].(string); ok && isKnownCode(c) {
+				code = ErrorCode(c)
 			}
-		} else if c, ok := generic["code"].(string); ok && isKnownCode(c) {
-			// Flat envelope { code, message, ...siblings }.
-			code = ErrorCode(c)
-			if m, ok := generic["message"].(string); ok && m != "" {
+			if m, ok := env["message"].(string); ok && m != "" {
 				message = m
 			}
 			siblings := map[string]any{}
 			for k, v := range generic {
-				if k == "code" || k == "message" {
+				if k == "error" {
+					continue
+				}
+				siblings[k] = v
+			}
+			// Gate payloads (revocation_token, active_sessions,
+			// mfa_challenge_token, …) are nested INSIDE the error object by
+			// the issuer, not alongside it. Collect those too — otherwise
+			// SessionLimitModal / MfaPrompt get an empty Details map.
+			for k, v := range env {
+				if k == "code" || k == "message" || k == "error" {
+					continue
+				}
+				siblings[k] = v
+			}
+			if len(siblings) > 0 {
+				details = siblings
+			}
+		} else {
+			// Flat envelope { code, message | error: "<msg>", ...siblings }.
+			// The issuer's apiErr.Response() emits { "error": "<msg>", "code":
+			// "<code>" } — `error` is a STRING, not a nested object — so the
+			// specific code lives at the top level alongside it. Read it here
+			// (this is the shape most /auth error paths take, incl.
+			// contact_admin_required, refresh_invalid, account_suspended).
+			if c, ok := generic["code"].(string); ok && isKnownCode(c) {
+				code = ErrorCode(c)
+			}
+			if m, ok := generic["message"].(string); ok && m != "" {
+				message = m
+			} else if s, ok := generic["error"].(string); ok && s != "" {
+				message = s
+			}
+			siblings := map[string]any{}
+			for k, v := range generic {
+				if k == "code" || k == "message" || k == "error" {
 					continue
 				}
 				siblings[k] = v

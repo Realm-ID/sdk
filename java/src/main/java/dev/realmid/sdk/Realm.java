@@ -19,6 +19,7 @@ import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.idp.IdentityProvidersClient;
 import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
+import dev.realmid.sdk.sessions.SessionsClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
 import dev.realmid.sdk.sources.SourcesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
@@ -61,6 +62,7 @@ public final class Realm {
     private final TokensClient tokens;
     private final AdminClient admin;
     private final AuditEventsClient auditEvents;
+    private final SessionsClient sessions;
     private final RealmInfoClient info;
     private final ConfigClient config;
     private final PlatformTokenManager platformTokens;
@@ -118,6 +120,7 @@ public final class Realm {
         this.tokens = new TokensClient(clock);
         this.admin = new AdminClient(this.http);
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
+        this.sessions = new SessionsClient(this.http, this.realmId);
         this.config = new ConfigClient(this.http, this.realmId);
     }
 
@@ -157,6 +160,8 @@ public final class Realm {
     public AdminClient admin() { return admin; }
     /** SPEC §7.6 — partner audit-event feed (ADR-055). */
     public AuditEventsClient auditEvents() { return auditEvents; }
+    /** Owner/admin session-revocation surface (ADR-080): force-logout a member or the whole realm. */
+    public SessionsClient sessions() { return sessions; }
     public ConfigClient config() { return config; }
     public RealmInfo info() { return info.info(); }
 

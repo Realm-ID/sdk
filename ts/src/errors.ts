@@ -24,6 +24,10 @@ export type ErrorCode =
   | "tenant_invalid"
   | "account_suspended"
   | "account_deactivated"
+  // `contact_admin_required` (409) — POST /auth/login refuses to silently link
+  // a DIFFERENT provider identity to an email/phone already bound to an
+  // existing account (ADR-080 Part 2). An owner must delink first.
+  | "contact_admin_required"
   | "realm_origin_mismatch"
   | "realm_mismatch"
   | "missing_origin"
@@ -107,7 +111,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "jwks_fetch_failed",
   "provider_token_invalid", "mfa_required", "session_limit_reached",
   "tenant_required", "tenant_invalid", "account_suspended",
-  "account_deactivated", "realm_origin_mismatch", "realm_mismatch",
+  "account_deactivated", "contact_admin_required",
+  "realm_origin_mismatch", "realm_mismatch",
   "missing_origin", "refresh_invalid",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",
   "bad_request", "network", "server_error",

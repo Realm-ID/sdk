@@ -156,6 +156,85 @@ export interface ActiveSession {
   last_seen_at?: number;
 }
 
+/**
+ * Result of a member-scoped or realm-wide session revocation
+ * (`SessionsClient.revokeUser` / `revokeRealmSessions`, ADR-080) — how many
+ * sessions the revocation touched.
+ */
+export interface SessionRevokeResult {
+  status: string;
+  revoked: number;
+}
+
+/**
+ * Response from `AdminUsersClient.delinkContact` (ADR-080 Part 2): the contact
+ * whose provider binding was severed and how many active
+ * `contact_verifications` rows were revoked. Defined locally (not pulled from
+ * the bundled `@realm-id/sdk`) so the shape is correct regardless of the
+ * vendored SDK's build state.
+ */
+export interface DelinkContactResult {
+  status: string;
+  contact_id: string;
+  revoked_bindings: number;
+}
+
+/**
+ * Response from `AdminUsersClient.handBack` (ADR-080 Part 3): the reactivated
+ * account and the email identity moved onto it.
+ */
+export interface HandBackResult {
+  status: string;
+  user_id: string;
+  email: string;
+}
+
+/**
+ * Response from a drift-review reject (`AdminDriftReviewsClient.reject` /
+ * `rejectHard`, ADR-080 Part 3). `mode` is `"soft"` (dismiss the asserted
+ * change, keep the account + binding, notify) or `"hard"` (park the account by
+ * severing its provider binding). `parked`/`revoked_bindings` are populated
+ * only on a hard reject. Supersedes the pre-ADR-080 `{new_user_id,
+ * original_value}` shape.
+ */
+export interface DriftRejectResult {
+  id: string;
+  status: string;
+  mode: "soft" | "hard";
+  parked?: boolean;
+  revoked_bindings?: number;
+}
+
+/**
+ * One enrolled MFA factor from `MfaClient.listAuthenticators` (ADR-080).
+ * Today only TOTP is supported. `created_at`/`confirmed_at` are unix seconds
+ * (`confirmed_at` is 0 until confirmed).
+ */
+export interface Authenticator {
+  type: string;
+  confirmed: boolean;
+  created_at: number;
+  confirmed_at: number;
+}
+
+/**
+ * Response from `MfaClient.listAuthenticators`: the caller's enrolled
+ * authenticator(s) plus how many backup/recovery codes remain unconsumed.
+ */
+export interface AuthenticatorList {
+  authenticators: Authenticator[];
+  backup_codes_remaining: number;
+}
+
+/**
+ * Response from `MfaClient.regenerateRecoveryCodes`: the fresh one-time
+ * recovery codes, shown once. The previous set is invalidated.
+ */
+export interface RecoveryCodes {
+  status: string;
+  recovery_codes: string[];
+}
+
 export interface PlatformNote {
   id: string;
   platform_id: string;

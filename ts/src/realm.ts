@@ -19,6 +19,7 @@ import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
 import { FederationBindingsClient } from "./federation-bindings.js";
+import { SessionsClient } from "./sessions.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
@@ -116,6 +117,9 @@ export interface Realm {
   readonly sources: SourcesClient;
   /** Workload-identity federation trust bindings (ADR-057). */
   readonly federationBindings: FederationBindingsClient;
+  /** Owner/admin session-revocation (ADR-080): force-logout a user or a
+   *  realm-wide mass logout. Distinct from `auth.revokeAllSessions` (self). */
+  readonly sessions: SessionsClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -221,6 +225,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     serviceAccounts: new ServiceAccountsClient(http),
     sources: new SourcesClient(http, cfg.realmId),
     federationBindings: new FederationBindingsClient(http, cfg.realmId),
+    sessions: new SessionsClient(http, cfg.realmId),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

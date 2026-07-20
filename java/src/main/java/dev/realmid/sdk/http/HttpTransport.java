@@ -196,16 +196,29 @@ public final class HttpTransport {
                 }
                 if (!sib.isEmpty()) details = sib;
             } else if (body.has("code") && body.get("code").isTextual()) {
+                // Flat envelope { "error": "<msg>", "code": "<code>", ...siblings }
+                // — the issuer's apiErr.Response() shape, where `error` is a
+                // STRING (not a nested object) and the specific code lives at
+                // the top level alongside it (most /auth error paths, incl. the
+                // ADR-080 contact_admin_required login 409). Read the code here
+                // and prefer an explicit `message`, falling back to the `error`
+                // string. Mirrors the Go SDK's flat branch (sdk/go/http.go).
                 ErrorCode mapped = ErrorCode.fromWire(body.get("code").asText());
                 if (mapped != null) code = mapped;
                 JsonNode m = body.get("message");
-                if (m != null && m.isTextual()) message = m.asText();
+                if (m != null && m.isTextual() && !m.asText().isEmpty()) {
+                    message = m.asText();
+                } else {
+                    JsonNode em = body.get("error");
+                    if (em != null && em.isTextual() && !em.asText().isEmpty()) message = em.asText();
+                }
                 Map<String, Object> sib = new LinkedHashMap<>();
                 Iterator<Map.Entry<String, JsonNode>> it = body.fields();
                 while (it.hasNext()) {
                     Map.Entry<String, JsonNode> e = it.next();
-                    if (!"code".equals(e.getKey()) && !"message".equals(e.getKey())) {
-                        sib.put(e.getKey(), unwrap(e.getValue()));
+                    String k = e.getKey();
+                    if (!"code".equals(k) && !"message".equals(k) && !"error".equals(k)) {
+                        sib.put(k, unwrap(e.getValue()));
                     }
                 }
                 if (!sib.isEmpty()) details = sib;

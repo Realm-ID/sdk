@@ -25,6 +25,16 @@ public enum ErrorCode {
     TENANT_INVALID("tenant_invalid"),
     ACCOUNT_SUSPENDED("account_suspended"),
     ACCOUNT_DEACTIVATED("account_deactivated"),
+    /**
+     * Returned (409) by {@code POST /auth/login} when a different provider
+     * identity attempts to claim a contact (email/phone) already bound to
+     * another user — the ADR-080 Phase B new-provider approval gate. The login
+     * fails <em>closed</em>; an owner/admin must explicitly delink the contact
+     * ({@code UsersClient.delinkContact}) or hand the account back
+     * ({@code UsersClient.handBack}) before the new identity can bind. The
+     * user-facing message is "managed by your org — contact an admin".
+     */
+    CONTACT_ADMIN_REQUIRED("contact_admin_required"),
     REALM_ORIGIN_MISMATCH("realm_origin_mismatch"),
     /**
      * ADR-041 client-side realm pin: the SDK was constructed for realm A

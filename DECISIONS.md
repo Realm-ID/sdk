@@ -7,6 +7,44 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-20 — ADR-080 Phase B + session-revoke + MFA-self typed parity (all 4 SDKs)
+
+**Problem.** issuer v0.50.0 shipped 8 new surfaces backend-only; they were
+callable via the BFF `/api/*` passthrough but had no typed SDK methods.
+
+**Decision.** Port all 8 to go/ts/java/web-admin, Go as the reference. Placement
+mirrors Go: delink/hand-back on the Users client, `rejectHard` on DriftReviews, a
+new `Sessions` client (member + realm-wide revoke), self-MFA on Auth (`admin.mfa`
+in web-admin). `DriftRejectResult` was reshaped to the ADR-080 `{mode,parked,
+revoked_bindings}` shape (the reject no longer forks a user, so `new_user_id`/
+`original_value` are gone).
+
+**Two judgement calls worth recording:**
+
+1. **Flat-envelope decoder bug (go + java).** While adding the
+   `contact_admin_required` code I found the Go decoder only extracted the
+   specific `code` from the *nested* `{error:{code}}` envelope. The issuer's
+   `apiErr.Response()` is FLAT — `{"error":"<msg string>","code":"<code>"}` —
+   verified against `issuer/internal/httpapi/types.go` and the BFF's
+   `parseUpstreamError` (which explicitly handles "root-level code (flat)"). So
+   for every flat error the SDK silently fell back to the HTTP-status class
+   (`refresh_invalid`→`unauthorized`, etc.). Fixed the Go decoder to read the
+   top-level `code` when `error` is a string; the Java decoder read the code but
+   dropped the message, fixed to fall back to the `error` string. TS already
+   branched on `typeof error === "object"`, so it was correct. This is a real
+   latent-bug fix beyond pure parity.
+
+2. **web-admin bundles a stale `@realm-id/sdk`.** The admin SDK bundles the ts
+   SDK's built dist; that dist predated ADR-080. The subagent extended the
+   bundled `UsersClient`/`DriftReviewsClient` with local subclasses + local
+   result types so web-admin is correct regardless of bundle staleness. At
+   repack I rebuilt the ts dist fresh (0.24.0, now with the native methods) and
+   re-bundled it — verified web-admin still typechecks + tests green (the local
+   overrides are structurally compatible with the now-native base methods), so
+   no rework of the extension design was needed. `revokeRealmSessions(realmId)`
+   (not `revokeAll`) names the realm-wide op because `revokeAll` already existed
+   on web-admin's `SessionsClient` as the *self* op.
+
 ## 2026-07-16 — fix: Java `tenants().create` diverged from the contract (route + body)
 
 **Symptom.** The Java SDK's `TenantsClient.create` posted to `POST /tenants`

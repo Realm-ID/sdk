@@ -38,9 +38,14 @@ import { SigningKeysClient } from "./signing-keys.js";
 import { BffClient } from "./bff.js";
 import { SessionsClient } from "./sessions.js";
 import { MeClient } from "./me.js";
+import { MfaClient } from "./mfa.js";
+import { AdminTenantsClient } from "./tenants.js";
 
 export interface Admin {
-  tenants: TenantsClient;
+  /** Tenants + nested users/invitations/driftReviews. The `users` and
+   *  `driftReviews` sub-clients carry the ADR-080 delink / hand-back /
+   *  hard-reject ops (see {@link AdminTenantsClient}). */
+  tenants: AdminTenantsClient;
   roles: RolesClient;
   apiKeys: ApiKeysClient;
   identityProviders: IdentityProvidersClient;
@@ -61,8 +66,12 @@ export interface Admin {
   /** OTP primitive (ADR-071 §4) — mint a `view_bff` service-account login OTP. */
   otp: OtpClient;
   bff: BffClient;
+  /** Session revocation — self (`revoke`/`revokeAll`) + admin
+   *  (`revokeUser`/`revokeRealmSessions`, ADR-080). */
   sessions: SessionsClient;
   me: MeClient;
+  /** Self-service MFA reads/ops for the signed-in admin (ADR-080). */
+  mfa: MfaClient;
 }
 
 export interface CreateAdminOptions {
@@ -95,7 +104,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
   const httpAsClient = http as unknown as ConstructorParameters<typeof TenantsClient>[0];
 
   return {
-    tenants: new TenantsClient(httpAsClient, rid),
+    tenants: new AdminTenantsClient(httpAsClient, rid),
     roles: new RolesClient(httpAsClient, rid),
     apiKeys: new ApiKeysClient(http),
     identityProviders: new IdentityProvidersClient(http),
@@ -112,6 +121,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     bff: new BffClient(http),
     sessions: new SessionsClient(http),
     me: new MeClient(http),
+    mfa: new MfaClient(http),
   };
 }
 
@@ -132,6 +142,10 @@ export { SigningKeysClient } from "./signing-keys.js";
 export { BffClient } from "./bff.js";
 export { SessionsClient } from "./sessions.js";
 export { MeClient } from "./me.js";
+export { MfaClient } from "./mfa.js";
+export { AdminTenantsClient } from "./tenants.js";
+export { AdminUsersClient, AdminDriftReviewsClient } from "./user-binding.js";
+export { CONTACT_ADMIN_REQUIRED, isContactAdminRequired } from "./errors.js";
 
 // Re-export the underlying resource clients for direct construction
 // (advanced consumers who want to swap the transport).
@@ -162,7 +176,6 @@ export type {
   UserStatus,
   DriftReview,
   DriftAcceptResult,
-  DriftRejectResult,
   ContactVerification,
   ContactVerificationResult,
   Role,

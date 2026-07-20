@@ -270,6 +270,35 @@ export class UsersClient {
       body: { users: rows },
     });
   }
+
+  /**
+   * Delink a contact's provider binding (ADR-080 Part 2). Revokes every active
+   * contact_verifications row bound to the contact, leaving the user_contacts
+   * row ACTIVE but unmapped so a new provider identity can bind on the next
+   * verified login. The explicit owner action that unblocks a
+   * `contact_admin_required` login. Owner/admin only (users:manage). Idempotent.
+   */
+  async delinkContact(tenantId: string, userId: string, contactId: string): Promise<DelinkContactResult> {
+    return this.http.request<DelinkContactResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/contacts/${encodeURIComponent(contactId)}/delink`,
+    });
+  }
+
+  /**
+   * Hand an account back (ADR-080 Part 3). Reactivate the OLD account (userId,
+   * currently deactivated) and move the mistakenly-created NEW account's
+   * (fromUserId) current email identity onto it, then disable the new account.
+   * The user's next verified login rebinds the same provider UID to the old
+   * account. Owner/admin only (users:manage).
+   */
+  async handBack(tenantId: string, userId: string, fromUserId: string): Promise<HandBackResult> {
+    return this.http.request<HandBackResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/hand-back`,
+      body: { from_user_id: fromUserId },
+    });
+  }
 }
 
 export interface DriftReview {
@@ -296,8 +325,25 @@ export interface DriftAcceptResult {
 export interface DriftRejectResult {
   id: string;
   status: string;
-  new_user_id: string;
-  original_value: string;
+  /** "soft" (default: dismiss the change, keep the account + binding, notify)
+   *  or "hard" (park the account by severing its provider binding). */
+  mode: string;
+  /** Populated only on a hard reject: the account was parked. */
+  parked?: boolean;
+  /** Populated only on a hard reject: how many provider bindings were revoked. */
+  revoked_bindings?: number;
+}
+
+export interface DelinkContactResult {
+  status: string;
+  contact_id: string;
+  revoked_bindings: number;
+}
+
+export interface HandBackResult {
+  status: string;
+  user_id: string;
+  email: string;
 }
 
 export class DriftReviewsClient {
@@ -321,10 +367,29 @@ export class DriftReviewsClient {
     });
   }
 
+  /**
+   * SOFT reject (ADR-080 Part 3, default): dismiss the asserted identity
+   * change, keep the account and its original provider binding intact, and
+   * notify the original-email owner. Non-destructive. Use `rejectHard` for the
+   * "this looks like a takeover" escalation that parks the account.
+   */
   async reject(tenantId: string, reviewId: string): Promise<DriftRejectResult> {
     return this.http.request<DriftRejectResult>({
       method: "POST",
       path: `/tenants/${encodeURIComponent(tenantId)}/contact-drift-reviews/${encodeURIComponent(reviewId)}/reject`,
+    });
+  }
+
+  /**
+   * HARD reject (ADR-080 Part 3): park the account by severing its provider
+   * binding, leaving it unmapped (NOT silently re-invited). Recovery is the
+   * explicit hand-back flow (`users.handBack`). A deliberate, audited action.
+   */
+  async rejectHard(tenantId: string, reviewId: string): Promise<DriftRejectResult> {
+    return this.http.request<DriftRejectResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/contact-drift-reviews/${encodeURIComponent(reviewId)}/reject`,
+      body: { hard: true },
     });
   }
 }

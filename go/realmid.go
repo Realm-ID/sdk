@@ -125,6 +125,10 @@ type Realm struct {
 	// FederationBindings is the platform's workload-identity federation
 	// trust-binding surface (ADR-057).
 	FederationBindings *FederationBindingsClient
+	// Sessions is the owner/admin session-revocation surface (ADR-080):
+	// force-logout a user or a realm-wide mass logout. Distinct from
+	// AuthClient.RevokeAllSessions (the caller's own sessions).
+	Sessions *SessionsClient
 }
 
 // Version is the published SDK version (semver). As of 0.30.0 it is
@@ -157,7 +161,7 @@ type Realm struct {
 // `platform_refresh_rotates` config (default off, non-rotating).
 // 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
 // enum (ADR-045).
-const Version = "0.33.0"
+const Version = "0.34.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -211,6 +215,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.ServiceAccounts = &ServiceAccountsClient{realm: r}
 	r.Sources = &SourcesClient{realm: r}
 	r.FederationBindings = &FederationBindingsClient{realm: r}
+	r.Sessions = &SessionsClient{realm: r}
 
 	return r, nil
 }
