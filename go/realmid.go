@@ -102,7 +102,10 @@ type Realm struct {
 	Domains *DomainsClient
 	APIKeys *APIKeysClient
 	Config  *ConfigClient
-	Roles   *RolesClient
+	// Stats is the platform KPI rollup (orgs/users/sessions-24h/MFA
+	// coverage) served by GET /platforms/{pid}/stats.
+	Stats *StatsClient
+	Roles *RolesClient
 	// SigningKeys is the owner-facing signing-key read + self-serve rotate
 	// surface (roles/signing-keys overhaul).
 	SigningKeys *SigningKeysClient
@@ -204,6 +207,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Domains = &DomainsClient{realm: r}
 	r.APIKeys = &APIKeysClient{realm: r}
 	r.Config = &ConfigClient{realm: r}
+	r.Stats = &StatsClient{realm: r}
 	r.Roles = &RolesClient{realm: r}
 	r.SigningKeys = &SigningKeysClient{realm: r}
 	r.IdentityProviderConfig = &IdentityProviderConfigClient{realm: r}

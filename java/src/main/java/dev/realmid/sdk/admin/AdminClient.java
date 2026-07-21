@@ -116,12 +116,31 @@ public final class AdminClient {
             int total
     ) {}
 
+    /**
+     * GET /admin/stats — the base-realm fleet rollup.
+     *
+     * <p>The platforms* counts exclude the base realm (matching
+     * GET /admin/platforms), so active+suspended &lt; platformsCount means the
+     * remainder is deactivated.
+     *
+     * <p>sessionsActive is a point-in-time gauge (live sessions, all classes);
+     * sessions24h is a flow — class='user' sessions CREATED in the trailing
+     * 24h, i.e. human sign-ins. Deliberately not "tokens": a refresh mints a
+     * token without creating a session.
+     *
+     * <p>The four fields added in issuer v0.52.0 decode as 0 against an older
+     * issuer that does not emit them.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record AdminStats(
             @JsonProperty("platforms_count") int platformsCount,
+            @JsonProperty("platforms_active") int platformsActive,
+            @JsonProperty("platforms_suspended") int platformsSuspended,
+            @JsonProperty("platforms_new_7d") int platformsNew7d,
             @JsonProperty("tenants_count") int tenantsCount,
             @JsonProperty("users_count") int usersCount,
             @JsonProperty("sessions_active") int sessionsActive,
+            @JsonProperty("sessions_24h") int sessions24h,
             @JsonProperty("events_24h") int events24h
     ) {}
 

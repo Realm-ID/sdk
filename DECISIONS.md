@@ -7,6 +7,55 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-21 — GET config + GET platform stats typed into go/ts/java
+
+**Problem.** issuer v0.52.0 shipped two read endpoints with no SDK surface:
+`GET /platforms/{id}/config` (the read counterpart of the long-standing PATCH —
+until it existed the realm config was write-only, so every consumer patched
+blind) and `GET /platforms/{pid}/stats` (the platform KPI rollup: orgs, users,
+sessions·24h, MFA coverage in one 30s-cached query).
+
+**Decision — two deliberately different typing strategies.**
+
+1. **Config stays a loose map** (`ConfigValues`/`RealmConfigValues`/
+   `Map<String,Object>`), mirroring how the PATCH side already takes an untyped
+   patch. The read key set is *derived server-side by reflection* from the
+   issuer's `RealmConfigPatch` and drift-tested there (`realm.ConfigView`), so a
+   hand-maintained struct in three languages would go stale the moment a key is
+   added — and would silently drop the new key rather than fail loudly. Only the
+   envelope (`{id, config}`) is typed. Documented in each language's doc comment,
+   including the server conventions the map obeys: every allowlist key is always
+   present, the zero value means "unset", `access_token_custom_claim_keys` is
+   never null, `refresh_absolute_expiry` is always the full object.
+2. **Stats IS typed** (struct / interface / POJO) — a fixed 6-field shape.
+   `mfa_coverage.percent` is **nullable on purpose** (`*float64` / `number|null`
+   / boxed `Double`): the issuer returns null when `eligible_users == 0`, and
+   coercing it to `0` would render as "nobody has MFA" for an empty population.
+   Each language has a dedicated test asserting null decodes as null, not 0.
+
+**Two follow-on decisions taken while wiring web-admin + the UI (same day).**
+
+3. **web-admin types the config, the partner SDKs don't.** The admin console is
+   the one consumer that must render individual keys as form controls, so
+   `@realm-id/web-admin` carries a real `RealmConfigPatch` (write) and
+   `RealmConfigView` (read — every key required, string unions widened to
+   `string` because the unset zero is `""`). That duplicates the key list in
+   exactly one place instead of four, and it is the place with a UI test that
+   fails when a control loses its key. It also let the UI delete its local
+   `patchRealmConfig` / `RealmConfigPatch` / `MyPlatformMfaConfig` shims.
+4. **`AdminStats` is re-exported, not redeclared.** web-admin had its own loose
+   `{[k: string]: unknown}` `AdminStats` for the BFF `/home` section while
+   `@realm-id/sdk` had a typed one for `admin.admin.stats()`. Once the UI fed the
+   fleet strip from the latter, the two structurally-different types collided at
+   the call site. Fixed by deleting the local declaration and re-exporting the
+   SDK's — which is also where the four new v0.52.0 fleet fields were added
+   (optional, so an older issuer still decodes).
+
+**Placement.** `Get` on the existing ConfigClient; a new `Stats`/`stats` client
+hung off the realm handle next to `config`, matching how `roles`/`signingKeys`
+are wired. Read-only + additive: no SPEC change, no wire change, no version bump
+in this change.
+
 ## 2026-07-20 — ADR-080 Phase B + session-revoke + MFA-self typed parity (all 4 SDKs)
 
 **Problem.** issuer v0.50.0 shipped 8 new surfaces backend-only; they were

@@ -21,6 +21,7 @@ import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
 import dev.realmid.sdk.sessions.SessionsClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
+import dev.realmid.sdk.stats.StatsClient;
 import dev.realmid.sdk.sources.SourcesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
 import dev.realmid.sdk.tokens.TokensClient;
@@ -65,6 +66,7 @@ public final class Realm {
     private final SessionsClient sessions;
     private final RealmInfoClient info;
     private final ConfigClient config;
+    private final StatsClient stats;
     private final PlatformTokenManager platformTokens;
 
     private Realm(Builder b) {
@@ -122,6 +124,7 @@ public final class Realm {
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.sessions = new SessionsClient(this.http, this.realmId);
         this.config = new ConfigClient(this.http, this.realmId);
+        this.stats = new StatsClient(this.http, this.realmId);
     }
 
     public String realmId() { return realmId; }
@@ -163,6 +166,8 @@ public final class Realm {
     /** Owner/admin session-revocation surface (ADR-080): force-logout a member or the whole realm. */
     public SessionsClient sessions() { return sessions; }
     public ConfigClient config() { return config; }
+    /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
+    public StatsClient stats() { return stats; }
     public RealmInfo info() { return info.info(); }
 
     /** Test-only / advanced: clear the cached realm info and audience. */

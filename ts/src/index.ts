@@ -109,6 +109,12 @@ export type {
   RolePatch,
 } from "./roles.js";
 
+export { ConfigClient } from "./config.js";
+export type { RealmConfigValues, RealmConfigResponse } from "./config.js";
+
+export { StatsClient } from "./stats.js";
+export type { PlatformStats, MfaCoverage } from "./stats.js";
+
 export { SigningKeysClient } from "./signing-keys.js";
 export type {
   SigningKey,

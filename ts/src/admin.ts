@@ -37,11 +37,31 @@ export interface AdminPlatformsResponse {
   total: number;
 }
 
+/**
+ * GET /admin/stats — the base-realm fleet rollup.
+ *
+ * `platforms_*` exclude the base realm (matching GET /admin/platforms), so
+ * `active + suspended < platforms_count` means the remainder is deactivated.
+ *
+ * The two session numbers are different KINDS of number: `sessions_active` is
+ * a point-in-time gauge of live sessions across all classes, while
+ * `sessions_24h` is a flow — `class='user'` sessions *created* in the trailing
+ * 24h, i.e. human sign-ins. It is deliberately not called "tokens": a refresh
+ * mints a token without creating a session, so a token label would be
+ * unreconcilable with this count.
+ *
+ * The four fields added in issuer v0.52.0 are optional so this type still
+ * decodes a response from an older issuer.
+ */
 export interface AdminStats {
   platforms_count: number;
+  platforms_active?: number;
+  platforms_suspended?: number;
+  platforms_new_7d?: number;
   tenants_count: number;
   users_count: number;
   sessions_active: number;
+  sessions_24h?: number;
   events_24h: number;
 }
 

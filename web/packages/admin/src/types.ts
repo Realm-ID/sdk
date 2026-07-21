@@ -24,6 +24,18 @@ export interface TenantSummary {
   status: string;
   config: { mfa_policy?: string; signup_mode?: SignupMode };
   owner?: UserSummary | null;
+  /**
+   * Per-org dashboard columns (issuer v0.52.0), folded onto
+   * `GET /platforms/{pid}/tenants` from ONE realm-scoped aggregate.
+   *
+   * Both are OPTIONAL ON THE WIRE ON PURPOSE: the issuer computes them
+   * best-effort and omits them if the aggregate query fails, so `undefined`
+   * means "not computed" and is distinct from a real `0` / "never active".
+   * Render a `—`, not a zero, when absent.
+   */
+  users_count?: number;
+  /** Unix seconds of the org's most recent activity; absent = never / not computed. */
+  last_activity_at?: number;
 }
 
 export interface InvitationSummary {
@@ -268,9 +280,141 @@ export interface BffSection<T> {
   error?: BffSectionError;
 }
 
-export interface AdminStats {
-  // Loose shape — the BFF emits a free-form stats blob; UI shows it raw.
-  [k: string]: unknown;
+/**
+ * Fleet rollup — `GET /admin/stats`, base-realm staff only (ADR-067: a
+ * platform owner 403s here). Reached either directly (`admin.admin.stats()`)
+ * or as the `stats` section of the BFF's `/home` aggregate, which is why it is
+ * re-exported here rather than redeclared: this file used to carry a loose
+ * `{[k: string]: unknown}` stand-in, and two structurally-different
+ * `AdminStats` types then collided at any call site that mixed the two.
+ * The single definition, with the v0.52.0 fleet fields and the
+ * gauge-vs-flow semantics of `sessions_active` / `sessions_24h`, lives in
+ * `@realm-id/sdk`.
+ */
+export type { AdminStats } from "@realm-id/sdk";
+import type { AdminStats } from "@realm-id/sdk";
+
+/**
+ * MFA coverage as its raw parts so a UI can render "8 of 40" rather than a
+ * bare rounded percentage.
+ *
+ * `percent` is `null` when `eligible_users === 0` — there is no coverage of
+ * an empty population, and rendering 0% would read as "nobody has MFA".
+ * Treat null as "—", never as zero.
+ */
+export interface MfaCoverage {
+  covered_users: number;
+  eligible_users: number;
+  /** 0–100, one decimal place. Null when eligible_users === 0. */
+  percent: number | null;
+}
+
+/**
+ * Platform KPI rollup — `GET /platforms/{pid}/stats` (issuer v0.52.0),
+ * gated on the ADR-074 `users:read` permission. Server-cached for 30s, so
+ * a dashboard reload or a second tab is free but a just-enrolled user shows
+ * up within half a minute.
+ *
+ * `sessions_24h` carries the same flow semantics as {@link AdminStats}.
+ */
+export interface PlatformStats {
+  platform_id: string;
+  /** Unix seconds the snapshot was computed (may be up to 30s stale). */
+  generated_at: number;
+  orgs_count: number;
+  users_count: number;
+  sessions_24h: number;
+  mfa_coverage: MfaCoverage;
+}
+
+/** ADR-054 scheduled refresh-token expiry, as carried by the realm config. */
+export interface RefreshAbsoluteExpiry {
+  /** "rolling" (the default) or a scheduled-cutoff mode. */
+  mode: string;
+  /** "HH:MM" local wall-clock cutoff; empty when mode is rolling. */
+  daily_cutoff_local: string;
+  /** IANA zone the cutoff is evaluated in; empty when mode is rolling. */
+  timezone: string;
+  applies_to_service: boolean;
+}
+
+/**
+ * Realm-level configuration — the mutable allowlist, shared by
+ * `PATCH /platforms/{id}/config` (as a partial) and its read counterpart
+ * `GET /platforms/{id}/config` (issuer v0.52.0).
+ *
+ * The key set is server-owned and drift-tested against the issuer's
+ * `RealmConfigPatch`; `signup_mode` is deliberately ABSENT (it is per-org
+ * tenant config, and PATCHing it here 400s on the allowlist).
+ */
+export interface RealmConfigPatch {
+  // Sessions
+  concurrent_session_limit?: number;
+  session_eviction_policy?: "reject";
+  access_ttl_seconds?: number;
+  refresh_ttl_seconds?: number;
+  challenge_ttl_seconds?: number;
+  /**
+   * ADR-070 idle timeout. 0 = disabled (default); when enabled the issuer
+   * bounds it to [300, refresh_ttl_seconds] and 400s `invalid_config_value`.
+   */
+  idle_ttl_seconds?: number;
+  max_user_session_lifetime_seconds?: number;
+  refresh_absolute_expiry?: RefreshAbsoluteExpiry;
+  // MFA
+  mfa_session_ttl_seconds?: number;
+  /** ADR-075 realm-wide floor; "enabled" is a UI hint with no server effect. */
+  mfa_policy?: "disabled" | "enabled" | "enforced";
+  otp_mfa_enabled?: boolean;
+  /** ADR-078: an eligible provider MFA proof satisfies the GENERIC requirement. */
+  accept_provider_mfa?: boolean;
+  /** ADR-078 freshness window; 0 = the whole session (default). */
+  provider_mfa_ttl_seconds?: number;
+  // Login
+  otp_login_enabled?: boolean;
+  otp_length?: number;
+  otp_ttl_seconds?: number;
+  require_bff_login?: boolean;
+  origin_enforcement?: string;
+  // Tokens & SDK
+  platform_token_ttl_seconds?: number;
+  access_token_custom_claim_keys?: string[];
+  service_refresh_rotates?: boolean;
+  platform_refresh_rotates?: boolean;
+  service_refresh_ttl_seconds?: number;
+  service_refresh_ttl_max_seconds?: number;
+  // Roster
+  default_invitation_role?: string;
+  // Signing keys
+  signing_key_rotation_mode?: "auto" | "manual";
+  signing_key_rotation_interval?: "1w" | "1mo" | "1y";
+}
+
+/**
+ * The read projection of {@link RealmConfigPatch}. Unlike the patch, EVERY
+ * key is always present — the zero value (`0`, `""`, `false`, `[]`) means
+ * "unset / server default", not a configured zero. A UI priming its controls
+ * should treat zero as empty rather than as an explicit choice.
+ */
+export type RealmConfigView = Omit<
+  Required<RealmConfigPatch>,
+  | "mfa_policy"
+  | "session_eviction_policy"
+  | "signing_key_rotation_mode"
+  | "signing_key_rotation_interval"
+> & {
+  // Widened to plain strings on the READ side: the unset zero value is `""`,
+  // which is not a member of the patch-side union. Narrow at the call site.
+  mfa_policy: string;
+  session_eviction_policy: string;
+  signing_key_rotation_mode: string;
+  signing_key_rotation_interval: string;
+};
+
+/** Response envelope of GET/PATCH `/platforms/{id}/config`. */
+export interface RealmConfigResponse {
+  id: string;
+  config: RealmConfigView;
 }
 
 export interface AdminPlatformsResponse {

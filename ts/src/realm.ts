@@ -14,6 +14,7 @@ import { DomainsClient } from "./domains.js";
 import { InfoClient, type RealmInfo } from "./info.js";
 import { ApiKeysClient } from "./api-keys.js";
 import { ConfigClient } from "./config.js";
+import { StatsClient } from "./stats.js";
 import { RolesClient } from "./roles.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
@@ -94,6 +95,8 @@ export interface Realm {
   readonly domains: DomainsClient;
   readonly apiKeys: ApiKeysClient;
   readonly config: ConfigClient;
+  /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
+  readonly stats: StatsClient;
   readonly roles: RolesClient;
   /** Owner-facing signing-key read + self-serve rotate. */
   readonly signingKeys: SigningKeysClient;
@@ -213,6 +216,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     domains: new DomainsClient(http),
     apiKeys: new ApiKeysClient(http, cfg.realmId),
     config: new ConfigClient(http, cfg.realmId),
+    stats: new StatsClient(http, cfg.realmId),
     roles: new RolesClient(http, cfg.realmId),
     signingKeys: new SigningKeysClient(http, cfg.realmId),
     identityProviderConfig: new IdentityProviderConfigClient(http, cfg.realmId),

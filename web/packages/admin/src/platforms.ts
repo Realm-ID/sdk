@@ -14,6 +14,9 @@ import type {
   InvitationSummary,
   DomainClaimResponse,
   PendingDomain,
+  PlatformStats,
+  RealmConfigPatch,
+  RealmConfigResponse,
 } from "./types.js";
 
 export interface PlatformCreate {
@@ -74,6 +77,51 @@ export class PlatformsClient {
       path: `/platforms/${encodeURIComponent(platformId)}/tenants`,
     });
     return d.items;
+  }
+
+  /**
+   * GET /platforms/{id}/stats — the platform KPI rollup (orgs, users,
+   * human sign-ins in the trailing 24h, MFA coverage). Gated on the ADR-074
+   * `users:read` permission; server-cached 30s.
+   */
+  async stats(platformId: string): Promise<PlatformStats> {
+    return this.http.request<PlatformStats>({
+      method: "GET",
+      path: `/platforms/${encodeURIComponent(platformId)}/stats`,
+    });
+  }
+
+  /**
+   * GET /platforms/{id}/config — the read counterpart of {@link updateConfig}
+   * (issuer v0.52.0). Same `platform:config` gate as the PATCH: anyone who may
+   * change the config may read it, nobody else.
+   *
+   * Every allowlist key is present in the response; a zero value means "unset"
+   * (see {@link RealmConfigView}). Returns the config object alone — the
+   * envelope's `id` is the platform id the caller already passed in.
+   */
+  async getConfig(platformId: string): Promise<RealmConfigResponse["config"]> {
+    const resp = await this.http.request<RealmConfigResponse>({
+      method: "GET",
+      path: `/platforms/${encodeURIComponent(platformId)}/config`,
+    });
+    return resp.config;
+  }
+
+  /**
+   * PATCH /platforms/{id}/config — partial update of the allowlisted
+   * realm-config keys. Unknown keys are rejected server-side with a 400, and
+   * out-of-range values with `invalid_config_value`.
+   */
+  async updateConfig(
+    platformId: string,
+    patch: RealmConfigPatch,
+  ): Promise<RealmConfigResponse> {
+    return this.http.request<RealmConfigResponse>({
+      method: "PATCH",
+      path: `/platforms/${encodeURIComponent(platformId)}/config`,
+      body: patch,
+    });
   }
 
   async createTenant(

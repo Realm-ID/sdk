@@ -1,7 +1,7 @@
 package realmid
 
 import (
-	"context"
+	ctxpkg "context"
 	"net/url"
 )
 
@@ -10,13 +10,66 @@ import (
 // rejected with a 400.
 type ConfigPatch map[string]any
 
+// ConfigValues is the realm's configuration as served by
+// GET /platforms/{id}/config.
+//
+// Deliberately a loose map, mirroring ConfigPatch on the write side: the
+// key set is server-owned (the issuer derives it by reflection from its
+// RealmConfigPatch struct and drift-tests it there), so a hand-maintained
+// struct here would go stale the moment a key is added and would silently
+// drop it. Read a key with a type assertion — note JSON numbers decode as
+// float64:
+//
+//	cfg, _ := realm.Config.Get(ctx)
+//	ttl, _ := cfg.Config["idle_ttl_seconds"].(float64)
+//
+// Server conventions (issuer realm.ConfigView):
+//   - every allowlist key is ALWAYS present; the zero value means "unset"
+//     (0 for ints, "" for strings, false for bools),
+//   - access_token_custom_claim_keys is always an array, never null,
+//   - refresh_absolute_expiry is always the full object
+//     {mode ("rolling" when unset), daily_cutoff_local, timezone,
+//     applies_to_service}.
+type ConfigValues map[string]any
+
+// ConfigResponse is the GET /platforms/{id}/config body: the realm id plus
+// its configuration projected onto the PATCH allowlist key set.
+type ConfigResponse struct {
+	// ID is the realm (platform) id the config belongs to.
+	ID string `json:"id"`
+	// Config carries exactly the mutable-config key set. See ConfigValues.
+	Config ConfigValues `json:"config"`
+}
+
 // ConfigClient is realm.Config.
 type ConfigClient struct {
 	realm *Realm
 }
 
+// Get issues GET /platforms/{id}/config — the read counterpart of Update.
+// Authorization mirrors the PATCH exactly (the ADR-074 `platform:config`
+// permission, or realm owner): anyone who may change the config may read it.
+func (c *ConfigClient) Get(ctx ctxpkg.Context) (*ConfigResponse, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out ConfigResponse
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "GET",
+		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/config",
+		Bearer: tok,
+	}, &out); err != nil {
+		return nil, err
+	}
+	if out.Config == nil {
+		out.Config = ConfigValues{}
+	}
+	return &out, nil
+}
+
 // Update issues PATCH /platforms/{id}/config.
-func (c *ConfigClient) Update(ctx context.Context, patch ConfigPatch) error {
+func (c *ConfigClient) Update(ctx ctxpkg.Context, patch ConfigPatch) error {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return err

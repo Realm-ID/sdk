@@ -41,13 +41,29 @@ type AdminPlatformsResponse struct {
 	Total      int               `json:"total"`
 }
 
-// AdminStats is the GET /admin/stats response.
+// AdminStats is the GET /admin/stats response — the base-realm fleet rollup.
+//
+// The Platforms* counts exclude the base realm (matching GET /admin/platforms),
+// so PlatformsActive+PlatformsSuspended < PlatformsCount means the remainder is
+// deactivated.
+//
+// SessionsActive and Sessions24h are different kinds of number: the former is a
+// point-in-time gauge of live sessions across all classes, the latter a flow —
+// class='user' sessions CREATED in the trailing 24h, i.e. human sign-ins. It is
+// deliberately not "tokens": a refresh mints a token without creating a session.
+//
+// The four fields added in issuer v0.52.0 decode as zero against an older
+// issuer that does not emit them.
 type AdminStats struct {
-	PlatformsCount int `json:"platforms_count"`
-	TenantsCount   int `json:"tenants_count"`
-	UsersCount     int `json:"users_count"`
-	SessionsActive int `json:"sessions_active"`
-	Events24h      int `json:"events_24h"`
+	PlatformsCount     int `json:"platforms_count"`
+	PlatformsActive    int `json:"platforms_active"`
+	PlatformsSuspended int `json:"platforms_suspended"`
+	PlatformsNew7d     int `json:"platforms_new_7d"`
+	TenantsCount       int `json:"tenants_count"`
+	UsersCount         int `json:"users_count"`
+	SessionsActive     int `json:"sessions_active"`
+	Sessions24h        int `json:"sessions_24h"`
+	Events24h          int `json:"events_24h"`
 }
 
 // AuditEvent is one row in AdminEventsResponse.Items.

@@ -13,6 +13,32 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Realm-config read + platform/fleet stats — go 0.35.0 (`go/v0.35.0`) · ts 0.25.0 (`ts-v0.25.0`) · java 0.24.0 (`java-v0.24.0`) · web-admin 0.8.8 (2026-07-21)
+
+Typed surface for the issuer v0.52.0 read endpoints. Additive; no wire or
+SPEC change.
+
+- **`GET /platforms/{id}/config`** — read counterpart of the long-standing
+  PATCH. `realm.config.get()` (go `ConfigClient.Get`, ts `ConfigClient.get`,
+  java `ConfigClient.get`), and `admin.platforms.getConfig(platformId)` in
+  web-admin. The config body stays a loose map in the partner SDKs (the key set
+  is derived server-side from `RealmConfigPatch`); web-admin types it as
+  `RealmConfigPatch` / `RealmConfigView` for the admin UI.
+- **`GET /platforms/{pid}/stats`** — platform KPI rollup, fully typed:
+  `PlatformStats{platform_id, generated_at, orgs_count, users_count,
+  sessions_24h, mfa_coverage{covered_users, eligible_users, percent}}`.
+  `percent` is **nullable** — null when `eligible_users == 0`.
+  go/ts/java: `realm.stats.get()`; web-admin: `admin.platforms.stats(id)`.
+- **`AdminStats` gained the fleet fields** `platforms_active`,
+  `platforms_suspended`, `platforms_new_7d`, `sessions_24h` (all four
+  optional/zero against an older issuer). `sessions_24h` is a FLOW (human
+  sign-ins in the trailing 24h), distinct from the `sessions_active` gauge.
+- **web-admin only:** `admin.platforms.updateConfig(id, patch)` (retires the
+  UI's local `patchRealmConfig` shim), `TenantSummary.users_count` /
+  `last_activity_at` (both optional — absent means "not computed", not 0), and
+  `AdminStats` is now re-exported from `@realm-id/sdk` instead of being
+  redeclared as a loose blob (the two declarations collided at call sites).
+
 ## ADR-080 Phase B + session-revoke + MFA-self parity — go 0.34.0 (`go/v0.34.0`) · ts 0.24.0 (`ts-v0.24.0`) · java 0.23.0 (`java-v0.23.0`) · web-admin 0.8.7 (2026-07-20)
 
 Typed parity for the 8 issuer v0.50.0 surfaces (backend already live; these
