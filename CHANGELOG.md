@@ -13,6 +13,41 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Role principal typing + invitation scope — go 0.36.0 (`go/v0.36.0`) · ts 0.26.0 (`ts-v0.26.0`) · java 0.25.0 (`java-v0.25.0`) (2026-07-22)
+
+Types two role fields the issuer had shipped without any SDK surface:
+`assignable_to` (ADR-081 principal typing, issuer v0.55.0–v0.57.0) and
+`can_invite_roles` (ADR-076 WP4 invitation scope, issuer v0.41.0). Additive; no
+wire or SPEC change — this is the SDK catching up to a live surface, not a new
+one.
+
+- **`RoleObject`** gains `can_invite_roles` and `assignable_to`, plus the
+  read-only `migrated_holders` / `migrated_holders_to` that appear ONLY on the
+  PATCH response of a narrowing that moved human holders (ADR-081 §2.5). The
+  count is nullable/pointer in every language on purpose: a reported `0`
+  ("narrowed, moved nobody") must stay distinguishable from the field being
+  absent.
+- **`RoleCreate` / `RolePatch`** gain both fields on the write side. `create`
+  and `update` forward them under their wire names.
+- **`assignable_to` has no "clear"**, unlike its sibling arrays. Since ADR-081
+  § Amendment 2 the server rejects an explicit `[]` with 400
+  `assignable_to_required`, so PATCH sends the kinds or omits the key. On
+  create, OMITTING the key defaults to both kinds server-side (the field is
+  younger than its clients) — the Go type uses `omitempty`, so an empty slice
+  omits rather than 400s, which is deliberate.
+- **TS gains a `PrincipalKind = "human" | "service"` union** (exported from the
+  package root and `/internal`) rather than `string[]`: the server vocabulary is
+  closed and an unknown value is a hard 400, so a typo should fail at compile
+  time. Go and Java stay `[]string` / `List<String>`, matching how those SDKs
+  already type the equally-closed `required_mfa_methods`.
+- **Java records grew their canonical constructors**; the prior arities are
+  retained as delegating constructors, so existing positional callers still
+  compile. New `RolePatch.onlyAssignableTo` / `.onlyCanInviteRoles` factories.
+- **Fixed: the Go `Version` const had drifted a release behind its tag** — it
+  read `0.34.0` while `go/v0.35.0` was published. That is the exact failure its
+  own doc comment records from `go/v0.29.0` (it misled a partner into thinking a
+  shipped surface was unreleased). Now `0.36.0`.
+
 ## Realm-config read + platform/fleet stats — go 0.35.0 (`go/v0.35.0`) · ts 0.25.0 (`ts-v0.25.0`) · java 0.24.0 (`java-v0.24.0`) · web-admin 0.8.8 (2026-07-21)
 
 Typed surface for the issuer v0.52.0 read endpoints. Additive; no wire or

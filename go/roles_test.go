@@ -338,3 +338,96 @@ func TestRoles_EnablePosts(t *testing.T) {
 		t.Errorf("want Disabled=false")
 	}
 }
+
+// ADR-081 principal typing + ADR-076 WP4 invitation scope: both are role
+// fields the server has shipped for releases without an SDK type, so this
+// pins the round trip in both directions — request key names on the way out,
+// decoded struct fields on the way back.
+func TestRoles_CreateForwardsAssignableToAndInviteScope(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles", func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var got map[string]any
+		_ = json.Unmarshal(raw, &got)
+		kinds, ok := got["assignable_to"].([]any)
+		if !ok || len(kinds) != 1 || kinds[0] != "service" {
+			t.Errorf("assignable_to=%v", got["assignable_to"])
+		}
+		inv, ok := got["can_invite_roles"].([]any)
+		if !ok || len(inv) != 1 || inv[0] != "member" {
+			t.Errorf("can_invite_roles=%v", got["can_invite_roles"])
+		}
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "role-bot", "name": "bot", "display_name": "Bot",
+			"permissions": []string{}, "required_mfa_methods": []string{},
+			"can_invite_roles": []string{"member"}, "assignable_to": []string{"service"},
+			"is_system": false, "created_at": 1, "updated_at": 1,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	got, err := r.Roles.Create(context.Background(), RoleCreate{
+		Name: "bot", DisplayName: "Bot",
+		AssignableTo:   []string{"service"},
+		CanInviteRoles: []string{"member"},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(got.AssignableTo) != 1 || got.AssignableTo[0] != "service" {
+		t.Errorf("decoded assignable_to=%v", got.AssignableTo)
+	}
+	if len(got.CanInviteRoles) != 1 || got.CanInviteRoles[0] != "member" {
+		t.Errorf("decoded can_invite_roles=%v", got.CanInviteRoles)
+	}
+	if got.MigratedHolders != nil {
+		t.Errorf("migrated_holders should be nil when absent, got %v", *got.MigratedHolders)
+	}
+}
+
+// A PATCH that narrows assignable_to away from humans migrates the existing
+// human holders server-side (ADR-081 §2.5) and reports it. MigratedHolders is
+// a pointer precisely so a reported 0 ("narrowed, moved nobody") is
+// distinguishable from the field being absent.
+func TestRoles_UpdateDecodesMigratedHolders(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc("/platforms/"+testRealmID+"/roles/role-bot", func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var got map[string]any
+		_ = json.Unmarshal(raw, &got)
+		kinds, ok := got["assignable_to"].([]any)
+		if !ok || len(kinds) != 1 || kinds[0] != "service" {
+			t.Errorf("assignable_to=%v", got["assignable_to"])
+		}
+		if _, sent := got["permissions"]; sent {
+			t.Errorf("permissions should be omitted, body=%v", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "role-bot", "name": "bot", "permissions": []string{},
+			"required_mfa_methods": []string{}, "can_invite_roles": []string{},
+			"assignable_to": []string{"service"},
+			"migrated_holders": 12, "migrated_holders_to": "member",
+			"is_system": false, "created_at": 1, "updated_at": 2,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	kinds := []string{"service"}
+	got, err := r.Roles.Update(context.Background(), "role-bot", RolePatch{AssignableTo: &kinds})
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got.MigratedHolders == nil || *got.MigratedHolders != 12 {
+		t.Errorf("migrated_holders=%v", got.MigratedHolders)
+	}
+	if got.MigratedHoldersTo != "member" {
+		t.Errorf("migrated_holders_to=%q", got.MigratedHoldersTo)
+	}
+}

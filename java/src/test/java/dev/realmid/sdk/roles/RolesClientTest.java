@@ -99,6 +99,55 @@ class RolesClientTest {
         assertEquals(List.of("otp"), r.requiredMfaMethods());
     }
 
+    // ADR-081 principal typing + ADR-076 WP4 invitation scope: both are role
+    // fields the server has shipped for releases without an SDK type, so this
+    // pins the round trip in both directions.
+    @Test
+    void createForwardsAssignableToAndInviteScope() {
+        fs.onJson("POST /platforms/01HREALM/roles", (body, rec) -> {
+            assertEquals(List.of("service"), body.get("assignable_to"));
+            assertEquals(List.of("member"), body.get("can_invite_roles"));
+            return FakeServer.Reply.json(201, Map.of(
+                    "name", "bot", "display_name", "Bot", "id", "role-bot",
+                    "permissions", List.of(), "required_mfa_methods", List.of(),
+                    "can_invite_roles", List.of("member"), "assignable_to", List.of("service"),
+                    "is_system", false, "created_at", 1, "updated_at", 1));
+        });
+        RoleObject r = realm.roles().create(new RoleCreate(
+                "bot", "Bot", List.of(), null, List.of("member"), List.of("service")));
+        assertEquals(List.of("service"), r.assignableTo());
+        assertEquals(List.of("member"), r.canInviteRoles());
+        assertNull(r.migratedHolders(), "migrated_holders is absent unless a narrowing moved holders");
+    }
+
+    // A PATCH that narrows assignable_to away from humans migrates the role's
+    // existing human holders server-side (ADR-081 s2.5) and reports how many
+    // moved, and to where. Boxed Integer so an absent field stays null.
+    @Test
+    void updateSurfacesHolderMigration() {
+        fs.onJson("PATCH /platforms/01HREALM/roles/role-bot", (body, rec) -> {
+            assertEquals(List.of("service"), body.get("assignable_to"));
+            assertFalse(body.containsKey("permissions"), "permissions should be omitted");
+            // 11 entries — past Map.of's 10-pair ceiling, hence the explicit map.
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("id", "role-bot");
+            out.put("name", "bot");
+            out.put("permissions", List.of());
+            out.put("required_mfa_methods", List.of());
+            out.put("can_invite_roles", List.of());
+            out.put("assignable_to", List.of("service"));
+            out.put("migrated_holders", 12);
+            out.put("migrated_holders_to", "member");
+            out.put("is_system", false);
+            out.put("created_at", 1);
+            out.put("updated_at", 2);
+            return FakeServer.Reply.json(200, out);
+        });
+        RoleObject r = realm.roles().update("role-bot", RolePatch.onlyAssignableTo(List.of("service")));
+        assertEquals(Integer.valueOf(12), r.migratedHolders());
+        assertEquals("member", r.migratedHoldersTo());
+    }
+
     @Test
     void updateSendsOnlyProvidedFields() {
         fs.onJson("PATCH /platforms/01HREALM/roles/role-salesman", (body, rec) -> {

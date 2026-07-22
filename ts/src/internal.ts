@@ -43,6 +43,7 @@ export {
   OWNER,
   MEMBER,
   type Role,
+  type PrincipalKind,
   type RoleObject,
   type RoleListPage,
   type RoleListOpts,

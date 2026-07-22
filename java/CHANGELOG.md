@@ -4,6 +4,16 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.25.0 — role principal typing + invitation scope (2026-07-22)
+
+Types `assignable_to` (ADR-081) and `can_invite_roles` (ADR-076 WP4) on
+`RoleObject`, `RoleCreate` and `RolePatch`, plus the read-only
+`migratedHolders` (boxed `Integer`, so absent stays null) / `migratedHoldersTo`
+returned by a narrowing PATCH. Both records grew their canonical constructors;
+the previous arities are retained as delegating constructors, so existing
+positional callers still compile. New `RolePatch.onlyAssignableTo` /
+`.onlyCanInviteRoles`. Additive; no SPEC change. See `../CHANGELOG.md`.
+
 ## java-v0.23.0 — ADR-080 Phase B + session-revoke + MFA-self parity (2026-07-20)
 
 Additive parity port of the 8 backend surfaces shipped in issuer v0.50.0

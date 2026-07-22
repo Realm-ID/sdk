@@ -4,6 +4,16 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.26.0 — role principal typing + invitation scope (2026-07-22)
+
+Types `assignable_to` (ADR-081) and `can_invite_roles` (ADR-076 WP4) on
+`RoleObject` / `RoleCreate` / `RolePatch`, plus the read-only
+`migrated_holders` / `migrated_holders_to` the issuer returns when a narrowing
+PATCH reassigns a role's human holders. New exported `PrincipalKind =
+"human" | "service"` union — the server vocabulary is closed, so a typo should
+fail at compile time. Additive; no SPEC change. See `../CHANGELOG.md` for the
+cross-SDK entry.
+
 ## 0.24.0 — ADR-080 Phase B + session-revoke + MFA-self parity (2026-07-20)
 
 Additive parity port of the Go reference SDK (issuer v0.50.0). No SPEC break.

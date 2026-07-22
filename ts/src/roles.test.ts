@@ -231,3 +231,50 @@ test("roles.listPermissions: returns the ADR-074 catalog", async () => {
   assert.equal(perms[0]!.key, "users:read");
   assert.equal(perms[1]!.resource, "users");
 });
+
+// ADR-081 principal typing + ADR-076 WP4 invitation scope: both are role
+// fields the server has shipped for releases without an SDK type, so this
+// pins the round trip in both directions.
+test("roles.create: forwards assignableTo + canInviteRoles (ADR-081 / ADR-076 WP4)", async () => {
+  const fetch = mkFetch((req) => {
+    assert.deepEqual(req.body, {
+      name: "bot",
+      display_name: "Bot",
+      can_invite_roles: ["member"],
+      assignable_to: ["service"],
+    });
+    return new Response(JSON.stringify({
+      id: "role-bot", name: "bot", display_name: "Bot",
+      permissions: [], required_mfa_methods: [],
+      can_invite_roles: ["member"], assignable_to: ["service"],
+      is_system: false, created_at: 1, updated_at: 1,
+    }), { status: 201, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const r = await realm.roles.create({
+    name: "bot", displayName: "Bot", assignableTo: ["service"], canInviteRoles: ["member"],
+  });
+  assert.deepEqual(r.assignable_to, ["service"]);
+  assert.deepEqual(r.can_invite_roles, ["member"]);
+  assert.equal(r.migrated_holders, undefined);
+});
+
+// A PATCH that narrows assignable_to away from humans migrates the existing
+// human holders server-side (ADR-081 §2.5) and reports how many moved, and to
+// where. Absent on every other response — including this one's siblings.
+test("roles.update: sends assignableTo and surfaces the §2.5 holder migration", async () => {
+  const fetch = mkFetch((req) => {
+    assert.equal(req.method, "PATCH");
+    assert.deepEqual(req.body, { assignable_to: ["service"] });
+    return new Response(JSON.stringify({
+      id: "role-bot", name: "bot", permissions: [], required_mfa_methods: [],
+      can_invite_roles: [], assignable_to: ["service"],
+      migrated_holders: 12, migrated_holders_to: "member",
+      is_system: false, created_at: 1, updated_at: 2,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const r = await realm.roles.update("role-bot", { assignableTo: ["service"] });
+  assert.equal(r.migrated_holders, 12);
+  assert.equal(r.migrated_holders_to, "member");
+});

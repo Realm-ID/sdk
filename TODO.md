@@ -16,6 +16,18 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   lockstep. If the menu ever grows beyond these two, add
   `GET /platforms/starter-roles` and drive both from it.
 
+- [ ] **Release script should assert the Go `Version` const matches the tag.**
+  `go/realmid.go`'s `Version` has now drifted from its published `go/vX.Y.Z` tag
+  twice (`go/v0.29.0` read `0.20.0` and misled a partner; `go/v0.35.0` read
+  `0.34.0`, caught 2026-07-22). The const has no in-module consumers, so nothing
+  fails when it is wrong — a comment has already been tried. Make it a check.
+- [ ] **Re-pack `@realm-id/web-admin` with the ADR-081 role fields + re-vendor
+  into `ui/`.** `assignable_to` / `can_invite_roles` are typed in `@realm-id/sdk`
+  as of ts 0.26.0, and web-admin re-exports `RoleObject` from it, so a repack
+  carries them. Then `ui/web/src/roleAssignability.ts` can drop its local
+  `AssignableRoleLike` and narrow to the SDK type. Bundle the same repack as the
+  outstanding `device_name` re-vendor below — both are blocked on one release.
+
 ## Cross-language parity gaps
 
 - [ ] **TS: BFF on-behalf-of parity** (`ts/src/auth.ts`). The TS current-user

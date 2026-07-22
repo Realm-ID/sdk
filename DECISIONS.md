@@ -7,6 +7,59 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-22 — role `assignable_to` + `can_invite_roles` typed into go/ts/java
+
+**Problem.** Two role fields had been live on the wire for releases with no SDK
+type: `can_invite_roles` since issuer v0.41.0 (ADR-076 WP4) and `assignable_to`
+since v0.55.0 (ADR-081). A partner using the SDK could neither read a role's
+principal constraint nor set one — `RoleCreate` silently dropped the field. The
+admin console had already worked around it by declaring a local structural type
+(`ui/web/src/roleAssignability.ts`, "same local read-back extension pattern the
+ADR-078 provider-MFA keys use"), which is the drift ADR-081 § Consequences names
+as the standing risk of expressing principal kind in several places.
+
+**Decision — type both, and type the response half too.** `migrated_holders` /
+`migrated_holders_to` are read-only and appear only on the PATCH response of a
+narrowing that reassigned human holders (ADR-081 §2.5). They are **nullable in
+all three languages** (`*int` / optional / boxed `Integer`) for the same reason
+`mfa_coverage.percent` is: a reported `0` means "narrowed, moved nobody" and
+must stay distinguishable from "the server didn't say". Coercing to 0 would
+render a real migration of zero people identically to a field that was never
+sent.
+
+**TS gets a union, Go and Java don't.** `PrincipalKind = "human" | "service"`
+is a closed server vocabulary (unknown → 400 `unknown_principal_kind`), so in TS
+the union catches a typo at compile time — the same argument that made
+`StarterRole` a union in web-admin 0.8.9. Go and Java stay `[]string` /
+`List<String>`, matching how they already type the equally-closed
+`required_mfa_methods`; introducing a Go string-enum type there would be
+inconsistent with the sibling field for no added safety (Go would not reject an
+unlisted constant anyway).
+
+**The `[]` asymmetry is preserved rather than smoothed over.** Every sibling
+array clears on an explicit `[]`; `assignable_to` 400s instead, because ADR-081
+§ Amendment 2 deleted "unconstrained" as a storable state. The SDKs do not
+paper over this — the doc comments state it, and Go's `omitempty` means an empty
+slice omits the key (defaulting to both kinds server-side) rather than
+manufacturing a 400. A caller who wants that error can still send it from TS/Java.
+
+**Java records: additive arity.** Both records gained components, so the
+canonical constructor changed shape. The previous arities are kept as delegating
+constructors — the same back-compat ladder the ADR-075 bump used — so existing
+positional callers compile unchanged.
+
+**Found in passing: the Go `Version` const was a release behind its tag** (read
+`0.34.0`, published as `go/v0.35.0`). Its own doc comment records this exact
+failure from `go/v0.29.0`, where the drift convinced a partner that a shipped
+surface was unreleased. Bumped to `0.36.0` with this release. The const has no
+consumers in the module, which is why nothing caught it — worth a release-script
+assertion rather than another comment (`TODO.md`).
+
+**Not done here:** re-packing `@realm-id/web-admin` and re-vendoring it into
+`ui/`, which is what would let the console narrow `AssignableRoleLike` to the
+SDK's `RoleObject`. The console's local type is correct and inert today, so that
+is a follow-up, not a fix.
+
 ## 2026-07-22 — `web-admin` 0.8.9: starter roles (issuer v0.54.0)
 
 Types the opt-in starter-role surface: `PlatformCreate.starter_roles`, a new

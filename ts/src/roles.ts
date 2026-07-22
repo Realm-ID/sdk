@@ -19,6 +19,14 @@ export const MEMBER = "member";
 /** Free-form role name. Stays a `string` — see ADR-040 decision §3. */
 export type Role = string;
 
+/**
+ * The `users.kind` vocabulary a role's `assignable_to` is drawn from
+ * (ADR-071 kinds, ADR-081 typing). Closed server-side: an unknown value is a
+ * 400 `unknown_principal_kind`, so a union beats `string[]` here — a typo
+ * fails at compile time rather than at request time.
+ */
+export type PrincipalKind = "human" | "service";
+
 export interface RoleObject {
   id: string;
   name: string;
@@ -30,6 +38,28 @@ export interface RoleObject {
    * accepted server-side. Empty means the role imposes no MFA requirement.
    */
   required_mfa_methods: string[];
+  /**
+   * ADR-076 WP4 invitation scope — the role names a holder of this role may
+   * invite new members at. Inert unless the role also holds the
+   * `invitations:manage` permission: the invite gate requires both.
+   */
+  can_invite_roles: string[];
+  /**
+   * ADR-081 principal typing — the `users.kind` values that may hold this
+   * role. Since § Amendment 2 the server never stores this empty, so an empty
+   * array means the response came from an issuer older than v0.57.0, where it
+   * meant ANY. Treat it as ANY (read fails open; the server enforces on write).
+   */
+  assignable_to: PrincipalKind[];
+  /**
+   * ADR-081 §2.5 — set ONLY on the `update()` response of a patch that
+   * narrowed `assignable_to` so humans may no longer hold the role: its human
+   * holders were reassigned in the same transaction rather than stranded.
+   * Absent on every other response.
+   */
+  migrated_holders?: number;
+  /** The role those holders were migrated to. Present only with the count. */
+  migrated_holders_to?: string;
   is_system: boolean;
   /**
    * A disabled role stays in the catalog but is hidden from the roles
@@ -82,6 +112,18 @@ export interface RoleCreate {
    * Omit/empty for none.
    */
   requiredMfaMethods?: string[];
+  /**
+   * ADR-076 WP4 invitation scope. Each entry must be a known non-owner role
+   * name in the realm. Omit for none.
+   */
+  canInviteRoles?: string[];
+  /**
+   * ADR-081 — which principal kinds may hold the role. Omit the key and the
+   * server defaults to BOTH kinds (that is not an error; the field is younger
+   * than its clients). An explicit `[]` is a 400 `assignable_to_required` —
+   * § Amendment 2 removed "unconstrained" as a storable state.
+   */
+  assignableTo?: PrincipalKind[];
 }
 
 export interface RolePatch {
@@ -92,6 +134,22 @@ export interface RolePatch {
    * to clear it; omit to leave it untouched (PATCH semantics).
    */
   requiredMfaMethods?: string[];
+  /**
+   * Overwrites the ADR-076 WP4 invitation scope when provided. Send `[]` to
+   * clear it; omit to leave it untouched.
+   */
+  canInviteRoles?: string[];
+  /**
+   * Overwrites the ADR-081 principal-kind constraint when provided; omit to
+   * leave it untouched. Unlike its siblings there is NO clear — `[]` is a 400
+   * `assignable_to_required`; name the kinds instead.
+   *
+   * Narrowing this so humans may no longer hold the role MIGRATES its existing
+   * human holders, in the same transaction, to the realm's default invitation
+   * role (else `member`); the response then carries `migrated_holders` +
+   * `migrated_holders_to`.
+   */
+  assignableTo?: PrincipalKind[];
 }
 
 export class RolesClient {
@@ -125,6 +183,8 @@ export class RolesClient {
     if (body.permissions !== undefined) wire["permissions"] = body.permissions;
     if (body.requiredMfaMethods !== undefined)
       wire["required_mfa_methods"] = body.requiredMfaMethods;
+    if (body.canInviteRoles !== undefined) wire["can_invite_roles"] = body.canInviteRoles;
+    if (body.assignableTo !== undefined) wire["assignable_to"] = body.assignableTo;
     return this.http.request<RoleObject>({
       method: "POST",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles`,
@@ -138,6 +198,8 @@ export class RolesClient {
     if (patch.permissions !== undefined) wire["permissions"] = patch.permissions;
     if (patch.requiredMfaMethods !== undefined)
       wire["required_mfa_methods"] = patch.requiredMfaMethods;
+    if (patch.canInviteRoles !== undefined) wire["can_invite_roles"] = patch.canInviteRoles;
+    if (patch.assignableTo !== undefined) wire["assignable_to"] = patch.assignableTo;
     return this.http.request<RoleObject>({
       method: "PATCH",
       path: `/platforms/${encodeURIComponent(this.realmId)}/roles/${encodeURIComponent(roleId)}`,

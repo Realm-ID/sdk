@@ -102,6 +102,7 @@ export type { ApiKey, ApiKeyCreate } from "./api-keys.js";
 export { OWNER, MEMBER } from "./roles.js";
 export type {
   Role,
+  PrincipalKind,
   RoleObject,
   RoleListPage,
   RoleListOpts,

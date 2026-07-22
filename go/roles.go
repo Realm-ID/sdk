@@ -38,7 +38,26 @@ type RoleObject struct {
 	// array. Only "totp"/"otp" are accepted server-side. Empty means the role
 	// imposes no MFA requirement of its own.
 	RequiredMFAMethods []string `json:"required_mfa_methods"`
-	IsSystem           bool     `json:"is_system"`
+	// CanInviteRoles is the ADR-076 WP4 invitation scope — the role names a
+	// holder of this role may invite new members at. Inert unless the role also
+	// holds the `invitations:manage` permission: the invite gate requires both.
+	// Always an array.
+	CanInviteRoles []string `json:"can_invite_roles"`
+	// AssignableTo is the ADR-081 principal-kind constraint — the `users.kind`
+	// values ("human" / "service") that may hold this role. Since § Amendment 2
+	// the server never stores it empty, so an empty array here means the
+	// response came from an issuer older than v0.57.0, where it meant ANY —
+	// treat it that way (fail open on read; the server enforces on write).
+	AssignableTo []string `json:"assignable_to"`
+	// MigratedHolders and MigratedHoldersTo report the ADR-081 §2.5 holder
+	// migration. They are set ONLY on the Update response of a patch that
+	// narrowed AssignableTo so humans may no longer hold the role: the human
+	// holders are reassigned in the same transaction rather than stranded.
+	// MigratedHolders is nil on every other response (including a narrowing
+	// that moved nobody, which reports 0).
+	MigratedHolders   *int   `json:"migrated_holders,omitempty"`
+	MigratedHoldersTo string `json:"migrated_holders_to,omitempty"`
+	IsSystem          bool   `json:"is_system"`
 	// Disabled reports whether the role has been soft-disabled: it stays
 	// in the catalog but is hidden and no longer assignable. Toggle with
 	// Disable/Enable. Absent on older servers (decodes to false).
@@ -91,6 +110,17 @@ type RoleCreate struct {
 	// RequiredMFAMethods sets the ADR-075 per-role MFA requirement
 	// (subset of {"totp","otp"}). Omit/empty for none.
 	RequiredMFAMethods []string `json:"required_mfa_methods,omitempty"`
+	// CanInviteRoles sets the ADR-076 WP4 invitation scope. Each entry must be
+	// a known non-owner role name in the realm. Omit/empty for none.
+	CanInviteRoles []string `json:"can_invite_roles,omitempty"`
+	// AssignableTo declares which principal kinds may hold the role — any
+	// non-empty subset of {"human","service"} (ADR-081). Leaving it nil omits
+	// the key, and the server then defaults to BOTH kinds; it is not an error.
+	// Note the wire distinction the server draws — an explicit `[]` is a 400
+	// `assignable_to_required` — is not reachable from here, because omitempty
+	// drops an empty slice. That is deliberate: the only way to hit that error
+	// would be to ask for it.
+	AssignableTo []string `json:"assignable_to,omitempty"`
 }
 
 // RolePatch is the PATCH body. Pointer fields signal "include in
@@ -102,6 +132,20 @@ type RolePatch struct {
 	// non-nil. Send a pointer to an empty slice to clear it; nil leaves it
 	// untouched (PATCH semantics).
 	RequiredMFAMethods *[]string `json:"required_mfa_methods,omitempty"`
+	// CanInviteRoles overwrites the ADR-076 WP4 invitation scope when non-nil.
+	// A pointer to an empty slice clears it; nil leaves it untouched.
+	CanInviteRoles *[]string `json:"can_invite_roles,omitempty"`
+	// AssignableTo overwrites the ADR-081 principal-kind constraint when
+	// non-nil; nil leaves it untouched. Unlike its siblings there is NO clear:
+	// a pointer to an empty slice is a 400 `assignable_to_required`, since
+	// § Amendment 2 removed "unconstrained" as a storable state — name the
+	// kinds instead.
+	//
+	// Narrowing this so humans may no longer hold the role MIGRATES the role's
+	// existing human holders, in the same transaction, to the realm's default
+	// invitation role (else `member`). The response then carries
+	// MigratedHolders + MigratedHoldersTo.
+	AssignableTo *[]string `json:"assignable_to,omitempty"`
 }
 
 // RoleDeleteResult is the DELETE acknowledgment.
