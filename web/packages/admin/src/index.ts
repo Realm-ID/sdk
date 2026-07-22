@@ -135,6 +135,7 @@ export type {
   PlatformCreate,
   PlatformApiKeyCreate,
   PlatformOwnerInvite,
+  StarterRole,
 } from "./platforms.js";
 export { OriginsClient } from "./origins.js";
 export { PlatformNotesClient } from "./notes.js";

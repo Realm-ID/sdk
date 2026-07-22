@@ -7,6 +7,25 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-22 — `web-admin` 0.8.9: starter roles (issuer v0.54.0)
+
+Types the opt-in starter-role surface: `PlatformCreate.starter_roles`, a new
+`StarterRole = "admin" | "viewer"` union, and
+`admin.platforms.seedStarterRoles(platformId, roles)` for the post-creation
+endpoint.
+
+A **union rather than `string[]`** because the server menu is closed and an
+unknown name is a hard `400 unknown_starter_role` — better to fail at compile
+time than at runtime for a typo. It does mean the union must track
+`realmrole.StarterRoles`; the issuer has no endpoint advertising the menu, so
+this is a knowingly-duplicated literal (noted in `sdk/TODO.md`).
+
+Optional and additive: omitting `starter_roles` reproduces the pre-0.8.9 request
+byte-for-byte, so no consumer is forced to change. Re-vendored into `ui/web` as
+`realm-id-web-admin-0.8.9.tgz` — the version bump is load-bearing, since the
+`file:` pin is by filename and a same-name repack would be masked.
+
+
 ## 2026-07-21 — GET config + GET platform stats typed into go/ts/java
 
 **Problem.** issuer v0.52.0 shipped two read endpoints with no SDK surface:

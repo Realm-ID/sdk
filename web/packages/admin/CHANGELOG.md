@@ -1,5 +1,15 @@
 # @realm-id/web-admin — changelog
 
+## 0.8.9
+
+- `PlatformCreate.starter_roles` + new `StarterRole` union (`"admin" | "viewer"`)
+  — opt into RealmID's role templates at platform creation (issuer v0.54.0).
+- `platforms.seedStarterRoles(platformId, roles)` — the post-creation
+  counterpart, `POST /platforms/{id}/starter-roles`. Requires `roles:manage`.
+
+Additive and optional: omitting `starter_roles` reproduces the previous request
+exactly.
+
 ## 0.8.7
 
 ADR-080 Phase B + session-revoke + self-MFA typed parity (issuer v0.50.0).

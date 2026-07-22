@@ -8,6 +8,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
+- [ ] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`.**
+  `@realm-id/web-admin` types starter roles as `"admin" | "viewer"` because the
+  menu is closed server-side and an unknown name is a hard 400. But the issuer
+  exposes no endpoint advertising the menu, so adding a template means editing
+  the SDK union (and `ui/web/src/OnboardCreate.tsx`'s `STARTER_ROLE_OPTIONS`) in
+  lockstep. If the menu ever grows beyond these two, add
+  `GET /platforms/starter-roles` and drive both from it.
+
 ## Cross-language parity gaps
 
 - [ ] **TS: BFF on-behalf-of parity** (`ts/src/auth.ts`). The TS current-user

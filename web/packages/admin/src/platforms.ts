@@ -18,6 +18,7 @@ import type {
   RealmConfigPatch,
   RealmConfigResponse,
 } from "./types.js";
+import type { RoleObject } from "@realm-id/sdk/internal";
 
 export interface PlatformCreate {
   /**
@@ -32,7 +33,20 @@ export interface PlatformCreate {
    */
   slug?: string;
   display_name?: string;
+  /**
+   * Opt into RealmID's starter role templates (issuer v0.54.0). Omit — or send
+   * `[]` — and the realm is created with only the three system roles
+   * (`owner`, `member`, `platform_api`).
+   *
+   * Before v0.54.0 `admin` and `viewer` were seeded unconditionally, which gave
+   * every realm a 23-permission operator role it never asked for. An unknown
+   * name is rejected with 400 `unknown_starter_role`.
+   */
+  starter_roles?: StarterRole[];
 }
+
+/** The role templates RealmID offers; see {@link PlatformCreate.starter_roles}. */
+export type StarterRole = "admin" | "viewer";
 
 export interface PlatformApiKeyCreate {
   scope: string;
@@ -52,6 +66,31 @@ export class PlatformsClient {
       method: "POST",
       path: "/platforms",
       body: input,
+    });
+  }
+
+  /**
+   * Opt into RealmID's starter role templates after the platform already
+   * exists (issuer v0.54.0) — the post-creation counterpart of
+   * {@link PlatformCreate.starter_roles}. Creates `admin`/`viewer` pre-filled
+   * with their permission sets instead of authoring them by hand.
+   *
+   * Idempotent and never destructive: seeding is ON CONFLICT DO NOTHING, so a
+   * name the realm already holds — including a role the partner authored that
+   * happens to be called `admin` — is left untouched with its own permissions.
+   * The response echoes the rows now present under the requested names, so the
+   * caller can see whether an existing role was preserved.
+   *
+   * Requires `roles:manage`.
+   */
+  async seedStarterRoles(
+    platformId: string,
+    starterRoles: StarterRole[],
+  ): Promise<RoleObject[]> {
+    return this.http.request<RoleObject[]>({
+      method: "POST",
+      path: `/platforms/${encodeURIComponent(platformId)}/starter-roles`,
+      body: { starter_roles: starterRoles },
     });
   }
 
