@@ -39,10 +39,10 @@ const (
 	// is lost downstream.
 	ErrCodeMFARegistrationRequired ErrorCode = "mfa_registration_required"
 	ErrCodeSessionLimitReached     ErrorCode = "session_limit_reached"
-	ErrCodeTenantRequired       ErrorCode = "tenant_required"
-	ErrCodeTenantInvalid        ErrorCode = "tenant_invalid"
-	ErrCodeAccountSuspended     ErrorCode = "account_suspended"
-	ErrCodeAccountDeactivated   ErrorCode = "account_deactivated"
+	ErrCodeTenantRequired          ErrorCode = "tenant_required"
+	ErrCodeTenantInvalid           ErrorCode = "tenant_invalid"
+	ErrCodeAccountSuspended        ErrorCode = "account_suspended"
+	ErrCodeAccountDeactivated      ErrorCode = "account_deactivated"
 	// ErrCodeContactAdminRequired (409) is returned by POST /auth/login when a
 	// DIFFERENT provider identity asserts an email/phone already bound to an
 	// existing account (ADR-080 Part 2). The issuer refuses to silently link —
@@ -71,6 +71,19 @@ const (
 	ErrCodeOTPNotFound       ErrorCode = "otp_not_found"
 	ErrCodeInvalidPurpose    ErrorCode = "invalid_purpose"
 	ErrCodeInvalidSubjectRef ErrorCode = "invalid_subject_ref"
+
+	// Cross-realm integrations (ADR-082/083). Registered so the flat error
+	// envelope's specific code lands in RealmError.Code (isKnownCode gate),
+	// letting the integrations surface map precise sentinels.
+	ErrCodeIntegrationSlugTaken      ErrorCode = "slug_taken"
+	ErrCodeIntegrationNotFound       ErrorCode = "integration_not_found"
+	ErrCodeIntegrationAlreadyInst    ErrorCode = "already_installed"
+	ErrCodeIntegrationRoleNotSvc     ErrorCode = "role_not_service_typed"
+	ErrCodeIntegrationRoleNotInst    ErrorCode = "role_not_installable"
+	ErrCodeInstallationNotFound      ErrorCode = "installation_not_found"
+	ErrCodeInstallationRevoked       ErrorCode = "installation_revoked"
+	ErrCodeIntegrationRoleUnavail    ErrorCode = "role_unavailable"
+	ErrCodeIntegrationKeyClassMisfit ErrorCode = "key_class_mismatch"
 
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
@@ -197,13 +210,18 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeTenantInvalid: {}, ErrCodeAccountSuspended: {},
 	ErrCodeAccountDeactivated: {}, ErrCodeContactAdminRequired: {},
 	ErrCodeRealmOriginMismatch: {},
-	ErrCodeRealmMismatch: {},
-	ErrCodeMissingOrigin: {}, ErrCodeRefreshInvalid: {},
+	ErrCodeRealmMismatch:       {},
+	ErrCodeMissingOrigin:       {}, ErrCodeRefreshInvalid: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},
 	ErrCodeInvalidOTP: {}, ErrCodeOTPExpired: {}, ErrCodeOTPLocked: {},
 	ErrCodeOTPNotFound: {}, ErrCodeInvalidPurpose: {}, ErrCodeInvalidSubjectRef: {},
+	ErrCodeIntegrationSlugTaken: {}, ErrCodeIntegrationNotFound: {},
+	ErrCodeIntegrationAlreadyInst: {}, ErrCodeIntegrationRoleNotSvc: {},
+	ErrCodeIntegrationRoleNotInst: {}, ErrCodeInstallationNotFound: {},
+	ErrCodeInstallationRevoked: {}, ErrCodeIntegrationRoleUnavail: {},
+	ErrCodeIntegrationKeyClassMisfit: {},
 }
 
 func isKnownCode(s string) bool {

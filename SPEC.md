@@ -163,6 +163,7 @@ POST /auth/token   refresh token → rotated refresh + access pair
 | `api_key`          | none (raw key in body) | `service`     | (server-only today) |
 | `platform_api_key` | none (raw key in body) | `platform`    | the SDK's platform-session bootstrap |
 | `urn:ietf:params:oauth:grant-type:token-exchange` | none (workload OIDC JWT in body) | `platform` | the SDK's zero-config workload bootstrap (§4.0.1) |
+| `integration_installation` | none (source platform's `platform_api` key in body) | `service` | the brokered cross-realm mint, `realm.integrations.mintToken(...)` (§6.14, ADR-082/083) |
 
 Login is a **two-step exchange** internal to the SDK; partners see one
 call. The raw API key is **never** sent on user-login traffic. The SDK
@@ -1046,6 +1047,63 @@ Exposed as `realm.signingKeys` (go/ts/java) and `admin.keys`
 `@realm-id/sdk/internal`). **Distinct from** web-admin's pre-existing
 `admin.signingKeys`, which is the base-realm **staff/ops** client over
 `/admin/platforms/…` — `admin.keys` is the platform-owner surface.
+
+### 6.14 Cross-realm integrations — `realm.integrations.*` (ADR-082/083)
+
+A source platform publishes an **integration**; a target org **installs**
+it, admitting a `kind=service` principal into the org that holds a chosen
+service-typed role; the source platform then **mints** short-lived
+target-realm access tokens against the installation. The model is
+GitHub-App-shaped (register once → install per org). RI hosts no consent
+screen — this surface **is** the consent surface, rendered by the
+partner's own console (ADR-083 §5).
+
+The client has two sides plus a mint. All three live on
+`realm.integrations` (go/ts/java) and `admin.integrations`
+(`@realm-id/web-admin`, reusing the ts client via `@realm-id/sdk/internal`).
+
+**Source side** (the publishing platform, gated `integrations:read|manage`),
+over `/platforms/{id}/integrations`. The platform is the SDK's own realm, so
+these take no platform id (baked in, like `realm.roles.*`):
+
+- `register({ slug, displayName, description?, homepageUrl?, listed? })`
+  — `slug_taken` (409), `invalid_slug` / `display_name_required` (400).
+- `list(opts?)` / `update(id, patch)`.
+- `disable(id)` / `enable(id)` — reversible halt.
+- `remove(id)` — permanent disable (NOT a cascade delete; target orgs'
+  inbound history is preserved, ADR-083 §9). `integration_not_found` (404).
+
+**Target side** (the installing org owner, gated `org_grants:read|manage`),
+over `/tenants/{id}/integration-installations`:
+
+- `install(tenantId, { integrationId, roleId })` — the `roleId` MUST name
+  a role whose `assignable_to` is **exactly `["service"]`** (ADR-082 §7.1);
+  anything else fails `role_not_service_typed` (400). Other 400s:
+  `integration_disabled`, `role_not_installable` (owner/platform_api),
+  `role_disabled`. `already_installed` (409), `integration_not_found` (404).
+- `listInstallations(tenantId, opts?)` — the inbound-access list: who can
+  act in my org, as what, last used, mint count. This is the sole way a new
+  owner discovers foreign access inherited across an ownership transfer
+  (ADR-082 §7.4), so consumers should surface a non-zero count at transfer.
+- `uninstall(tenantId, installationId)` — revokes the edge; future mints
+  fail. Live access tokens are NOT revoked (signature-verified) — the
+  exposure is bounded by the fixed 600 s token TTL (ADR-083 §4.4).
+
+**Mint** (the source platform's server, authenticated by its own
+`platform_api` key — NOT a user/session token):
+
+- `mintToken({ apiKey, installationId, sourceOrgId })` →
+  `{ accessToken, expiresIn }`. Sends
+  `POST /auth/login { grant_type: "integration_installation", api_key,
+  installation_id, source_org_id }`. **Returns an access token only** — no
+  refresh, fixed `expiresIn` of 600 s. This is deliberately NOT a
+  token-manager credential: the token cannot refresh, so the caller
+  re-mints (and may cache for < `expiresIn`). `source_org_id` is required
+  and stamped into the token + target-org audit, but is caller-asserted /
+  unverified (ADR-082 §7.6). Errors: `key_class_mismatch` (401, not a
+  platform key), `installation_not_found` (404, incl. a key from the wrong
+  realm — no cross-realm existence oracle), `installation_revoked` /
+  `role_unavailable` (403).
 
 ## 7. Pagination
 

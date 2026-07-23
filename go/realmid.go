@@ -125,6 +125,9 @@ type Realm struct {
 	ServiceAccounts *ServiceAccountsClient
 	// Sources is the owner/admin app/source registry (ADR-072).
 	Sources *SourcesClient
+	// Integrations is the cross-realm integration surface (ADR-082/083):
+	// source-side register/mint + target-side install/uninstall.
+	Integrations *IntegrationsClient
 	// FederationBindings is the platform's workload-identity federation
 	// trust-binding surface (ADR-057).
 	FederationBindings *FederationBindingsClient
@@ -218,6 +221,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.OTP = &OTPClient{realm: r}
 	r.ServiceAccounts = &ServiceAccountsClient{realm: r}
 	r.Sources = &SourcesClient{realm: r}
+	r.Integrations = &IntegrationsClient{realm: r}
 	r.FederationBindings = &FederationBindingsClient{realm: r}
 	r.Sessions = &SessionsClient{realm: r}
 
