@@ -74,6 +74,17 @@ public enum ErrorCode {
     SOURCE_NOT_FOUND("source_not_found"),
     USER_NOT_FOUND("user_not_found"),
 
+    // cross-realm integrations (ADR-082/083)
+    SLUG_TAKEN("slug_taken"),
+    INTEGRATION_NOT_FOUND("integration_not_found"),
+    ALREADY_INSTALLED("already_installed"),
+    ROLE_NOT_SERVICE_TYPED("role_not_service_typed"),
+    ROLE_NOT_INSTALLABLE("role_not_installable"),
+    INSTALLATION_NOT_FOUND("installation_not_found"),
+    INSTALLATION_REVOKED("installation_revoked"),
+    ROLE_UNAVAILABLE("role_unavailable"),
+    KEY_CLASS_MISMATCH("key_class_mismatch"),
+
     // management / generic
     UNAUTHORIZED("unauthorized"),
     FORBIDDEN("forbidden"),

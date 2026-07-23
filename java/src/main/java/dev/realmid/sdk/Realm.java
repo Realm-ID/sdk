@@ -19,6 +19,7 @@ import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.idp.IdentityProvidersClient;
 import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
+import dev.realmid.sdk.integrations.IntegrationsClient;
 import dev.realmid.sdk.sessions.SessionsClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
 import dev.realmid.sdk.stats.StatsClient;
@@ -54,6 +55,7 @@ public final class Realm {
     private final APIKeysClient apiKeys;
     private final RolesClient roles;
     private final ServiceAccountsClient serviceAccounts;
+    private final IntegrationsClient integrations;
     private final SourcesClient sources;
     private final FederationBindingsClient federationBindings;
     private final SigningKeysClient signingKeys;
@@ -114,6 +116,7 @@ public final class Realm {
         this.roles = new RolesClient(this.http, this.realmId);
         this.serviceAccounts = new ServiceAccountsClient(this.http);
         this.sources = new SourcesClient(this.http, this.realmId);
+        this.integrations = new IntegrationsClient(this.http, this.realmId);
         this.federationBindings = new FederationBindingsClient(this.http, this.realmId);
         this.signingKeys = new SigningKeysClient(this.http, this.realmId);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
@@ -148,6 +151,8 @@ public final class Realm {
     public ServiceAccountsClient serviceAccounts() { return serviceAccounts; }
     /** Owner/admin app/source registry (ADR-072). */
     public SourcesClient sources() { return sources; }
+    /** Cross-realm integrations: source register/mint + target install (ADR-082/083). */
+    public IntegrationsClient integrations() { return integrations; }
     /** Workload-identity federation trust bindings (ADR-057). */
     public FederationBindingsClient federationBindings() { return federationBindings; }
     /** Owner-facing signing-key read + self-serve rotate (roles/signing-keys overhaul). */
