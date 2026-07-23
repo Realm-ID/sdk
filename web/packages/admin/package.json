@@ -1,7 +1,7 @@
 {
   "name": "@realm-id/web-admin",
-  "version": "0.8.9",
-  "description": "Admin-UI SDK for RealmID — wraps @realm-id/sdk resource classes on top of an @realm-id/web transport.",
+  "version": "0.8.10",
+  "description": "Admin-UI SDK for RealmID \u2014 wraps @realm-id/sdk resource classes on top of an @realm-id/web transport.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

@@ -13,6 +13,34 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Cross-realm integrations — go 0.37.0 (`go/v0.37.0`) · ts 0.27.0 (`ts-v0.27.0`) · java 0.26.0 (`java-v0.26.0`) · web-admin 0.8.10 (2026-07-23)
+
+New `realm.integrations.*` surface across go/ts/java (and `admin.integrations`
+in `@realm-id/web-admin`) for the ADR-082/083 cross-realm integration model, plus
+a 7th `/auth/login` grant. Additive; SPEC §6.14.
+
+- **Source side** (the publishing platform): `register`, `list`, `update`,
+  `disable`/`enable`, `remove`. These take no platform id — the SDK is per-realm
+  and the source is its own realm, like `realm.roles.*`.
+- **Target side** (the installing org owner): `install(tenantId, {integrationId,
+  roleId})`, `listInstallations(tenantId)`, `uninstall(tenantId, installationId)`.
+  The `roleId` MUST name a role whose `assignable_to` is exactly `["service"]`
+  (ADR-082 §7.1) or the install fails `role_not_service_typed`.
+- **`mintToken({ apiKey, installationId, sourceOrgId })`** — the brokered mint.
+  Authenticated by the source realm's raw `platform_api` key (no bearer rides
+  along); **returns an access token only — no refresh token, fixed 600 s TTL.**
+  Deliberately NOT a token-manager credential: the token cannot refresh, so the
+  caller re-mints (and may cache for `< expires_in`). This matches the M2M
+  standard (OAuth 2.0 client-credentials / GitHub App installation tokens / AWS
+  STS) — see `DECISIONS.md` 2026-07-23 and `docs/integration-guide.md` §9.
+- **Nine new error codes** registered in every SDK's code taxonomy so the flat
+  issuer envelope maps precise sentinels: `slug_taken`, `integration_not_found`,
+  `already_installed`, `role_not_service_typed`, `role_not_installable`,
+  `installation_not_found`, `installation_revoked`, `role_unavailable`,
+  `key_class_mismatch`. Documented in `docs/error-reference.md`.
+- **web-admin** reuses the ts `IntegrationsClient` verbatim via
+  `@realm-id/sdk/internal`, exposed as `admin.integrations`.
+
 ## Role principal typing + invitation scope — go 0.36.0 (`go/v0.36.0`) · ts 0.26.0 (`ts-v0.26.0`) · java 0.25.0 (`java-v0.25.0`) (2026-07-22)
 
 Types two role fields the issuer had shipped without any SDK surface:

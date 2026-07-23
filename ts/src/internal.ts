@@ -118,6 +118,23 @@ export {
   type SourcePatch,
 } from "./sources.js";
 
+// Cross-realm integrations (ADR-082/083) — source register/mint + target
+// install. Reused by @realm-id/web-admin as `admin.integrations`.
+export {
+  IntegrationsClient,
+  type Integration,
+  type Installation,
+  type IntegrationCreate,
+  type IntegrationPatch,
+  type InstallRequest,
+  type InstallResult,
+  type IntegrationMintRequest,
+  type IntegrationMintResult,
+  type IntegrationListPage,
+  type InstallationListPage,
+  type IntegrationListOpts,
+} from "./integrations.js";
+
 // OTP primitive (ADR-071 §4) — the admin console mints a `view_bff` login
 // OTP for a service account and shows the plaintext value once.
 export {

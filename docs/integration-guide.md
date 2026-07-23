@@ -1418,7 +1418,122 @@ track. This complements (rather than replaces) the pull feed.
 
 ---
 
-## 9. Known SDK gaps
+## 9. Cross-realm integrations (`realm.integrations.*`, ADR-082/083)
+
+When one platform on RealmID needs to call **another** platform's APIs —
+Hiring Motion driving Quizzing Pro, say — you do **not** share credentials
+or invent a cross-tenant superuser role. Instead:
+
+1. The **source** platform *publishes* an integration (once, at realm level).
+2. The **target** org's owner *installs* it, choosing the exact role the
+   integration acts as. This admits a `kind=service` principal into their org.
+3. The source platform *mints* short-lived access tokens against the
+   installation to call the target's APIs.
+
+It is GitHub-App-shaped: register once, install per org, mint on demand.
+RealmID hosts no consent screen — **your console is the consent surface**, so
+these methods are how you build install/uninstall UI (target) and the mint
+call (source).
+
+> The SDK is per-realm. `register`/`mintToken` run on the **source** realm's
+> client; `install`/`listInstallations`/`uninstall` run on the **target**
+> realm's client. The same method names exist on go (`realm.Integrations`),
+> ts/web-admin (`realm.integrations` / `admin.integrations`) and java
+> (`realm.integrations()`).
+
+### 9.1 Source side — publish, then mint
+
+```ts
+// One-time: publish the integration in YOUR realm.
+const integration = await sourceRealm.integrations.register({
+  slug: "hiring-motion",
+  displayName: "Hiring Motion",
+});
+// integration.id → hand to the target org owner out-of-band so they can install it.
+
+// Per call into the target: mint a token. Authenticated by YOUR platform_api
+// key (the raw key, NOT a user/session token). source_org_id names which of
+// your orgs is acting — it is recorded in the target's audit.
+const { access_token, expires_in } = await sourceRealm.integrations.mintToken({
+  apiKey: process.env.REALMID_PLATFORM_API_KEY!,   // rk_live_…
+  installationId,                                   // from the target's install
+  sourceOrgId: "org-uuid-on-hm",
+});
+// Call Quizzing Pro's API with `Authorization: Bearer ${access_token}`.
+```
+
+**The minted token is an access token only — there is no refresh token, and
+it lasts a fixed 600 s (10 min).** This is deliberate and matches the
+machine-to-machine standard (OAuth 2.0 client-credentials, GitHub App
+installation tokens, AWS STS): the credential-holder (your backend, holding the
+platform key) is always present to re-authenticate, so a refresh token would
+add a standing cross-realm credential and buy nothing. **Do not wrap
+`mintToken` in a token manager** — the token cannot be refreshed. Instead:
+
+- call `mintToken` when you need a token and **cache it in memory for
+  `< expires_in`** (e.g. re-mint at ~9 min), or
+- simply re-mint per batch of calls; the mint is cheap.
+
+Every mint re-validates the whole grant on the server (the installation is
+still live, the chosen role still exists and is still service-typed, neither
+org is suspended), so a token you get is always currently-valid — you never
+have to check drift yourself.
+
+Lifecycle of a published integration (source): `list()`, `update(id, patch)`,
+`disable(id)` / `enable(id)` (reversible halt of all mints), and `remove(id)`
+(permanent disable — your half of revocation; it does **not** erase the target
+orgs' record that the integration existed).
+
+### 9.2 Target side — install, review, uninstall
+
+```ts
+// The org owner installs a foreign integration into their org. The chosen role
+// MUST be one authored specifically for service use — its `assignable_to` must
+// be exactly ["service"]. A human/admin role is rejected (`role_not_service_typed`).
+const svcRole = await targetRealm.roles.create({
+  name: "hm-integration",
+  displayName: "Hiring Motion integration",
+  assignableTo: ["service"],
+  permissions: [/* only what the integration needs */],
+});
+
+await targetRealm.integrations.install(orgTenantId, {
+  integrationId,              // from the source platform, out-of-band
+  roleId: svcRole.id,
+});
+
+// The inbound-access list: who can act in my org, as what, last used.
+const { items } = await targetRealm.integrations.listInstallations(orgTenantId);
+
+// Withdraw consent. Future mints fail immediately; any token minted in the last
+// ≤600 s stays valid until it expires (tokens are signature-verified, not
+// revocable mid-life) — so treat 600 s as the revocation window.
+await targetRealm.integrations.uninstall(orgTenantId, installationId);
+```
+
+**Surface the inbound list at ownership transfer.** When an org changes owner,
+standing installations are carried over (they are not silently dropped), so the
+new owner can inherit foreign access they never personally approved. Show a
+non-zero `listInstallations` count prominently after a transfer so they can
+review it.
+
+### 9.3 Error codes
+
+| Code | HTTP | Where |
+| --- | --- | --- |
+| `slug_taken` | 409 | `register` — slug already used in the realm |
+| `role_not_service_typed` | 400 | `install` — role is not exactly `["service"]` |
+| `role_not_installable` | 400 | `install` — role is `owner`/`platform_api` |
+| `integration_disabled` | 400 | `install` — the source disabled it |
+| `already_installed` | 409 | `install` — a live installation already exists for this org |
+| `installation_revoked` | 403 | `mintToken` — the target uninstalled |
+| `role_unavailable` | 403 | `mintToken` — the role was disabled/narrowed after approval |
+| `key_class_mismatch` | 401 | `mintToken` — not a platform-class api key |
+| `installation_not_found` | 404 | `mintToken` — unknown installation, **or a platform key from the wrong realm** |
+
+All surface on the usual `RealmError.code` / `RealmException.getCode()`.
+
+## 10. Known SDK gaps
 
 These SPEC capabilities are not yet first-class methods. None block
 the integration patterns in §1–§8; workarounds are noted inline.

@@ -25,6 +25,7 @@ import {
   SigningKeysClient as OwnerSigningKeysClient,
   ServiceAccountsClient,
   SourcesClient,
+  IntegrationsClient,
   OtpClient,
 } from "@realm-id/sdk/internal";
 
@@ -61,6 +62,8 @@ export interface Admin {
   keys: OwnerSigningKeysClient;
   /** Service accounts (ADR-071) — kind=service identities per tenant. */
   serviceAccounts: ServiceAccountsClient;
+  /** Cross-realm integrations (ADR-082/083): source register/mint + target install. */
+  integrations: IntegrationsClient;
   /** Platform app/source registry (ADR-072). Bound to the admin's realmId. */
   sources: SourcesClient;
   /** OTP primitive (ADR-071 §4) — mint a `view_bff` service-account login OTP. */
@@ -117,6 +120,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     keys: new OwnerSigningKeysClient(httpAsClient, rid),
     serviceAccounts: new ServiceAccountsClient(httpAsClient),
     sources: new SourcesClient(httpAsClient, rid),
+    integrations: new IntegrationsClient(httpAsClient, rid),
     otp: new OtpClient(httpAsClient),
     bff: new BffClient(http),
     sessions: new SessionsClient(http),
@@ -157,6 +161,7 @@ export {
   AdminClient,
   ServiceAccountsClient,
   SourcesClient,
+  IntegrationsClient,
   OtpClient,
   DELIVERY_MODE_VIEW_BFF,
 } from "@realm-id/sdk/internal";
