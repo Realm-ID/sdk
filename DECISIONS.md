@@ -7,6 +7,54 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-23 — cross-realm integrations surface; the mint returns an access token only
+
+**What.** New `realm.integrations.*` across go/ts/java (+ `admin.integrations` in
+web-admin) for ADR-082/083: source-side `register/list/update/disable/enable/remove`,
+target-side `install/listInstallations/uninstall`, and `mintToken`. SPEC §6.14 +
+a 7th `/auth/login` grant (`integration_installation`).
+
+**The load-bearing shape decision: `mintToken` returns an access token only — no
+refresh token — modelled as a plain one-shot, deliberately NOT wired into a
+token manager.** The caller re-mints (and may cache for `< expires_in`, a fixed
+600 s). A user raised the obvious alternative — mint a refresh token so the
+source re-uses it via `/auth/token` — and we walked through it in full.
+
+**Why access-only won.** The deciding principle is that a refresh token exists to
+solve *"the credential-holder is not present to re-authenticate"* — the
+user-session problem. In machine-to-machine the source platform always holds its
+`platform_api` key, so re-authentication is free (call the mint again), and the
+problem refresh tokens solve does not exist. This is not just GitHub App
+installation tokens; it is the M2M norm: OAuth 2.0's client-credentials grant
+(RFC 6749 §4.4.3) says a refresh token *SHOULD NOT* be issued, and AWS STS
+AssumeRole + GCP service-account impersonation both return short-lived tokens
+with no refresh, re-minted with the caller's own credential. Refresh appears in
+M2M only as an opt-in convenience (Slack token rotation), never the default.
+
+**Two arguments we discarded as wrong or weak** (credit to the user for both):
+- *"Refresh is unsafe on drift"* — misframed. Whether the installed role was
+  since disabled/narrowed/deleted (ADR-082 §6.1 drift) is **RI's** responsibility
+  to enforce wherever it issues the access token; the callee never sees it. With
+  access-only that check runs on every mint for free; with refresh it would have
+  to be added to the generic refresh path, which today knows nothing about
+  installations. So refresh is *safe on drift if RI re-validates on refresh* — the
+  cost is coupling, not a safety hole.
+- *"A refresh token is a second standing credential in the source's infra"* —
+  weak, because the `platform_api` key the source already holds strictly
+  dominates it: the key can mint fresh tokens against any installation anyway, so
+  a narrower per-installation refresh token adds no exposure.
+
+**So the real basis is simplicity, not safety:** access-only gets drift-checking
+for free (every acquisition is a full mint), needs no session rows (ADR-083 §2.2
+kept that hot table clean), and has single-mechanism revocation (stop minting;
+window ≤ 600 s). Refresh buys only marginally fewer round-trips, which is
+negligible for a server integration that mints once per ~10 min and caches. The
+SDK docstrings and the integration guide state the re-mint model explicitly so a
+partner does not reach for a token manager that cannot refresh this token.
+
+Detail: `SPEC.md` §6.14, `issuer/docs/adr/083-cross-realm-integrations-build.md`
+§7.5, `docs/integration-guide.md` § Cross-realm integrations.
+
 ## 2026-07-22 — role `assignable_to` + `can_invite_roles` typed into go/ts/java
 
 **Problem.** Two role fields had been live on the wire for releases with no SDK

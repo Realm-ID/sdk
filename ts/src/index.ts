@@ -188,6 +188,20 @@ export type {
 
 export { SourcesClient } from "./sources.js";
 export type { Source, SourceCreate, SourcePatch } from "./sources.js";
+export { IntegrationsClient } from "./integrations.js";
+export type {
+  Integration,
+  Installation,
+  IntegrationCreate,
+  IntegrationPatch,
+  InstallRequest,
+  InstallResult,
+  IntegrationMintRequest,
+  IntegrationMintResult,
+  IntegrationListPage,
+  InstallationListPage,
+  IntegrationListOpts,
+} from "./integrations.js";
 
 export { createMiddleware, globMatch } from "./middleware.js";
 export type {

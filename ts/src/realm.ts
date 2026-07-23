@@ -28,6 +28,7 @@ import { AuditEventsClient } from "./audit-events.js";
 import { OtpClient } from "./otp.js";
 import { ServiceAccountsClient } from "./service-accounts.js";
 import { SourcesClient } from "./sources.js";
+import { IntegrationsClient } from "./integrations.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
@@ -118,6 +119,8 @@ export interface Realm {
   readonly serviceAccounts: ServiceAccountsClient;
   /** Owner/admin app/source registry (ADR-072). */
   readonly sources: SourcesClient;
+  /** Cross-realm integrations: source register/mint + target install (ADR-082/083). */
+  readonly integrations: IntegrationsClient;
   /** Workload-identity federation trust bindings (ADR-057). */
   readonly federationBindings: FederationBindingsClient;
   /** Owner/admin session-revocation (ADR-080): force-logout a user or a
@@ -228,6 +231,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     otp: new OtpClient(http),
     serviceAccounts: new ServiceAccountsClient(http),
     sources: new SourcesClient(http, cfg.realmId),
+    integrations: new IntegrationsClient(http, cfg.realmId),
     federationBindings: new FederationBindingsClient(http, cfg.realmId),
     sessions: new SessionsClient(http, cfg.realmId),
     info: () => info.get(),

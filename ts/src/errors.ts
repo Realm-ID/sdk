@@ -55,6 +55,16 @@ export type ErrorCode =
   | "method_violates_kind"
   | "source_not_found"
   | "user_not_found"
+  // cross-realm integrations (ADR-082/083)
+  | "slug_taken"
+  | "integration_not_found"
+  | "already_installed"
+  | "role_not_service_typed"
+  | "role_not_installable"
+  | "installation_not_found"
+  | "installation_revoked"
+  | "role_unavailable"
+  | "key_class_mismatch"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -120,6 +130,9 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "invalid_purpose", "invalid_subject_ref",
   "handle_taken", "invalid_role", "service_account_not_found",
   "not_service", "method_violates_kind", "source_not_found", "user_not_found",
+  "slug_taken", "integration_not_found", "already_installed",
+  "role_not_service_typed", "role_not_installable", "installation_not_found",
+  "installation_revoked", "role_unavailable", "key_class_mismatch",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {
