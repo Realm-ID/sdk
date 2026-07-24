@@ -240,6 +240,47 @@ describe("realmFetchAsHttpClient", () => {
     assert.equal(calls[0]!.url, "https://api.partner.com/api/tenants?cursor=abc");
   });
 
+  it("re-throws a typed realm error from realm.fetch unchanged (not relabeled as network)", async () => {
+    // realm.fetch detects "no current tenant" client-side and throws a typed
+    // error before any request goes out. Crucially it is `@realm-id/web`'s
+    // RealmError — a DIFFERENT class from this package's `@realm-id/sdk`
+    // RealmError — so the transport must recognise it by its `code` property,
+    // not `instanceof`. Simulate that cross-class shape with a plain Error
+    // carrying a string `code`. The transport must surface it verbatim so
+    // callers can branch on `unauthorized` and route to sign-in, rather than
+    // see a misleading `network error calling GET /me: ...`.
+    const webRealmError = Object.assign(new Error("no current tenant"), { code: "unauthorized" });
+    const { realm } = makeRealm(() => {
+      throw webRealmError;
+    });
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await assert.rejects(
+      http.request({ method: "GET", path: "/me" }),
+      (err: unknown) => {
+        assert.equal(err, webRealmError); // same object, untouched
+        assert.equal((err as { code?: string }).code, "unauthorized");
+        assert.equal((err as Error).message, "no current tenant");
+        return true;
+      },
+    );
+  });
+
+  it("wraps a genuine fetch failure (non-RealmError) as code:network", async () => {
+    const { realm } = makeRealm(() => {
+      throw new TypeError("Failed to fetch");
+    });
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await assert.rejects(
+      http.request({ method: "GET", path: "/me" }),
+      (err: unknown) => {
+        assert.ok(err instanceof RealmError);
+        assert.equal((err as RealmError).code, "network");
+        assert.match((err as RealmError).message, /network error calling GET \/me: Failed to fetch/);
+        return true;
+      },
+    );
+  });
+
   it("custom apiPrefix is honored for passthrough", async () => {
     const { realm, calls } = makeRealm(() =>
       new Response(JSON.stringify({ data: [] }), {

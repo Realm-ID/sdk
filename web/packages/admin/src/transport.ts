@@ -145,6 +145,22 @@ export function realmFetchAsHttpClient(
       try {
         resp = await realm.fetch(url, init as RequestInit);
       } catch (e) {
+        // `realm.fetch` throws a typed error for conditions it detects
+        // client-side before any request leaves the browser — most notably
+        // `unauthorized`/"no current tenant" when the session's current tenant
+        // was cleared out from under an in-flight call (the long-idle reload
+        // teardown race). Those are auth/session states, NOT transport
+        // failures: re-throw them unchanged so callers can branch on the real
+        // code (route to sign-in) instead of a misleading "network error"
+        // retry. Only a genuine fetch failure (a TypeError with no `code`) is a
+        // network error.
+        //
+        // NB: duck-type on `code` rather than `instanceof RealmError` — the
+        // error thrown here is `@realm-id/web`'s RealmError (a DIFFERENT class
+        // from this package's `@realm-id/sdk` RealmError), so `instanceof`
+        // would miss it. Any thrown value carrying a string `code` is already
+        // a typed realm error; a browser fetch rejection is a bare TypeError.
+        if (typeof (e as { code?: unknown } | null)?.code === "string") throw e;
         throw new RealmError({
           code: "network",
           message: `network error calling ${init.method} ${req.path}: ${(e as Error).message}`,

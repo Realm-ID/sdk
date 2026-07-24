@@ -1,5 +1,26 @@
 # @realm-id/web-admin — changelog
 
+## 0.8.11
+
+- **Transport no longer mislabels client-side auth errors as `network`.**
+  `realm.fetch` throws a typed `RealmError` for conditions it detects before a
+  request leaves the browser — chiefly `unauthorized` / "no current tenant"
+  when the session's current tenant is cleared out from under an in-flight call
+  (the long-idle reload teardown race). The transport wrapped *every* throw as
+  `code:"network"`, hiding the real code behind a misleading
+  `network error calling GET /me: no current tenant`. It now re-throws
+  `RealmError` instances unchanged and only wraps genuine fetch failures
+  (`TypeError`) as `network`, so callers can branch on the real code and route
+  a dead session to sign-in instead of a fatal "network error" retry screen.
+
+## 0.8.10
+
+- **Cross-realm integrations surface (ADR-082/083)** — `admin.integrations`:
+  source realms register integrations, target realms install them, source
+  realms mint short-lived access-only tokens. Additive.
+- **ADR-081 role typing** — roles declare `assignable_to` (`users.kind` that may
+  hold the role) alongside `required_mfa_methods` / `can_invite_roles`.
+
 ## 0.8.9
 
 - `PlatformCreate.starter_roles` + new `StarterRole` union (`"admin" | "viewer"`)

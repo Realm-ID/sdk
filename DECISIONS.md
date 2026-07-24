@@ -7,6 +7,46 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-24 — web-admin transport must not relabel client-side auth errors as `network` (0.8.11)
+
+**Symptom.** Opening `app.realmid.dev` after a long idle showed the fatal
+*"We couldn't load your workspace — network error calling GET /me: no current
+tenant"* screen; a second reload landed cleanly on login.
+
+**Root cause (SDK half).** On reload the `@realm-id/web` realm optimistically
+paints `authenticated` from the localStorage snapshot before its background
+`restore()` revalidates (`ui/CLAUDE.md` step 4). The console flips to its authed
+phase and fires `admin.me.profile()` (`GET /me`) against the unvalidated
+session. When the stored session is dead, `restore()`'s own `/me` 401s and calls
+`tokens.clear()`, dropping the current tenant out from under the in-flight call;
+`realm.fetch` then throws `RealmError("unauthorized", "no current tenant")`
+**client-side, before any request leaves the browser**. `web-admin`'s transport
+caught *every* throw from `realm.fetch` and wrapped it as `code:"network"` with
+a `network error calling GET /me: …` message — hiding the real `unauthorized`
+code behind a fake network error, so callers couldn't tell "dead session" from
+"transport down" and surfaced a retry screen instead of routing to sign-in.
+
+**Decision.** In the transport `catch`, re-throw the error unchanged when it
+carries a string `code` (it is already a typed realm error) and only wrap a
+genuine fetch rejection (a bare `TypeError`, no `code`) as `network`. Duck-typed
+on `code` rather than `instanceof RealmError` **on purpose**: the thrown value
+is `@realm-id/web`'s RealmError, a *different class* from this package's
+`@realm-id/sdk` RealmError, so `instanceof` would miss it and silently keep
+mislabeling. The app half (route auth/session/tenant workspace-load failures to
+the login card) lives in `ui/DECISIONS.md`.
+
+**Why it wasn't caught.** The 2026-07-01 `web@0.4.4` fix addressed the *sign-out*
+and the bearerless `/me`, but not this optimistic-adopt-vs-restore race on the
+app's *own* tenant-scoped calls; the console only started routing `/me` through
+this transport after moving to `admin.me.profile()`. No test exercised
+`realm.fetch` *throwing* (all stubs returned a Response), so the blanket wrap was
+never observed. Added: transport tests for the throw path (typed error re-thrown
+unchanged; bare `TypeError` wrapped as `network`).
+
+**Tradeoffs.** `0.8.11` also carries a backfilled `0.8.10` CHANGELOG entry (the
+ADR-082/083 surface bumped the version without one). Vendored into `ui/web` as a
+tarball; npm publish of `0.8.11` is a follow-up (the app pins the tgz, not npm).
+
 ## 2026-07-23 — cross-realm integrations surface; the mint returns an access token only
 
 **What.** New `realm.integrations.*` across go/ts/java (+ `admin.integrations` in
