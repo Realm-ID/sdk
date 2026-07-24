@@ -20,6 +20,7 @@ export {
   ContactVerificationsClient,
   type Tenant,
   type TenantCreate,
+  type TenantOwner,
   type TenantPatch,
   type TenantConfigPatch,
   type SignupMode,

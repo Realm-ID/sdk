@@ -55,12 +55,26 @@ public final class TenantsClient {
      */
     public Tenant create(TenantCreate body) {
         Map<String, Object> b = new LinkedHashMap<>();
+        if (body.id() != null) b.put("id", body.id());
         b.put("display_name", body.displayName());
         if (body.allowedDomains() != null) b.put("allowed_domains", body.allowedDomains());
         if (body.signupMode() != null) b.put("signup_mode", body.signupMode());
+        if (body.createdAt() != null) b.put("created_at", body.createdAt());
+        if (body.owner() != null) b.put("owner", ownerWire(body.owner()));
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "POST", "/platforms/" + enc(realmId) + "/tenants").body(b));
         return http.mapper().convertValue(raw, Tenant.class);
+    }
+
+    private static Map<String, Object> ownerWire(TenantOwner o) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (o.userId() != null) m.put("user_id", o.userId());
+        if (o.email() != null) m.put("email", o.email());
+        if (o.phone() != null) m.put("phone", o.phone());
+        if (o.displayName() != null) m.put("display_name", o.displayName());
+        if (o.provider() != null) m.put("provider", o.provider());
+        if (o.providerUid() != null) m.put("provider_uid", o.providerUid());
+        return m;
     }
 
     public Tenant update(String id, TenantPatch patch) {

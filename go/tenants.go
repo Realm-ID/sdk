@@ -38,11 +38,41 @@ const (
 	SignupModeOpen      SignupMode = "open"
 )
 
-// TenantCreate is the create payload (SPEC §6.1).
+// TenantOwner seats a tenant's owner inline at create (ADR-073 Amendment
+// C.2). At least one of Email/Phone is required. There is deliberately no
+// role: the owner is provisioned with the dormant `member` role (ADR-076 —
+// ownership is the owner_user_id pointer, not a role name), and the owner's
+// real app-role, if any, arrives via the roster import that reuses UserID.
+type TenantOwner struct {
+	// UserID is an optional bring-your-own owner id; absent ⇒ minted.
+	UserID string `json:"user_id,omitempty"`
+	Email  string `json:"email,omitempty"`
+	// Phone is an E.164 number (leading '+').
+	Phone       string `json:"phone,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	// Provider, with ProviderUID, writes the owner's exact first-SSO binding
+	// ("google" | "microsoft" | "apple" | "facebook" | "firebase").
+	Provider    string `json:"provider,omitempty"`
+	ProviderUID string `json:"provider_uid,omitempty"`
+}
+
+// TenantCreate is the create payload (SPEC §6.1, ADR-073 Amendment C).
 type TenantCreate struct {
+	// ID is an optional caller-supplied tenant UUID (ADR-073 C.1). Absent ⇒
+	// the server mints a UUIDv7. Present + already exists in this realm ⇒ the
+	// call reconciles idempotently; present + exists in another realm ⇒
+	// `cross_realm_tenant_id`.
+	ID             string     `json:"id,omitempty"`
 	DisplayName    string     `json:"display_name"`
 	AllowedDomains []string   `json:"allowed_domains,omitempty"`
 	SignupMode     SignupMode `json:"signup_mode,omitempty"`
+	// CreatedAt is an optional RFC3339 creation timestamp (ADR-073 C.4);
+	// absent ⇒ server time. Ignored on reconcile.
+	CreatedAt string `json:"created_at,omitempty"`
+	// Owner seats the org's owner in the same transaction and is REQUIRED when
+	// creating a new tenant (server returns `owner_required` otherwise). It may
+	// be omitted only on a pure reconcile of an already-owned tenant.
+	Owner *TenantOwner `json:"owner,omitempty"`
 }
 
 // UpdateUserRoleResult is the response shape returned by Tenants.UpdateUserRole.

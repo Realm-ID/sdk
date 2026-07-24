@@ -4,6 +4,18 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.27.0 — owner-required tenant create + BYO id/created_at (2026-07-24)
+
+`realm.tenants().create(...)` now provisions the org and its owner in one call
+(ADR-073 Amendment C, SPEC §6.1). `TenantCreate` is re-shaped to
+`(id, displayName, allowedDomains, signupMode, createdAt, owner)` with new
+`of(displayName, owner)` / `withId(...)` / `withCreatedAt(...)` factories; the
+new `TenantOwner` record (`ofEmail`/`ofPhone`/`ofUserId`) seats the owner and
+is **required on a genuine create** (server returns `owner_required`
+otherwise). `ImportUserRow` gains a trailing `createdAt` ("member since").
+Breaking for direct `new TenantCreate(...)` callers (arity change) and for the
+create-empty-then-invite flow. See `../CHANGELOG.md`.
+
 ## java-v0.25.0 — role principal typing + invitation scope (2026-07-22)
 
 Types `assignable_to` (ADR-081) and `can_invite_roles` (ADR-076 WP4) on

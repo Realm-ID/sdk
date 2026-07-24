@@ -4,6 +4,16 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.28.0 — owner-required tenant create + BYO id/created_at (2026-07-24)
+
+`TenantsClient.create` now provisions the org and its owner in one call
+(ADR-073 Amendment C, SPEC §6.1). `TenantCreate` gains `owner` (new
+`TenantOwner` type — **required on a genuine create**; server returns
+`owner_required` otherwise), `id` (bring-your-own tenant UUID, reconciles when
+known), and `createdAt` (RFC3339). `ImportUserRow` gains optional `createdAt`
+("member since"). Additive wire; the `owner` requirement is the one breaking
+change for the create-empty-then-invite flow. See `../CHANGELOG.md`.
+
 ## 0.26.0 — role principal typing + invitation scope (2026-07-22)
 
 Types `assignable_to` (ADR-081) and `can_invite_roles` (ADR-076 WP4) on

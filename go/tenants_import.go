@@ -22,6 +22,9 @@ type ImportUserRow struct {
 	// ("google" | "microsoft" | "apple" | "facebook" | "firebase").
 	Provider    string `json:"provider,omitempty"`
 	ProviderUID string `json:"provider_uid,omitempty"`
+	// CreatedAt is an optional RFC3339 "member since" timestamp (ADR-073 C.4);
+	// absent ⇒ import-time. Rejected with `invalid_created_at` if malformed.
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // ImportUserRowResult is the per-row report entry in an import response.

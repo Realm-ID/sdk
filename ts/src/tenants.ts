@@ -27,10 +27,40 @@ export interface Tenant {
  */
 export type SignupMode = "closed" | "allowlist" | "open";
 
+/**
+ * Seats a tenant's owner inline at create (ADR-073 Amendment C.2). At least
+ * one of `email`/`phone` is required. There is deliberately no role: the owner
+ * gets the dormant `member` role (ADR-076 — ownership is the owner_user_id
+ * pointer, not a role name); the owner's real app-role, if any, arrives via
+ * the roster import that reuses `user_id`.
+ */
+export interface TenantOwner {
+  /** Optional bring-your-own owner id; absent → minted. */
+  user_id?: string;
+  email?: string;
+  /** E.164 (leading '+'). */
+  phone?: string;
+  display_name?: string;
+  /** With `provider_uid`, writes the owner's exact first-SSO binding. */
+  provider?: "google" | "microsoft" | "apple" | "facebook" | "firebase";
+  provider_uid?: string;
+}
+
 export interface TenantCreate {
+  /** Optional caller-supplied tenant UUID (ADR-073 C.1). Absent → server mints
+   *  a UUIDv7. Exists in this realm → reconciles idempotently; exists in
+   *  another realm → `cross_realm_tenant_id`. */
+  id?: string;
   displayName: string;
   allowedDomains?: string[];
   signupMode?: SignupMode;
+  /** Optional RFC3339 creation timestamp (ADR-073 C.4); absent → server time.
+   *  Ignored on reconcile. */
+  createdAt?: string;
+  /** Seats the org's owner in the same transaction. REQUIRED when creating a
+   *  new tenant (server returns `owner_required` otherwise); may be omitted
+   *  only on a pure reconcile of an already-owned tenant. */
+  owner?: TenantOwner;
   [k: string]: unknown;
 }
 
@@ -165,6 +195,9 @@ export interface ImportUserRow {
   /** With provider_uid, writes an exact first-SSO binding. */
   provider?: "google" | "microsoft" | "apple" | "facebook" | "firebase";
   provider_uid?: string;
+  /** Optional RFC3339 "member since" timestamp (ADR-073 C.4); absent →
+   *  import-time. Rejected with `invalid_created_at` if malformed. */
+  created_at?: string;
 }
 
 export interface ImportUserRowResult {
@@ -479,10 +512,13 @@ export class TenantsClient {
       method: "POST",
       path: `/platforms/${encodeURIComponent(this.realmId)}/tenants`,
       body: {
+        id: body.id,
         display_name: body.displayName,
         allowed_domains: body.allowedDomains,
         signup_mode: body.signupMode,
-        ...rest(body, ["displayName", "allowedDomains", "signupMode"]),
+        created_at: body.createdAt,
+        owner: body.owner,
+        ...rest(body, ["id", "displayName", "allowedDomains", "signupMode", "createdAt", "owner"]),
       },
     });
   }

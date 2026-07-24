@@ -105,6 +105,7 @@ public final class UsersClient {
             if (r.displayName() != null) m.put("display_name", r.displayName());
             if (r.provider() != null) m.put("provider", r.provider());
             if (r.providerUid() != null) m.put("provider_uid", r.providerUid());
+            if (r.createdAt() != null) m.put("created_at", r.createdAt());
             wire.add(m);
         }
         Map<String, Object> body = new LinkedHashMap<>();

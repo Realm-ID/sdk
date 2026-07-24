@@ -14,6 +14,8 @@ package dev.realmid.sdk.tenants;
  * @param provider    with {@code providerUid}, writes an exact first-SSO binding
  *        ({@code google|microsoft|apple|facebook|firebase}).
  * @param providerUid provider subject identifier.
+ * @param createdAt   optional RFC3339 "member since" timestamp (ADR-073 C.4);
+ *        absent → import-time. Rejected with {@code invalid_created_at} if malformed.
  */
 public record ImportUserRow(
         String userId,
@@ -22,10 +24,11 @@ public record ImportUserRow(
         String role,
         String displayName,
         String provider,
-        String providerUid) {
+        String providerUid,
+        String createdAt) {
 
     /** Minimal email+role row. */
     public static ImportUserRow of(String email, String role) {
-        return new ImportUserRow(null, email, null, role, null, null, null);
+        return new ImportUserRow(null, email, null, role, null, null, null, null);
     }
 }

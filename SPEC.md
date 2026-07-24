@@ -590,12 +590,26 @@ every list endpoint (see §7).
 
 - `list(opts?)` — paginated. `opts: { cursor?, limit? }`.
 - `get(id)`
-- `create({ displayName, allowedDomains?, signupMode? })` — creates a
-  tenant under the calling platform. The realm is implicit (the API
-  key's realm); there is no separate "platform" parameter because a
-  partner has one platform per realm. Wire call:
-  `POST /platforms/{realmId}/tenants`. `signupMode` defaults to
-  `"closed"` server-side (ADR-045).
+- `create({ id?, displayName, allowedDomains?, signupMode?, createdAt?, owner })`
+  — creates a tenant under the calling platform, provisioning the org and
+  its **owner** in one transaction. The realm is implicit (the API key's
+  realm); there is no separate "platform" parameter because a partner has
+  one platform per realm. Wire call: `POST /platforms/{realmId}/tenants`.
+  `signupMode` defaults to `"closed"` server-side (ADR-045).
+  - `owner` (ADR-073 Amendment C.2) is **required when creating a new
+    tenant** — an org is never ownerless (ADR-076; `owner_user_id` is
+    `NOT NULL`). Shape: `{ user_id?, email?, phone?, display_name?,
+    provider?, provider_uid? }`, at least one of `email`/`phone`. There is
+    deliberately **no** `role`: the owner gets the dormant `member` role
+    (ownership is the pointer, not the name). Server returns
+    `owner_required` if omitted on a genuine create; `owner` may be omitted
+    only on a pure **reconcile** of an already-owned tenant.
+  - `id` (ADR-073 Amendment C.1) is an optional caller-supplied tenant
+    UUID (bring-your-own, for verbatim migration). Absent ⇒ the server
+    mints a UUIDv7. Present + already in this realm ⇒ the call **reconciles
+    idempotently**; present + in another realm ⇒ `cross_realm_tenant_id`.
+  - `createdAt` (ADR-073 Amendment C.4) is an optional RFC3339 creation
+    timestamp; absent ⇒ server time. Ignored on reconcile.
 - `update(id, { displayName? })` — top-level mutable fields.
 - `updateConfig(id, patch)` — patches `tenants.config`. Honoured keys:
   `allowedDomains: string[]` (auto-provision domain allowlist),
@@ -672,16 +686,20 @@ the invitee accepts → user record is provisioned.
   **whole-file-atomic** import of pre-provisioned `status='active'`
   users with verified contacts, bound to their provider identity on
   first SSO (by `provider_uid` when supplied, else email/phone). Each
-  row is `{ email? | phone?, provider?, providerUid?, role?, userId? }`
-  (≥1 of email/phone). A row may bring its own `user_id` (becomes
+  row is `{ email? | phone?, provider?, providerUid?, role?, userId?,
+  createdAt? }` (≥1 of email/phone). `createdAt` (ADR-073 Amendment C.4)
+  is an optional RFC3339 "member since" timestamp preserved from the
+  source system; absent ⇒ import-time, malformed ⇒ `invalid_created_at`.
+  A row may bring its own `user_id` (becomes
   `users.id`; a `user_id` already in another tenant rejects the whole
   file); rows without one get a minted UUIDv7 **returned**, so the
   platform holds only UUIDs, never PII. Response is HTTP 200 +
   `ImportUsersResult { committed, results[] }` (ADR-069 uniform-200;
   `committed: false` → nothing was written). **Language coverage:** ts
   `realm.tenants.users.importUsers` (+ re-exported on
-  `@realm-id/web-admin` for the UI CSV uploader); a go/java port is a
-  parity follow-up.
+  `@realm-id/web-admin` for the UI CSV uploader), go
+  `realm.Tenants.Users.ImportUsers`, and java
+  `realm.tenants().users().importUsers(...)` — all at parity.
 
 #### Roles (custom, platform-defined — shipped in server v0.11.x, ADR-040)
 

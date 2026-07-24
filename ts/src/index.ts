@@ -68,6 +68,7 @@ export type { TokenManagerOptions, RefreshSink } from "./token-manager.js";
 export type {
   Tenant,
   TenantCreate,
+  TenantOwner,
   TenantPatch,
   TenantConfigPatch,
   TransferOwnerOptions,

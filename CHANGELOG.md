@@ -13,6 +13,26 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Owner-required tenant create + BYO id/created_at — go 0.38.0 (`go/v0.38.0`) · ts 0.28.0 (`ts-v0.28.0`) · java 0.27.0 (`java-v0.27.0`) (2026-07-24)
+
+`Tenants.Create` now provisions the org **and its owner** in one call (ADR-073
+Amendment C, SPEC §6.1). The create payload gains three fields across all three
+SDKs:
+
+- **`owner`** (`TenantOwner` / `TenantCreate.owner`) — **required when creating
+  a new tenant**; the server rejects an ownerless create with `owner_required`
+  now that `tenants.owner_user_id` is `NOT NULL` (ADR-076). Shape:
+  `{ user_id?, email?, phone?, display_name?, provider?, provider_uid? }`, ≥1 of
+  email/phone, and deliberately no `role`. May be omitted only on a pure
+  reconcile of an already-owned tenant.
+- **`id`** — optional bring-your-own tenant UUID for verbatim migration; a known
+  id reconciles idempotently, a foreign-realm id is `cross_realm_tenant_id`.
+- **`created_at`** — optional RFC3339 creation timestamp (ignored on reconcile).
+
+Import rows (`ImportUserRow`) also gain an optional **`created_at`** ("member
+since"). Additive on the wire; the `owner` requirement is the one breaking
+change for callers that created empty tenants and invited later. SPEC §6.1/§6.3.
+
 ## Cross-realm integrations — go 0.37.0 (`go/v0.37.0`) · ts 0.27.0 (`ts-v0.27.0`) · java 0.26.0 (`java-v0.26.0`) · web-admin 0.8.10 (2026-07-23)
 
 New `realm.integrations.*` surface across go/ts/java (and `admin.integrations`

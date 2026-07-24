@@ -104,7 +104,7 @@ class TenantsClientTest {
                         Map.of("line", 2, "user_id", "minted-2", "identifier", "b@x.com", "status", "created")))));
 
         ImportUsersResult res = realm.tenants().users().importUsers("t1", List.of(
-                new ImportUserRow("byo-1", "a@x.com", null, "member", null, null, null),
+                new ImportUserRow("byo-1", "a@x.com", null, "member", null, null, null, null),
                 ImportUserRow.of("b@x.com", "member")));
 
         assertEquals(true, res.committed());
@@ -133,14 +133,23 @@ class TenantsClientTest {
                 Map.of("id", "t-new", "display_name", "Acme")));
 
         Tenant t = realm.tenants().create(
-                new TenantCreate("Acme", List.of("acme.com"), "allowlist"));
+                new TenantCreate("byo-id", "Acme", List.of("acme.com"), "allowlist",
+                        "2020-01-02T03:04:05Z",
+                        new TenantOwner("owner-1", "boss@acme.com", null, "Boss", null, null)));
         assertEquals("t-new", t.id());
         assertEquals("Acme", t.displayName());
 
         Map<String, Object> b = fs.last().bodyAsMap();
+        assertEquals("byo-id", b.get("id"));
         assertEquals("Acme", b.get("display_name"));
         assertEquals(List.of("acme.com"), b.get("allowed_domains"));
         assertEquals("allowlist", b.get("signup_mode"));
+        assertEquals("2020-01-02T03:04:05Z", b.get("created_at"));
+        // Owner (ADR-073 Amendment C.2) serialized as a nested snake_case object.
+        Map<String, Object> owner = (Map<String, Object>) b.get("owner");
+        assertEquals("owner-1", owner.get("user_id"));
+        assertEquals("boss@acme.com", owner.get("email"));
+        assertEquals("Boss", owner.get("display_name"));
         // Divergence guard: the retired create fields must never reappear.
         assertEquals(false, b.containsKey("owner_user_id"));
         assertEquals(false, b.containsKey("config"));
@@ -150,9 +159,13 @@ class TenantsClientTest {
     void createOmitsOptionalFieldsWhenNull() {
         fs.on("POST /platforms/01HREALM/tenants", (ex, body) -> FakeServer.Reply.json(201,
                 Map.of("id", "t2", "display_name", "Bare")));
-        realm.tenants().create(TenantCreate.of("Bare"));
+        // Owner is mandatory on create (ADR-073 Amendment C); id/domains/mode/
+        // created_at stay omitted when null.
+        realm.tenants().create(TenantCreate.of("Bare", TenantOwner.ofEmail("boss@bare.com")));
         Map<String, Object> b = fs.last().bodyAsMap();
-        assertEquals(Map.of("display_name", "Bare"), b);
+        assertEquals(Map.of(
+                "display_name", "Bare",
+                "owner", Map.of("email", "boss@bare.com")), b);
     }
 
     @Test
