@@ -1,5 +1,16 @@
 # @realm-id/web-admin — changelog
 
+## 0.8.12
+
+- **`platforms.createTenant` now carries the owner (compile-enforced).** Since
+  issuer v0.59.0 (ADR-073 Amendment C) `tenants.owner_user_id` is NOT NULL and
+  `POST /platforms/{id}/tenants` requires an inline `owner`; the method was
+  still typed `{ display_name }`, so ui/web had to route creates through a
+  `createOrgWithOwner` gap shim to avoid a silent `owner_required` 400. The
+  input is now `{ display_name; owner: TenantOwner; id?; created_at? }` (owner
+  required, `id`/`created_at` the optional bulk-migration passthroughs),
+  reusing the bundled `@realm-id/sdk` `TenantOwner` type. The shim can retire.
+
 ## 0.8.11
 
 - **Transport no longer mislabels client-side auth errors as `network`.**

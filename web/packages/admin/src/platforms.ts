@@ -18,7 +18,7 @@ import type {
   RealmConfigPatch,
   RealmConfigResponse,
 } from "./types.js";
-import type { RoleObject } from "@realm-id/sdk/internal";
+import type { RoleObject, TenantOwner } from "@realm-id/sdk/internal";
 
 export interface PlatformCreate {
   /**
@@ -163,9 +163,24 @@ export class PlatformsClient {
     });
   }
 
+  /**
+   * POST /platforms/{id}/tenants — create an organization inside a platform
+   * realm, seating its owner in the same transaction.
+   *
+   * Since issuer v0.59.0 (ADR-073 Amendment C) `tenants.owner_user_id` is NOT
+   * NULL, so `owner` is REQUIRED — the type enforces it at compile time and the
+   * server returns `owner_required` if it's ever absent. `id` (BYO UUID for an
+   * idempotent reconcile) and `created_at` (backfilled origin timestamp) are the
+   * optional bulk-migration passthroughs; omit both for an ordinary create.
+   */
   async createTenant(
     platformId: string,
-    input: { display_name: string },
+    input: {
+      display_name: string;
+      owner: TenantOwner;
+      id?: string;
+      created_at?: string;
+    },
   ): Promise<TenantSummary> {
     return this.http.request<TenantSummary>({
       method: "POST",
