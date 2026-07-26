@@ -34,11 +34,19 @@ const note = await admin.notes.create("plt_42", "investigated");
 |-----------------------|---------------------------------------|---------------------|
 | `tenants` / `roles` / `domains` / `admin` | `@realm-id/sdk/internal` | passthrough (`/api/...`) |
 | `apiKeys`             | this package                          | passthrough         |
+| `userApiKeys`         | `@realm-id/sdk/internal`              | passthrough         |
 | `platforms`           | this package                          | passthrough         |
 | `notes` / `signingKeys` | this package                        | passthrough (`/api/admin/...` → issuer) |
 | `bff`                 | this package                          | BFF-direct (`/home`, `/tenants/{id}/full`) |
 | `sessions`            | this package                          | passthrough (`/api/auth/sessions` → issuer) |
 | `me`                  | this package                          | BFF-direct (`/me`, `/identity-providers`) |
+
+`apiKeys` and `userApiKeys` are different surfaces, not two spellings of one:
+`apiKeys` manages the platform's own `rk_live_…` bot keys under
+`/platforms/{id}/api-keys`, while `userApiKeys` (ADR-084) manages a member's own
+`uk_live_…` keys under `/tenants/{tid}/users/{uid}/user-api-keys`. Separate
+table, route segment, plaintext prefix and permission pair — an org admin
+managing members' keys must not thereby gain platform-key power.
 
 The transport shim auto-detects BFF-direct paths by leading segment;
 everything else gets the `/api` passthrough prefix. **Only paths the BFF

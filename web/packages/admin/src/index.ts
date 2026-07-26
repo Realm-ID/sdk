@@ -27,6 +27,7 @@ import {
   SourcesClient,
   IntegrationsClient,
   OtpClient,
+  UserApiKeysClient,
 } from "@realm-id/sdk/internal";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
@@ -68,6 +69,13 @@ export interface Admin {
   sources: SourcesClient;
   /** OTP primitive (ADR-071 §4) — mint a `view_bff` service-account login OTP. */
   otp: OtpClient;
+  /**
+   * End-user API keys (ADR-084) — `uk_live_…` credentials a member mints for
+   * themselves, or an org admin views. NOT `apiKeys`: that is the platform
+   * (`rk_live_…`) surface, and the split is deliberate so managing members' keys
+   * confers no platform-key power.
+   */
+  userApiKeys: UserApiKeysClient;
   bff: BffClient;
   /** Session revocation — self (`revoke`/`revokeAll`) + admin
    *  (`revokeUser`/`revokeRealmSessions`, ADR-080). */
@@ -122,6 +130,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     sources: new SourcesClient(httpAsClient, rid),
     integrations: new IntegrationsClient(httpAsClient, rid),
     otp: new OtpClient(httpAsClient),
+    userApiKeys: new UserApiKeysClient(httpAsClient),
     bff: new BffClient(http),
     sessions: new SessionsClient(http),
     me: new MeClient(http),
@@ -163,6 +172,9 @@ export {
   SourcesClient,
   IntegrationsClient,
   OtpClient,
+  UserApiKeysClient,
+  capAllows,
+  isUserApiKeyRevoked,
   DELIVERY_MODE_VIEW_BFF,
 } from "@realm-id/sdk/internal";
 
@@ -222,6 +234,10 @@ export type {
   ImportUserRow,
   ImportUserRowResult,
   ImportUsersResult,
+  UserApiKey,
+  UserApiKeyCreate,
+  OrgScope,
+  LivePermissionResolver,
 } from "@realm-id/sdk/internal";
 
 export { RealmError } from "@realm-id/sdk";

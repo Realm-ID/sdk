@@ -7,6 +7,38 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-26 — the missing `/internal` export: why the UI reimplemented a client we shipped
+
+**Problem.** `ui/web/src/api.ts` carried `listUserApiKeys` / `createUserApiKey` /
+`revokeUserApiKey` as hand-rolled `fetch` shims, against a repo convention that
+explicitly says admin calls belong in `@realm-id/web-admin`. The stated reason
+was "web-admin has no `userApiKeys` resource." That turned out to be false in the
+way that matters: `sdk/ts` HAS shipped `UserApiKeysClient` since 0.29.0 — it was
+simply never listed in `src/internal.ts`, the entry point web-admin imports from.
+The public `realm.userApiKeys` facade worked; the admin path did not exist.
+
+**Why it went unnoticed.** `internal.ts` is a hand-maintained re-export list with
+no test asserting it covers the resource classes, and its own header disclaims
+semver coverage — so "not exported from internal" reads as a deliberate choice
+rather than an omission. Adding a resource means editing two files, and nothing
+fails if you edit one. The UI author correctly observed the absence and drew the
+wrong conclusion from it, which cost a duplicate implementation of three calls
+plus three DTOs that could drift from the SPEC independently.
+
+**Decision.** Export from `internal.ts` (client, `capAllows`,
+`isUserApiKeyRevoked`, and the four types) and wire `admin.userApiKeys` in
+web-admin, rather than build a package-local client the way `apiKeys` did.
+`apiKeys` is package-local for a real reason — the bundled client's
+`displayName`/`scopes[]` shape predates the issuer contract — and that reason
+does not apply here: `UserApiKeysClient` targets the current contract exactly.
+Duplicating it would have created the second copy the `apiKeys` note warns about.
+
+**Tradeoff.** This widens the `/internal` surface, which is deliberately not
+semver-guaranteed. Acceptable: web-admin is versioned in lockstep in this
+monorepo and is the entry's only consumer. Shipped as ts 0.30.0 (additive) and
+web-admin 0.8.14, with three transport-level tests pinning the route segment so
+`userApiKeys` can never quietly start pointing at the platform-key path.
+
 ## 2026-07-26 — the api-key `label` asymmetry: a known quirk is not the same as a decision
 
 **Problem.** All three SDKs, plus the UI, carried a comment explaining that

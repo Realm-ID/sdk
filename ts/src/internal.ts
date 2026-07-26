@@ -67,6 +67,21 @@ export {
   type ApiKeyCreate,
 } from "./api-keys.js";
 
+// End-user API keys (ADR-084, SPEC §6.6) — `/tenants/{tid}/users/{uid}/user-api-keys`.
+// Deliberately separate from ApiKeysClient above: different table, route segment,
+// plaintext prefix (`uk_live_` vs `rk_live_`) and permission pair, so an org admin
+// managing members' keys does not thereby gain platform-key power. Reused by
+// @realm-id/web-admin as `admin.userApiKeys`.
+export {
+  UserApiKeysClient,
+  capAllows,
+  isUserApiKeyRevoked,
+  type UserApiKey,
+  type UserApiKeyCreate,
+  type OrgScope,
+  type LivePermissionResolver,
+} from "./user-api-keys.js";
+
 export {
   DomainsClient,
   type DomainClaim,

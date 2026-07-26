@@ -13,6 +13,21 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `admin.userApiKeys` — ts 0.30.0 (`ts-v0.30.0`) · web-admin 0.8.14 (2026-07-26)
+
+TypeScript only; go/java unchanged. No wire change — this exposes a client that
+already existed.
+
+- **`UserApiKeysClient` is now re-exported from the `/internal` entry point.**
+  It shipped in ts 0.29.0 on the public `realm.userApiKeys` facade but never on
+  `@realm-id/sdk/internal`, which is the entry `@realm-id/web-admin` builds on —
+  so the admin surface had no way to reach it. Also exported: `capAllows`,
+  `isUserApiKeyRevoked`, and the `UserApiKey` / `UserApiKeyCreate` / `OrgScope` /
+  `LivePermissionResolver` types.
+- **`admin.userApiKeys.list/create/revoke` (web-admin).** Wired onto the same
+  transport as every other admin resource. Distinct from `admin.apiKeys`, which
+  remains the platform (`rk_live_…`) surface — see the README's Surface table.
+
 ## Admin-key lifecycle — go 0.39.0 (`go/v0.39.0`) · ts 0.29.0 (`ts-v0.29.0`) · java 0.28.0 (`java-v0.28.0`) · web-admin 0.8.13 (2026-07-26)
 
 Tracks issuer **v0.61.0** (ADR-085 §2/§3/§7). SPEC §6.5 updated first.
