@@ -123,6 +123,18 @@ export interface CreateApiKeyResponse {
 export interface ApiKeyCreateInput {
   scope: string;
   label?: string;
+  /**
+   * Requested lifetime (ADR-085 §3). Omitting this AND `non_expiring`
+   * applies the issuer's built-in 90-day default. Floor is 300s; below
+   * it the create is rejected rather than clamped.
+   */
+  ttl_seconds?: number;
+  /**
+   * Request a permanent key. A realm holds at most one non-expiring key
+   * and at most 2 active platform keys (ADR-085 §2), so create can fail
+   * with `non_expiring_not_allowed` (400) or `too_many_api_keys` (409).
+   */
+  non_expiring?: boolean;
 }
 
 /**
@@ -131,6 +143,8 @@ export interface ApiKeyCreateInput {
  */
 export interface ApiKeyCreated {
   id: string;
+  /** Scheduled cutoff, or `null` for a non-expiring key (ADR-085 §3). */
+  expires_at?: number | null;
   value: string;
   scope: string;
   label?: string;
@@ -138,18 +152,32 @@ export interface ApiKeyCreated {
 
 /**
  * A row from `apiKeys.list`. Mirrors the issuer's `APIKeyListItem`
- * exactly — note there is **no** `label`, and the bound role surfaces
- * as `role` (not the `scope` it was created with). Timestamps are unix
- * seconds; `last_used_at` / `revoked_at` are nullable. A non-null
- * `revoked_at` means the key is revoked.
+ * exactly. The bound role surfaces as `role` (not the `scope` it was
+ * created with). Timestamps are unix seconds; `last_used_at` /
+ * `revoked_at` / `expires_at` are nullable.
  */
 export interface ApiKeyListItem {
   id: string;
   prefix: string;
+  /**
+   * The label supplied at create. Present since issuer v0.61.0 —
+   * previously the list omitted it, which is the gap ADR-085 §7 names:
+   * the plaintext is never echoed and `prefix` is derived from the
+   * stored hash, so an `rk_live_…` found in a log or a deployment
+   * config cannot be traced to its row by value. The label is the only
+   * handle, so render it. Empty string when none was supplied.
+   */
+  label: string;
   role: string;
   created_at: number;
   last_used_at: number | null;
   revoked_at: number | null;
+  /**
+   * Scheduled cutoff, or `null` for a non-expiring key (ADR-085 §3).
+   * Null is a VALUE, not an absence — an admin UI must be able to show
+   * "never expires" as distinct from "unknown".
+   */
+  expires_at: number | null;
 }
 
 export interface ApiKeyListPage {

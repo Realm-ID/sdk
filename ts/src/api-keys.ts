@@ -19,15 +19,29 @@ export interface ApiKeyCreate {
   scope: string;
   /** Optional human-readable label shown in listings. */
   label?: string;
+  /**
+   * Requested lifetime (ADR-085 §3). Omitting this AND `non_expiring` applies
+   * the issuer's built-in 90-day default. The floor is 300s and a smaller
+   * value is REJECTED rather than clamped — clamping up would hand back a key
+   * that outlives what was asked for.
+   */
+  ttl_seconds?: number;
+  /**
+   * Request a permanent key. A realm holds at most one non-expiring key and at
+   * most 2 active platform keys in total (ADR-085 §2), so create can fail with
+   * `non_expiring_not_allowed` (400) or `too_many_api_keys` (409).
+   */
+  non_expiring?: boolean;
 }
 
 /**
  * One API-key entry. A union of the create-response and list-row wire
  * shapes (issuer wins — see issuer swagger `APIKey` / `APIKeyListItem`):
  *
- *   - On create: `id`, `value` (the one-time secret), `scope`, `label`.
- *   - On list:   `id`, `prefix`, `role`, `created_at`, `last_used_at`,
- *                `revoked_at`.
+ *   - On create: `id`, `value` (the one-time secret), `scope`, `label`,
+ *                `expires_at`.
+ *   - On list:   `id`, `prefix`, `label`, `role`, `created_at`,
+ *                `last_used_at`, `expires_at`, `revoked_at`.
  */
 export interface ApiKey {
   id: string;
@@ -35,7 +49,12 @@ export interface ApiKey {
   value?: string;
   /** Echoed on create. */
   scope?: string;
-  /** Optional human name supplied on create. */
+  /**
+   * The label supplied at create — echoed there and present on every list row
+   * (issuer v0.61.0, ADR-085 §7). It is the ONLY handle on a key: the
+   * plaintext is never echoed and `prefix` is derived from the stored hash, so
+   * an `rk_live_…` found in a log cannot be traced to its row by value.
+   */
   label?: string;
   /** Non-secret key prefix (list rows), stable across logs. */
   prefix?: string;
@@ -47,6 +66,13 @@ export interface ApiKey {
   last_used_at?: number | null;
   /** Unix seconds; non-null means the key is revoked (list rows). */
   revoked_at?: number | null;
+  /**
+   * Unix seconds of the scheduled cutoff, or `null` for a non-expiring key
+   * (ADR-085 §3). `null` is a VALUE, not an absence — "never expires" is a
+   * fact the caller must be able to read. An expired key behaves exactly like
+   * a revoked one at login and returns the same error envelope.
+   */
+  expires_at?: number | null;
 }
 
 export class ApiKeysClient {

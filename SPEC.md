@@ -897,17 +897,34 @@ Promoted from a nested namespace for ergonomics:
 - `realm.apiKeys.{create, list, revoke}` — manage the realm's own API
   keys. The list/row DTO mirrors the issuer's `APIKeyListItem` (code
   wins — the issuer response is authoritative):
-  `{ id, prefix, role, label?, createdAt, lastUsedAt?, revokedAt? }`.
+  `{ id, prefix, label, role, createdAt, lastUsedAt?, expiresAt?, revokedAt? }`.
   - `prefix` — non-secret key prefix, stable across logs.
+  - `label` — the label supplied at create, and **the only handle on a
+    key**: the plaintext is never echoed and `prefix` is derived from the
+    stored hash, so an `rk_live_…` found in a log or a deployment config
+    cannot be traced to its row by value (ADR-085 §7). Present on list
+    rows since issuer v0.61.0; empty string when none was supplied.
   - `role` — the key's bound role (singular; **not** a `scopes` array).
-  - `label` — optional human name supplied on create.
   - `createdAt` / `lastUsedAt` / `revokedAt` — unix seconds;
     `lastUsedAt` and `revokedAt` are nullable. A non-null `revokedAt`
     means the key is revoked.
-  - `create({ scope, label? })` returns the row **plus** a one-time
-    `value` (the secret) that is shown only on creation and never
-    returned by `list`. `revoke(id)` is a soft-delete (sets
-    `revokedAt`).
+  - `expiresAt` — unix seconds of the scheduled cutoff, or `null` for a
+    non-expiring key (ADR-085 §3). `null` is a VALUE, not an absence:
+    "never expires" is a fact a caller must be able to read. An expired
+    key behaves exactly like a revoked one and returns the same error
+    envelope, so the two are indistinguishable to a key holder.
+  - `create({ scope, label?, ttlSeconds?, nonExpiring? })` returns the row
+    **plus** a one-time `value` (the secret) that is shown only on
+    creation and never returned by `list`. Omitting both `ttlSeconds` and
+    `nonExpiring` applies the issuer's built-in 90-day default;
+    `ttlSeconds` has a 300s floor and is rejected below it rather than
+    clamped. `revoke(id)` is a soft-delete (sets `revokedAt`).
+  - **Server-side limits the caller must expect** (ADR-085 §2): a realm
+    holds at most 2 ACTIVE platform keys — one steady state, one rotation
+    slot — and at most 1 non-expiring. Over the cap, `create` raises
+    `too_many_api_keys` (409); a second permanent key raises
+    `non_expiring_not_allowed` (400). Revoked and expired keys free their
+    slot, so mint-new → deploy → revoke-old always fits.
 - `realm.config.update(patch)` — patch realm-level config (TTL
   overrides, default audience, `idle_ttl_seconds` (ADR-070),
   `otp_login_enabled`/`otp_mfa_enabled` (ADR-071), `mfa_policy`

@@ -13,6 +13,29 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Admin-key lifecycle — go 0.39.0 (`go/v0.39.0`) · ts 0.29.0 (`ts-v0.29.0`) · java 0.28.0 (`java-v0.28.0`) · web-admin 0.8.13 (2026-07-26)
+
+Tracks issuer **v0.61.0** (ADR-085 §2/§3/§7). SPEC §6.5 updated first.
+
+- **`label` on every api-key list row.** The issuer omitted it, so the SDK
+  types carried a comment saying "note there is **no** `label`". It is in fact
+  the *only* handle on a key — the plaintext is echoed once at create and
+  `prefix` is derived from the stored hash — so an `rk_live_…` found in a
+  deployment config could not be traced to its row by any value.
+- **`expires_at` everywhere** (create response + list rows). Nullable, and
+  `null` is a **value**: "never expires", not "unknown". Go gains
+  `APIKey.Expired(now)`, Java gains `expired(nowEpochSeconds)`, next to the
+  existing `Revoked()` — an expired key returns the same envelope as a revoked
+  one at login, so callers that need to tell an operator which it was have to
+  ask separately.
+- **`ttl_seconds` / `non_expiring` on create.** Omitting both applies the
+  issuer's built-in 90-day default; the 300s floor rejects rather than clamps.
+- **Two new create failures callers must expect** (ADR-085 §2, documented on
+  the SPEC surface): `too_many_api_keys` (409 — a realm holds at most 2 active
+  platform keys, one steady state plus one rotation slot) and
+  `non_expiring_not_allowed` (400 — at most one permanent key). Revoked and
+  expired keys free their slot, so mint-new → deploy → revoke-old always fits.
+
 ## Owner-required tenant create + BYO id/created_at — go 0.38.0 (`go/v0.38.0`) · ts 0.28.0 (`ts-v0.28.0`) · java 0.27.0 (`java-v0.27.0`) (2026-07-24)
 
 `Tenants.Create` now provisions the org **and its owner** in one call (ADR-073

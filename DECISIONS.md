@@ -7,6 +7,44 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-26 — the api-key `label` asymmetry: a known quirk is not the same as a decision
+
+**Problem.** All three SDKs, plus the UI, carried a comment explaining that
+api-key list rows have **no** `label` — the Go struct, the TS interface, the
+web-admin type and `ApiKeys.tsx` each described the asymmetry in their own words
+and pointed at someone else's backlog. Four descriptions of a gap, zero fixes.
+ADR-085 §7 then closes with "labels are the only handle", which is exactly right
+and, given the omission, unactionable: the plaintext is echoed once at create and
+`prefix` is derived from the stored hash, so a key found in a deployment config
+matches nothing.
+
+**Decision.** Fix it at the issuer and let the field flow, rather than continuing
+to document it. One response field retired four comments. This is the general
+shape worth remembering: a divergence that has been *written down* in several
+places is usually cheaper to fix than the prose already spent describing it.
+
+**`expires_at` rides along, and `null` is a value.** Every SDK types it nullable,
+and the surrounding prose says explicitly that `null` means "never expires" and
+not "unknown" — because the natural rendering of an absent number is a dash, and
+a dash would hide the one thing ADR-085 §2 permits at most one of per realm. The
+UI backs that with distinct wording ("no expiry" versus the "never" used for
+last-used) so a standing decision does not read as a missing event.
+
+**`Expired(now)` next to `Revoked()`, in Go and Java.** The issuer deliberately
+returns the same envelope for expired and revoked keys so a holder cannot
+distinguish them — but an ADMIN SDK's caller is on the other side of that line
+and often needs to tell an operator which happened. Two predicates, not one
+`Usable()`, for that reason.
+
+**Repack note, because it nearly shipped stale.** `@realm-id/web-admin` bundles
+`@realm-id/sdk` via `bundledDependencies`, and the first pack picked up a
+`ts/dist` built before the edit — `npm pack` ships whatever `dist/` holds, and
+`tsc --noEmit` (which is what the typecheck runs) writes nothing. The tarball
+looked correct: right version, right web-admin dist, silently stale bundled SDK.
+Verify by extracting the tarball and grepping the BUNDLED dist, not the version
+number.
+
+
 ## 2026-07-24 — web-admin transport must not relabel client-side auth errors as `network` (0.8.11)
 
 **Symptom.** Opening `app.realmid.dev` after a long idle showed the fatal
