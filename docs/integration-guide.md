@@ -1533,6 +1533,131 @@ review it.
 
 All surface on the usual `RealmError.code` / `RealmException.getCode()`.
 
+## 9.5 End-user API keys (ADR-084)
+
+Your users mint keys so third-party apps can call **your** API on their behalf:
+*"User A mints Key 1 for AutoMahn with reports access only, Key 2 with full
+access."* RealmID stores the key, enforces expiry, revocation and org pinning, and
+hands you a token. **You enforce the scope.**
+
+### 9.5.1 The one rule: `permissions_cap` is a CAP, not a grant
+
+The key carries a `permissions_cap` array, and the minted access token repeats it
+as a claim. It is a **ceiling on** the user's authority, never a source of it:
+
+> **Effective authority = `permissions_cap` ∩ what the user is allowed RIGHT NOW.**
+
+Both operands, every request. A cap can therefore only ever *under*-grant: demote
+a user and every key they hold shrinks with them, automatically.
+
+**Vulnerable — do not do this:**
+
+```ts
+// WRONG. Treats the cap as a grant.
+function can(claims, permission) {
+  return claims.permissions_cap.includes(permission);
+}
+```
+
+That reads fine and is wrong in a way that will not show up in testing. The cap
+was written when the key was minted. Demote the user, remove them from a team,
+narrow a role — the token still asserts the old list, and this function still says
+yes. You have built a credential that outlives the authority it was issued
+against. (This is exactly why the field is named `permissions_cap` and not
+`permissions`: the wrong version should *look* wrong.)
+
+**Correct:**
+
+```ts
+import { capAllows } from "@realm-id/sdk";
+
+const allowed = await capAllows(claims, "reports:read", () =>
+  myDb.permissionsFor(claims.sub, claims.tenant_id), // YOUR live source of truth
+);
+```
+
+```go
+allowed := realmid.CapAllows(ctx, claims, "reports:read",
+    func(ctx context.Context) ([]string, error) {
+        return myDB.PermissionsFor(ctx, claims.Subject, claims.TenantID)
+    })
+```
+
+```java
+boolean allowed = CapCheck.capAllows(claims, "reports:read",
+        () -> myDb.permissionsFor(claims.subject(), claims.tenantId()));
+```
+
+The resolver is a **required** argument in all three languages. That is
+deliberate: the one-operand version above is not expressible through our API, so
+you cannot reach for it by accident.
+
+`capAllows` fails **closed** — false if the cap omits the permission, if your live
+set omits it, or if your resolver throws. An unavailable live operand means the
+intersection is unknown, and the only safe reading of an unknown intersection is
+empty.
+
+### 9.5.2 If you have no live permission model — read this
+
+Be honest with yourself about which case you are in.
+
+If your backend has no per-user permission store to intersect against, then
+`capAllows` degenerates: the cap becomes your **whole** authority, which is the
+stale-grant hole above with extra steps. **The cap is not self-securing.** What
+still protects you in that situation is what RealmID enforces regardless:
+
+- **Revocation** — a revoked key stops working at the next exchange, and it also
+  kills sessions already minted from it.
+- **Expiry** — enforced at create, at exchange, and on every refresh.
+- **Org pinning** — a key can only ever mint into orgs its holder still belongs
+  to, re-resolved at every exchange.
+- **The revoke sweep** — keys whose whole scope became unreachable get retired.
+
+Those are real controls. They are just not *authorization*. If you need per-key
+authorization, build the live permission model first; treat the cap as a
+convenience for narrowing, not a substitute.
+
+### 9.5.3 The vocabulary is yours
+
+For a partner-audience key, RealmID treats `permissions_cap` entries as **opaque
+strings** — validated for count and length only, never interpreted. Use whatever
+vocabulary your API already speaks (`reports.read`, `invoices:list`, anything).
+
+RealmID never pattern-matches, expands, or orders them: **no wildcards, no
+hierarchy, no implied `*`**. `users:*` does not satisfy `users:read`, `users` does
+not match `users:read`, and comparison is case-sensitive. If you want hierarchy,
+expand it yourself in your live resolver.
+
+We deliberately do **not** store your catalog. The second operand of the
+intersection — what a user may do right now — lives in your database, which we
+never see, so we could not do the intersection for you under any storage scheme.
+A stored copy would only go stale.
+
+### 9.5.4 Staleness, and why every case fails closed
+
+| Event | Effect |
+|---|---|
+| A role loses a permission | Live resolution shrinks on the next request |
+| You rename a permission | The old cap string goes inert → under-grant |
+| A role is deleted and recreated broader | The key tracks the user's new authority **up to the cap** |
+| A key is revoked | Next exchange fails, and existing sessions stop refreshing |
+| The user leaves a pinned org | That org drops out at the next exchange |
+
+The third row is inherent and correct: **a cap is not a snapshot.** It is
+documented so nobody reads it as a bug.
+
+### 9.5.5 MFA
+
+A key is used with **no human present**, so MFA can only bind at mint time. Two
+consequences:
+
+- Minting is a step-up operation when the realm sets
+  `user_api_keys.require_mfa_at_mint` (the default whenever the realm has MFA
+  enabled) — expect a `412 mfa_required` with a challenge.
+- A key-derived token carries `amr: ["api_key"]` with **no** `mfa` entry, so it
+  can never satisfy a step-up gate. If your API step-ups an operation, a key
+  cannot perform it. That is intended, not a limitation to work around.
+
 ## 10. Known SDK gaps
 
 These SPEC capabilities are not yet first-class methods. None block
