@@ -13,6 +13,14 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `MeMembership.is_owner` — web-admin 0.8.15 (2026-07-26)
+
+TypeScript only, type-level. `MeMembership` now declares `is_owner` — the
+issuer's per-membership reading of ADR-076's `tenants.owner_user_id`, which the
+BFF forwards from v0.20.0. **Gate owner-only UI on it, never on
+`role === "owner"`**: ADR-076 retired that marker, so the role check is false for
+every actual owner (see `ui/DECISIONS.md` 2026-07-26 for the resulting bug).
+
 ## `admin.userApiKeys` — ts 0.30.0 (`ts-v0.30.0`) · web-admin 0.8.14 (2026-07-26)
 
 TypeScript only; go/java unchanged. No wire change — this exposes a client that

@@ -487,6 +487,18 @@ export interface MeMembership {
    * view toggle. Optional for back-compat with pre-is_base BFFs.
    */
   is_base?: boolean;
+  /**
+   * The caller's ADR-076 owner-ness of this membership's tenant, resolved by
+   * the issuer from the `tenants.owner_user_id` pointer.
+   *
+   * **Gate owner-only UI on this, never on `role === "owner"`.** ADR-076 retired
+   * that marker and demoted the rows to `admin`, so no user carries it any more
+   * and a role-string check hides owner affordances from every actual owner.
+   * Optional for back-compat with pre-is_owner BFFs — treat absent as "unknown",
+   * which for a gate means fall through to your other checks rather than
+   * assuming false.
+   */
+  is_owner?: boolean;
 }
 
 export interface ProfileResponse {
