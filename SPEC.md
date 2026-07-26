@@ -920,6 +920,102 @@ Promoted from a nested namespace for ergonomics:
   > `GET /platforms/mine` carries it, typed on `@realm-id/web-admin`'s
   > `Platform.mfa_policy` (0.8.5) so admin UIs can prime the control.
 
+### 6.6 End-user API keys — `realm.userApiKeys.*` (ADR-084)
+
+Self-service keys an END USER mints for themselves, distinct from §6.5's
+platform-bot keys in every respect: separate table, separate route segment
+(`user-api-keys`), separate plaintext prefix (`uk_live_` vs `rk_live_`), and a
+separate permission pair (`user_api_keys:read|manage`, so an org admin managing
+members' keys does not thereby gain platform-key power).
+
+- `create(tenantId, userId, { label, orgScope?, orgIds?, permissionsCap?, ttlSeconds? })`
+  → the row **plus** a one-time `value`. Wire:
+  `POST /tenants/{tid}/users/{uid}/user-api-keys`.
+- `list(tenantId, userId, opts?)` → paginated rows. Label + non-secret `prefix`
+  only; the plaintext is never returned again.
+- `revoke(tenantId, userId, id)` — soft revoke.
+
+`userId` must be the caller unless the realm sets
+`user_api_keys.admin_mint_allowed` (default false — an admin minting a credential
+that authenticates AS a member is impersonation by another name, and ADR-039 is
+deliberately unbuilt).
+
+Row DTO (code wins — the issuer response is authoritative):
+`{ id, prefix, label?, orgScope, orgIds, permissionsCap, mintedMfaAt?, createdAt,
+lastUsedAt?, expiresAt?, revokedAt? }`. All `*At` are unix seconds and nullable
+except `createdAt`.
+
+- `orgScope` ∈ `"selected" | "all"`. `selected` is a FROZEN allowlist — orgs the
+  user joins later do **not** widen the key. `all` is **forward-inclusive** and
+  gated on `user_api_keys.allow_all_orgs`.
+- `orgIds` is the list **as stored**. An org named here may no longer be
+  reachable: revocation on membership loss is an async sweep and live membership
+  is re-intersected at every exchange, so a key can *list* an org it can no
+  longer *mint into*.
+- `mintedMfaAt` is load-bearing, not informational: key exchange is exempt from
+  the realm MFA floor if and only if it is set.
+
+#### 6.6.1 Exchange — `auth.userApiKeyLogin`
+
+`auth.userApiKeyLogin(apiKey, { tenantId? })` → the standard login result. Wire:
+`POST /auth/login {grant_type: "user_api_key"}`. No inbound bearer — the key IS
+the bootstrap credential. `tenantId` is required when the key's live scope
+resolves to more than one org; omitting it then returns
+`403 org_not_in_key_scope` rather than the SDK picking a blast radius.
+
+The minted access token carries `amr: ["api_key"]` with **no** `mfa` entry, so it
+can never satisfy a step-up gate. Errors: `401 invalid_credentials` /
+`401 revoked_api_key` (revoked and expired share this envelope on purpose — the
+two states are equivalent to a key holder), `412 user_api_keys_disabled`,
+`412 mfa_required`.
+
+#### 6.6.2 `permissionsCap` — a CAP, never a grant
+
+**Effective authority is `permissionsCap ∩ the principal's live permissions`,
+re-resolved per request.** A cap can therefore only ever UNDER-grant: demote the
+holder and every key they hold shrinks with them.
+
+The **name is a control, not decoration**. `permissions: ["reports:read"]` in a
+decoded token reads like an OAuth grant and invites
+`if (tok.permissions.includes(p)) allow` — the stale-scope hole. `permissionsCap`
+makes that line look wrong. It is free to choose now and effectively impossible
+later, since it is a wire field partners parse.
+
+Two audiences, two vocabularies:
+
+| | `aud = realmid` | `aud = <partner>` |
+|---|---|---|
+| Vocabulary | RealmID's own ADR-074 catalog | the partner's, **opaque to RealmID** |
+| Validated at mint | yes → `400 unknown_permission` | shape only (count / length) |
+| Enforced by | the issuer's gates | **the partner's backend** |
+
+RealmID never pattern-matches, expands or orders these strings: no wildcards, no
+hierarchy, no implied `*`.
+
+**`CapAllows(claims, permission, liveResolver)` — required in every language.**
+
+```
+capAllows(claims, "reports:read", resolveLivePermissions)  // ts
+CapAllows(claims, "reports:read", resolveLivePermissions)  // go / java
+```
+
+The signature **forces** the live-permission resolver as a required third
+operand. That is the whole point: the insecure one-operand form — "does the cap
+list this permission?" — is not expressible in our own API, so a partner cannot
+implement the semantics we rejected by accident. `liveResolver` returns the
+permissions the principal holds *right now*, from the partner's own store.
+
+Returns false when the cap omits the permission, when the live set omits it, or
+when the resolver errors. Failing closed on a resolver error is deliberate: an
+unavailable live operand means the intersection is unknown, and the only safe
+reading of an unknown intersection is empty.
+
+**Honesty requirement, and it belongs in the partner guide too**: a partner with
+no live permission model has nothing to intersect, and the cap becomes their whole
+authority — precisely the stale-grant hole. For them the real controls are the
+ones RealmID enforces: revocation, expiry, org pinning and the revoke sweep. Say
+that plainly rather than implying the cap is self-securing.
+
 ### 6.8 Contact drift reviews — `realm.tenants.driftReviews.*`
 
 When a returning user logs in with an identifier that differs from the

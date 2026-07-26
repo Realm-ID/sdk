@@ -2,6 +2,7 @@ package dev.realmid.sdk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.realmid.sdk.apikeys.APIKeysClient;
+import dev.realmid.sdk.userapikeys.UserAPIKeysClient;
 import dev.realmid.sdk.auth.AuthClient;
 import dev.realmid.sdk.domains.DomainsClient;
 import dev.realmid.sdk.federation.FederationBindingsClient;
@@ -53,6 +54,7 @@ public final class Realm {
     private final TenantsClient tenants;
     private final DomainsClient domains;
     private final APIKeysClient apiKeys;
+    private final UserAPIKeysClient userApiKeys;
     private final RolesClient roles;
     private final ServiceAccountsClient serviceAccounts;
     private final IntegrationsClient integrations;
@@ -113,6 +115,7 @@ public final class Realm {
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
+        this.userApiKeys = new UserAPIKeysClient(this.http);
         this.roles = new RolesClient(this.http, this.realmId);
         this.serviceAccounts = new ServiceAccountsClient(this.http);
         this.sources = new SourcesClient(this.http, this.realmId);
@@ -146,6 +149,13 @@ public final class Realm {
     public TenantsClient tenants() { return tenants; }
     public DomainsClient domains() { return domains; }
     public APIKeysClient apiKeys() { return apiKeys; }
+
+    /**
+     * ADR-084 end-user API keys (SPEC §6.6). Separate from {@link #apiKeys()} by
+     * design: an org admin managing members' keys must not thereby gain
+     * platform-key power.
+     */
+    public UserAPIKeysClient userApiKeys() { return userApiKeys; }
     public RolesClient roles() { return roles; }
     /** Owner/admin service-account surface (ADR-071). */
     public ServiceAccountsClient serviceAccounts() { return serviceAccounts; }

@@ -13,6 +13,7 @@ import { TenantsClient } from "./tenants.js";
 import { DomainsClient } from "./domains.js";
 import { InfoClient, type RealmInfo } from "./info.js";
 import { ApiKeysClient } from "./api-keys.js";
+import { UserApiKeysClient } from "./user-api-keys.js";
 import { ConfigClient } from "./config.js";
 import { StatsClient } from "./stats.js";
 import { RolesClient } from "./roles.js";
@@ -95,6 +96,12 @@ export interface Realm {
   readonly tenants: TenantsClient;
   readonly domains: DomainsClient;
   readonly apiKeys: ApiKeysClient;
+  /**
+   * ADR-084 end-user API keys (SPEC §6.6). Separate from `apiKeys` by design:
+   * an org admin managing members' keys must not thereby gain platform-key
+   * power.
+   */
+  readonly userApiKeys: UserApiKeysClient;
   readonly config: ConfigClient;
   /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
   readonly stats: StatsClient;
@@ -218,6 +225,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     tenants: new TenantsClient(http, cfg.realmId),
     domains: new DomainsClient(http),
     apiKeys: new ApiKeysClient(http, cfg.realmId),
+    userApiKeys: new UserApiKeysClient(http),
     config: new ConfigClient(http, cfg.realmId),
     stats: new StatsClient(http, cfg.realmId),
     roles: new RolesClient(http, cfg.realmId),

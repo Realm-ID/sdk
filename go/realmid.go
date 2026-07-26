@@ -101,7 +101,11 @@ type Realm struct {
 	Tenants *TenantsClient
 	Domains *DomainsClient
 	APIKeys *APIKeysClient
-	Config  *ConfigClient
+	// UserAPIKeys is the ADR-084 end-user key surface (SPEC §6.6). Separate from
+	// APIKeys by design: an org admin managing members' keys must not thereby gain
+	// platform-key power.
+	UserAPIKeys *UserAPIKeysClient
+	Config      *ConfigClient
 	// Stats is the platform KPI rollup (orgs/users/sessions-24h/MFA
 	// coverage) served by GET /platforms/{pid}/stats.
 	Stats *StatsClient
@@ -209,6 +213,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Tenants = newTenantsClient(r)
 	r.Domains = &DomainsClient{realm: r}
 	r.APIKeys = &APIKeysClient{realm: r}
+	r.UserAPIKeys = &UserAPIKeysClient{realm: r}
 	r.Config = &ConfigClient{realm: r}
 	r.Stats = &StatsClient{realm: r}
 	r.Roles = &RolesClient{realm: r}

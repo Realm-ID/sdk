@@ -99,6 +99,16 @@ export { OriginsClient, normalizeOrigin } from "./origins.js";
 export type { Origin, OriginListOpts, OriginValidateOpts } from "./origins.js";
 export type { RealmInfo } from "./info.js";
 export type { ApiKey, ApiKeyCreate } from "./api-keys.js";
+// ADR-084 end-user API keys. capAllows is exported as a VALUE, not just a type:
+// it is the helper whose signature forces the live-permission operand, so a
+// partner must be able to call it rather than reimplement the intersection.
+export type {
+  UserApiKey,
+  UserApiKeyCreate,
+  OrgScope,
+  LivePermissionResolver,
+} from "./user-api-keys.js";
+export { capAllows, isUserApiKeyRevoked } from "./user-api-keys.js";
 
 export { OWNER, MEMBER } from "./roles.js";
 export type {
