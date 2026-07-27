@@ -71,20 +71,23 @@ class PlatformTokenManagerTest {
     }
 
     @Test
-    void refreshOnExpiryUsesAuthToken() {
+    void remintOnExpiryUsesLogin() {
+        // ADR-089: a credential-bootstrapped session has no refresh token, so a
+        // stale access token is replaced by re-presenting the credential, not by
+        // /auth/token. The login reply deliberately carries NO refresh_token —
+        // the shape a v0.68.0 issuer actually returns.
         AtomicInteger logins = new AtomicInteger();
         AtomicInteger refreshes = new AtomicInteger();
         fs.on("POST /auth/login", (ex, body) -> {
-            logins.incrementAndGet();
+            int n = logins.incrementAndGet();
             return FakeServer.Reply.json(200, Map.of(
-                    "access_token", "pt-login", "refresh_token", "rt-1",
+                    "access_token", "pt-login-" + n,
                     "expires_in", 60, "subject_type", "platform"));
         });
         fs.on("POST /auth/token", (ex, body) -> {
             refreshes.incrementAndGet();
             return FakeServer.Reply.json(200, Map.of(
-                    "access_token", "pt-refresh-" + refreshes.get(), "refresh_token", "rt-2",
-                    "expires_in", 60, "subject_type", "platform"));
+                    "access_token", "pt-refresh", "expires_in", 60, "subject_type", "platform"));
         });
         long[] nowMs = { Instant.parse("2024-01-01T00:00:00Z").toEpochMilli() };
         var ptm = manager(mutableClock(nowMs));
@@ -92,33 +95,37 @@ class PlatformTokenManagerTest {
         // Advance past skew so the cached access token is stale.
         nowMs[0] += 50_000;
         String second = ptm.getToken();
-        assertEquals(1, logins.get(), "only one initial login");
-        assertEquals(1, refreshes.get(), "stale token refreshes via /auth/token");
+        assertEquals(2, logins.get(), "a stale token re-mints via /auth/login");
+        assertEquals(0, refreshes.get(), "ADR-089: /auth/token must not be called");
         assertNotEquals(first, second);
-        assertEquals("pt-login", first);
-        assertEquals("pt-refresh-1", second);
+        assertEquals("pt-login-1", first);
+        assertEquals("pt-login-2", second);
     }
 
     @Test
-    void refreshTokenPresentedAsBearer() {
-        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200, Map.of(
-                "access_token", "pt-login", "refresh_token", "rt-seed",
-                "expires_in", 300, "subject_type", "platform")));
-        fs.on("POST /auth/token", (ex, body) -> {
-            // The refresh token must be the bearer on /auth/token.
-            assertEquals("Bearer rt-seed", fs.last().header("authorization"));
+    void invalidateRemintsFromCredential() {
+        AtomicInteger logins = new AtomicInteger();
+        fs.on("POST /auth/login", (ex, body) -> {
+            int n = logins.incrementAndGet();
             return FakeServer.Reply.json(200, Map.of(
-                    "access_token", "pt-refresh", "refresh_token", "rt-next",
-                    "expires_in", 300, "subject_type", "platform"));
+                    "access_token", "pt-login-" + n, "expires_in", 300, "subject_type", "platform"));
+        });
+        fs.on("POST /auth/token", (ex, body) -> {
+            throw new AssertionError("ADR-089: /auth/token must not be called");
         });
         var ptm = manager(Clock.systemUTC());
-        ptm.getToken();                 // login
-        ptm.invalidate();               // drop access token, keep refresh
-        assertEquals("pt-refresh", ptm.getToken());
+        assertEquals("pt-login-1", ptm.getToken());
+        ptm.invalidate();
+        assertEquals("pt-login-2", ptm.getToken());
+        assertEquals(2, logins.get());
     }
 
     @Test
-    void fallsBackToLoginWhenAuthTokenRejects() {
+    void ignoresAStrayRefreshTokenInTheLoginReply() {
+        // Interop with a PRE-ADR-089 issuer, which still returns a refresh
+        // token: the manager must ignore it rather than start using
+        // /auth/token, which on a current issuer answers
+        // 401 m2m_refresh_withdrawn.
         AtomicInteger logins = new AtomicInteger();
         fs.on("POST /auth/login", (ex, body) -> {
             int n = logins.incrementAndGet();
@@ -127,12 +134,12 @@ class PlatformTokenManagerTest {
                     "expires_in", 300, "subject_type", "platform"));
         });
         fs.on("POST /auth/token", (ex, body) -> FakeServer.Reply.json(401,
-                Map.of("error", Map.of("code", "unauthorized", "message", "rotated away"))));
+                Map.of("error", Map.of("code", "m2m_refresh_withdrawn", "message", "no refresh token"))));
         var ptm = manager(Clock.systemUTC());
-        ptm.getToken();      // login #1
-        ptm.invalidate();    // keep refresh → next acquire tries /auth/token, 401s, re-logs in
+        ptm.getToken();
+        ptm.invalidate();
         String tok = ptm.getToken();
-        assertEquals(2, logins.get(), "401 on /auth/token falls back to a fresh login");
+        assertEquals(2, logins.get(), "the stray refresh token must not be used");
         assertEquals("pt-login-2", tok);
     }
 

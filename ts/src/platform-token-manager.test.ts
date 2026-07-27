@@ -28,11 +28,13 @@ function mkFetch(handler: (call: Call) => Response | Promise<Response>): { fetch
   return { fetch, calls };
 }
 
-function loginResponse(access: string, refresh = "rtok-platform", expires = 300): Response {
+// ADR-089-shaped: an access token and NO refresh_token. The old fixture
+// included one, which is why the manager's hard requirement for it went
+// unnoticed until an issuer on v0.68.0 stopped sending it.
+function loginResponse(access: string, expires = 300): Response {
   return new Response(JSON.stringify({
     status: "ok",
     subject_type: "platform",
-    refresh_token: refresh,
     access_token: access,
     expires_in: expires,
   }), { status: 200, headers: { "content-type": "application/json" } });
@@ -66,11 +68,11 @@ test("session: first call hits /auth/login, subsequent calls within TTL reuse ca
   assert.equal((calls[0]!.body as { grant_type: string }).grant_type, "platform_api_key");
 });
 
-test("session: refreshes via /auth/token when within 30s of expiry", async () => {
+test("session: re-mints via /auth/login when within 30s of expiry (ADR-089)", async () => {
   let logins = 0, refreshes = 0;
   const { fetch } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`, "rtok-1", 60); }
-    if (c.url.endsWith("/auth/token")) { refreshes++; return loginResponse(`at_r_${refreshes}`, "rtok-1", 60); }
+    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`, 60); }
+    if (c.url.endsWith("/auth/token")) { refreshes++; return loginResponse(`at_r_${refreshes}`, 60); }
     return new Response("nope", { status: 404 });
   });
   let now = 1_700_000_000_000;
@@ -83,32 +85,44 @@ test("session: refreshes via /auth/token when within 30s of expiry", async () =>
   now += 25_000; // 35s remaining > 30s skew → reuse
   const t2 = await mgr.getToken();
   assert.equal(t2, "at_1");
-  assert.equal(refreshes, 0);
-  now += 10_000; // 25s remaining < 30s skew → /auth/token
+  now += 10_000; // 25s remaining < 30s skew → re-mint from the credential
   const t3 = await mgr.getToken();
-  assert.equal(t3, "at_r_1");
-  assert.equal(logins, 1);
-  assert.equal(refreshes, 1);
+  assert.equal(t3, "at_2");
+  assert.equal(logins, 2);
+  // ADR-089: a credential-bootstrapped session has no refresh token, so
+  // /auth/token must never be reached from this manager.
+  assert.equal(refreshes, 0);
 });
 
-test("session: /auth/token 401 falls back to /auth/login", async () => {
+test("session: a login response with no refresh_token is accepted (ADR-089)", async () => {
+  // The regression that matters: the manager used to throw
+  // "/auth/login returned empty access_token or refresh_token", so a client
+  // predating ADR-089 fails HARD against a v0.68.0 issuer on the first call
+  // rather than degrading.
   let logins = 0;
   const { fetch } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`, "rtok-1", 60); }
-    if (c.url.endsWith("/auth/token")) {
-      return new Response(JSON.stringify({ error: { code: "unauthorized", message: "refresh revoked" } }),
-        { status: 401, headers: { "content-type": "application/json" } });
-    }
+    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`); }
     return new Response("nope", { status: 404 });
   });
-  let now = 1_700_000_000_000;
   const mgr = new PlatformTokenManager({
-    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER, now: () => now,
+    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
   });
-  await mgr.getToken();
-  now += 50_000; // force refresh window
-  const t = await mgr.getToken();
-  assert.equal(t, "at_2"); // re-logged in
+  assert.equal(await mgr.getToken(), "at_1");
+  assert.equal(logins, 1);
+});
+
+test("session: invalidate() forces a re-mint from the credential", async () => {
+  let logins = 0;
+  const { fetch } = mkFetch((c) => {
+    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`); }
+    return new Response("nope", { status: 404 });
+  });
+  const mgr = new PlatformTokenManager({
+    credential: staticApiKey("rk_live_x"), baseUrl: "https://auth.test", fetch, logger: NOOP_LOGGER,
+  });
+  assert.equal(await mgr.getToken(), "at_1");
+  mgr.invalidate();
+  assert.equal(await mgr.getToken(), "at_2");
   assert.equal(logins, 2);
 });
 

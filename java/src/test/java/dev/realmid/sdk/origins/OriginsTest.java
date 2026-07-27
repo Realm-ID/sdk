@@ -114,16 +114,17 @@ class OriginsTest {
 
     @Test
     void refreshOn401() {
-        // First acquire = POST /auth/login; after a 401 invalidate the cached
-        // access token is dropped but the refresh token is preserved, so the
-        // re-acquire goes through POST /auth/token (ADR-051 two-endpoint flow).
+        // First acquire = POST /auth/login; a 401 on the resource call
+        // invalidates the cached access token and the retry re-mints from the
+        // credential — ADR-089 removed the /auth/token leg for this identity,
+        // so the retry is a second login, not a refresh.
         AtomicInteger loginCount = new AtomicInteger();
         AtomicInteger refreshCount = new AtomicInteger();
         AtomicInteger listCount = new AtomicInteger();
         fs.on("POST /auth/login", (ex, body) -> {
             loginCount.incrementAndGet();
             return FakeServer.Reply.json(200, Map.of(
-                    "access_token", "pt-login", "refresh_token", "rt-1",
+                    "access_token", "pt-login-" + loginCount.get(),
                     "expires_in", 300, "subject_type", "platform"));
         });
         fs.on("POST /auth/token", (ex, body) -> {
@@ -144,8 +145,8 @@ class OriginsTest {
         });
         Realm r = realm(null);
         assertTrue(r.origins().validate(REALM_ID, "https://app.acme.com"));
-        assertEquals(1, loginCount.get(), "one initial platform login");
-        assertEquals(1, refreshCount.get(), "401 forces a token refresh via /auth/token");
+        assertEquals(2, loginCount.get(), "401 forces a re-mint via /auth/login");
+        assertEquals(0, refreshCount.get(), "ADR-089: /auth/token must not be used");
     }
 
     @Test

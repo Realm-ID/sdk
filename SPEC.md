@@ -169,26 +169,37 @@ Login is a **two-step exchange** internal to the SDK; partners see one
 call. The raw API key is **never** sent on user-login traffic. The SDK
 keeps a per-handle session manager that:
 
-1. **Platform login** — first call: `POST /auth/login` with body
+1. **Platform login** — `POST /auth/login` with body
    `{ grant_type: "platform_api_key", api_key: "rk_live_..." }`.
-   Response: `{ status, subject_type: "platform", refresh_token,
-   access_token, expires_in }`. The SDK caches both tokens.
+   Response: `{ status, subject_type: "platform", access_token,
+   expires_in }`. The SDK caches the access token.
+
+   **ADR-089: there is NO `refresh_token` in this response.** An SDK
+   that *requires* the field fails hard against issuer `v0.68.0`+ on the
+   very first call; treat it as absent, and ignore it if a
+   pre-`v0.68.0` server still sends one.
 2. **User session mint** — `POST /auth/login` with the cached platform
    access token in `Authorization: Bearer ...` and a user grant in the
    body (`grant_type: "provider_token"`, `provider`, `token`). The
    server validates both — the platform token authorizes the *caller*;
    the provider token authenticates the *user*.
-3. **Access refresh** — when the cached platform access token enters
-   its 30 s pre-expiry window: `POST /auth/token` with the refresh
-   token as `Authorization: Bearer ...`. Response is the same shape
-   as `/auth/login` for service/platform grants. If `/auth/token`
-   401s (refresh revoked / rotated by another caller), the SDK falls
-   back to a fresh platform login (step 1) transparently.
+3. **Access re-mint** — when the cached platform access token enters
+   its 30 s pre-expiry window, the SDK repeats step 1. Concurrent
+   callers MUST collapse into a single in-flight login.
 
-Whether the platform refresh token rotates is **realm-configurable**
-(see §4.3). Default: non-rotating — the response's `refresh_token`
-field will equal the one the SDK sent. Rotating mode (single-use
-refresh, reuse-detection lifecycle) is opt-in per realm.
+**There is no platform refresh step (ADR-089).** A session bootstrapped
+from a re-presentable credential — an API key or a workload assertion —
+is issued an access token only. The rule: *a session keeps its refresh
+token iff the credential that created it cannot be presented again.* A
+refresh token here would be a strictly weaker duplicate of a credential
+the caller is already holding, and one that outlives revocation of its
+source; the two lanes guarding that gap had both silently failed in
+production. `POST /auth/token` answers `401 m2m_refresh_withdrawn` for
+such a session.
+
+This changes the cost profile, not the security posture: one
+`/auth/login` per access-token lifetime (5 min by default) instead of one
+`/auth/token`. The same single round trip, with the credential attached.
 
 This is the marketing talking point: API keys never travel over user
 login traffic, and a leaked login-route capture cannot be replayed
@@ -219,11 +230,13 @@ POST /auth/login
   "subject_token":      "<workload OIDC JWT>",
   "subject_token_type": "urn:ietf:params:oauth:token-type:jwt"
 }
-→ { status, subject_type: "platform", refresh_token, access_token, expires_in }
+→ { status, subject_type: "platform", access_token, expires_in }
 ```
 
-The response shape is identical to the `platform_api_key` exchange;
-steps 2 (user-session mint) and 3 (refresh) are unchanged.
+The response shape is identical to the `platform_api_key` exchange —
+including ADR-089's absence of `refresh_token`. Steps 2 (user-session
+mint) and 3 (re-mint) are unchanged; a workload re-mints by exchanging a
+fresh assertion.
 
 **`CredentialSource` (SDK).** The per-handle session manager's credential
 is generalized from a fixed API-key string to a `CredentialSource` that
@@ -362,23 +375,22 @@ creation, so refresh preserves it rather than re-arming it.
 
 - **User refresh** always rotates on `/auth/token` (today's behavior;
   ADR-031 reuse-detection store).
-- **Service / platform refresh** rotate **only when the realm opts
-  in** via two new realm-config keys (PATCHable on
-  `/platforms/{id}/config`):
+- **Service-account refresh** (ADR-071: `class=service` bootstrapped by a
+  one-shot OTP — the only M2M lane that still holds a refresh token after
+  ADR-089) rotates **only when the realm opts in**, via one realm-config
+  key (PATCHable on `/platforms/{id}/config`):
 
   | Key                          | Default | Effect when `false`                                                | Effect when `true`                                                                |
   | ---                          | :---:   | ---                                                                | ---                                                                               |
   | `service_refresh_rotates`    | `false` | Service refresh is multi-use until exp; no reuse-detection.        | Single-use; `/auth/token` rotates and runs reuse-detection.                       |
-  | `platform_refresh_rotates`   | `false` | Platform refresh is multi-use until exp; no reuse-detection.       | Single-use; `/auth/token` rotates and runs reuse-detection.                       |
 
-  Defaults are off to match the legacy "platform tokens are
-  essentially single-shot" posture. Realms that want long-lived
-  rotating M2M sessions flip them on and accept the reuse-detection
-  lifecycle. `platform_refresh_rotates` is meaningful only on a base
-  realm; on partner realms the PATCH succeeds but is a no-op.
+  `platform_refresh_rotates` was **removed** by ADR-089: `class=platform`
+  is always credential-bootstrapped, so it has no refresh token left to
+  rotate and the knob could only ever decide nothing. `PATCH
+  /platforms/{id}/config` now rejects the key with `unknown_config_key`.
 
-  Service / platform refresh TTL reuses
-  `realms.config.refresh_ttl_seconds` (no new TTL knob).
+  Service refresh TTL reuses `realms.config.refresh_ttl_seconds` (no new
+  TTL knob).
 
 ### 4.2.1 Token manager (long-lived clients)
 

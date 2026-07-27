@@ -13,6 +13,46 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## The platform session has no refresh token — go `0.40.0` · ts `0.31.0` · java `0.29.0` (2026-07-27)
+
+**All three SDKs, in lockstep with issuer `v0.68.0` (ADR-089). Upgrade before
+the issuer deploys** — see the compatibility note below.
+
+The SDK's platform identity is now an **access token only**. Every acquisition
+is a `POST /auth/login` with the bootstrap credential; when the cached token
+comes within 30s of expiry, the SDK does that again. `POST /auth/token` is no
+longer called for this identity, and `SPEC.md` §4.0 step 3 is rewritten
+accordingly.
+
+**Why:** ADR-089 withdrew the refresh token from every credential-bootstrapped
+session. The caller is holding the API key (or can mint a fresh workload
+assertion) at the moment it needs a token, so the refresh token was a strictly
+weaker duplicate of a credential it already had — and one that outlived
+revocation of its source. The apparatus that guarded that gap had failed twice
+in production, once per lane.
+
+**Compatibility — this is the sharp bit.** The Go and TypeScript managers
+*required* `refresh_token` in the login response and threw
+`"platform login returned empty tokens"` when it was absent. So an SDK older
+than this release does not degrade against a `v0.68.0` issuer — **it fails
+hard, on the first call.** Release order therefore matters: ship these SDK
+versions (and anything pinning them, including the BFF) **before** the issuer.
+The new SDKs work against old and new issuers alike, so the upgrade is safe to
+do early. Java already treated the field as optional and was unaffected.
+
+- **go `0.40.0`** — `sessionManager` loses `refreshToken`, `fetch` and
+  `refreshAccess`; `login` no longer requires `refresh_token`. Single-flight is
+  retained, now over `/auth/login`.
+- **ts `0.31.0`** — same for `PlatformTokenManager`; `invalidate()` now clears
+  the whole cached session rather than preserving a refresh token.
+- **java `0.29.0`** — `refreshAccess` and `cachedRefreshToken` removed. Behaviour
+  was already correct; this is dead-code removal plus doc.
+
+Also: `platform_refresh_rotates` is gone from the realm-config surface (`PATCH
+/platforms/{id}/config` → `unknown_config_key`). `service_refresh_rotates`
+stays — it still governs the ADR-071 service-account lane, which is
+OTP-bootstrapped and therefore keeps its refresh token.
+
 ## `MeMembership.is_owner` — web-admin 0.8.15 (2026-07-26)
 
 TypeScript only, type-level. `MeMembership` now declares `is_owner` — the

@@ -25,19 +25,26 @@ import java.util.Map;
  * OIDC token). Re-mints automatically when fewer than {@code refreshSkew}
  * remain on its lifetime. Thread-safe.
  *
- * <p>Lifecycle (the bootstrap credential only ever travels on the first call):
+ * <p>Lifecycle:
  * <ol>
- *   <li>First call: {@code POST /auth/login} with the credential's grant
+ *   <li>{@code POST /auth/login} with the credential's grant
  *       ({@code platform_api_key} or {@code token-exchange}) →
- *       {@code {refresh_token, access_token, expires_in}}.</li>
- *   <li>Within the pre-expiry skew window: {@code POST /auth/token} with the
- *       refresh token as the {@code Authorization} bearer → the same shape.
- *       Whether the platform refresh rotates is realm-configurable
- *       ({@code platform_refresh_rotates}); either way the SDK stores whatever
- *       the server returns.</li>
- *   <li>If {@code /auth/token} 401s (refresh revoked or rotated by another
- *       caller), the SDK falls back to a fresh platform login transparently.</li>
+ *       {@code {access_token, expires_in}}.</li>
+ *   <li>Within the pre-expiry skew window: do exactly the same thing again.</li>
  * </ol>
+ *
+ * <p>There is no refresh step. ADR-089 (issuer v0.68.0) withdrew the refresh
+ * token from every credential-bootstrapped session: the caller holds the
+ * credential at the moment it needs a token, so a refresh token was a strictly
+ * weaker duplicate of one it already had — and one that outlived revocation of
+ * its source. Re-minting costs the same single round trip. The bootstrap
+ * credential therefore travels on every acquisition (roughly once per
+ * access-token lifetime), not just the first.
+ *
+ * <p>Note for anyone reviving a refresh path: {@code store} must never REQUIRE
+ * {@code refresh_token}. Requiring it is what made the Go and TypeScript
+ * clients fail hard rather than degrade when the issuer stopped sending it;
+ * this implementation happened to treat it as optional and so survived.
  *
  * <p>Replaces the pre-v0.10 {@code POST /auth/platform-token} bootstrap, which
  * the server hard-cut in v0.7.0 (ADR-051).
@@ -54,7 +61,6 @@ public final class PlatformTokenManager {
     private final Clock clock;
     private final Duration refreshSkew;
 
-    private String cachedRefreshToken;
     private String cachedToken;
     private long cachedExpiresAtMs;
 
@@ -90,34 +96,14 @@ public final class PlatformTokenManager {
         return cachedToken;
     }
 
-    /**
-     * Acquires an access token: refresh via {@code /auth/token} if we hold a
-     * refresh token, falling back to a full {@code /auth/login} on a 401 (or
-     * when no refresh token is held yet).
-     */
+    /** Acquires an access token by minting one from the bootstrap credential. */
     private void acquire() {
-        if (cachedRefreshToken != null && !cachedRefreshToken.isEmpty()) {
-            try {
-                refreshAccess(cachedRefreshToken);
-                return;
-            } catch (RealmException e) {
-                // 401 on /auth/token → refresh revoked or rotated; fall back to
-                // a full login. Other errors (network, 5xx) bubble up.
-                if (e.getHttpStatus() != 401 && e.getCode() != ErrorCode.UNAUTHORIZED) {
-                    throw e;
-                }
-                if (logger.isLoggable(Level.INFO)) {
-                    logger.log(Level.INFO, "realmid session: refresh rejected, re-logging in");
-                }
-            }
-        }
         login();
     }
 
     /**
      * Exchanges the bootstrap credential (a static API key or an ambient
-     * workload OIDC token) for a refresh + access token. The credential only
-     * ever travels here, never on subsequent traffic.
+     * workload OIDC token) for an access token.
      */
     private void login() {
         Credential cred = credential.fetch();
@@ -145,19 +131,7 @@ public final class PlatformTokenManager {
                     new Object[] {cred.grantType(), redacted});
         }
         JsonNode resp = send("/auth/login", null, body, "platform login");
-        store(resp, null, "platform login");
-    }
-
-    /**
-     * Mints a new access token (possibly rotating the refresh token) via
-     * {@code POST /auth/token}, presenting the refresh token as the bearer.
-     */
-    private void refreshAccess(String refresh) {
-        if (logger.isLoggable(Level.DEBUG)) {
-            logger.log(Level.DEBUG, "realmid session: refreshing platform access");
-        }
-        JsonNode resp = send("/auth/token", refresh, new LinkedHashMap<>(), "/auth/token");
-        store(resp, refresh, "/auth/token");
+        store(resp, "platform login");
     }
 
     private JsonNode send(String path, String bearer, Map<String, Object> body, String what) {
@@ -252,22 +226,17 @@ public final class PlatformTokenManager {
         return false;
     }
 
-    private void store(JsonNode resp, String presentedRefresh, String what) {
+    private void store(JsonNode resp, String what) {
         JsonNode tok = resp.get("access_token");
         if (tok == null || !tok.isTextual() || tok.asText().isEmpty()) {
             throw new RealmException(ErrorCode.SERVER_ERROR, what + " returned empty access token");
         }
-        JsonNode rt = resp.get("refresh_token");
-        String refresh = (rt != null && rt.isTextual() && !rt.asText().isEmpty())
-                ? rt.asText()
-                : presentedRefresh; // non-rotating realm: keep the one we sent
         JsonNode exp = resp.get("expires_in");
         long ttlMs = (exp != null && exp.isNumber() && exp.asLong() > 0)
                 ? exp.asLong() * 1000L
                 : Duration.ofMinutes(5).toMillis(); // SPEC §4.0 default
 
         cachedToken = tok.asText();
-        if (refresh != null && !refresh.isEmpty()) cachedRefreshToken = refresh;
         cachedExpiresAtMs = clock.millis() + ttlMs;
 
         if (logger.isLoggable(Level.INFO)) {

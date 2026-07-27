@@ -4,7 +4,6 @@ import (
 	ctxpkg "context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -17,18 +16,20 @@ import (
 // On every call that needs platform-bearer auth, the manager either
 // returns a cached access token or mints/refreshes one. The lifecycle is:
 //
-//  1. First call: POST /auth/login {grant_type:"platform_api_key", api_key}
-//     → {refresh_token, access_token, expires_in}.
+//  1. POST /auth/login {grant_type:"platform_api_key", api_key} (or the
+//     token-exchange grant) → {access_token, expires_in}.
 //  2. When the cached access token is within 30s of expiry (or after a
-//     401 invalidate): POST /auth/token with the refresh token as the
-//     Authorization Bearer → {refresh_token, access_token, expires_in}.
-//     Whether refresh rotates is decided server-side via the realm's
-//     `platform_refresh_rotates` config (defaults to off; the response's
-//     refresh_token will be the same token the SDK sent).
-//  3. If /auth/token fails with 401 (or refresh is missing), we fall
-//     back to step 1.
+//     401 invalidate): do exactly the same thing again.
 //
-// The raw API key thus only ever travels on the initial /auth/login call.
+// There is no refresh step. ADR-089 (issuer v0.68.0) withdrew the refresh
+// token from every credential-bootstrapped session: the caller is holding the
+// api key / can mint a fresh workload assertion at the moment it needs a token,
+// so a refresh token was a strictly weaker duplicate of a credential it already
+// had — and one that outlived revocation of its source. Re-minting costs the
+// same single round trip the refresh did.
+//
+// The bootstrap credential therefore travels on every acquisition (roughly once
+// per access-token lifetime, 5 min by default), not just the first.
 type sessionManager struct {
 	cred    CredentialSource
 	realmID string
@@ -37,13 +38,11 @@ type sessionManager struct {
 	now     func() time.Time
 
 	mu              sync.RWMutex
-	refreshToken    string
 	accessToken     string
 	accessExpiresAt time.Time
-	// inflight dedups concurrent acquisitions. When set, a refresh/login
-	// is already running; other callers wait on it rather than firing a
-	// second /auth/token with the same (one-time-use) refresh token, which
-	// would trip the issuer's reuse-detection and kill the session.
+	// inflight dedups concurrent acquisitions. When set, a login is already
+	// running; other callers wait on it rather than each firing their own,
+	// which would stampede /auth/login on every token expiry.
 	inflight *tokenCall
 }
 
@@ -72,11 +71,11 @@ func newSessionManager(cred CredentialSource, realmID string, http *httpClient, 
 // loginResponse is the wire shape returned by POST /auth/login for the
 // platform_api_key grant (and used by /auth/token for service/platform).
 type loginResponse struct {
-	Status       string `json:"status"`
-	SubjectType  string `json:"subject_type"`
-	RefreshToken string `json:"refresh_token"`
-	AccessToken  string `json:"access_token"`
-	ExpiresIn    int    `json:"expires_in"`
+	Status      string `json:"status"`
+	SubjectType string `json:"subject_type"`
+	AccessToken string `json:"access_token"`
+	ExpiresIn   int    `json:"expires_in"`
+	// No RefreshToken: ADR-089 stopped issuing one for this grant.
 }
 
 // get returns a fresh access token, minting/refreshing one as needed.
@@ -93,11 +92,9 @@ func (m *sessionManager) get(ctx ctxpkg.Context) (string, error) {
 	return m.acquire(ctx)
 }
 
-// acquire mints or refreshes the access token, deduping concurrent
-// callers so only one /auth/token (or /auth/login) request is in flight
-// at a time. Without this, two goroutines that both observe a stale
-// access token would each POST the same refresh token; the issuer rotates
-// it on the first and rejects the second as reuse, killing the session.
+// acquire mints the access token, deduping concurrent callers so only one
+// /auth/login request is in flight at a time. Without this, every goroutine
+// that observed the stale token would mint its own session row.
 func (m *sessionManager) acquire(ctx ctxpkg.Context) (string, error) {
 	m.mu.Lock()
 	// Re-check under the write lock: a peer may have refreshed while we
@@ -115,10 +112,9 @@ func (m *sessionManager) acquire(ctx ctxpkg.Context) (string, error) {
 	}
 	call := &tokenCall{done: make(chan struct{})}
 	m.inflight = call
-	refresh := m.refreshToken
 	m.mu.Unlock()
 
-	tok, err := m.fetch(ctx, refresh)
+	tok, err := m.login(ctx)
 
 	m.mu.Lock()
 	m.inflight = nil
@@ -126,27 +122,6 @@ func (m *sessionManager) acquire(ctx ctxpkg.Context) (string, error) {
 	call.token, call.err = tok, err
 	close(call.done)
 	return tok, err
-}
-
-// fetch performs the actual refresh-then-login acquisition. Only ever
-// called by the single-flight leader in acquire.
-func (m *sessionManager) fetch(ctx ctxpkg.Context, refresh string) (string, error) {
-	if refresh != "" {
-		tok, err := m.refreshAccess(ctx, refresh)
-		if err == nil {
-			return tok, nil
-		}
-		// 401 on /auth/token → refresh was revoked or rotated; fall back
-		// to a full login. Other errors (network, 5xx) bubble up.
-		var rerr *RealmError
-		if !errors.As(err, &rerr) || rerr.Code != ErrCodeUnauthorized {
-			return "", err
-		}
-		m.logger.Info("realmid session: refresh rejected, re-logging in",
-			slog.String("realm_id", m.realmID),
-		)
-	}
-	return m.login(ctx)
 }
 
 // login exchanges the bootstrap credential (a static API key or an ambient
@@ -191,8 +166,11 @@ func (m *sessionManager) login(ctx ctxpkg.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if resp.AccessToken == "" || resp.RefreshToken == "" {
-		return "", &RealmError{Code: ErrCodeServerError, Message: "platform login returned empty tokens"}
+	// ADR-089: a platform login returns NO refresh_token. Requiring one here
+	// is what made an older SDK fail hard — not degrade — against an issuer on
+	// v0.68.0 or later.
+	if resp.AccessToken == "" {
+		return "", &RealmError{Code: ErrCodeServerError, Message: "platform login returned an empty access token"}
 	}
 	if err := m.checkIssuer(resp.AccessToken); err != nil {
 		return "", err
@@ -203,39 +181,6 @@ func (m *sessionManager) login(ctx ctxpkg.Context) (string, error) {
 		slog.Time("expires_at", m.accessExpiresAt),
 		slog.String("access_token", redactCredential(resp.AccessToken)),
 	)
-	return resp.AccessToken, nil
-}
-
-// refreshAccess mints a new access token (and possibly rotates the
-// refresh token) via POST /auth/token. The realm's
-// `platform_refresh_rotates` config decides whether refresh actually
-// rotates; either way we store whatever the server returned.
-func (m *sessionManager) refreshAccess(ctx ctxpkg.Context, refresh string) (string, error) {
-	m.logger.Debug("realmid session: refreshing platform access",
-		slog.String("realm_id", m.realmID),
-	)
-	var resp loginResponse
-	err := m.http.do(ctx, requestOptions{
-		Method: "POST",
-		Path:   "/auth/token",
-		Bearer: refresh,
-		Body:   map[string]any{},
-	}, &resp)
-	if err != nil {
-		return "", err
-	}
-	if resp.AccessToken == "" {
-		return "", &RealmError{Code: ErrCodeServerError, Message: "/auth/token returned empty access token"}
-	}
-	if err := m.checkIssuer(resp.AccessToken); err != nil {
-		return "", err
-	}
-	// If the realm has rotation off, the server returns the same refresh
-	// we sent; if rotation is on, a new refresh. Either way: store it.
-	if resp.RefreshToken == "" {
-		resp.RefreshToken = refresh
-	}
-	m.store(resp)
 	return resp.AccessToken, nil
 }
 
@@ -264,7 +209,6 @@ func (m *sessionManager) store(resp loginResponse) {
 		exp = m.now().Add(5 * time.Minute) // SPEC §4.0 default
 	}
 	m.mu.Lock()
-	m.refreshToken = resp.RefreshToken
 	m.accessToken = resp.AccessToken
 	m.accessExpiresAt = exp
 	m.mu.Unlock()

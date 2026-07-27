@@ -1,17 +1,21 @@
 /**
- * Two-endpoint auth surface — ADR-051.
+ * Two-endpoint auth surface — ADR-051, as amended by ADR-089.
  *
- * The SDK's platform identity holds a refresh + access token pair. The
- * raw API key only travels on the initial `POST /auth/login` call with
- * `grant_type: "platform_api_key"`. After that, expiring access tokens
- * are refreshed against `POST /auth/token` with the refresh token as
- * the bearer.
+ * The SDK's platform identity holds an ACCESS TOKEN ONLY. Every
+ * acquisition is a `POST /auth/login` with the bootstrap credential
+ * (`grant_type: "platform_api_key"` or the token exchange); when the
+ * cached token comes within `refreshSkewMs` of expiry, we simply do it
+ * again.
  *
- * Whether the refresh token rotates is server-side, gated by the
- * realm's `platform_refresh_rotates` config (default off; the response
- * just returns the same refresh we sent). If `/auth/token` 401s
- * (refresh revoked / rotated by another caller) we fall back to a
- * fresh `/auth/login`.
+ * There is no refresh step. ADR-089 (issuer v0.68.0) withdrew the refresh
+ * token from every credential-bootstrapped session: the caller is holding
+ * the credential at the moment it needs a token, so a refresh token was a
+ * strictly weaker duplicate of one it already had — and one that outlived
+ * revocation of its source. Re-minting costs the same single round trip.
+ *
+ * NOTE for anyone reviving a refresh path: requiring `refresh_token` in the
+ * login response is what made the pre-ADR-089 client fail HARD (not degrade)
+ * against a v0.68.0 issuer, on the very first call.
  *
  * The class keeps the `PlatformTokenManager` name + `getToken()`
  * surface so every existing call site (`http.ts`, `origins.ts`, ...)
@@ -50,14 +54,13 @@ export interface PlatformTokenManagerOptions {
 interface LoginWire {
   status?: string;
   subject_type?: string;
-  refresh_token?: string;
   access_token?: string;
   expires_in?: number;
+  // No refresh_token: ADR-089 stopped issuing one for this grant.
 }
 
 interface CachedSession {
   accessToken: string;
-  refreshToken: string;
   expiresAt: number;
 }
 
@@ -71,23 +74,17 @@ export class PlatformTokenManager {
 
   /**
    * Force-clear the cached access token (used by tests + on 401
-   * responses). The refresh token is preserved so the next getToken()
-   * can attempt `/auth/token` before a full re-login.
+   * responses). The next getToken() re-mints from the credential.
    */
   invalidate(): void {
-    if (this.cached) {
-      // Drop only the access token; keep the refresh so the next
-      // getToken() tries /auth/token before re-logging in.
-      this.cached = { ...this.cached, accessToken: "", expiresAt: 0 };
-    }
+    this.cached = undefined;
     this.inflight = undefined;
   }
 
   /**
    * Returns a fresh-enough access token, minting one if no session is
    * cached or the cached access token is within `refreshSkewMs` of its
-   * expiry. Falls back to a full login if `/auth/token` rejects the
-   * refresh.
+   * expiry.
    */
   async getToken(): Promise<string> {
     const now = this.now();
@@ -116,28 +113,8 @@ export class PlatformTokenManager {
     return this.opts.now ? this.opts.now() : Date.now();
   }
 
-  /**
-   * acquire picks the cheapest path: refresh via /auth/token if we
-   * have a refresh token, else /auth/login from scratch. On a 401
-   * during refresh we transparently fall back to login.
-   */
+  /** acquire mints a session from the bootstrap credential. */
   private async acquire(): Promise<CachedSession> {
-    const refresh = this.cached?.refreshToken;
-    if (refresh) {
-      try {
-        return await this.refreshAccess(refresh);
-      } catch (e) {
-        if (e instanceof RealmError && e.code === "unauthorized") {
-          this.opts.logger.info(
-            "realmid: refresh rejected, re-logging in",
-            {},
-          );
-          // Fall through to login.
-        } else {
-          throw e;
-        }
-      }
-    }
     return this.login();
   }
 
@@ -176,10 +153,11 @@ export class PlatformTokenManager {
       credential: redacted,
     });
     const wire = await this.postJSON(url, JSON.stringify(payload), undefined);
-    if (!wire.access_token || !wire.refresh_token) {
+    // ADR-089: a platform login returns NO refresh_token. Do not require one.
+    if (!wire.access_token) {
       throw new RealmError({
         code: "server_error",
-        message: "/auth/login returned empty access_token or refresh_token",
+        message: "/auth/login returned an empty access_token",
       });
     }
     this.checkIssuer(wire.access_token);
@@ -188,33 +166,7 @@ export class PlatformTokenManager {
       accessToken: redactCredential(wire.access_token),
       expiresInSec: wire.expires_in,
     });
-    return {
-      accessToken: wire.access_token,
-      refreshToken: wire.refresh_token,
-      expiresAt,
-    };
-  }
-
-  private async refreshAccess(refresh: string): Promise<CachedSession> {
-    const url = this.opts.baseUrl.replace(/\/+$/, "") + "/auth/token";
-    this.opts.logger.debug("realmid: refreshing platform access", {});
-    const wire = await this.postJSON(url, JSON.stringify({}), refresh);
-    if (!wire.access_token) {
-      throw new RealmError({
-        code: "server_error",
-        message: "/auth/token returned empty access_token",
-      });
-    }
-    this.checkIssuer(wire.access_token);
-    const expiresAt = this.now() + (wire.expires_in ?? 300) * 1000;
-    return {
-      accessToken: wire.access_token,
-      // Non-rotating realms return the same refresh; rotating realms
-      // return a new one. Either way, store what the server gave us
-      // (or fall back to the one we sent).
-      refreshToken: wire.refresh_token || refresh,
-      expiresAt,
-    };
+    return { accessToken: wire.access_token, expiresAt };
   }
 
   private async postJSON(
