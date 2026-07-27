@@ -69,7 +69,8 @@ func newSessionManager(cred CredentialSource, realmID string, http *httpClient, 
 }
 
 // loginResponse is the wire shape returned by POST /auth/login for the
-// platform_api_key grant (and used by /auth/token for service/platform).
+// platform_api_key and token-exchange grants. ADR-089: it carries no
+// refresh_token, and /auth/token is not part of this identity's lifecycle.
 type loginResponse struct {
 	Status      string `json:"status"`
 	SubjectType string `json:"subject_type"`
@@ -286,9 +287,9 @@ func peekJWTRevokeFields(jwt string) (string, time.Time, error) {
 	return c.JTI, exp, nil
 }
 
-// invalidate clears the cached access token. Used after an auth failure
-// to force a re-mint on the next call. The refresh token is preserved
-// so the next get() can attempt /auth/token before a full re-login.
+// invalidate clears the cached access token. Used after an auth failure to
+// force a re-mint from the bootstrap credential on the next call (ADR-089:
+// there is no refresh token to fall back to).
 func (m *sessionManager) invalidate() {
 	m.mu.Lock()
 	m.accessToken = ""
