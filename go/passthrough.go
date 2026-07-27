@@ -11,9 +11,17 @@ import (
 // PassthroughOptions configures a single Realm.Do call.
 type PassthroughOptions struct {
 	// OnBehalfOfUser, when non-empty, rides as `X-On-Behalf-Of-User`
-	// alongside the platform-token bearer. Use this from a BFF / partner
-	// backend to attribute the call to a specific end-user (per ADR-041
-	// §7 + ADR-050 plan §8.2).
+	// alongside the platform-token bearer.
+	//
+	// Deprecated: the issuer REMOVED this as an identity assertion on
+	// 2026-07-27 (issuer v0.66.0) — a bare user id carries no proof of
+	// possession, so any platform-key holder could name any user in the realm.
+	// A request carrying it is refused with `401 x_user_token_required`. Use
+	// OnBehalfOfUserToken (the user's verified access JWT) instead.
+	//
+	// Kept on the struct because `POST /auth/otp/verify` still reads the header
+	// as a DOMAIN parameter — the OTP subject — where it names a subject rather
+	// than asserting who is calling.
 	OnBehalfOfUser string
 
 	// OnBehalfOfIP, when non-empty, rides as `X-On-Behalf-Of-IP`. Lets
