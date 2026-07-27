@@ -102,5 +102,7 @@ times in 5 minutes results in **one** platform-token mint call, not
   surfaces as a `RealmError` immediately so
   callers can distinguish transient infra failure from auth failure.
 - **Logged events** (when a `Logger` is configured): `info`-level
-  "platform-token minted" and "platform-token refreshed". Tokens
-  themselves are redacted to a 6-char prefix.
+  "platform-token minted". Tokens themselves are redacted to a 6-char
+  prefix. There is no "refreshed" event — ADR-089 removed the platform
+  refresh token, so every acquisition is a fresh mint from the
+  credential.

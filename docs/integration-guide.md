@@ -74,7 +74,11 @@ You decide what that lets them do.
 - **Platform token** (short-lived JWT, ≤15 min). Server-only. Minted
   by exchanging a `rk_live_…` API key on `/auth/login` with
   `grant_type: "platform_api_key"` (the standalone `/auth/platform-token`
-  endpoint was removed in server v0.7.0, ADR-051). Used by your backend
+  endpoint was removed in server v0.7.0, ADR-051). **It has no refresh
+  token** (ADR-089, issuer v0.68.0): cache it and re-mint from the
+  credential shortly before expiry — `/auth/token` answers
+  `401 m2m_refresh_withdrawn` for this identity. The SDKs do this for
+  you from go `0.40.0` / ts `0.31.0` / java `0.29.0`. Used by your backend
   to authenticate to RealmID's management endpoints AND (in BFF mode) to
   authenticate the proxy itself.
 
