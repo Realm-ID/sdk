@@ -7,6 +7,41 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-27 — ADR-089's doc debt: the spec still described the refresh step it deleted
+
+**Problem.** ADR-089 removed the platform refresh token, and `sdk/go` + `sdk/ts`
+were updated in lockstep. The *documentation* was not, in four places that all
+contradicted `SPEC.md` §190's own "there is no platform refresh step":
+
+- `SPEC.md` §6 — "refreshes via `POST /auth/token`" as the management-call lifecycle.
+- `SPEC.md` §"Auth header" — listed "the platform refresh token" as a legal bearer.
+- `SPEC.md` §4.x — contrasted the user lane against "a dead platform refresh".
+- `java` `PlatformTokenManager.invalidate()` — "the refresh token is preserved so
+  the next `getToken()` can try `/auth/token`", 40 lines below that class's own
+  correct ADR-089 note. There is no refresh field in the class at all.
+
+**Why it matters more than a typo.** `sdk/CLAUDE.md` makes SPEC.md law — "if a
+language SDK and SPEC.md disagree, fix the SDK." A stale spec therefore doesn't
+just misinform, it authorizes re-implementing the withdrawn behaviour. And these
+are the paragraphs a partner reads while debugging exactly this path: Traide's
+2026-07-27 reply (§5) caught the same class of defect in the issuer's comments,
+having traced a live bug through them.
+
+**Decision.** Correct all four to state the absence positively (re-mint from the
+bootstrap credential; `POST /auth/token` returns `401 m2m_refresh_withdrawn` for
+such a session) rather than deleting the mention — a reader arriving with an old
+mental model needs to be told it changed, not to find silence.
+
+One nuance the old wording flattened and the fix preserves: "service / platform
+refresh tokens" was not uniformly wrong. ADR-089 splits `class=service` by
+`auth_method`, so the ADR-071 OTP-bootstrapped service account *keeps* its refresh
+token; only the platform/api-key lanes lost theirs.
+
+**Tradeoff.** Doc-only, so no version bump — java `0.29.0`'s published javadoc
+carries the stale sentence until the next release. Judged acceptable: the code it
+describes is correct, and forcing a release to fix a comment costs more than the
+exposure.
+
 ## 2026-07-26 — the missing `/internal` export: why the UI reimplemented a client we shipped
 
 **Problem.** `ui/web/src/api.ts` carried `listUserApiKeys` / `createUserApiKey` /

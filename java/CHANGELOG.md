@@ -4,6 +4,25 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.29.1 — docs: `invalidate()` no longer describes the withdrawn refresh step (2026-07-27)
+
+**No behaviour change.** `PlatformTokenManager.invalidate()`'s javadoc still said
+"the refresh token is preserved so the next `getToken()` can try `/auth/token`
+before a full re-login" — describing a mechanism ADR-089 removed in `0.29.0`, and
+contradicting the ADR-089 note 40 lines above it in the same class. There is no
+refresh field in `PlatformTokenManager`; `invalidate()` forces a re-mint from the
+bootstrap credential, which is the only acquisition path.
+
+Published as a patch release rather than folded into the next feature release so
+the javadoc on Maven Central stops describing a call the SDK cannot make. The
+class's runtime behaviour in `0.29.0` was already correct — a `0.29.0` user needs
+no upgrade for correctness, only for accurate documentation.
+
+Monorepo `../SPEC.md` carried three instances of the same staleness (§6's
+"refreshes via `POST /auth/token`", the auth-header section listing a platform
+refresh token as a legal bearer, and a §4 contrast against "a dead platform
+refresh"); all four are corrected together. See `../DECISIONS.md` (2026-07-27).
+
 ## java-v0.27.0 — owner-required tenant create + BYO id/created_at (2026-07-24)
 
 `realm.tenants().create(...)` now provisions the org and its owner in one call

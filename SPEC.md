@@ -354,8 +354,11 @@ token presented as `Authorization: Bearer ...` (or in the body as
 `refresh_token`).
 
 Request: `{ refreshToken, tenantId, customClaims? }`
-- `tenantId`: required for multi-tenant user picks; ignored on
-  service / platform refresh tokens (ADR-051).
+- `tenantId`: required for multi-tenant user picks; ignored on service
+  refresh tokens (ADR-051). There is no *platform* refresh token to ignore
+  it on — ADR-089 withdrew it (§4.0). "Service" here means the ADR-071
+  OTP-bootstrapped account, the one `class=service` lane that keeps a
+  refresh token.
 - `customClaims`: object of extra claims to merge into the minted
   **access token**, subject to a per-realm server-side allowlist. Use
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
@@ -460,8 +463,9 @@ contract.
 surfaces a `RealmError{ code: "refresh_invalid" }` and does **not** retry
 or fall back to any other credential. This is the signal for the client
 to discard its stored refresh token and re-run its enrollment / login
-flow. (Contrast §4.0's platform *session* manager, which on a dead
-platform refresh re-bootstraps with a fresh `platform_api_key` login. The
+flow. (Contrast §4.0's platform *session* manager, which simply re-mints
+from the bootstrap credential whenever its access token expires — it holds
+no refresh token to go dead, per ADR-089. The
 token manager never re-bootstraps the *user* identity — the user refresh
 is the only thing that can mint a user access token, and it is gone — so a
 dead refresh is terminal here even though the underlying handle still
@@ -586,8 +590,9 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 
 All management calls authenticate via the two-endpoint flow (§4.0,
 ADR-051): the SDK exchanges the API key for a platform session via
-`POST /auth/login {grant_type: "platform_api_key"}`, refreshes via
-`POST /auth/token`, and sends the cached platform access token as
+`POST /auth/login {grant_type: "platform_api_key"}`, re-mints the same way
+when that access token nears expiry (ADR-089 — `POST /auth/token` is not
+part of this identity's lifecycle), and sends the cached access token as
 `Authorization: Bearer ...` on every management call. Pagination on
 every list endpoint (see §7).
 
@@ -1375,9 +1380,11 @@ roadmap.
 
 - **Auth header:** `Authorization: Bearer <token>`. The token is a
   short-lived platform access token (§4.0, ADR-051) for management
-  calls, the user's bearer JWT for user-context calls
-  (e.g. `listSessions`), or the platform refresh token for `POST
-  /auth/token`. The raw API key never travels in `Authorization`; on
+  calls, or the user's bearer JWT for user-context calls
+  (e.g. `listSessions`). It is never a platform refresh token — ADR-089
+  withdrew it, and `POST /auth/token` refuses such a session with
+  `401 m2m_refresh_withdrawn`. The raw API key never travels in
+  `Authorization`; on
   the bootstrap call it lives only inside the body of `POST
   /auth/login` with `grant_type: "platform_api_key"`.
 - **Origin header:** SDK auto-attaches `Origin` on every auth call,

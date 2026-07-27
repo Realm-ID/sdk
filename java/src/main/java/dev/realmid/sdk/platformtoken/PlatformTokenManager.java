@@ -77,9 +77,11 @@ public final class PlatformTokenManager {
     }
 
     /**
-     * Clears the cached access token, forcing a re-acquire on the next call.
-     * The refresh token is preserved so the next {@link #getToken()} can try
-     * {@code /auth/token} before a full re-login.
+     * Clears the cached access token, forcing a re-mint from the bootstrap
+     * credential on the next {@link #getToken()}. That is the only acquisition
+     * path — ADR-089 withdrew the refresh token from this session class, so
+     * there is nothing to preserve here and {@code /auth/token} is never
+     * reached from this manager.
      */
     public synchronized void invalidate() {
         cachedToken = null;
