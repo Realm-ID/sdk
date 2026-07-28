@@ -52,6 +52,17 @@ rotation, version policy, hosted environments, roadmap commitments.
 
 ## 3. JWKS and signing-key rotation
 
+> **Not the same thing as rotating your API key.** This section is about the
+> **signing keys** RealmID uses to sign tokens — RealmID rotates those, your SDK
+> follows along automatically, and you do nothing. Your own `rk_live_…`
+> **platform API key** is a separate credential that **you** rotate, and since
+> issuer `v0.61.0` it **expires by default (90 days)**. The caps, the
+> mint→deploy→verify→retire sequence, the chicken-and-egg if you let it lapse,
+> and the per-realm policy for end-user `uk_live_…` keys are all in
+> [partner-integration-guide §6.4.1](../../issuer/docs/partner-integration-guide.md).
+> The two rotations share a word and nothing else.
+
+
 - **Verifier cache TTL:** 10 minutes (SDK default; not configurable).
 - **Unknown-`kid` behavior:** any verify against a JWT whose `kid` is
   not in cache forces an immediate JWKS refetch. Rotation never causes
