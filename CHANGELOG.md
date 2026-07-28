@@ -13,6 +13,32 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `@realm-id/web-admin` 0.8.16 — MeMembership carries the caller's permissions
+
+Adds `MeMembership.is_admin_tenant` and `MeMembership.permissions` (ADR-090).
+Types only — no runtime change.
+
+`permissions` is the caller's fully resolved effective permission set for that
+membership. **Gate admin-UI affordances on it, never on `role === "admin"`.** A
+role's NAME confers nothing: since issuer v0.54.0 the `admin`/`viewer` starter
+roles are opt-in, so a fresh realm has no `admin` row and every delegated user
+carries a custom name — while a partner may create a role literally named
+`admin` holding zero permissions.
+
+There is no implicit-all marker to expand: an owner arrives with the whole
+catalog already listed, and the array is already intersected with the token's
+ADR-084 `permissions_cap`. ORing in `is_owner` would over-grant a capped
+principal.
+
+Pair `permissions` with `is_admin_tenant` for realm-surface affordances
+(federation, sources, domains, identity providers, platform config): the
+realm-scoped gate additionally requires the caller to sit in the realm's admin
+tenant, so a role can grant `federation:manage` on an org membership where it is
+unreachable.
+
+Both are optional for back-compat. Absent means **unknown, not none** — fall
+through to your other checks rather than hiding every control.
+
 ## The platform session has no refresh token — go `0.40.0` · ts `0.31.0` · java `0.29.0` (2026-07-27)
 
 **All three SDKs, in lockstep with issuer `v0.68.0` (ADR-089). Upgrade before

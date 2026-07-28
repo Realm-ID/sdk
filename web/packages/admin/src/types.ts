@@ -499,6 +499,42 @@ export interface MeMembership {
    * assuming false.
    */
   is_owner?: boolean;
+  /**
+   * Whether this tenant is the admin tenant of the realm that governs it — i.e.
+   * whether the realm-surface gates are reachable from it AT ALL (ADR-090).
+   *
+   * `permissions` alone over-reports without this. The realm-scoped gate
+   * additionally requires the caller to sit in the realm's admin tenant, so a
+   * role may perfectly well grant `federation:manage` on an ORG membership where
+   * it can never be exercised. Pair the two for realm-surface affordances
+   * (federation, sources, domains, identity providers, platform config):
+   * `m.is_admin_tenant && m.permissions?.includes(...)`.
+   */
+  is_admin_tenant?: boolean;
+  /**
+   * The caller's FULLY RESOLVED effective permissions for this membership
+   * (ADR-090), re-resolved by the issuer on every request.
+   *
+   * **Gate affordances on this, never on `role === "admin"`.** A role's NAME
+   * confers nothing: since issuer v0.54.0 the `admin`/`viewer` starter roles are
+   * opt-in, so a fresh realm has no `admin` row at all and every delegated user
+   * carries a custom name — while a partner is free to create a role literally
+   * named `admin` holding zero permissions.
+   *
+   * There is no implicit-all marker to expand: an owner arrives with the whole
+   * catalog already listed, and the array is already intersected with the
+   * token's `permissions_cap` (ADR-084). Just test membership — deriving
+   * authority from `is_owner` here would over-grant for a capped principal.
+   *
+   * For any membership OTHER than the session's current tenant this is
+   * prospective — "what you would hold after switching here" — because a session
+   * acts only in the tenant it is pinned to.
+   *
+   * Optional for back-compat with pre-ADR-090 BFFs. Absent means "unknown", NOT
+   * "none": treat it as a reason to fall through to your other checks rather
+   * than to hide every control.
+   */
+  permissions?: string[];
 }
 
 export interface ProfileResponse {

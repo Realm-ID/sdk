@@ -7,6 +7,30 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-28 — web-admin 0.8.16: publish permissions, not a marker to expand
+
+ADR-090 has the issuer resolve the caller's effective permission set per
+membership. The SDK's only decision was what shape to expose.
+
+We publish the resolved array and no expansion rule. The tempting alternative —
+document "if `is_owner`, treat as all" — is smaller on the wire and would have
+kept the type unchanged. It is wrong twice: it re-creates the marker-inference
+bug ADR-090 removes, one layer up in every consumer rather than once in the
+server; and it is incorrect for a capped principal, where an owner's effective
+authority is `catalog ∩ permissions_cap`, not the catalog. A consumer that ORs
+in `is_owner` for convenience gets it wrong in exactly the case that matters.
+
+`is_admin_tenant` ships alongside because `permissions` alone over-reports: the
+realm-scoped gate has a structural precondition (sitting in the realm's admin
+tenant) that no permission string encodes. Naming it as its own boolean is
+honest; folding it into the array would assert a gate scope per permission that
+has not been audited yet.
+
+Both fields are optional, and the doc comments say absent means UNKNOWN rather
+than none. A consumer that reads absent as "no permissions" would blank its
+console against an older BFF mid-rollout — a worse failure than briefly showing
+a control the server refuses.
+
 ## 2026-07-27 — ADR-089's doc debt: the spec still described the refresh step it deleted
 
 **Problem.** ADR-089 removed the platform refresh token, and `sdk/go` + `sdk/ts`
