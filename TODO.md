@@ -6,6 +6,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > **Reorg note (2026-07-21):** purged ~20 completed entries and regrouped by
 > theme. See root `DECISIONS.md` 2026-07-21.
 
+> **Validation sweep (2026-07-28):** every item below was checked against the
+> tree. Two were **done and are removed** — `admin.platforms.updateConfig`
+> (a typed `RealmConfigPatch` surface has existed since web-admin 0.8.8,
+> `web/packages/admin/src/platforms.ts:155`, with `getConfig` at `:142`), and
+> "type the two ADR-078 provider-MFA keys" (`accept_provider_mfa` is in
+> `web/packages/admin/src/types.ts`). The rest were confirmed still open by
+> grep — the per-item evidence is inlined.
+
 ---
 
 - [ ] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`.**
@@ -27,6 +35,8 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   carries them. Then `ui/web/src/roleAssignability.ts` can drop its local
   `AssignableRoleLike` and narrow to the SDK type. Bundle the same repack as the
   outstanding `device_name` re-vendor below — both are blocked on one release.
+  **Confirmed open 2026-07-28:** `assignable_to` has 0 matches anywhere in
+  `web/packages/admin/src`, so the re-export has not carried it.
 
 ## Cross-language parity gaps
 
@@ -43,14 +53,19 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   `ErrorCode.REALM_MISMATCH` constant (added for taxonomy parity) but performs no
   such pin in `PlatformTokenManager`.
 - [ ] **Device-name (ADR-062) lockstep.** Go has it (`go/auth.go:248` sends
-  `X-Device-Name`, `:580` parses `device_name`). Still owed: (1) **ts + java** —
-  add `device_name` to the login request + session-list type (grep confirms 0
-  matches in `ts/src`, `java/src/main`); (2) **re-vendor
+  `X-Device-Name`, `:580` parses `device_name`). **Re-verified 2026-07-28: `ts/`
+  now has it too** (`ts/src/auth.ts`) — so this narrows to **java + the
+  re-vendor**. Still owed: (1) **java** — add `device_name` to the login request
+  + session-list type (0 matches in `java/src/main`); (2) **re-vendor
   `@realm-id/web-admin`** — the source type has `device_name?`
   (`web/packages/admin/src/types.ts:110`) but the committed tarball in `ui/web`
   doesn't, so `ui/web/src/Settings/Sessions.tsx:12` augments it locally; repack
   per `sdk/CLAUDE.md` and drop the augmentation; (3) optional — show the device
   name on the `/device` approve page (needs a by-`user_code` lookup).
+  ⚠️ **Still true at the vendored `0.8.15`** (verified 2026-07-28): `Sessions.tsx`
+  still carries the local augmentation. Five repacks have shipped since this was
+  filed without picking the field up — the `sdk/CLAUDE.md` hoisting gotcha is the
+  likely cause, so verify the field inside the TARBALL, not just in `types.ts`.
 
 ## ADR-056 deferred follow-ups
 
@@ -58,7 +73,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   in-process `sync.Mutex`; the BFF's `Store.AcquireRefreshLock`
   (`api/internal/session/store.go:286`, Redis SETNX) stays the authority. Make the
   SDK lock pluggable / BFF-backed.
-- [ ] **TS/Java `X-User-Token` parity (Q5)** — absent in `ts/`, `java/`.
+- [ ] **TS/Java `X-User-Token` parity (Q5)** — absent in `ts/`, `java/`
+  (re-confirmed 2026-07-28: 0 matches for `X-User-Token` in `ts/src` and
+  `java/src/main`). Go has forwarded it on the **typed** path since `go/v0.37.0`
+  (`go/http.go`, `WithUserToken`). **Raised priority — this caused a wrong
+  statement to a partner:** we told Traide the header "is forwarded only by
+  `Realm.Do`, not by the typed methods", which is TS/Java-only and was false for
+  Go. Closing this half makes the caveat disappear entirely. See the root
+  `TODO.md` § Deprecation deadlines entry, which owns the partner-comms half.
   *(Q4 encrypt-at-rest is done — ADR-060's AES-256-GCM seal in the BFF store.)*
 
 ## HTTP surface not yet wrapped
@@ -85,10 +107,6 @@ this is the SDK-side work.
   the BFF resolves server-side. *Cross-check before building:* the ADR-076 handler
   already accepts a `new_owner_email` fallback — this may be a pure type/method
   addition rather than new behavior.
-- [ ] **`admin.platforms.updateConfig`** (typed `RealmConfigPatch`) — no typed
-  surface for the allowlisted realm-config keys; the UI keeps a hand-rolled
-  `patchRealmConfig` shim. Pairs with the missing `GET /platforms/{id}/config`
-  (root `TODO.md`).
 - [ ] **`federationBindings` resource** — no client for the ADR-057 WIF CRUD
   (`GET/POST/DELETE /platforms/{id}/federation-bindings`); the UI carries
   `list/create/revokeFederationBinding` shims. Mirror `ApiKeysClient`. The `scope`
@@ -100,10 +118,6 @@ this is the SDK-side work.
 - [ ] **`bff.home()` / `bff.tenantFull()` return loose `{ [k: string]: unknown }`.**
   Rich types live in `@realm-id/sdk/internal`; the aggregates package types need a
   refresh before the admin SDK can re-export them.
-- [ ] **Type the two ADR-078 provider-MFA keys** (`accept_provider_mfa`,
-  `provider_mfa_ttl_seconds`) into the vendored `web-admin` SDK — the UI currently
-  types them via a local read-back extension.
-
 ## Web-package test infra
 
 - [ ] **`web/packages/firebase/` + `web/packages/react/` are untested**
