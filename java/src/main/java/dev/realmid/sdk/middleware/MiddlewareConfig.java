@@ -21,7 +21,28 @@ public final class MiddlewareConfig {
     final String mfaVerifyPath;
     final TokenDelivery tokenDelivery;
     final String cookieName;
+    /**
+     * Cookie Domain attribute for the refresh cookie, or null for host-only.
+     *
+     * <p><b>Changing this on a live deployment strands existing sessions</b>
+     * unless you also set {@code cookieDomainMigrateFrom}. Per RFC 6265 a
+     * Set-Cookie carrying a Domain attribute cannot overwrite a host-only
+     * cookie of the same name — they are separate jar entries — so every
+     * browser already holding one ends up with two, only one of which is
+     * rotated from then on.
+     */
     final String cookieDomain;
+    /**
+     * Cookie scopes this deployment PREVIOUSLY wrote the refresh cookie at, so
+     * they can be actively evicted instead of shadowing the live one forever.
+     * Use the empty string for the host-only scope.
+     *
+     * <p>Needed when TIGHTENING or REMOVING a domain, because the old, wider
+     * cookie is invisible to a configuration that no longer writes it.
+     * Widening is handled for free: setting {@code cookieDomain} always evicts
+     * the host-only twin.
+     */
+    final List<String> cookieDomainMigrateFrom;
     final boolean cookieSecure;
     final String cookieSameSite;
 
@@ -37,6 +58,8 @@ public final class MiddlewareConfig {
         this.tokenDelivery = b.tokenDelivery;
         this.cookieName = b.cookieName;
         this.cookieDomain = b.cookieDomain;
+        this.cookieDomainMigrateFrom =
+                Collections.unmodifiableList(new ArrayList<>(b.cookieDomainMigrateFrom));
         this.cookieSecure = b.cookieSecure;
         this.cookieSameSite = b.cookieSameSite;
     }
@@ -52,6 +75,7 @@ public final class MiddlewareConfig {
     public TokenDelivery tokenDelivery() { return tokenDelivery; }
     public String cookieName() { return cookieName; }
     public String cookieDomain() { return cookieDomain; }
+    public List<String> cookieDomainMigrateFrom() { return cookieDomainMigrateFrom; }
     public boolean cookieSecure() { return cookieSecure; }
     public String cookieSameSite() { return cookieSameSite; }
 
@@ -67,6 +91,7 @@ public final class MiddlewareConfig {
         private TokenDelivery tokenDelivery = TokenDelivery.COOKIE;
         private String cookieName = "realmid_refresh";
         private String cookieDomain;
+        private List<String> cookieDomainMigrateFrom = new ArrayList<>();
         private boolean cookieSecure = true;
         private String cookieSameSite = "Lax";
 
@@ -114,6 +139,10 @@ public final class MiddlewareConfig {
         public Builder tokenDelivery(TokenDelivery v) { this.tokenDelivery = v; return this; }
         public Builder cookieName(String v) { this.cookieName = v; return this; }
         public Builder cookieDomain(String v) { this.cookieDomain = v; return this; }
+        public Builder cookieDomainMigrateFrom(List<String> v) {
+            this.cookieDomainMigrateFrom = new ArrayList<>(v);
+            return this;
+        }
         public Builder cookieSecure(boolean v) { this.cookieSecure = v; return this; }
         public Builder cookieSameSite(String v) { this.cookieSameSite = v; return this; }
 

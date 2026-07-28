@@ -7,6 +7,96 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-28 — cookie shadowing: read every candidate, and evict the twin
+
+**Reported by Traide from a live incident.** Their analysis was correct on every
+point; I re-verified it against `middleware.go` and `RealmFilter.java` before
+acting rather than taking the report on trust, and both SDKs had the defect
+exactly as described.
+
+### RCA
+
+**Symptom** — after a partner set `REFRESH_COOKIE_DOMAIN=.traide.co.in` on a
+deployment with live sessions, every page reload logged the user out. `POST
+/auth/token` returned `401 refresh_invalid` on every attempt, deterministically,
+from the moment the existing access token expired. Logging out and back in did
+not help; neither did waiting. The only recovery was deleting cookies by hand.
+
+**Root cause** — three decisions that are individually reasonable and jointly
+unrecoverable. (1) `setRefreshCookie` writes `Domain: opts.CookieDomain`, and
+per RFC 6265 a Domain-scoped `Set-Cookie` cannot overwrite a host-only cookie of
+the same name — they are separate jar entries, so a scope change *forks* the
+cookie rather than moving it. (2) `readRefreshToken` used
+`(*http.Request).Cookie`, which returns the first match and silently discards
+the rest; RFC 6265 §5.4 orders equal-path cookies by creation time, so the
+first match is the OLDER, already-rotated one. It never self-heals and never
+intermittently works. (3) `clearRefreshCookie` also scoped itself to
+`CookieDomain`, so logout could not clear the shadow — which is what removed the
+last recovery path.
+
+The originating mistake is (2): treating "the refresh cookie" as a value when
+the platform models it as a *set*. Once the read is a first-match, (1) and (3)
+turn a transient inconsistency into a permanent one.
+
+**Why it wasn't caught** — every test wrote and read the cookie within a single
+configuration. Nothing exercised a CONFIGURATION CHANGE against pre-existing
+state, which is the only way to produce two cookies of one name; the whole
+defect lives in the transition, not in either steady state. The option was also
+documented as `CookieDomain string // optional`, which reads like a free-form
+knob rather than a one-way door.
+
+**Fix** — read every candidate and try each until one mints (this alone restores
+service for already-stranded browsers, because the valid token was in the header
+the whole time), plus actively evict the other scopes on every write and on
+logout so the jar converges instead of accumulating. `CookieDomainMigrateFrom`
+covers the direction the SDK cannot infer. Logout revokes every candidate.
+
+**Prevention** — tests that assert the *transition* rather than a steady state,
+in both SDKs; SPEC §10.4 now documents the hazard and the migration; the option
+comments carry the warning at the point of use.
+
+### Decisions worth recording
+
+**Trying each candidate is only safe because this issuer has no reuse
+detection.** I checked `authsvc.MintForTenant` before implementing the reporter's
+suggested fix: an unrecognised refresh hash resolves to nothing and returns
+`ErrNotAuthenticated`, revoking nothing. Had the issuer treated refresh replay
+as a breach signal and killed the session family — a common and defensible
+design — then "try each candidate" would have been *worse than the disease*,
+handing it one stale token per request. That constraint is now a comment at both
+call sites, because the safety of this loop is a property of the server, not of
+the SDK, and a future reuse-detection feature would silently invalidate it.
+
+**Both halves, not just the cheap one.** Reading every candidate alone would
+have restored service while leaving every affected browser permanently carrying
+garbage, and left logout still unable to clear it. Eviction alone would fix new
+sessions and strand existing ones. They address different things and the
+reporter was right to ask for both.
+
+**Report the FIRST failure, not the last.** With one cookie the two are
+identical; with several, the first is the error the old code would have surfaced.
+Partners branch on `refresh_invalid`, and a fix for a cookie problem must not
+change the error shape of an unrelated failure just because a browser happened
+to be carrying a twin.
+
+**Scope comparison trims the leading dot.** `.example.com` and `example.com`
+name the same scope under RFC 6265 (and Go's `http.SetCookie` strips the dot
+anyway). A raw string compare between `CookieDomain` and `CookieDomainMigrateFrom`
+would let a partner who spelled the two settings differently delete their own
+live cookie on every write — the same self-inflicted-logout class this change
+exists to remove.
+
+### What we could not answer
+
+Their §4.4 asks us to confirm the blast radius across other realms. **We cannot
+enumerate it.** `CookieDomain` is configured in each partner's own deployment of
+the SDK; RealmID never sees it, so there is no query that lists affected realms.
+The honest answer is that the symptom is observable from our side but the cause
+is not: a realm whose users were stranded this way would show a sustained
+elevated rate of `refresh_invalid` at `/auth/token` against otherwise healthy
+logins. That is a proxy, not an enumeration, and it needs the fix shipped before
+it is worth acting on.
+
 ## 2026-07-28 — web-admin 0.8.16: publish permissions, not a marker to expand
 
 ADR-090 has the issuer resolve the caller's effective permission set per

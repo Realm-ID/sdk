@@ -1519,7 +1519,8 @@ const middleware = realm.middleware({
   // overridable per middleware instance.
   tokenDelivery: "cookie",  // "cookie" (browser SPA, default) | "body" (mobile / native client)
   cookieName: "realmid_refresh",                    // when tokenDelivery="cookie"
-  cookieDomain?: ".acme.com",                       // optional
+  cookieDomain?: ".acme.com",                       // optional — see the migration warning below
+  cookieDomainMigrateFrom?: [""],                   // scopes previously written; "" = host-only
   cookieSecure: true,                               // default true in prod
   cookieSameSite: "lax",                            // "lax" | "strict" | "none"
 
@@ -1558,6 +1559,46 @@ language-idiomatic types (`time.Duration` for `MaxAge`,
 If you are unsure, you almost certainly want `"cookie"`. A "SPA on
 `app.example.com` calling `api.example.com`" deployment is still
 same-site and should use cookie mode with `cookieDomain: ".example.com"`.
+
+#### Changing `cookieDomain` on a live deployment
+
+**Setting or changing `cookieDomain` after you have live sessions leaves every
+affected browser holding TWO cookies of the same name at different scopes.**
+This is RFC 6265, not an SDK choice: a `Set-Cookie` carrying a `Domain`
+attribute cannot overwrite a host-only cookie of the same name — they are
+separate jar entries. Rotation then updates one and freezes the other.
+
+The SDK handles this as follows.
+
+- **Reading.** The middleware tries **every** candidate cookie of the
+  configured name (in the order the browser sent them, deduplicated, capped at
+  3) until one mints. An already-stranded browser recovers on its next refresh
+  with no partner action. Logout revokes every candidate, not just the first.
+- **Widening (host-only → `.example.com`) is handled for free.** Setting
+  `cookieDomain` also emits a host-only deletion on every write and on logout,
+  so the twin is evicted rather than left to shadow the live cookie forever.
+- **Tightening or removing a domain needs `cookieDomainMigrateFrom`.** The
+  wider cookie is invisible to a configuration that no longer writes it, so the
+  SDK cannot discover the scope you are leaving — name it:
+
+  ```jsonc
+  // was ".example.com", now host-only
+  { cookieDomainMigrateFrom: [".example.com"] }
+
+  // was host-only, now ".example.com": nothing needed
+  { cookieDomain: ".example.com" }
+  ```
+
+  Entries are emitted as deletions on every write and on logout, so it is safe
+  to leave them configured permanently. Drop them once you are confident no
+  live browser still holds the old scope. Naming the scope you are currently
+  writing is a no-op — the SDK never deletes it, and `.example.com` and
+  `example.com` are recognised as the same scope.
+
+Prior to Go `v0.41.0` / Java `0.30.0` the middleware read only the first
+matching cookie and cleared only the configured scope, so a single
+`cookieDomain` change permanently logged out every live session with no
+in-product recovery — not login, not logout, not waiting for expiry.
 
 ### 10.5 Extension hooks (ADR-065)
 

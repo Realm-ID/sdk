@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -244,22 +245,28 @@ public class RealmFilter implements Filter {
     }
 
     private void handleLogout(HttpServletRequest req, HttpServletResponse res) throws IOException {
-        String refresh = readRefresh(req);
-        try {
-            cfg.realm.auth().logout(LogoutRequest.of(refresh));
-        } catch (RealmException ignored) { /* best effort */ }
+        // Revoke EVERY candidate, not just the first. During a cookieDomain
+        // migration the browser holds two, and revoking only the one the old
+        // first-match read returned left a live session behind a cookie the
+        // user could neither see nor clear.
+        for (String refresh : readRefreshCandidates(req)) {
+            try {
+                cfg.realm.auth().logout(LogoutRequest.of(refresh));
+            } catch (RealmException ignored) { /* best effort */ }
+        }
         if (cfg.tokenDelivery == TokenDelivery.COOKIE) clearRefreshCookie(res);
         sendJson(res, 200, Map.of("status", "ok"));
     }
 
     private void handleRefresh(HttpServletRequest req, HttpServletResponse res) throws IOException {
-        String refresh = readRefresh(req);
+        List<String> candidates = readRefreshCandidates(req);
         Map<String, Object> body = readJson(req);
         if (cfg.tokenDelivery == TokenDelivery.BODY) {
             Object br = body.get("refresh_token");
             if (br == null) br = body.get("refreshToken");
-            if (br instanceof String s && !s.isEmpty()) refresh = s;
+            if (br instanceof String s && !s.isEmpty()) candidates = List.of(s);
         }
+        String refresh = candidates.isEmpty() ? null : candidates.get(0);
         if (refresh == null || refresh.isEmpty()) {
             sendError(res, 401, ErrorCode.UNAUTHORIZED.wire(), "refresh token missing", null);
             return;
@@ -273,20 +280,39 @@ public class RealmFilter implements Filter {
         @SuppressWarnings("unchecked")
         Map<String, Object> custom = (Map<String, Object>) (body.get("custom_claims") != null
                 ? body.get("custom_claims") : body.get("customClaims"));
-        try {
-            TokenResponse t = cfg.realm.auth().token(new TokenRequest(
-                    refresh, String.valueOf(tenantId), custom, null));
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("access_token", t.accessToken());
-            out.put("expires_in", t.expiresIn());
-            out.put("tenant_id", t.tenantId());
-            out.put("role", t.role());
-            deliverRefresh(res, out, t.refreshToken());
-            sendJson(res, 200, out);
-        } catch (RealmException e) {
+        // Try each candidate until one mints. With the ordinary single cookie
+        // this is exactly the old behaviour, including which error surfaces;
+        // with a shadowed jar it is the difference between a working session
+        // and a permanent, unrecoverable logout.
+        //
+        // The FIRST failure is what we report, not the last: with one candidate
+        // the two are identical, and with several the first is the one the old
+        // code would have surfaced — so no partner's error handling changes
+        // shape because a browser happened to carry a stale twin.
+        TokenResponse t = null;
+        RealmException firstErr = null;
+        for (String candidate : candidates) {
+            try {
+                t = cfg.realm.auth().token(new TokenRequest(
+                        candidate, String.valueOf(tenantId), custom, null));
+                break;
+            } catch (RealmException e) {
+                if (firstErr == null) firstErr = e;
+            }
+        }
+        if (t == null) {
+            RealmException e = firstErr;
             sendError(res, e.getHttpStatus() > 0 ? e.getHttpStatus() : 500,
                     e.getCode().wire(), e.getMessage(), e.getDetails());
+            return;
         }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("access_token", t.accessToken());
+        out.put("expires_in", t.expiresIn());
+        out.put("tenant_id", t.tenantId());
+        out.put("role", t.role());
+        deliverRefresh(res, out, t.refreshToken());
+        sendJson(res, 200, out);
     }
 
     private void handleMfaVerify(HttpServletRequest req, HttpServletResponse res) throws IOException {
@@ -321,6 +347,10 @@ public class RealmFilter implements Filter {
     }
 
     private void setRefreshCookie(HttpServletResponse res, String value) {
+        // Evict any twin at another scope before writing the live value.
+        // Reading every candidate keeps a stranded browser working; this is
+        // what actually cleans up, so the jar converges to one cookie.
+        evictShadowRefreshCookies(res);
         StringBuilder sb = new StringBuilder();
         sb.append(cfg.cookieName).append('=').append(value);
         sb.append("; HttpOnly; Path=/");
@@ -331,6 +361,10 @@ public class RealmFilter implements Filter {
     }
 
     private void clearRefreshCookie(HttpServletResponse res) {
+        // Logout must clear EVERY scope. Clearing only the configured one is
+        // why signing out and back in did not recover a stranded browser: the
+        // shadow cookie survived and went straight back to winning the read.
+        evictShadowRefreshCookies(res);
         StringBuilder sb = new StringBuilder();
         sb.append(cfg.cookieName).append("=; HttpOnly; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
         if (cfg.cookieSameSite != null) sb.append("; SameSite=").append(cfg.cookieSameSite);
@@ -339,16 +373,89 @@ public class RealmFilter implements Filter {
         res.addHeader("Set-Cookie", sb.toString());
     }
 
-    private String readRefresh(HttpServletRequest req) {
-        if (cfg.tokenDelivery == TokenDelivery.COOKIE) {
-            Cookie[] cookies = req.getCookies();
-            if (cookies == null) return null;
-            for (Cookie c : cookies) {
-                if (cfg.cookieName.equals(c.getName())) return c.getValue();
-            }
-            return null;
+    /**
+     * Expires the refresh cookie at every scope this deployment is NOT
+     * currently writing to.
+     *
+     * <p>Setting cookieDomain always evicts the host-only twin: that is the
+     * common migration (the default is host-only) and the one scope we can
+     * name without being told. The reverse — tightening or removing a domain —
+     * is not discoverable, because the wider cookie is invisible to a config
+     * that no longer writes it; that is what cookieDomainMigrateFrom is for.
+     */
+    private void evictShadowRefreshCookies(HttpServletResponse res) {
+        List<String> scopes = new ArrayList<>();
+        if (cfg.cookieDomain != null) scopes.add(""); // the host-only twin
+        scopes.addAll(cfg.cookieDomainMigrateFrom);
+        for (String d : scopes) {
+            // Compare with the leading dot trimmed: ".example.com" and
+            // "example.com" are the SAME scope (the dot has been meaningless
+            // since RFC 6265 superseded RFC 2109). A raw compare would let a
+            // partner who spelled the two settings differently delete their own
+            // live cookie on every write — the same self-inflicted logout this
+            // change exists to fix.
+            if (sameScope(d, cfg.cookieDomain)) continue;
+            StringBuilder sb = new StringBuilder();
+            sb.append(cfg.cookieName)
+              .append("=; HttpOnly; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+            if (cfg.cookieSameSite != null) sb.append("; SameSite=").append(cfg.cookieSameSite);
+            if (cfg.cookieSecure) sb.append("; Secure");
+            if (!d.isEmpty()) sb.append("; Domain=").append(d);
+            res.addHeader("Set-Cookie", sb.toString());
         }
-        return null; // body delivery handled in handleRefresh
+    }
+
+    private static boolean sameScope(String a, String b) {
+        String x = a == null ? "" : (a.startsWith(".") ? a.substring(1) : a);
+        String y = b == null ? "" : (b.startsWith(".") ? b.substring(1) : b);
+        return x.equals(y);
+    }
+
+    /**
+     * Caps how many same-named cookies we will try in one request. A browser
+     * can legitimately hold two (host-only + domain-scoped) during a
+     * cookieDomain migration; more than that is a stuffed jar, and an uncapped
+     * loop would let anyone amplify one request into N issuer calls.
+     */
+    private static final int MAX_REFRESH_CANDIDATES = 3;
+
+    /**
+     * Returns EVERY candidate refresh token on the request, in the order the
+     * browser sent them, deduplicated and capped.
+     *
+     * <p>Why a list and not a value: two cookies of the same name at different
+     * scopes are distinct jar entries, and RFC 6265 §5.4 orders the Cookie
+     * header by path length then by CREATION time — so with both at Path=/ the
+     * OLDER one arrives first. Returning that first match (as this method used
+     * to) permanently pins the filter to the stale token: rotation only ever
+     * updates one of the two, and the frozen one keeps winning the read.
+     *
+     * <p>Trying each candidate is safe against this issuer: an unrecognised
+     * refresh hash resolves to nothing and comes back 401 refresh_invalid —
+     * there is no reuse detection that revokes the session family on replay
+     * (verified 2026-07-28). If that ever changes this becomes actively
+     * dangerous and must be revisited.
+     */
+    private List<String> readRefreshCandidates(HttpServletRequest req) {
+        if (cfg.tokenDelivery != TokenDelivery.COOKIE) {
+            return List.of(); // body delivery handled in handleRefresh
+        }
+        Cookie[] cookies = req.getCookies();
+        if (cookies == null) return List.of();
+        List<String> out = new ArrayList<>(MAX_REFRESH_CANDIDATES);
+        for (Cookie c : cookies) {
+            if (!cfg.cookieName.equals(c.getName())) continue;
+            String v = c.getValue();
+            if (v == null || v.isEmpty() || out.contains(v)) continue;
+            out.add(v);
+            if (out.size() == MAX_REFRESH_CANDIDATES) break;
+        }
+        return out;
+    }
+
+    private String readRefresh(HttpServletRequest req) {
+        List<String> all = readRefreshCandidates(req);
+        return all.isEmpty() ? null : all.get(0);
     }
 
     @SuppressWarnings("unchecked")

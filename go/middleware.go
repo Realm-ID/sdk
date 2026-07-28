@@ -145,10 +145,40 @@ type MiddlewareOptions struct {
 
 	// CookieName, CookieDomain, CookieSecure, CookieSameSite control
 	// the refresh-token cookie when TokenDelivery == "cookie".
+	//
+	// CHANGING CookieDomain ON A LIVE DEPLOYMENT STRANDS EXISTING SESSIONS
+	// unless you also set CookieDomainMigrateFrom. Per RFC 6265 a Set-Cookie
+	// carrying a Domain attribute cannot overwrite a host-only cookie of the
+	// same name — they are separate jar entries — so every browser that
+	// already holds one ends up with two `realmid_refresh` cookies at
+	// different scopes. Only one of them is rotated from then on. See
+	// CookieDomainMigrateFrom.
 	CookieName     string        // default "realmid_refresh"
 	CookieDomain   string        // optional
 	CookieSecure   bool          // default true
 	CookieSameSite http.SameSite // default http.SameSiteLaxMode
+
+	// CookieDomainMigrateFrom lists cookie scopes this deployment PREVIOUSLY
+	// wrote the refresh cookie at, so they can be actively evicted rather than
+	// left to shadow the live one forever. Use the sentinel "" (empty string)
+	// for the host-only scope.
+	//
+	// You need this when TIGHTENING or REMOVING a domain, because the old,
+	// wider cookie is invisible to the new configuration: the SDK cannot
+	// discover a scope it is no longer writing to. Widening is handled for
+	// free — setting CookieDomain always evicts the host-only twin, which is
+	// the common case (host-only default -> ".example.com").
+	//
+	//   // was host-only, now ".example.com": nothing needed, handled for free.
+	//   CookieDomain: ".example.com",
+	//
+	//   // was ".example.com", now host-only: name the scope being left.
+	//   CookieDomainMigrateFrom: []string{".example.com"},
+	//
+	// Entries are emitted as deletions on every write and on logout, so it is
+	// safe to leave them configured permanently; drop them once you are
+	// confident no live browser still holds the old scope.
+	CookieDomainMigrateFrom []string
 
 	// OriginEnforcement controls the confused-deputy Origin guard on the
 	// unauthenticated /auth/* routes (ADR-065). Default
@@ -521,8 +551,13 @@ func (r *Realm) handleLogin(w http.ResponseWriter, req *http.Request, opts *Midd
 }
 
 func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {
-	refresh := readRefreshToken(req, opts)
-	_ = r.Auth.Logout(req.Context(), &LogoutRequest{RefreshToken: refresh})
+	// Revoke EVERY candidate, not just the first. During a CookieDomain
+	// migration the browser holds two, and revoking only the one the old
+	// first-match read happened to return left a live session behind a cookie
+	// the user could not see or clear.
+	for _, refresh := range readRefreshTokens(req, opts) {
+		_ = r.Auth.Logout(req.Context(), &LogoutRequest{RefreshToken: refresh})
+	}
 	if opts.TokenDelivery != "body" {
 		clearRefreshCookie(w, opts)
 	}
@@ -530,8 +565,8 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 }
 
 func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {
-	refresh := readRefreshToken(req, opts)
-	if refresh == "" {
+	candidates := readRefreshTokens(req, opts)
+	if len(candidates) == 0 {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"code": "unauthorized", "message": "refresh token missing"}})
 		return
 	}
@@ -546,13 +581,35 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 	}
 	custom, _ := body["custom_claims"].(map[string]any)
 
-	out, err := r.Auth.Token(req.Context(), TokenRequest{
-		RefreshToken: refresh,
-		TenantID:     tenantID,
-		CustomClaims: custom,
-	})
-	if err != nil {
-		r.respondAuthFail(w, req, opts, stageRefresh, asRealmError(err))
+	// Try each candidate until one mints. With the ordinary single cookie this
+	// is exactly the old behaviour, including which error surfaces; with a
+	// shadowed jar it is the difference between a working session and a
+	// permanent, unrecoverable logout.
+	//
+	// The FIRST failure is what we report, not the last: with one candidate
+	// the two are identical, and with several the first is the one the old
+	// code would have surfaced — so no partner's error handling changes shape
+	// because a browser happened to be carrying a stale twin.
+	var (
+		out      *MintResult
+		firstErr error
+	)
+	for _, refresh := range candidates {
+		res, err := r.Auth.Token(req.Context(), TokenRequest{
+			RefreshToken: refresh,
+			TenantID:     tenantID,
+			CustomClaims: custom,
+		})
+		if err == nil {
+			out = res
+			break
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if out == nil {
+		r.respondAuthFail(w, req, opts, stageRefresh, asRealmError(firstErr))
 		return
 	}
 
@@ -785,21 +842,76 @@ func readJSON(req *http.Request) (map[string]any, error) {
 	return out, nil
 }
 
-func readRefreshToken(req *http.Request, opts *MiddlewareOptions) string {
+// maxRefreshCandidates caps how many same-named cookies we will try in one
+// request. A browser can legitimately hold two (host-only + domain-scoped)
+// during a CookieDomain migration; more than that is a stuffed jar, and an
+// uncapped loop would let anyone amplify one request into N issuer calls.
+const maxRefreshCandidates = 3
+
+// readRefreshTokens returns EVERY candidate refresh token on the request, in
+// the order the browser sent them, deduplicated and capped.
+//
+// Why a list and not a value: two cookies of the same name at different scopes
+// are distinct jar entries, and RFC 6265 §5.4 orders the Cookie header by path
+// length then by CREATION time — so with both at Path=/ the OLDER one is sent
+// first. `(*http.Request).Cookie` returns the first match and discards the
+// rest, which means a single scope change permanently pins the middleware to
+// the stale token: rotation only ever updates one of the two, and the frozen
+// one keeps winning the read. It never self-heals, because nothing in the
+// request path can even observe that a second cookie exists.
+//
+// Trying each candidate is safe against this issuer: an unrecognised refresh
+// hash resolves to nothing and returns ErrNotAuthenticated — there is no
+// reuse-detection that revokes the session family on replay (verified in
+// authsvc.MintForTenant, 2026-07-28). If that ever changes, this loop becomes
+// actively dangerous and must be revisited: it would hand a breach signal one
+// stale cookie per request.
+func readRefreshTokens(req *http.Request, opts *MiddlewareOptions) []string {
 	if opts.TokenDelivery == "body" {
 		body, _ := readJSON(req)
-		if v, ok := body["refresh_token"].(string); ok {
-			return v
+		if v, ok := body["refresh_token"].(string); ok && v != "" {
+			return []string{v}
+		}
+		return nil
+	}
+	var out []string
+	seen := make(map[string]struct{}, maxRefreshCandidates)
+	for _, c := range req.CookiesNamed(opts.CookieName) {
+		if c.Value == "" {
+			continue
+		}
+		if _, dup := seen[c.Value]; dup {
+			continue
+		}
+		seen[c.Value] = struct{}{}
+		out = append(out, c.Value)
+		if len(out) == maxRefreshCandidates {
+			break
 		}
 	}
-	c, err := req.Cookie(opts.CookieName)
-	if err != nil {
+	return out
+}
+
+// readRefreshToken returns the FIRST candidate, or "" when there is none.
+// Retained for the exported ReadRefreshToken shim, whose single-value
+// signature is public API.
+func readRefreshToken(req *http.Request, opts *MiddlewareOptions) string {
+	all := readRefreshTokens(req, opts)
+	if len(all) == 0 {
 		return ""
 	}
-	return c.Value
+	return all[0]
 }
 
 func setRefreshCookie(w http.ResponseWriter, opts *MiddlewareOptions, value string) {
+	// Evict any twin at another scope BEFORE writing the live value. Reading
+	// every candidate (readRefreshTokens) keeps a stranded browser working;
+	// this is what actually cleans up, so the jar converges to one cookie
+	// instead of carrying the garbage forever.
+	//
+	// Ordering matters only for readability — the deletions target different
+	// jar entries than the write, so they cannot clobber it.
+	evictShadowRefreshCookies(w, opts)
 	http.SetCookie(w, &http.Cookie{
 		Name:     opts.CookieName,
 		Value:    value,
@@ -811,7 +923,50 @@ func setRefreshCookie(w http.ResponseWriter, opts *MiddlewareOptions, value stri
 	})
 }
 
+// evictShadowRefreshCookies expires the refresh cookie at every scope this
+// deployment is NOT currently writing to.
+//
+// Setting CookieDomain always evicts the host-only twin: that is the common
+// migration (the default is host-only) and the one scope we can always name
+// without being told. The reverse — tightening or removing a domain — is not
+// discoverable, because the wider cookie is invisible to a configuration that
+// no longer writes it; that is what CookieDomainMigrateFrom is for.
+func evictShadowRefreshCookies(w http.ResponseWriter, opts *MiddlewareOptions) {
+	scopes := make([]string, 0, len(opts.CookieDomainMigrateFrom)+1)
+	if opts.CookieDomain != "" {
+		scopes = append(scopes, "") // the host-only twin
+	}
+	scopes = append(scopes, opts.CookieDomainMigrateFrom...)
+	for _, d := range scopes {
+		// Compare with the leading dot trimmed: `.example.com` and
+		// `example.com` are the SAME cookie scope (the dot has been
+		// meaningless since RFC 6265 superseded RFC 2109, and Go's
+		// http.SetCookie strips it anyway). Comparing raw strings would let a
+		// partner who spelled the two settings differently delete their own
+		// live cookie on every single write — the same class of self-inflicted
+		// logout this whole change exists to fix.
+		if strings.TrimPrefix(d, ".") == strings.TrimPrefix(opts.CookieDomain, ".") {
+			continue // never delete the scope we are about to write
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     opts.CookieName,
+			Value:    "",
+			Path:     "/",
+			Domain:   d,
+			HttpOnly: true,
+			Secure:   opts.CookieSecure,
+			SameSite: opts.CookieSameSite,
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+		})
+	}
+}
+
 func clearRefreshCookie(w http.ResponseWriter, opts *MiddlewareOptions) {
+	// Logout must clear EVERY scope. Clearing only the configured one is why
+	// signing out and back in did not recover a stranded browser: the shadow
+	// cookie survived the logout and went straight back to winning the read.
+	evictShadowRefreshCookies(w, opts)
 	http.SetCookie(w, &http.Cookie{
 		Name:     opts.CookieName,
 		Value:    "",

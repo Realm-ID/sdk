@@ -13,6 +13,41 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `v0.41.0` · java `0.30.0` — a `CookieDomain` change no longer strands live sessions
+
+**Bug fix. Reported by Traide (`traide.co.in`) from a live production incident,
+2026-07-28.** Verified against the source before acting; every claim in the
+report held.
+
+Setting or changing `CookieDomain` on a deployment with live sessions left every
+affected browser holding **two** cookies named `realmid_refresh` at different
+scopes. The middleware then read the wrong one on every refresh, forever, with
+no in-product recovery — not login, not logout, not waiting for expiry. The only
+escape was the user deleting cookies by hand.
+
+- **Read every candidate.** `readRefreshTokens` (Go) / `readRefreshCandidates`
+  (Java) return every cookie of the configured name, in header order,
+  deduplicated and capped at 3; the refresh handler tries each until one mints.
+  An already-stranded browser recovers on its next refresh with **no partner
+  action and no migration** — the valid token was in the header all along.
+  Logout now revokes every candidate too.
+- **Evict the other scopes.** Setting `CookieDomain` also emits a host-only
+  deletion on every write and on logout, so the twin is cleaned up instead of
+  shadowing the live cookie forever. New `CookieDomainMigrateFrom []string`
+  (`cookieDomainMigrateFrom` in Java) names scopes you are LEAVING, for the
+  tighten/remove direction the SDK cannot discover on its own. `""` means the
+  host-only scope; `.example.com` and `example.com` are treated as the same
+  scope, and the scope currently being written is never deleted.
+- **Documented.** SPEC §10.4 gains a "Changing `cookieDomain` on a live
+  deployment" section. The option comments carry the warning inline.
+
+Error semantics are unchanged: with the ordinary single cookie the behaviour is
+byte-identical, and when every candidate fails it is the FIRST failure that is
+reported — so no partner's `refresh_invalid` handling changes shape because a
+browser happened to be carrying a stale twin.
+
+TS/web is unaffected — the cookie is `HttpOnly` and never read client-side.
+
 ## `@realm-id/web-admin` 0.8.16 — MeMembership carries the caller's permissions
 
 Adds `MeMembership.is_admin_tenant` and `MeMembership.permissions` (ADR-090).
