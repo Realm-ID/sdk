@@ -81,7 +81,7 @@ export class PlatformsClient {
    * The response echoes the rows now present under the requested names, so the
    * caller can see whether an existing role was preserved.
    *
-   * Requires `roles:manage`.
+   * Requires realm OWNER (ADR-091 D3 retired `roles:manage`).
    */
   async seedStarterRoles(
     platformId: string,

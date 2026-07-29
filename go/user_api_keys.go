@@ -98,9 +98,13 @@ func userAPIKeysPath(tenantID, userID string) string {
 		"/users/" + url.PathEscape(userID) + "/user-api-keys"
 }
 
-// Create mints a key for userID. userID must be the caller unless the realm sets
-// user_api_keys.admin_mint_allowed (default false — an admin minting a credential
-// that authenticates AS a member is impersonation by another name).
+// Create mints a key for userID. userID MUST be the caller — keys are
+// self-service, with no override: an admin minting a credential that
+// authenticates AS a member is impersonation by another name, and ADR-039 is
+// deliberately unbuilt.
+//
+// ADR-091 removed the user_api_keys.admin_mint_allowed escape hatch entirely.
+// It is no longer a config key; PATCHing it answers 400 unknown_config_key.
 //
 // Value on the returned key is shown ONCE. Persist it at the call site or it is
 // gone.

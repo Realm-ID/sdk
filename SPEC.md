@@ -969,10 +969,13 @@ members' keys does not thereby gain platform-key power).
   only; the plaintext is never returned again.
 - `revoke(tenantId, userId, id)` — soft revoke.
 
-`userId` must be the caller unless the realm sets
-`user_api_keys.admin_mint_allowed` (default false — an admin minting a credential
-that authenticates AS a member is impersonation by another name, and ADR-039 is
-deliberately unbuilt).
+`userId` MUST be the caller — keys are self-service, with no override: an admin
+minting a credential that authenticates AS a member is impersonation by another
+name, and ADR-039 is deliberately unbuilt.
+
+**Changed in ADR-091**: the `user_api_keys.admin_mint_allowed` escape hatch is
+REMOVED. It is no longer a config key at all — PATCHing it answers
+`400 unknown_config_key` rather than being accepted and silently ignored.
 
 Row DTO (code wins — the issuer response is authoritative):
 `{ id, prefix, label?, orgScope, orgIds, permissionsCap, mintedMfaAt?, createdAt,

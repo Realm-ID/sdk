@@ -20,10 +20,14 @@ public final class UserAPIKeysClient {
     }
 
     /**
-     * Mints a key for {@code userId}, which must be the caller unless the realm
-     * sets {@code user_api_keys.admin_mint_allowed} (default false — an admin
-     * minting a credential that authenticates AS a member is impersonation by
-     * another name, and ADR-039 is deliberately unbuilt).
+     * Mints a key for {@code userId}, which MUST be the caller — keys are
+     * self-service, with no override: an admin minting a credential that
+     * authenticates AS a member is impersonation by another name, and ADR-039
+     * is deliberately unbuilt.
+     *
+     * <p>ADR-091 removed the {@code user_api_keys.admin_mint_allowed} escape
+     * hatch entirely. It is no longer a config key; PATCHing it answers
+     * {@code 400 unknown_config_key}.
      *
      * <p>The returned {@code value} is shown ONCE. Persist it at the call site or
      * it is gone.
