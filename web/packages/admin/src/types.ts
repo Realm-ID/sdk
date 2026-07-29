@@ -535,6 +535,20 @@ export interface MeMembership {
    * than to hide every control.
    */
   permissions?: string[];
+  /**
+   * ADR-093 D6 — this membership was found by CORRELATION (a verified email)
+   * but has never been CLAIMED: the row carries no approved provider tuple, so
+   * switching into it is refused with `not_a_member`.
+   *
+   * It is a real invitation or bulk import whose holder has not signed in yet.
+   * **Render it as pending, not as a workspace to enter.** Hiding it would be
+   * worse than the bug it fixes — an invitation invisible to its recipient —
+   * which is why the issuer marks rather than filters.
+   *
+   * Absent means false: an issuer or BFF too old to send it has no unclaimed
+   * memberships to report, so the safe reading is "not pending".
+   */
+  pending_first_signin?: boolean;
 }
 
 export interface ProfileResponse {
