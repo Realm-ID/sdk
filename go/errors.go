@@ -85,6 +85,22 @@ const (
 	ErrCodeIntegrationRoleUnavail    ErrorCode = "role_unavailable"
 	ErrCodeIntegrationKeyClassMisfit ErrorCode = "key_class_mismatch"
 
+	// Membership self-service (ADR-092 D5). Registered so the flat envelope's
+	// specific code reaches RealmError.Code instead of collapsing into the
+	// generic 409 `conflict` — every one of these has a distinct remedy the
+	// caller must render, and they are indistinguishable by status alone.
+	//
+	// ErrCodeOwnerCannotBeRevoked / ErrCodeOwnerCannotLeave are the SAME rule
+	// (`tenants.owner_user_id` is NOT NULL) on two routes; both are answered by
+	// transferring ownership (ADR-076) first, not by retrying.
+	ErrCodeOwnerCannotBeRevoked   ErrorCode = "owner_cannot_be_revoked"
+	ErrCodeSingleTenantNotReqd    ErrorCode = "single_tenant_not_required"
+	ErrCodeNotInvited             ErrorCode = "not_invited"
+	ErrCodeNotPending             ErrorCode = "not_pending"
+	ErrCodeInvitationsUnavailable ErrorCode = "invitations_unavailable"
+	ErrCodeOwnerCannotLeave       ErrorCode = "owner_cannot_leave"
+	ErrCodeAlreadyLeft            ErrorCode = "already_left"
+
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
 	ErrCodeForbidden    ErrorCode = "forbidden"
@@ -222,6 +238,10 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeIntegrationRoleNotInst: {}, ErrCodeInstallationNotFound: {},
 	ErrCodeInstallationRevoked: {}, ErrCodeIntegrationRoleUnavail: {},
 	ErrCodeIntegrationKeyClassMisfit: {},
+	ErrCodeOwnerCannotBeRevoked:      {}, ErrCodeSingleTenantNotReqd: {},
+	ErrCodeNotInvited: {}, ErrCodeNotPending: {},
+	ErrCodeInvitationsUnavailable: {}, ErrCodeOwnerCannotLeave: {},
+	ErrCodeAlreadyLeft: {},
 }
 
 func isKnownCode(s string) bool {

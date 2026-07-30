@@ -22,6 +22,7 @@ import dev.realmid.sdk.roles.RolesClient;
 import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
 import dev.realmid.sdk.integrations.IntegrationsClient;
 import dev.realmid.sdk.sessions.SessionsClient;
+import dev.realmid.sdk.me.MeClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
 import dev.realmid.sdk.stats.StatsClient;
 import dev.realmid.sdk.sources.SourcesClient;
@@ -68,6 +69,7 @@ public final class Realm {
     private final AdminClient admin;
     private final AuditEventsClient auditEvents;
     private final SessionsClient sessions;
+    private final MeClient me;
     private final RealmInfoClient info;
     private final ConfigClient config;
     private final StatsClient stats;
@@ -129,6 +131,7 @@ public final class Realm {
         this.admin = new AdminClient(this.http);
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.sessions = new SessionsClient(this.http, this.realmId);
+        this.me = new MeClient(this.http);
         this.config = new ConfigClient(this.http, this.realmId);
         this.stats = new StatsClient(this.http, this.realmId);
     }
@@ -180,6 +183,13 @@ public final class Realm {
     public AuditEventsClient auditEvents() { return auditEvents; }
     /** Owner/admin session-revocation surface (ADR-080): force-logout a member or the whole realm. */
     public SessionsClient sessions() { return sessions; }
+
+    /**
+     * The caller's OWN membership self-service (ADR-092 D5): settle the
+     * single-tenant picker, decline an invitation, leave an org. Authorized by
+     * the end user, never by the platform credential alone.
+     */
+    public MeClient me() { return me; }
     public ConfigClient config() { return config; }
     /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
     public StatsClient stats() { return stats; }

@@ -85,6 +85,21 @@ public enum ErrorCode {
     ROLE_UNAVAILABLE("role_unavailable"),
     KEY_CLASS_MISMATCH("key_class_mismatch"),
 
+    // membership self-service (ADR-092 D5). Present so the specific code
+    // reaches the caller instead of collapsing into the generic 409
+    // {@link #CONFLICT} — each has a distinct remedy and they are
+    // indistinguishable by status alone. OWNER_CANNOT_BE_REVOKED and
+    // OWNER_CANNOT_LEAVE are the same rule (`tenants.owner_user_id` is NOT
+    // NULL) on two routes: both are answered by an ADR-076 ownership transfer,
+    // never by a retry.
+    OWNER_CANNOT_BE_REVOKED("owner_cannot_be_revoked"),
+    SINGLE_TENANT_NOT_REQUIRED("single_tenant_not_required"),
+    NOT_INVITED("not_invited"),
+    NOT_PENDING("not_pending"),
+    INVITATIONS_UNAVAILABLE("invitations_unavailable"),
+    OWNER_CANNOT_LEAVE("owner_cannot_leave"),
+    ALREADY_LEFT("already_left"),
+
     // management / generic
     UNAUTHORIZED("unauthorized"),
     FORBIDDEN("forbidden"),

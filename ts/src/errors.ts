@@ -65,6 +65,19 @@ export type ErrorCode =
   | "installation_revoked"
   | "role_unavailable"
   | "key_class_mismatch"
+  // membership self-service (ADR-092 D5). Registered so the specific code
+  // reaches `error.code` instead of collapsing into the generic 409
+  // `conflict` — each has a distinct remedy and they are indistinguishable
+  // by status alone. `owner_cannot_be_revoked` and `owner_cannot_leave` are
+  // the same rule (`tenants.owner_user_id` is NOT NULL) on two routes: both
+  // are answered by an ADR-076 ownership transfer, never by a retry.
+  | "owner_cannot_be_revoked"
+  | "single_tenant_not_required"
+  | "not_invited"
+  | "not_pending"
+  | "invitations_unavailable"
+  | "owner_cannot_leave"
+  | "already_left"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -133,6 +146,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "slug_taken", "integration_not_found", "already_installed",
   "role_not_service_typed", "role_not_installable", "installation_not_found",
   "installation_revoked", "role_unavailable", "key_class_mismatch",
+  "owner_cannot_be_revoked", "single_tenant_not_required", "not_invited",
+  "not_pending", "invitations_unavailable", "owner_cannot_leave", "already_left",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

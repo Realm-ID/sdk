@@ -7,6 +7,50 @@ did this change happen."
 
 Newest first.
 
+## 2026-07-30 — ADR-092 surface: a `me` namespace, and the picker is not an error
+
+The issuer shipped ADR-092 (single-tenant membership + the D5 picker + membership
+self-service). This change types that contract in all three SDKs. It is purely
+additive — no existing field, method or signature moved — because the issuer
+side is already live and older SDK builds must keep working against it.
+
+**A new `realm.me.*` namespace rather than methods on `auth`.** `auth.*` is the
+credential-exchange surface (login, refresh, MFA, session revoke); these three
+routes are *membership* operations that happen to be self-scoped. Hanging them
+off `auth` would have made "the thing you call with a user's token" the
+organizing principle, which is transport, not meaning. `me` names the subject,
+which is the actual invariant: no path parameter here can name someone else.
+
+**Two auth modes, no user-id mode.** Direct (`userBearer`) and BFF (`userToken`
+→ `X-User-Token` beside the platform bearer) mirror the rest of the SDK. The
+existing `resolveOnBehalfOf` trio was deliberately NOT reused: its `UserID` arm
+sends `X-On-Behalf-Of-User`, which issuer v0.66.0 removed as an identity
+assertion (`401 x_user_token_required`). Offering it here would have shipped a
+mode that cannot work, and worse, one that *looks* like the authenticated path.
+
+**The picker is typed on the SUCCESS response, not as an error.** The tempting
+shape was a `tenant_choice_required` throw, symmetric with `mfa_required`. It
+would have been wrong: the issuer mints a real access token and a real refresh
+token in this state, and turning that into an exception would have forced every
+consumer to catch-and-continue to stay logged in. The rule this encodes — a
+reconciliation prompt is not an authentication failure — is the same reason the
+issuer does not refuse the login: refusing strands exactly the users the drain
+exists to resolve.
+
+**`singleTenantPendingReconciliation` typed BESIDE `config`, not inside it.**
+The issuer puts it outside the settings bag because it is derived state, and the
+SDKs preserve that seam rather than flattening it for convenience. Modelled as
+`*int` / `number | undefined` / `Integer` so ABSENT (rule off, not reported) is
+distinguishable from `0` (rule on, fully drained) — a UI that renders "0 users
+pending" for a realm that never enabled the rule is reporting a fact it does not
+have.
+
+**Seven error codes registered in the known set.** Six of them are 409s. Without
+registration they all collapse to the generic `conflict` and the caller cannot
+tell "transfer ownership first" from "you wanted `leave`, not `reject`" from
+"there is nothing to settle" — three different remedies behind one status. This
+is the same reason the integration codes were registered in ADR-082/083.
+
 ## 2026-07-28 — cookie shadowing: read every candidate, and evict the twin
 
 **Reported by Traide from a live incident.** Their analysis was correct on every

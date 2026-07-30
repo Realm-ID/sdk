@@ -139,6 +139,10 @@ type Realm struct {
 	// force-logout a user or a realm-wide mass logout. Distinct from
 	// AuthClient.RevokeAllSessions (the caller's own sessions).
 	Sessions *SessionsClient
+	// Me is the caller's OWN membership self-service (ADR-092 D5): settle the
+	// single-tenant picker, decline an invitation, leave an org. Authorized by
+	// the end user, never by the platform credential alone.
+	Me *MeClient
 }
 
 // Version is the published SDK version (semver). As of 0.30.0 it is
@@ -229,6 +233,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Integrations = &IntegrationsClient{realm: r}
 	r.FederationBindings = &FederationBindingsClient{realm: r}
 	r.Sessions = &SessionsClient{realm: r}
+	r.Me = &MeClient{realm: r}
 
 	return r, nil
 }

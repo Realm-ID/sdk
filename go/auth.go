@@ -120,6 +120,28 @@ type Session struct {
 	InitiatedByUserID string      `json:"initiated_by_user_id,omitempty"`
 	User              UserSummary `json:"user"`
 	Tenants           []TenantRef `json:"tenants"`
+	// TenantChoiceRequired (ADR-092 D5) reports that the caller holds more
+	// than one ACTIVE membership in a realm that requires single-tenant
+	// membership and must give the extras up. The login SUCCEEDED — an access
+	// token is minted and the refresh token is issued as usual — so this is a
+	// reconciliation prompt, not an auth failure: refusing the login would
+	// strand exactly the users the drain exists to resolve. Settle it with
+	// Realm.Me.ChooseTenant. Absent (false) on every realm that has the knob
+	// off, which is every realm until a partner turns it on.
+	TenantChoiceRequired bool `json:"tenant_choice_required,omitempty"`
+	// TenantChoices are the memberships the picker may choose between.
+	TenantChoices []TenantChoice `json:"tenant_choices,omitempty"`
+}
+
+// TenantChoice is one option in the ADR-092 D5 single-tenant picker.
+type TenantChoice struct {
+	TenantID    string `json:"tenant_id"`
+	DisplayName string `json:"display_name"`
+	// IsOwner marks a membership that CANNOT be given up: releasing it would
+	// leave the tenant ownerless and `tenants.owner_user_id` is NOT NULL. The
+	// client should not offer it — the server refuses it regardless — and the
+	// way out is an ADR-076 ownership transfer first.
+	IsOwner bool `json:"is_owner"`
 }
 
 // NeedsTenantChoice reports whether the issuer returned a tenant

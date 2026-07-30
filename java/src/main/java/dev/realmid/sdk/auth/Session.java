@@ -42,11 +42,34 @@ public record Session(
         // always deserialized to null.
         @JsonProperty("last_seen_at") @JsonAlias({"lastSeenAt", "last_used_at", "lastUsedAt"}) String lastUsedAt,
         @JsonProperty("user_agent") @JsonAlias("userAgent") String userAgent,
-        String ip
+        String ip,
+        // ADR-092 D5 — the caller holds more than one ACTIVE membership in a
+        // realm that requires single-tenant membership and must give the
+        // extras up. The login SUCCEEDED (access + refresh tokens are present),
+        // so this is a reconciliation prompt, not an auth failure: refusing the
+        // login would strand exactly the users the drain exists to resolve.
+        // Settle it with realm.me().chooseTenant(...). false on every realm
+        // with the knob off, which is every realm until a partner turns it on.
+        @JsonProperty("tenant_choice_required") @JsonAlias("tenantChoiceRequired")
+        boolean tenantChoiceRequired,
+        // The memberships the D5 picker may choose between; null when absent.
+        @JsonProperty("tenant_choices") @JsonAlias("tenantChoices")
+        List<TenantChoice> tenantChoices
 ) {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TenantRef(
             String id,
             String role,
             @JsonProperty("display_name") @JsonAlias("displayName") String displayName) {}
+
+    /** One option in the ADR-092 D5 single-tenant picker. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TenantChoice(
+            @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
+            @JsonProperty("display_name") @JsonAlias("displayName") String displayName,
+            // Marks a membership that CANNOT be given up: releasing it would
+            // leave the tenant ownerless and `tenants.owner_user_id` is NOT
+            // NULL. Do not offer it — the server refuses it regardless — the
+            // way out is an ADR-076 ownership transfer first.
+            @JsonProperty("is_owner") @JsonAlias("isOwner") boolean isOwner) {}
 }

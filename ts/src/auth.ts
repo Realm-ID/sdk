@@ -72,6 +72,31 @@ export interface LoginResponse {
   initiatedByUserId?: string;
   user: UserSummary;
   tenants: TenantRef[];
+  /**
+   * ADR-092 D5 — the caller holds more than one ACTIVE membership in a realm
+   * that requires single-tenant membership and must give the extras up. The
+   * login SUCCEEDED (an access token and a refresh token are present), so this
+   * is a reconciliation prompt, not an auth failure: refusing the login would
+   * strand exactly the users the drain exists to resolve. Settle it with
+   * `realm.me.chooseTenant({ tenantId })`. `undefined` on every realm with the
+   * knob off, which is every realm until a partner turns it on.
+   */
+  tenantChoiceRequired?: boolean;
+  /** The memberships the D5 picker may choose between. */
+  tenantChoices?: TenantChoice[];
+}
+
+/** One option in the ADR-092 D5 single-tenant picker. */
+export interface TenantChoice {
+  tenantId: string;
+  displayName: string;
+  /**
+   * Marks a membership that CANNOT be given up: releasing it would leave the
+   * tenant ownerless and `tenants.owner_user_id` is NOT NULL. Do not offer it
+   * — the server refuses it regardless — the way out is an ADR-076 ownership
+   * transfer first.
+   */
+  isOwner: boolean;
 }
 
 export interface TokenRequest {
@@ -253,6 +278,8 @@ interface RawAuthResponse {
   initiated_by_user_id?: string;
   user: UserSummary;
   tenants?: TenantRef[];
+  tenant_choice_required?: boolean;
+  tenant_choices?: { tenant_id: string; display_name: string; is_owner?: boolean }[];
 }
 
 interface RawTokenResponse {
@@ -619,5 +646,13 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
     initiatedByUserId: r.initiated_by_user_id,
     user: r.user,
     tenants: r.tenants ?? [],
+    // Both stay UNDEFINED when the server omits them: an ordinary login must
+    // not grow a falsy picker field that a caller might render.
+    tenantChoiceRequired: r.tenant_choice_required,
+    tenantChoices: r.tenant_choices?.map((c) => ({
+      tenantId: c.tenant_id,
+      displayName: c.display_name,
+      isOwner: c.is_owner === true,
+    })),
   };
 }

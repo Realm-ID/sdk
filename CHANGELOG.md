@@ -13,6 +13,33 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — membership self-service + the single-tenant picker (ADR-092), go · ts · java
+
+Purely additive typing of an issuer contract that is already live. No existing
+field, method or signature changed; older clients keep compiling.
+
+- **`realm.me.*` / `Realm.Me` / `realm.me()`** — `chooseTenant` (`POST
+  /me/tenant-choice`), `rejectInvitation` (`POST
+  /me/invitations/{tenantId}/reject`), `leave` (`POST
+  /me/memberships/{tenantId}/leave`). Authorized by the END USER: direct
+  (`userBearer`) or BFF (`userToken` → `X-User-Token` beside the platform
+  bearer). No user-id mode — a bare `X-On-Behalf-Of-User` stopped being an
+  identity in issuer v0.66.0.
+- **Login response** gains `tenantChoiceRequired` + `tenantChoices[]`
+  (`{ tenantId, displayName, isOwner }`). The login still SUCCEEDS and still
+  returns tokens; the picker is a reconciliation prompt, not an auth failure.
+  `isOwner` marks a membership that cannot be given up.
+- **`config.get()`** gains `singleTenantPendingReconciliation` — DERIVED,
+  read-only, and beside `config` rather than in it. Absent ≠ `0`: the issuer
+  reports it only while `single_tenant_membership` is on.
+- **Seven error codes** registered in the §3.1 taxonomy so they reach
+  `error.code` instead of collapsing into the generic 409 `conflict`:
+  `owner_cannot_be_revoked`, `single_tenant_not_required`, `not_invited`,
+  `not_pending`, `invitations_unavailable`, `owner_cannot_leave`,
+  `already_left`.
+
+SPEC §3.1, §4.1, §6.5 and the new §6.15 document the surface.
+
 ## go `v0.41.0` · java `0.30.0` — a `CookieDomain` change no longer strands live sessions
 
 **Bug fix. Reported by Traide (`traide.co.in`) from a live production incident,

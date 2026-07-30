@@ -129,6 +129,18 @@ SDK failure. It carries:
 > expiry / revocation / reuse: all three collapse to `refresh_invalid`
 > (the issuer does not distinguish them on the wire).
 
+**Membership self-service codes** (used by `realm.me.*`, §6.15, ADR-092):
+
+`owner_cannot_be_revoked`, `single_tenant_not_required`, `not_invited`,
+`not_pending`, `invitations_unavailable`, `owner_cannot_leave`,
+`already_left`.
+
+> Six of these arrive as 409s. They are registered as **known** codes in
+> all three languages so the specific code reaches `error.code` rather
+> than collapsing into the generic `conflict` — each has its own remedy
+> (transfer ownership, use `leave` instead of `reject`, nothing to do),
+> and the HTTP status alone cannot tell them apart.
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,
@@ -339,6 +351,19 @@ Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, expire
   a consumer that sizes a session from it (e.g. the BFF session store) MUST
   fall back to its own ceiling on the zero/absent value rather than treating
   the session as already expired.
+- `tenantChoiceRequired` (wire `tenant_choice_required`) + `tenantChoices`
+  (wire `tenant_choices`: `{ tenantId, displayName, isOwner }`), ADR-092
+  D5 — the caller holds more than one ACTIVE membership in a realm that
+  requires single-tenant membership and must give the extras up. **The
+  login SUCCEEDED**: an access token and a refresh token are returned as
+  usual, so this is a *reconciliation prompt, not an authentication
+  failure* — refusing the login would strand exactly the users the drain
+  exists to resolve. Settle it with `me.chooseTenant` (§6.15). `isOwner`
+  marks a membership that CANNOT be given up (releasing it would leave the
+  org ownerless); do not offer it — the server refuses it regardless.
+  **Optional / forward-compatible:** both are omitted unless the realm has
+  `single_tenant_membership` on, and decode as `false`/absent (Go, Java)
+  or `undefined` (TS) everywhere else.
 - If the server replies with a 412 `mfa_required`, the SDK throws
   `RealmError` with `code: "mfa_required"` and
   `details.mfa_challenge_token` set. Caller follows up with `mfaVerify()`.
@@ -953,6 +978,27 @@ Promoted from a nested namespace for ergonomics:
   > `mfa_policy` is also **readable**: the platform DTO returned by
   > `GET /platforms/mine` carries it, typed on `@realm-id/web-admin`'s
   > `Platform.mfa_policy` (0.8.5) so admin UIs can prime the control.
+- `single_tenant_membership` (bool, default `false`, ADR-092 D4) rides
+  the same generic PATCH. When on, a person may belong to at most ONE
+  tenant in the realm. Counts **ACTIVE** memberships only — an invitation
+  and a picker-suspended row are both deliberately excluded, so a user can
+  still hold and decline their invites. Does not apply to the base realm
+  or a realm's admin tenant (a platform's admin tenant lives in the base
+  realm while its orgs live in the platform realm, ADR-015/ADR-067, so
+  staff legitimately span both). Turning it ON is permitted with
+  violations outstanding: the §6.15 picker drains them at each next login,
+  and a conflicting membership is thereafter an ERROR (invite and
+  ownership transfer refuse with `409 single_tenant_membership`), never an
+  automatic move.
+- `realm.config.get()` → `{ id, config, singleTenantPendingReconciliation? }`.
+  The count is how many people still hold 2+ active memberships while the
+  rule is on — a user who never logs in never resolves, so it is the only
+  way an admin sees the tail. It sits **BESIDE `config`, not inside it**,
+  because it is DERIVED, read-only state; putting it in the settings bag
+  would imply it is settable, and PATCHing it answers
+  `400 unknown_config_key`. The issuer reports it **only while the rule is
+  on**, so absent (`undefined` / `nil` / `null`) ≠ `0`: the former means
+  "not reported", the latter "on and fully drained".
 
 ### 6.6 End-user API keys — `realm.userApiKeys.*` (ADR-084)
 
@@ -1255,6 +1301,71 @@ over `/tenants/{id}/integration-installations`:
   platform key), `installation_not_found` (404, incl. a key from the wrong
   realm — no cross-realm existence oracle), `installation_revoked` /
   `role_unavailable` (403).
+
+### 6.15 Membership self-service — `realm.me.*` (ADR-092)
+
+The caller acting on their OWN memberships: settle the single-tenant
+picker, decline an invitation, leave an org. Purely additive — no
+existing call changed.
+
+**Who authorizes.** Every route here is authorized by the END USER, never
+by the platform credential alone; there is no path parameter naming
+someone else and no admin override. Two modes, matching the rest of the
+SDK:
+
+- **direct** — the user's access JWT is the wire bearer
+  (`userBearer` / `MeAuth{UserBearer}` / `MeAuth.bearer(...)`).
+- **BFF** — the realm's platform token stays the bearer and the user's
+  **verified** access JWT rides as `X-User-Token`
+  (`userToken` / `MeAuth{UserToken}` / `MeAuth.onBehalfOf(...)`; in Go,
+  `WithUserToken(ctx, jwt)` also supplies it).
+
+There is **no user-id mode**. A bare `X-On-Behalf-Of-User` is not an
+identity — the issuer removed that in v0.66.0 and answers
+`401 x_user_token_required`.
+
+**`me.chooseTenant({ tenantId })`** → `{ tenantId, status: "chosen",
+released }`, `POST /me/tenant-choice`. Answers the §4.1 picker:
+`tenantId` is the membership to **KEEP**; the caller's other memberships
+in that realm are given up. They are **suspended, not deleted** — a
+login-time picker is a fast decision made under mild pressure and should
+not be the most destructive operation in the product, so an admin can
+restore one and `me.leave` remains the deliberate way out. Their sessions
+ARE revoked, otherwise the person keeps working in an org they just gave
+up until a token expires. Errors: `tenant_required` (400),
+`owner_cannot_be_revoked` (409 — the caller owns another org;
+`tenants.owner_user_id` is NOT NULL so releasing it would strand the org,
+and ownership must be transferred (ADR-076) first; checked BEFORE
+anything is mutated, so a refusal never leaves the caller partially
+reconciled), `single_tenant_not_required` (409 — the realm does not
+require single-tenant membership, so there is nothing to settle), 404.
+
+**`me.rejectInvitation({ tenantId })`** → `{ tenantId, status:
+"rejected" }`, `POST /me/invitations/{tenantId}/reject`. Declines a
+**pending** invitation. Only an offer can be declined — an active member
+wanting out uses `me.leave`, and the server keeps the two apart rather
+than letting a stray reject silently end a live membership. The outcome
+is recorded, not deleted, and the live-invite unique index is partial, so
+the tenant MAY invite the same person again later. Errors: `not_invited`
+/ `not_pending` (409), `invitations_unavailable` (501 — the issuer runs
+without an invitation-lifecycle store), 404. The 404 deliberately does
+not distinguish "no such tenant" from "not yours": that difference would
+make the route an existence oracle for tenant ids.
+
+**`me.leave({ tenantId })`** → `{ tenantId, status: "left" }`,
+`POST /me/memberships/{tenantId}/leave`. Ends the caller's own
+membership. This is the recovery path out of a picker-induced suspension,
+which is why it is authorized by the caller's realm session and not by a
+session in the tenant being left — requiring the latter would demand the
+very access it recovers from. Sessions for that membership are revoked.
+Errors: `owner_cannot_leave` (409 — same NOT NULL rule as
+`owner_cannot_be_revoked`, transfer ownership first), `already_left`
+(409), 404.
+
+**Error-code taxonomy.** All seven codes above are registered in §3.1's
+known set in every language, so they reach `error.code` instead of
+collapsing into the generic 409 `conflict` — each carries a distinct
+remedy and they are indistinguishable by status alone.
 
 ## 7. Pagination
 

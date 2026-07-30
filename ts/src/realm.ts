@@ -22,6 +22,7 @@ import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
 import { FederationBindingsClient } from "./federation-bindings.js";
 import { SessionsClient } from "./sessions.js";
+import { MeClient } from "./me.js";
 import { OriginsClient } from "./origins.js";
 import { TokensClient } from "./tokens.js";
 import { AdminClient } from "./admin.js";
@@ -133,6 +134,10 @@ export interface Realm {
   /** Owner/admin session-revocation (ADR-080): force-logout a user or a
    *  realm-wide mass logout. Distinct from `auth.revokeAllSessions` (self). */
   readonly sessions: SessionsClient;
+  /** The caller's OWN membership self-service (ADR-092 D5): settle the
+   *  single-tenant picker, decline an invitation, leave an org. Authorized by
+   *  the end user, never by the platform credential alone. */
+  readonly me: MeClient;
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
@@ -242,6 +247,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     integrations: new IntegrationsClient(http, cfg.realmId),
     federationBindings: new FederationBindingsClient(http, cfg.realmId),
     sessions: new SessionsClient(http, cfg.realmId),
+    me: new MeClient(http),
     info: () => info.get(),
     verify: (token, opts) => verifier.verify(token, opts),
     middleware: (mwCfg) => createMiddleware(handle, mwCfg),

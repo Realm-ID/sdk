@@ -41,6 +41,7 @@ export type { Logger } from "./logger.js";
 export type {
   LoginRequest,
   LoginResponse,
+  TenantChoice,
   TokenRequest,
   TokenResponse,
   MfaVerifyRequest,
@@ -123,6 +124,15 @@ export type {
 
 export { ConfigClient } from "./config.js";
 export type { RealmConfigValues, RealmConfigResponse } from "./config.js";
+
+export { MeClient } from "./me.js";
+export type {
+  MeAuth,
+  TenantChoiceRequest,
+  TenantChoiceResult,
+  MembershipRequest,
+  MembershipResult,
+} from "./me.js";
 
 export { StatsClient } from "./stats.js";
 export type { PlatformStats, MfaCoverage } from "./stats.js";

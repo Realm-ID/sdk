@@ -29,6 +29,7 @@ public final class RealmConfigResponse {
 
     private String id;
     private Map<String, Object> config = new LinkedHashMap<>();
+    private Integer singleTenantPendingReconciliation;
 
     public RealmConfigResponse() {}
 
@@ -37,8 +38,30 @@ public final class RealmConfigResponse {
     /** The mutable-config key set; see this class's doc for conventions. */
     public Map<String, Object> config() { return config; }
 
+    /**
+     * ADR-092 D4 — how many people in this realm still hold 2+ ACTIVE
+     * memberships while {@code single_tenant_membership} is on. It sits BESIDE
+     * {@code config}, not inside it, precisely because it is DERIVED, read-only
+     * state; putting it in the settings bag would imply it is settable, and
+     * PATCHing it answers {@code 400 unknown_config_key}.
+     *
+     * <p>{@code null} means the rule is off (the issuer reports the number only
+     * while it is on); {@code 0} means on and fully drained. Turning the rule
+     * on is allowed with violations outstanding — the D5 picker drains them at
+     * each next login, so a user who never logs in never resolves and this
+     * number is how an admin sees that.
+     */
+    public Integer singleTenantPendingReconciliation() {
+        return singleTenantPendingReconciliation;
+    }
+
     public void setId(String v) { this.id = v; }
     public void setConfig(Map<String, Object> v) {
         this.config = v == null ? new LinkedHashMap<>() : v;
+    }
+    @com.fasterxml.jackson.annotation.JsonProperty("single_tenant_pending_reconciliation")
+    @com.fasterxml.jackson.annotation.JsonAlias("singleTenantPendingReconciliation")
+    public void setSingleTenantPendingReconciliation(Integer v) {
+        this.singleTenantPendingReconciliation = v;
     }
 }

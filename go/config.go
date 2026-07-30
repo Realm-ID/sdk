@@ -39,6 +39,18 @@ type ConfigResponse struct {
 	ID string `json:"id"`
 	// Config carries exactly the mutable-config key set. See ConfigValues.
 	Config ConfigValues `json:"config"`
+	// SingleTenantPendingReconciliation counts the people in this realm who
+	// still hold 2+ ACTIVE memberships while `single_tenant_membership` is on
+	// (ADR-092 D4). It sits BESIDE Config, not inside it, precisely because it
+	// is DERIVED, read-only state — putting it in the settings bag would imply
+	// it is settable, and PATCHing it answers 400 unknown_config_key.
+	//
+	// A pointer because the issuer reports it only while the rule is ON: nil
+	// means "rule off / issuer does not report it", 0 means "on and fully
+	// drained". Turning the rule on is allowed with violations outstanding —
+	// the D5 picker drains them at each next login, so a user who never logs
+	// in never resolves and this number is how an admin sees that.
+	SingleTenantPendingReconciliation *int `json:"single_tenant_pending_reconciliation,omitempty"`
 }
 
 // ConfigClient is realm.Config.

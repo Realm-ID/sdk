@@ -31,6 +31,27 @@ export type RealmConfigValues = Record<string, unknown>;
 export interface RealmConfigResponse {
   id: string;
   config: RealmConfigValues;
+  /**
+   * ADR-092 D4 — how many people in this realm still hold 2+ ACTIVE
+   * memberships while `single_tenant_membership` is on. It sits BESIDE
+   * `config`, not inside it, precisely because it is DERIVED, read-only state;
+   * putting it in the settings bag would imply it is settable, and PATCHing it
+   * answers `400 unknown_config_key`.
+   *
+   * `undefined` means the rule is off (the issuer reports the number only
+   * while it is on); `0` means on and fully drained. Turning the rule on is
+   * allowed with violations outstanding — the D5 picker drains them at each
+   * next login, so a user who never logs in never resolves and this number is
+   * how an admin sees that.
+   */
+  singleTenantPendingReconciliation?: number;
+}
+
+/** Raw GET /platforms/{id}/config wire body. */
+interface RawRealmConfigResponse {
+  id?: string;
+  config?: RealmConfigValues;
+  single_tenant_pending_reconciliation?: number;
 }
 
 export class ConfigClient {
@@ -41,11 +62,15 @@ export class ConfigClient {
 
   /** GET /platforms/{id}/config — read counterpart of `update()`. */
   async get(): Promise<RealmConfigResponse> {
-    const raw = await this.http.request<RealmConfigResponse>({
+    const raw = await this.http.request<RawRealmConfigResponse>({
       method: "GET",
       path: `/platforms/${encodeURIComponent(this.realmId)}/config`,
     });
-    return { id: raw?.id ?? this.realmId, config: raw?.config ?? {} };
+    return {
+      id: raw?.id ?? this.realmId,
+      config: raw?.config ?? {},
+      singleTenantPendingReconciliation: raw?.single_tenant_pending_reconciliation,
+    };
   }
 
   async update(patch: Record<string, unknown>): Promise<RealmInfo> {
