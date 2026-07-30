@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased — membership self-service + the single-tenant picker (ADR-092), go · ts · java
+## Membership self-service + the single-tenant picker (ADR-092) — go `0.42.0` · ts `0.32.0` · java `0.31.0` (2026-07-30)
 
 Purely additive typing of an issuer contract that is already live. No existing
 field, method or signature changed; older clients keep compiling.
