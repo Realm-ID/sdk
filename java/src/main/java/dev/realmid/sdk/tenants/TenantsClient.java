@@ -57,7 +57,6 @@ public final class TenantsClient {
         Map<String, Object> b = new LinkedHashMap<>();
         if (body.id() != null) b.put("id", body.id());
         b.put("display_name", body.displayName());
-        if (body.allowedDomains() != null) b.put("allowed_domains", body.allowedDomains());
         if (body.signupMode() != null) b.put("signup_mode", body.signupMode());
         if (body.createdAt() != null) b.put("created_at", body.createdAt());
         if (body.owner() != null) b.put("owner", ownerWire(body.owner()));

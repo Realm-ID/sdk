@@ -7,6 +7,34 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-02 — dropping `allowedDomains`: a removed field is safer than a stale one (go `0.43.0`, ts `0.34.0`, java `0.33.0`, web-admin `0.8.17`)
+
+Issuer `v0.77.0` (ADR-094 R3) deletes `tenants.allowed_domains`. The SDK
+question was whether to remove the field or leave it as a harmless no-op for one
+release, which is the usual courtesy for a breaking wire change.
+
+Left in place it would not have been harmless. `Tenant.allowed_domains` is typed
+`string[]` (non-optional) in `@realm-id/web-admin`, and the issuer stops sending
+it — so `t.allowed_domains.length`, which is what every consumer actually
+writes, keeps typechecking and throws `Cannot read properties of undefined` at
+runtime. A field that is present in the type and absent on the wire converts a
+compile-time error into a production crash; that is strictly worse than the
+breakage of deleting it, which surfaces at build time in the caller's own repo.
+
+Java takes the sharpest hit and it is accepted rather than worked around: the
+`of(displayName, allowedDomains, owner)` overload is deleted outright instead of
+being deprecated to a no-op. A no-op overload would silently accept a list of
+domains and discard them — the caller's code compiles, runs, and quietly does
+not configure the SSO they asked for. Source-incompatibility is the honest
+signal.
+
+The replacement is not a rename. Domains that auto-provision are now
+`tenant_domains` grants requiring PROOF of control, reached through the domains
+API, so there is nothing on `create` to point the old field at — which is also
+why a bulk-imported org starts with its domains inert (ADR-094 §Consequences,
+no bulk-approve path). Recorded in SPEC §6.1 so a partner reading only the spec
+does not plan a migration around a field that cannot exist.
+
 ## 2026-08-02 — on-behalf-of reaches the typed surface by DERIVING a client (ts `0.33.0`, java `0.32.0`)
 
 A partner BFF acting for a signed-in user forwards that user's verified access

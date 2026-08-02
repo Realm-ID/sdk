@@ -651,7 +651,7 @@ every list endpoint (see §7).
 
 - `list(opts?)` — paginated. `opts: { cursor?, limit? }`.
 - `get(id)`
-- `create({ id?, displayName, allowedDomains?, signupMode?, createdAt?, owner })`
+- `create({ id?, displayName, signupMode?, createdAt?, owner })`
   — creates a tenant under the calling platform, provisioning the org and
   its **owner** in one transaction. The realm is implicit (the API key's
   realm); there is no separate "platform" parameter because a partner has
@@ -671,12 +671,19 @@ every list endpoint (see §7).
     idempotently**; present + in another realm ⇒ `cross_realm_tenant_id`.
   - `createdAt` (ADR-073 Amendment C.4) is an optional RFC3339 creation
     timestamp; absent ⇒ server time. Ignored on reconcile.
+  - **REMOVED (ADR-094 R3): `allowedDomains`.** `tenants.allowed_domains`
+    was retired as a column; the domains that auto-provision are
+    `tenant_domains` grants, claimed and proven through the domains API.
+    A settable allowlist required no proof of control, so it could confer
+    access nobody had demonstrated. A bulk-imported org therefore starts
+    with its domains **inert** — there is no bulk-approve path, by design
+    (ADR-094 §Consequences), so a migrating partner must claim per org.
 - `update(id, { displayName? })` — top-level mutable fields.
 - `updateConfig(id, patch)` — patches `tenants.config`. Honoured keys:
-  `allowedDomains: string[]` (auto-provision domain allowlist),
   `signupMode: "closed" | "allowlist" | "open"` (per-tenant signup
   policy, ADR-045 — `open` is reserved for the base admin tenant and
-  rejected on partner tenants), `role_overrides` (per-org role
+  rejected on partner tenants; `allowedDomains` was REMOVED by ADR-094 R3
+  and now returns 400 `unknown_config_key`), `role_overrides` (per-org role
   remapping) and `default_invitation_role` (the role a bare invite
   gets) — the latter two are **typed** in ts (`TenantConfigPatch`);
   go/java accept them through the generic config map. Server enforces

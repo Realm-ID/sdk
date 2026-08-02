@@ -19,7 +19,6 @@ export interface TenantSummary {
   id: string;
   realm_id: string;
   display_name: string;
-  allowed_domains: string[];
   custom_domain?: string;
   status: string;
   config: { mfa_policy?: string; signup_mode?: SignupMode };

@@ -13,6 +13,30 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## BREAKING — `allowedDomains` removed from tenant create (ADR-094 R3) — go `0.43.0` · ts `0.34.0` · java `0.33.0` · web-admin `0.8.17` (2026-08-02)
+
+`tenants.allowed_domains` no longer exists server-side (issuer `v0.77.0`,
+migration `1785888000`). Removed from every SDK in lockstep:
+
+- **go** — `TenantCreate.AllowedDomains` deleted.
+- **ts** — `TenantCreate.allowedDomains` deleted; the create body no longer
+  sends `allowed_domains`.
+- **java** — `TenantCreate`'s `allowedDomains` component deleted, along with the
+  `of(displayName, allowedDomains, owner)` overload. **Source-incompatible**:
+  a caller using that overload or the 6-arg canonical constructor must update.
+- **web-admin** — `Tenant.allowed_domains` deleted. Left in place it would have
+  been worse than stale: the field is typed `string[]`, so `t.allowed_domains.length`
+  would keep typechecking and throw on `undefined` against a `v0.77.0` issuer.
+
+Domains that auto-provision are `tenant_domains` grants, claimed and proven
+through the domains API. A settable allowlist required no proof of control,
+which is what let a domain confer access nobody had demonstrated. Note for
+migrations: a bulk-imported org therefore starts with its domains **inert** —
+there is no bulk-approve path, by design (ADR-094 §Consequences).
+
+`updateConfig` no longer honours `allowedDomains`; the server returns
+`400 unknown_config_key`. SPEC §6.1 updated; spec version 0.17.0 → 0.18.0.
+
 ## `withUserToken` — on-behalf-of reaches the TYPED surface — ts `0.33.0` · java `0.32.0` (2026-08-02)
 
 Additive. No existing method, signature or default changed; a caller that never

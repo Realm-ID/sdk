@@ -4,6 +4,18 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.33.0 — BREAKING: `TenantCreate.allowedDomains` removed (ADR-094 R3) (2026-08-02)
+
+`tenants.allowed_domains` no longer exists server-side (issuer `v0.77.0`). The
+record component is deleted, and with it the
+`of(String displayName, List<String> allowedDomains, TenantOwner owner)`
+overload. **Source-incompatible** for callers of that overload or of the 6-arg
+canonical constructor — the constructor is now 5-arg
+`(id, displayName, signupMode, createdAt, owner)`.
+
+Domain SSO is a proven `tenant_domains` grant claimed through the domains API,
+not a field on create; a settable allowlist needed no proof of control.
+
 ## java-v0.29.1 — docs: `invalidate()` no longer describes the withdrawn refresh step (2026-07-27)
 
 **No behaviour change.** `PlatformTokenManager.invalidate()`'s javadoc still said

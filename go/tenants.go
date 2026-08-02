@@ -27,9 +27,14 @@ type Tenant struct {
 // SignupMode is the per-tenant signup policy (SPEC §6.1, ADR-045).
 //
 // `closed` (default) is invitation-only; `allowlist` auto-provisions
-// users whose verified email domain is in `allowed_domains`; `open`
-// auto-provisions every authenticated user and is reserved for the
-// base admin tenant — partner tenants cannot set this mode.
+// users whose verified email domain has an ACTIVE, proven domain grant
+// for the tenant (ADR-094); `open` auto-provisions every authenticated
+// user and is reserved for the base admin tenant — partner tenants
+// cannot set this mode.
+//
+// A tenant in `allowlist` with no active grant matches nobody. That is a
+// legal state, not an error: a grant can be revoked or fail periodic
+// re-verification with no write to the tenant at all.
 type SignupMode string
 
 const (
@@ -63,9 +68,8 @@ type TenantCreate struct {
 	// call reconciles idempotently; present + exists in another realm ⇒
 	// `cross_realm_tenant_id`.
 	ID             string     `json:"id,omitempty"`
-	DisplayName    string     `json:"display_name"`
-	AllowedDomains []string   `json:"allowed_domains,omitempty"`
-	SignupMode     SignupMode `json:"signup_mode,omitempty"`
+	DisplayName string     `json:"display_name"`
+	SignupMode  SignupMode `json:"signup_mode,omitempty"`
 	// CreatedAt is an optional RFC3339 creation timestamp (ADR-073 C.4);
 	// absent ⇒ server time. Ignored on reconcile.
 	CreatedAt string `json:"created_at,omitempty"`

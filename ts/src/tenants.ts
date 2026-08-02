@@ -19,9 +19,11 @@ export interface Tenant {
 /**
  * Per-tenant signup policy (SPEC §6.1, ADR-045).
  *
- * - `closed` (default): invitation-only; `allowedDomains` is ignored.
- * - `allowlist`: auto-provision users whose verified email domain is
- *   listed in `allowedDomains`. The list must be non-empty.
+ * - `closed` (default): invitation-only; domain grants are ignored.
+ * - `allowlist`: auto-provision users whose verified email domain has an
+ *   ACTIVE, proven domain grant for the tenant (ADR-094). A tenant with no
+ *   active grant matches nobody — a legal state, since a grant can be
+ *   revoked or fail re-verification with no write to the tenant.
  * - `open`: auto-provision every authenticated user. Reserved for the
  *   base admin tenant — partner tenants cannot set this mode.
  */
@@ -52,7 +54,6 @@ export interface TenantCreate {
    *  another realm → `cross_realm_tenant_id`. */
   id?: string;
   displayName: string;
-  allowedDomains?: string[];
   signupMode?: SignupMode;
   /** Optional RFC3339 creation timestamp (ADR-073 C.4); absent → server time.
    *  Ignored on reconcile. */
@@ -514,11 +515,10 @@ export class TenantsClient {
       body: {
         id: body.id,
         display_name: body.displayName,
-        allowed_domains: body.allowedDomains,
         signup_mode: body.signupMode,
         created_at: body.createdAt,
         owner: body.owner,
-        ...rest(body, ["id", "displayName", "allowedDomains", "signupMode", "createdAt", "owner"]),
+        ...rest(body, ["id", "displayName", "signupMode", "createdAt", "owner"]),
       },
     });
   }

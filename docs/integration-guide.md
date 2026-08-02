@@ -1063,16 +1063,14 @@ expire — the tenant status doesn't auto-revoke them.
 ```ts
 const tnt = await realm.tenants.create({
   displayName: "Acme",
-  allowedDomains: ["acme.com"],
   signupMode: "allowlist",
 });
 ```
 
 ```go
 tnt, err := realm.Tenants.Create(ctx, realmid.TenantCreate{
-    DisplayName:    "Acme",
-    AllowedDomains: []string{"acme.com"},
-    SignupMode:     realmid.SignupModeAllowlist,
+    DisplayName: "Acme",
+    SignupMode:  realmid.SignupModeAllowlist,
 })
 ```
 

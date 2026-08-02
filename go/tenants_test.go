@@ -98,9 +98,8 @@ func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	tnt, err := r.Tenants.Create(context.Background(), TenantCreate{
-		DisplayName:    "Acme",
-		AllowedDomains: []string{"acme.com"},
-		SignupMode:     SignupModeAllowlist,
+		DisplayName: "Acme",
+		SignupMode:  SignupModeAllowlist,
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)

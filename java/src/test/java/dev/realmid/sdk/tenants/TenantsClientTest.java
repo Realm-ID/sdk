@@ -133,7 +133,7 @@ class TenantsClientTest {
                 Map.of("id", "t-new", "display_name", "Acme")));
 
         Tenant t = realm.tenants().create(
-                new TenantCreate("byo-id", "Acme", List.of("acme.com"), "allowlist",
+                new TenantCreate("byo-id", "Acme", "allowlist",
                         "2020-01-02T03:04:05Z",
                         new TenantOwner("owner-1", "boss@acme.com", null, "Boss", null, null)));
         assertEquals("t-new", t.id());
@@ -142,7 +142,6 @@ class TenantsClientTest {
         Map<String, Object> b = fs.last().bodyAsMap();
         assertEquals("byo-id", b.get("id"));
         assertEquals("Acme", b.get("display_name"));
-        assertEquals(List.of("acme.com"), b.get("allowed_domains"));
         assertEquals("allowlist", b.get("signup_mode"));
         assertEquals("2020-01-02T03:04:05Z", b.get("created_at"));
         // Owner (ADR-073 Amendment C.2) serialized as a nested snake_case object.
