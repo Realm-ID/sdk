@@ -656,7 +656,15 @@ every list endpoint (see §7).
   its **owner** in one transaction. The realm is implicit (the API key's
   realm); there is no separate "platform" parameter because a partner has
   one platform per realm. Wire call: `POST /platforms/{realmId}/tenants`.
-  `signupMode` defaults to `"closed"` server-side (ADR-045).
+  `signupMode` defaults to `"closed"` server-side (ADR-045). **Honoured on
+  create since 2026-08-02 / spec 0.20.0** — before that the issuer accepted the
+  field and silently dropped it, so every org came out `closed` whatever the
+  SDK sent. `"open"` is reserved for the base admin tenant and is **refused**
+  here (`invalid_signup_mode`), never quietly downgraded. On a BYO-`id`
+  **reconcile** it is idempotent-or-refused, never applied: the same value is a
+  no-op, a different one is `409 signup_mode_immutable_on_reconcile` with
+  nothing written — a re-run import must not clobber a policy changed in the
+  console since. Change it with `updateConfig`.
   - `owner` (ADR-073 Amendment C.2) is **required when creating a new
     tenant** — an org is never ownerless (ADR-076; `owner_user_id` is
     `NOT NULL`). Shape: `{ user_id?, email?, phone?, display_name?,
