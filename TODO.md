@@ -73,14 +73,16 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   in-process `sync.Mutex`; the BFF's `Store.AcquireRefreshLock`
   (`api/internal/session/store.go:286`, Redis SETNX) stays the authority. Make the
   SDK lock pluggable / BFF-backed.
-- [ ] **TS/Java `X-User-Token` parity (Q5)** — absent in `ts/`, `java/`
-  (re-confirmed 2026-07-28: 0 matches for `X-User-Token` in `ts/src` and
-  `java/src/main`). Go has forwarded it on the **typed** path since `go/v0.37.0`
-  (`go/http.go`, `WithUserToken`). **Raised priority — this caused a wrong
-  statement to a partner:** we told Traide the header "is forwarded only by
-  `Realm.Do`, not by the typed methods", which is TS/Java-only and was false for
-  Go. Closing this half makes the caveat disappear entirely. See the root
-  `TODO.md` § Deprecation deadlines entry, which owns the partner-comms half.
+- [x] **TS/Java `X-User-Token` parity (Q5)** — **DONE 2026-08-02**, ts `0.33.0` +
+  java `0.32.0`: `realm.withUserToken(accessJWT)` derives a realm that carries
+  the header on every typed method (Go's equivalent is the ctx value
+  `WithUserToken`, typed path since `go/v0.37.0`). Closing this removes the
+  caveat we gave Traide — the root `TODO.md` entry owns the partner-comms half
+  and is still open for the "tell them" step.
+  > The old text here claimed the header was **absent** from `ts/`+`java/` ("0
+  > matches, re-confirmed 2026-07-28"). That was false — both sent it on `/me`
+  > (`ts/src/me.ts:68`, `java/…/MeClient.java:102`). The gap was the TYPED path,
+  > not the header.
   *(Q4 encrypt-at-rest is done — ADR-060's AES-256-GCM seal in the BFF store.)*
 
 ## HTTP surface not yet wrapped

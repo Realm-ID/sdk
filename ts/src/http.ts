@@ -25,6 +25,14 @@ export interface HttpClientOptions {
    */
   platformTokens?: PlatformTokenManager;
   logger?: Logger;
+  /**
+   * The end user's *verified* access JWT, forwarded as `X-User-Token` on every
+   * request this client makes (SPEC §4 verified on-behalf-of; ADR-056). Set by
+   * `realm.withUserToken(jwt)` rather than directly: a client carrying a user
+   * token is a DERIVED client, so a user's identity can never leak onto the
+   * long-lived realm handle. A per-call `headers["x-user-token"]` still wins.
+   */
+  userToken?: string;
 }
 
 export interface RequestOptions {
@@ -48,12 +56,25 @@ export class HttpClient {
   private readonly fetch: typeof fetch;
   private readonly platformTokens?: PlatformTokenManager;
   private readonly logger: Logger;
+  private readonly opts: HttpClientOptions;
+  private readonly userToken?: string;
 
   constructor(opts: HttpClientOptions) {
+    this.opts = opts;
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.fetch = opts.fetch ?? globalThis.fetch.bind(globalThis);
     this.platformTokens = opts.platformTokens;
     this.logger = opts.logger ?? NOOP_LOGGER;
+    this.userToken = opts.userToken;
+  }
+
+  /**
+   * Returns a COPY of this client that forwards `accessJWT` as `X-User-Token`.
+   * The platform-token manager is shared, so the derived client reuses the
+   * cached platform token instead of re-minting one per user.
+   */
+  withUserToken(accessJWT: string): HttpClient {
+    return new HttpClient({ ...this.opts, userToken: accessJWT });
   }
 
   async request<T = unknown>(opts: RequestOptions): Promise<T> {
@@ -68,7 +89,15 @@ export class HttpClient {
       bearer = await this.platformTokens.getToken();
     }
     if (bearer) headers["authorization"] = `Bearer ${bearer}`;
-    if (opts.headers) Object.assign(headers, opts.headers);
+    // The client-scoped user token is ADDITIVE — the platform token stays the
+    // wire bearer (ADR-056). Set before the per-call merge so an explicit
+    // header still wins. Per-call keys are lower-cased on the way in: `fetch`
+    // treats header names case-insensitively and would otherwise APPEND a
+    // differently-cased duplicate ("a, b") instead of overriding it.
+    if (this.userToken) headers["x-user-token"] = this.userToken;
+    if (opts.headers) {
+      for (const [k, v] of Object.entries(opts.headers)) headers[k.toLowerCase()] = v;
+    }
 
     const init: RequestInit = {
       method: opts.method ?? "GET",

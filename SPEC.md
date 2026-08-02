@@ -591,12 +591,31 @@ admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
 > bare `X-On-Behalf-Of-User`; a present-but-invalid `X-User-Token` is
 > **rejected** (`x_user_token_invalid`) rather than downgraded to the bare
 > id. So a BFF holding a user JWT SHOULD send **only** `X-User-Token`
-> (omit the bare id). This is a **server-side** concern: the Go SDK
-> exposes it via `PassthroughOptions.OnBehalfOfUserToken` /
-> `WithUserToken(ctx, accessJWT)` on the `Realm.Do` passthrough; browser
-> SDKs never forward it (they reach the BFF over the `rsid_` cookie).
-> TS/Java inherit it through the existing on-behalf parity gap below — no
-> speculative lockstep.
+> (omit the bare id). Browser SDKs never forward it (they reach the BFF
+> over the `rsid_` cookie).
+>
+> **Every server SDK forwards it on the TYPED surface, not just on the
+> passthrough** — a partner BFF calling `tenants.list()` on the user's
+> behalf must be able to say so without dropping to raw HTTP:
+>
+> | SDK | How |
+> |---|---|
+> | Go | `WithUserToken(ctx, accessJWT)` — a context value, so it reaches every typed method and `Realm.Do` alike. Per-call override: `PassthroughOptions.OnBehalfOfUserToken`. |
+> | TS | `realm.withUserToken(accessJWT)` → a derived `Realm`. |
+> | Java | `realm.withUserToken(accessJWT)` → a derived `Realm`. |
+>
+> TS and Java have no ambient request context, so they **derive a client**
+> instead: the returned handle shares the parent's platform-token cache,
+> verifier and JWKS cache (all platform-scoped), and only its transport
+> differs. Derivation is required, not stylistic — a settable field on a
+> long-lived realm handle would let one request's user leak into the next.
+> Deriving per request is cheap. A per-call header (e.g. the `userToken`
+> mode on `realm.me.*`, §6.15) still wins over the client-scoped token,
+> and an SDK MUST send the header exactly once: header names are
+> case-insensitive, so a naive merge of `x-user-token` with
+> `X-User-Token` puts two values on the wire and the issuer rejects the
+> result. The SDK stores nothing — persistence and refresh of the user
+> JWT stay the caller's responsibility.
 
 ## 5. Verifier surface (`realm.verify`)
 
@@ -1982,9 +2001,14 @@ Detailed proposals tracked in repo `TODO.md`. Headlines:
 - WebAuthn / passkeys
 - Custom domains for hosted UIs
 - CSRF protection layer in the middleware (double-submit-cookie pattern)
-- BFF on-behalf-of (`userId` + `X-On-Behalf-Of-User`) parity for the TS
-  SDK's current-user session/MFA methods (§4.5–4.10) — Go and Java
-  already support it; TS is `userBearer`-only today
+- BFF on-behalf-of parity for the TS SDK's current-user session/MFA
+  methods (§4.5–4.10) — Go and Java accept a per-call user identity
+  there; TS is `userBearer`-only today. Note this is now the *only*
+  remaining gap: `realm.withUserToken()` (§4, verified on-behalf-of)
+  covers the typed surface in all three SDKs, and the bare
+  `X-On-Behalf-Of-User` id it was originally scoped around stopped being
+  an identity in issuer v0.66.0 — so the parity to close is the
+  `X-User-Token` one, not the id
 - Idempotency-key pass-through on mutations
 
 ## 12. Versioning

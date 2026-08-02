@@ -144,6 +144,24 @@ export interface Realm {
   info(): Promise<RealmInfo>;
   verify(token: string, opts?: VerifyOptions): Promise<Claims>;
   middleware(cfg?: MiddlewareConfig): ConnectMiddleware;
+  /**
+   * Returns a DERIVED realm whose every call carries `accessJWT` as
+   * `X-User-Token` — the on-behalf-of mode a BFF needs (SPEC §4 verified on-behalf-of; ADR-056).
+   * The realm's platform token stays the wire bearer; the user JWT is
+   * additive, so the issuer authorizes a *verified* principal rather than
+   * trusting a bare user id (which it refuses outright since v0.66.0).
+   *
+   *   const asUser = realm.withUserToken(req.session.accessToken);
+   *   await asUser.tenants.list();
+   *
+   * Derivation rather than a per-call option is deliberate: it reaches every
+   * typed method without changing a single signature, and it keeps a
+   * request-scoped identity off the long-lived realm handle. The
+   * platform-token cache, verifier and JWKS cache are SHARED with the parent —
+   * deriving per request is cheap. The SDK stores nothing: persistence and
+   * refresh of the user JWT stay the caller's responsibility.
+   */
+  withUserToken(accessJWT: string): Realm;
 }
 
 const DEFAULT_BASE_URL = "https://auth.realmid.dev";
@@ -221,36 +239,46 @@ export function createRealm(cfg: RealmConfig): Realm {
     logger,
   });
 
-  const handle: Realm = {
-    realmId: cfg.realmId,
-    baseUrl,
-    tokenDelivery: cfg.tokenDelivery ?? "cookie",
-    revocation: cfg.revocation,
-    auth: new AuthClient(http, cfg.realmId, originResolver, cfg.revocation),
-    tenants: new TenantsClient(http, cfg.realmId),
-    domains: new DomainsClient(http),
-    apiKeys: new ApiKeysClient(http, cfg.realmId),
-    userApiKeys: new UserApiKeysClient(http),
-    config: new ConfigClient(http, cfg.realmId),
-    stats: new StatsClient(http, cfg.realmId),
-    roles: new RolesClient(http, cfg.realmId),
-    signingKeys: new SigningKeysClient(http, cfg.realmId),
-    identityProviderConfig: new IdentityProviderConfigClient(http, cfg.realmId),
-    identityProviders: new IdentityProvidersClient(http, cfg.realmId),
-    origins: new OriginsClient(http, platformTokens),
-    tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
-    admin: new AdminClient(http),
-    auditEvents: new AuditEventsClient(http, cfg.realmId),
-    otp: new OtpClient(http),
-    serviceAccounts: new ServiceAccountsClient(http),
-    sources: new SourcesClient(http, cfg.realmId),
-    integrations: new IntegrationsClient(http, cfg.realmId),
-    federationBindings: new FederationBindingsClient(http, cfg.realmId),
-    sessions: new SessionsClient(http, cfg.realmId),
-    me: new MeClient(http),
-    info: () => info.get(),
-    verify: (token, opts) => verifier.verify(token, opts),
-    middleware: (mwCfg) => createMiddleware(handle, mwCfg),
+  // The whole resource bundle is a function of ONE HttpClient, so
+  // `withUserToken` can re-wire it around a derived client without touching a
+  // single typed-method signature. Everything expensive — the platform-token
+  // manager, the verifier + its JWKS cache, realm-info discovery — is captured
+  // above and SHARED by every derived handle.
+  const build = (client: HttpClient): Realm => {
+    const handle: Realm = {
+      realmId: cfg.realmId,
+      baseUrl,
+      tokenDelivery: cfg.tokenDelivery ?? "cookie",
+      revocation: cfg.revocation,
+      auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation),
+      tenants: new TenantsClient(client, cfg.realmId),
+      domains: new DomainsClient(client),
+      apiKeys: new ApiKeysClient(client, cfg.realmId),
+      userApiKeys: new UserApiKeysClient(client),
+      config: new ConfigClient(client, cfg.realmId),
+      stats: new StatsClient(client, cfg.realmId),
+      roles: new RolesClient(client, cfg.realmId),
+      signingKeys: new SigningKeysClient(client, cfg.realmId),
+      identityProviderConfig: new IdentityProviderConfigClient(client, cfg.realmId),
+      identityProviders: new IdentityProvidersClient(client, cfg.realmId),
+      origins: new OriginsClient(client, platformTokens),
+      tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
+      admin: new AdminClient(client),
+      auditEvents: new AuditEventsClient(client, cfg.realmId),
+      otp: new OtpClient(client),
+      serviceAccounts: new ServiceAccountsClient(client),
+      sources: new SourcesClient(client, cfg.realmId),
+      integrations: new IntegrationsClient(client, cfg.realmId),
+      federationBindings: new FederationBindingsClient(client, cfg.realmId),
+      sessions: new SessionsClient(client, cfg.realmId),
+      me: new MeClient(client),
+      info: () => info.get(),
+      verify: (token, opts) => verifier.verify(token, opts),
+      middleware: (mwCfg) => createMiddleware(handle, mwCfg),
+      withUserToken: (accessJWT: string) => build(client.withUserToken(accessJWT)),
+    };
+    return handle;
   };
-  return handle;
+
+  return build(http);
 }

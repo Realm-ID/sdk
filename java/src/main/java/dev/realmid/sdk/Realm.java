@@ -74,6 +74,7 @@ public final class Realm {
     private final ConfigClient config;
     private final StatsClient stats;
     private final PlatformTokenManager platformTokens;
+    private final Clock clock;
 
     private Realm(Builder b) {
         if (b.realmId == null || b.realmId.isEmpty()) {
@@ -88,6 +89,7 @@ public final class Realm {
                 ? HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
                 : b.httpClient;
         Clock clock = b.clock == null ? Clock.systemUTC() : b.clock;
+        this.clock = clock;
 
         // Resolve the bootstrap credential (ADR-057): explicit credential wins;
         // else a static apiKey; else auto-detect an ambient workload identity.
@@ -134,6 +136,77 @@ public final class Realm {
         this.me = new MeClient(this.http);
         this.config = new ConfigClient(this.http, this.realmId);
         this.stats = new StatsClient(this.http, this.realmId);
+    }
+
+    /**
+     * Derivation constructor for {@link #withUserToken(String)} — the whole
+     * resource bundle is rebuilt around a transport that carries the user JWT,
+     * which is what reaches every typed method without changing a single
+     * signature. Everything expensive is SHARED with the parent: the
+     * platform-token manager and its cache, the verifier and its JWKS cache,
+     * and realm-info discovery (all platform-scoped, none of them user-scoped),
+     * so deriving per request is cheap.
+     */
+    private Realm(Realm parent, String userToken) {
+        this.realmId = parent.realmId;
+        this.baseUrl = parent.baseUrl;
+        this.origin = parent.origin;
+        this.logger = parent.logger;
+        this.clock = parent.clock;
+        this.platformTokens = parent.platformTokens;
+        this.info = parent.info;
+        this.verifier = parent.verifier;
+        this.http = parent.http.withUserToken(userToken);
+
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin);
+        this.otp = new OtpClient(this.http);
+        this.tenants = new TenantsClient(this.http, this.realmId);
+        this.domains = new DomainsClient(this.http);
+        this.apiKeys = new APIKeysClient(this.http, this.realmId);
+        this.userApiKeys = new UserAPIKeysClient(this.http);
+        this.roles = new RolesClient(this.http, this.realmId);
+        this.serviceAccounts = new ServiceAccountsClient(this.http);
+        this.sources = new SourcesClient(this.http, this.realmId);
+        this.integrations = new IntegrationsClient(this.http, this.realmId);
+        this.federationBindings = new FederationBindingsClient(this.http, this.realmId);
+        this.signingKeys = new SigningKeysClient(this.http, this.realmId);
+        this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
+        this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
+        this.origins = new OriginsClient(this.http, this.platformTokens, this.clock);
+        this.tokens = new TokensClient(this.clock);
+        this.admin = new AdminClient(this.http);
+        this.auditEvents = new AuditEventsClient(this.http, this.realmId);
+        this.sessions = new SessionsClient(this.http, this.realmId);
+        this.me = new MeClient(this.http);
+        this.config = new ConfigClient(this.http, this.realmId);
+        this.stats = new StatsClient(this.http, this.realmId);
+    }
+
+    /**
+     * Returns a DERIVED realm whose every call carries {@code accessJWT} as
+     * {@code X-User-Token} — the on-behalf-of mode a BFF needs (SPEC §4
+     * verified on-behalf-of; ADR-056). The realm's platform token stays the
+     * wire bearer; the user JWT
+     * is additive, so the issuer authorizes a <em>verified</em> principal
+     * rather than trusting a bare user id (which it refuses outright since
+     * v0.66.0).
+     *
+     * <pre>{@code
+     * Realm asUser = realm.withUserToken(session.accessToken());
+     * asUser.tenants().list();
+     * }</pre>
+     *
+     * Derivation rather than a mutable field is deliberate — this SDK targets
+     * virtual threads, where a ThreadLocal ambient token is fragile, and a
+     * request-scoped identity must never be pinned onto the long-lived handle.
+     * The SDK stores nothing: persistence and refresh of the user JWT stay the
+     * caller's responsibility.
+     */
+    public Realm withUserToken(String accessJWT) {
+        if (accessJWT == null || accessJWT.isEmpty()) {
+            throw new RealmException(ErrorCode.BAD_REQUEST, "realmid: withUserToken requires a non-empty access token");
+        }
+        return new Realm(this, accessJWT);
     }
 
     public String realmId() { return realmId; }

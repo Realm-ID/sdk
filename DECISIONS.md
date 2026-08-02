@@ -7,6 +7,59 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-02 — on-behalf-of reaches the typed surface by DERIVING a client (ts `0.33.0`, java `0.32.0`)
+
+A partner BFF acting for a signed-in user forwards that user's verified access
+JWT as `X-User-Token` beside the platform bearer (ADR-056; the bare
+`X-On-Behalf-Of-User` id stopped being an identity in issuer v0.66.0). Go has
+carried it on every typed method since `go/v0.37.0`; **TS and Java could send it
+only on `realm.me.*`**, so a partner calling `tenants.list()` for a user had to
+drop to raw HTTP. ADR-094 flow 1 — an org admin claiming a domain through their
+platform's own console — cannot be built until that is closed, which is why this
+is R1 of that work rather than a standalone SDK chore.
+
+**Client derivation, not a per-call option.** Threading a `userToken` through
+every typed method meant ~104 signature changes per language, each one a
+breaking-ish churn on a locked spec, and every new method a fresh chance to
+forget. `realm.withUserToken(jwt)` instead rebuilds the resource bundle around
+one derived transport: the header reaches every method, present and future, and
+**not one signature moved**. The cost is a second object graph per call site —
+cheap, because everything expensive (platform-token manager + cache, verifier,
+JWKS cache) is *shared* with the parent. Those are all platform-scoped; nothing
+user-scoped is shared, which is what makes sharing safe.
+
+**Why Go's mechanism could not simply be copied.** Go uses a context value, so
+it needed zero signature changes and reaches `Do` and typed methods alike. TS
+and Java have no ambient request context. The Java-shaped equivalent would be a
+`ThreadLocal` — rejected: this SDK targets virtual threads, where an ambient
+token that must be set and cleared around every dispatch is a leak waiting to
+happen, and a leaked identity here is *authorization as the wrong user*. A
+mutable field on the realm handle was rejected for the same reason one step
+down: the handle is long-lived and shared across requests, so one request's user
+would bleed into the next. Derivation makes that failure unrepresentable — a
+derived handle cannot mutate its parent, and Java refuses an empty token rather
+than returning a handle that *looks* user-scoped and silently calls as the bare
+platform credential.
+
+**A bug found on the way: the header could have been sent twice.** `me` sets
+`X-User-Token` as a per-call header; the new transport sets `x-user-token`.
+Header names are case-insensitive, but both languages' merges were plain map
+writes keyed on the literal string — so both would have gone on the wire, and
+`fetch` joins duplicates with a comma while `HttpRequest.Builder.header()`
+appends. The issuer would have received `"a, b"` and rejected a token neither
+half authored. Per-call header names are now lower-cased on the way in, so a
+per-call value *overrides* rather than *joins*. Both suites assert on the raw
+header list, not the folded map — folding is exactly what hides this class of
+bug.
+
+**Also corrected: the TODO that scoped this work was wrong.** Both `sdk/TODO.md`
+and the root `TODO.md` carried "re-confirmed 2026-07-28: 0 matches for
+`X-User-Token` in `ts/src` and `java/src/main`". Both languages already sent it
+on `/me`. The real gap was never absence, it was reach — and a scoping line that
+says "absent" points at a different, larger fix than one that says "cannot ride
+the typed path". Both entries now record the correction, because a grep pasted
+into a TODO is a timestamped claim, not a fact.
+
 ## 2026-07-30 — ADR-092 surface: a `me` namespace, and the picker is not an error
 
 The issuer shipped ADR-092 (single-tenant membership + the D5 picker + membership

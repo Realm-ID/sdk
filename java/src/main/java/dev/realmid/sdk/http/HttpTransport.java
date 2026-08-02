@@ -34,14 +34,33 @@ public final class HttpTransport {
     private final ObjectMapper mapper;
     private final Logger logger;
     private final PlatformTokenManager tokens; // may be null
+    private final String userToken; // may be null
 
     public HttpTransport(String baseUrl, HttpClient client, ObjectMapper mapper,
                          Logger logger, PlatformTokenManager tokens) {
+        this(baseUrl, client, mapper, logger, tokens, null);
+    }
+
+    private HttpTransport(String baseUrl, HttpClient client, ObjectMapper mapper,
+                          Logger logger, PlatformTokenManager tokens, String userToken) {
         this.baseUrl = stripTrailingSlash(baseUrl);
         this.client = client;
         this.mapper = mapper;
         this.logger = logger == null ? Logging.NOOP : logger;
         this.tokens = tokens;
+        this.userToken = userToken;
+    }
+
+    /**
+     * Returns a COPY of this transport that forwards {@code accessJWT} as
+     * {@code X-User-Token} on every request (SPEC §4 verified on-behalf-of; ADR-056). The
+     * platform-token manager is SHARED, so the derived transport reuses the
+     * cached platform token rather than minting one per user. Reached via
+     * {@code Realm.withUserToken} — there is deliberately no setter, so a
+     * request-scoped identity can never be pinned onto a long-lived transport.
+     */
+    public HttpTransport withUserToken(String accessJWT) {
+        return new HttpTransport(baseUrl, client, mapper, logger, tokens, accessJWT);
     }
 
     public String baseUrl() { return baseUrl; }
@@ -60,7 +79,17 @@ public final class HttpTransport {
             bearer = tokens.getToken();
         }
         if (bearer != null) headers.put("authorization", "Bearer " + bearer);
-        if (r.headers != null) headers.putAll(r.headers);
+        // The transport-scoped user token is ADDITIVE — the platform token stays
+        // the wire bearer (ADR-056). Set before the per-call merge so an explicit
+        // header still wins. Per-call names are lower-cased on the way in:
+        // HttpRequest.Builder.header() APPENDS, so a differently-cased duplicate
+        // would be sent as two values rather than overriding.
+        if (userToken != null && !userToken.isEmpty()) headers.put("x-user-token", userToken);
+        if (r.headers != null) {
+            for (Map.Entry<String, String> e : r.headers.entrySet()) {
+                headers.put(e.getKey().toLowerCase(java.util.Locale.ROOT), e.getValue());
+            }
+        }
 
         byte[] body = null;
         if (r.body != null) {

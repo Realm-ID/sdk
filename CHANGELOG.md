@@ -13,6 +13,42 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `withUserToken` — on-behalf-of reaches the TYPED surface — ts `0.33.0` · java `0.32.0` (2026-08-02)
+
+Additive. No existing method, signature or default changed; a caller that never
+calls `withUserToken` sends exactly the bytes it sent before.
+
+A partner BFF acting for a signed-in user must forward that user's verified
+access JWT as `X-User-Token` beside the platform bearer (§4, ADR-056) — the
+bare `X-On-Behalf-Of-User` id stopped being an identity in issuer v0.66.0. Go
+has had this on every typed method since ADR-056 via a context value; **TS and
+Java could only send the header on `realm.me.*`**, so a partner calling
+`tenants.list()` on a user's behalf had to drop to raw HTTP. That gap blocks
+flow 1 of ADR-094 (per-org domain SSO), where an org admin claims a domain
+through their platform's own UI.
+
+- **`realm.withUserToken(accessJWT)`** (TS + Java) returns a **derived** realm
+  whose every call carries the header. The platform token stays the wire
+  bearer — the user JWT is additive, never a replacement.
+- **No typed-method signature changed.** The whole resource bundle is rebuilt
+  around one derived transport, which is how the header reaches ~104 methods
+  per language without touching them.
+- **Derivation, not a setter.** A settable field on a long-lived realm handle
+  would let one request's user leak into the next; TS and Java have no ambient
+  request context to hang it on, and a Java `ThreadLocal` is fragile under
+  virtual threads. The parent's platform-token cache, verifier and JWKS cache
+  are SHARED, so deriving per request is cheap.
+- **A per-call user token still wins**, and the header is now sent **exactly
+  once**. Header names are case-insensitive: the previous merge would have put
+  both `x-user-token` and `X-User-Token` on the wire (fetch joins them with a
+  comma; `HttpRequest.Builder.header()` appends), handing the issuer a token it
+  cannot parse. Per-call header names are lower-cased on the way in.
+- Java refuses `withUserToken(null)`/`("")` rather than handing back a handle
+  that looks user-scoped and silently calls as the bare platform credential.
+
+SPEC § "Verified on-behalf-of" now carries the per-SDK table and the
+send-it-once rule. ts 190 tests pass; java 185 pass.
+
 ## Membership self-service + the single-tenant picker (ADR-092) — go `0.42.0` · ts `0.32.0` · java `0.31.0` (2026-07-30)
 
 Purely additive typing of an issuer contract that is already live. No existing
