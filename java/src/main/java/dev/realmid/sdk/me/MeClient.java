@@ -50,6 +50,26 @@ public final class MeClient {
     }
 
     /**
+     * Accepts a PENDING invitation —
+     * {@code POST /me/invitations/{tenantId}/accept}.
+     *
+     * <p>The mirror of {@link #rejectInvitation}, and the reason both exist: a
+     * realm on {@code invitation_acceptance: "explicit"} (ADR-095 D2) no longer
+     * activates an invitation implicitly at login, so a decline path with no
+     * matching accept path would leave an invitee able to say no and unable to
+     * say yes.
+     *
+     * <p>On a realm using the default {@code "auto"} mode this still works — it
+     * settles a row the invitee's next sign-in would have settled anyway. Only
+     * an offer can be accepted: an already-active membership answers
+     * {@code not_invited} (409), and an invitation already answered, revoked or
+     * expired answers {@code not_pending}.
+     */
+    public MembershipResult acceptInvitation(String tenantId, MeAuth auth) {
+        return membershipOp("/me/invitations/" + enc(tenantId) + "/accept", tenantId, auth);
+    }
+
+    /**
      * Declines a PENDING invitation —
      * {@code POST /me/invitations/{tenantId}/reject}.
      *

@@ -5,7 +5,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
- * Outcome of {@link MeClient#rejectInvitation} ({@code "rejected"}) or
+ * Outcome of {@link MeClient#acceptInvitation} ({@code "accepted"}),
+ * {@link MeClient#rejectInvitation} ({@code "rejected"}) or
  * {@link MeClient#leave} ({@code "left"}).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)

@@ -113,6 +113,23 @@ func (c *MeClient) ChooseTenant(ctx ctxpkg.Context, req TenantChoiceRequest) (*T
 	return &out, nil
 }
 
+// AcceptInvitation accepts a PENDING invitation to a tenant via
+// POST /me/invitations/{tenantId}/accept.
+//
+// The mirror of RejectInvitation, and the reason both exist: a realm on
+// `invitation_acceptance: "explicit"` (ADR-095 D2) no longer activates an
+// invitation implicitly at login, so a decline path with no matching accept
+// path would leave an invitee able to say no and unable to say yes.
+//
+// On a realm using the default `"auto"` mode this still works — it settles a
+// row the invitee's next sign-in would have settled anyway. Only an offer can
+// be accepted: an already-active membership answers `409 not_invited`, and an
+// invitation already answered, revoked or expired answers `409 not_pending`.
+// `404` deliberately does not distinguish "no such tenant" from "not yours".
+func (c *MeClient) AcceptInvitation(ctx ctxpkg.Context, req MembershipRequest) (*MembershipResult, error) {
+	return c.membershipOp(ctx, req, "/me/invitations/"+url.PathEscape(req.TenantID)+"/accept")
+}
+
 // RejectInvitation declines a PENDING invitation to a tenant via
 // POST /me/invitations/{tenantId}/reject.
 //

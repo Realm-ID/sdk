@@ -1374,6 +1374,25 @@ anything is mutated, so a refusal never leaves the caller partially
 reconciled), `single_tenant_not_required` (409 — the realm does not
 require single-tenant membership, so there is nothing to settle), 404.
 
+**`me.acceptInvitation({ tenantId })`** → `{ tenantId, status:
+"accepted" }`, `POST /me/invitations/{tenantId}/accept`. Accepts a
+**pending** invitation: the lifecycle row is stamped `accepted` and the
+membership becomes `active`.
+
+The mirror of `me.rejectInvitation`, and the reason both exist: a realm on
+`invitation_acceptance: "explicit"` (see §6.1's realm config) no longer
+activates an invitation implicitly at login, so a decline path with no
+matching accept path would leave an invitee able to say no and unable to
+say yes. On a realm using the default `"auto"` mode this still works — it
+settles a row the invitee's next sign-in would have settled anyway.
+
+The lifecycle row is written BEFORE the membership is activated, which is
+the concurrency control: `Respond` is the only operation that can lose a
+race against a simultaneous reject or an inviter's revoke, so activating
+the membership first would let a rejected invitation still grant access.
+Errors: `not_invited` / `not_pending` (409),
+`invitations_unavailable` (501), 404 (same non-oracle 404 as below).
+
 **`me.rejectInvitation({ tenantId })`** → `{ tenantId, status:
 "rejected" }`, `POST /me/invitations/{tenantId}/reject`. Declines a
 **pending** invitation. Only an offer can be declined — an active member

@@ -47,7 +47,8 @@ export interface MembershipRequest extends MeAuth {
   tenantId: string;
 }
 
-/** Outcome of `rejectInvitation` (`"rejected"`) or `leave` (`"left"`). */
+/** Outcome of `acceptInvitation` (`"accepted"`), `rejectInvitation`
+ * (`"rejected"`) or `leave` (`"left"`). */
 export interface MembershipResult {
   tenantId: string;
   status: string;
@@ -93,6 +94,23 @@ export class MeClient {
       status: raw?.status ?? "",
       released: raw?.released ?? 0,
     };
+  }
+
+  /**
+   * Accepts a PENDING invitation — `POST /me/invitations/{tenantId}/accept`.
+   *
+   * The mirror of `rejectInvitation`, and the reason both exist: a realm on
+   * `invitation_acceptance: "explicit"` (ADR-095 D2) no longer activates an
+   * invitation implicitly at login, so a decline path with no matching accept
+   * path would leave an invitee able to say no and unable to say yes.
+   *
+   * On a realm using the default `"auto"` mode this still works — it settles a
+   * row the invitee's next sign-in would have settled anyway. Only an offer can
+   * be accepted: an already-active membership answers `not_invited` (409), and
+   * an invitation already answered, revoked or expired answers `not_pending`.
+   */
+  async acceptInvitation(req: MembershipRequest): Promise<MembershipResult> {
+    return this.membershipOp(req, `/me/invitations/${encodeURIComponent(req.tenantId)}/accept`);
   }
 
   /**
