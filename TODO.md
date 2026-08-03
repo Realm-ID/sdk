@@ -147,3 +147,26 @@ this is the SDK-side work.
   shows only `new_owner_email`, but the ADR-076 handler reads
   `{owner_user_id, outgoing_owner_role?, leave_entirely?}`
   (`issuer/internal/httpapi/tenants.go:924`). Backfill the schema.
+
+## `web-admin` — `MeMembership` is one field behind `/me`
+
+- [ ] `web/packages/admin/src/types.ts` `MeMembership` types
+  `pending_first_signin` but not **`invitation_pending`** (issuer `v0.83.0`,
+  ADR-095 D5), which is the field that decides whether a row gets Accept and
+  Decline or Leave — keying on `pending_first_signin` instead offers two
+  controls the issuer answers `not_invited` / `not_pending`. Nothing is broken
+  today: `ui/web`'s `AccountOrganizations.tsx` declares its own local
+  `Membership` interface (as `HomeLanding` does) and reads the field straight
+  off `/me`, so the console is correct. What is missing is the CONTRACT — the
+  browser SDK's published type understates the wire, and the next consumer that
+  trusts it will re-derive the same bug.
+  Deferred because it is a type-only change with a real release tail: a
+  `web-admin` version bump (`0.8.17` → `0.8.18`), an npm publish, and a
+  re-vendor into `ui/web/vendor/` — which carries the documented repack gotcha
+  (workspace-root `npm install` hoists the bundled `@realm-id/sdk` out of the
+  package before `npm pack`). Do it with the next web-admin release rather than
+  as a lone tarball roll.
+  While there: `AccountOrganizations.tsx`'s comment claiming
+  `pending_first_signin` "is not on `@realm-id/web-admin`'s `MeMembership` yet"
+  is stale — it has been there since `0.8.x`. The local declaration is still
+  right (it needs `invitation_pending` too), but the stated reason is not.
