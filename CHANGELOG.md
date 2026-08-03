@@ -13,6 +13,35 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `me.acceptInvitation` — the mirror of reject (ADR-095 D5) — go `0.44.0` · ts `0.35.0` · java `0.34.0` (2026-08-03)
+
+`POST /me/invitations/{tenantId}/accept`, added to all three SDKs. Accepts a
+**pending** invitation: the lifecycle row is stamped `accepted` and the
+membership becomes `active`. Returns the same `{tenantId, status}` envelope as
+`rejectInvitation` and `leave`, and takes no request body — the path and the
+session say everything.
+
+Why it exists: a realm on `invitation_acceptance: "explicit"` (ADR-095 D2, issuer
+`v0.82.0`) no longer activates an invitation implicitly at login, so a decline
+path with no matching accept path would leave an invitee able to say no and
+unable to say yes. On the default `"auto"` mode the call still works — it settles
+a row the invitee's next sign-in would have settled anyway.
+
+- **go** — `MeClient.AcceptInvitation(ctx, MembershipRequest) (*MembershipResult, error)`.
+- **ts** — `realm.me.acceptInvitation({ tenantId })`.
+- **java** — `realm.me().acceptInvitation(tenantId, auth)`.
+
+Errors keep their specific codes rather than collapsing into a generic 409:
+`not_invited` (already an active member) and `not_pending` (already answered,
+revoked or expired) have different remedies, and only the code tells them apart.
+`404` deliberately does not distinguish "no such tenant" from "not yours".
+
+Additive in every language — no existing signature changed. SPEC §6.15 documents
+the write order (lifecycle row **before** membership activation), which is the
+concurrency control: activating the membership first would let an invitation
+rejected in a simultaneous request still grant access. Spec version 0.20.0 →
+0.21.0.
+
 ## BREAKING — `allowedDomains` removed from tenant create (ADR-094 R3) — go `0.43.0` · ts `0.34.0` · java `0.33.0` · web-admin `0.8.17` (2026-08-02)
 
 `tenants.allowed_domains` no longer exists server-side (issuer `v0.77.0`,

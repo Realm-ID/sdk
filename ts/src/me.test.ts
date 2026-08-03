@@ -171,3 +171,37 @@ test("config.get: pending reconciliation is undefined when the rule is off", asy
   // facts, and a caller rendering the number must tell them apart.
   assert.equal(out.singleTenantPendingReconciliation, undefined);
 });
+
+test("me.acceptInvitation: own route, no body, escaped tenant id", async () => {
+  const hits: string[] = [];
+  const realm = realmWith(mkFetch((req) => {
+    hits.push(req.url);
+    assert.equal(req.body, undefined, "this route takes no body");
+    return json({ tenant_id: "t one", status: "accepted" });
+  }));
+  const acc = await realm.me.acceptInvitation({ tenantId: "t one", userBearer: "u" });
+  assert.equal(acc.status, "accepted");
+  // The route is /accept, NOT /reject with a flag: the two are separate issuer
+  // endpoints (ADR-095 D5), and pointing accept at reject's path would decline
+  // the invitation it was asked to take. A tenant id is a path SEGMENT and must
+  // be escaped, not interpolated raw.
+  assert.match(hits[0]!, /\/me\/invitations\/t%20one\/accept$/);
+});
+
+test("me.acceptInvitation: not_pending keeps its specific code", async () => {
+  const realm = realmWith(mkFetch(() => json({
+    error: "invitation already answered", code: "not_pending",
+  }, 409)));
+  await assert.rejects(
+    () => realm.me.acceptInvitation({ tenantId: "t1", userBearer: "u" }),
+    (err: unknown) => {
+      assert.ok(err instanceof RealmError);
+      // Must NOT collapse into the generic 409 `conflict`: `not_pending`
+      // (already answered) and `not_invited` (already a member) have different
+      // remedies, and only the code tells them apart.
+      assert.equal(err.code, "not_pending");
+      assert.equal(err.httpStatus, 409);
+      return true;
+    },
+  );
+});

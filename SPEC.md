@@ -1,7 +1,7 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-07-15 — go `go/v0.32.0` · ts `ts-v0.22.0` · java
-`java-v0.20.0`** (see §12 for the tag matrix).
+**Current as of 2026-08-03 — go `go/v0.44.0` · ts `ts-v0.35.0` · java
+`java-v0.34.0`** (see §12 for the tag matrix).
 
 > **Revision history.** This body is kept **current** — it always
 > describes the shipped surface, not an amendment trail. The
@@ -2064,9 +2064,9 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.32.0`        | slash form; resolved by `go get`. ADR-075 `required_mfa_methods` write surface. |
-| TS       | `ts-v0.22.0`        | `@realm-id/sdk@0.22.0` on npm. Same ADR-075 surface. |
-| Java     | `java-v0.20.0`      | `dev.realmid:sdk:0.20.0` on Maven Central. Same ADR-075 surface. |
+| Go       | `go/v0.44.0`        | slash form; resolved by `go get`. ADR-095 D5 `me.AcceptInvitation`. |
+| TS       | `ts-v0.35.0`        | `@realm-id/sdk@0.35.0` on npm. Same ADR-095 surface. |
+| Java     | `java-v0.34.0`      | `dev.realmid:sdk:0.34.0` on Maven Central. Same ADR-095 surface. |
 
 > The three languages ship in lockstep per SPEC change (matching
 > CHANGELOG entries); this matrix drifts between releases — `git tag`

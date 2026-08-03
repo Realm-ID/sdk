@@ -7,6 +7,38 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-03 — `acceptInvitation` ships with the tests the feature commit skipped (go `0.44.0`, ts `0.35.0`, java `0.34.0`)
+
+Issuer `v0.82.0` (ADR-095 D5) adds `POST /me/invitations/{tenantId}/accept`, and
+the SDK wrapper for it landed in the previous commit **with no test in any of the
+three languages** — while its mirror, `rejectInvitation`, has one in all three.
+That asymmetry is the decision worth recording, because the wrapper is three
+lines of path construction and the temptation is to call it too small to test.
+
+It is not, and the mutation check says so: repointing the Go implementation at
+`/reject` — a one-character-class edit, the exact slip a copy-pasted mirror
+invites — fails both new tests. The wrapper's entire job **is** the path, so an
+untested wrapper has nothing verified about it at all. A caller who asked to
+accept an invitation and silently declined it has no recovery: `reject` is
+terminal for that lifecycle row, and the invitee must be invited again by someone
+else.
+
+The second test per language pins the ERROR CODE rather than the status. `409`
+carries both `not_invited` (you are already an active member — nothing to do) and
+`not_pending` (the invitation was answered, revoked or expired — ask for a new
+one). The remedies differ and only the code separates them, so a status-only
+assertion would pass against an SDK that flattened both into a generic conflict.
+Same reasoning as the `owner_cannot_be_revoked` test that already sits beside it.
+
+Nothing was changed about the shipped behaviour — this release is tests, the
+version bumps, and two documentation corrections. The SPEC header and its §12 tag
+matrix had gone stale on 2026-07-15, advertising `go/v0.32.0` while `go/v0.43.0`
+was live: eleven releases of drift in the one table whose stated purpose is to
+say which tag matches this document. Refreshed here rather than filed, because a
+version table that is known-wrong is worse than absent — a reader who distrusts it
+gains nothing from it, and one who trusts it installs an SDK missing the surface
+they are reading about.
+
 ## 2026-08-02 — dropping `allowedDomains`: a removed field is safer than a stale one (go `0.43.0`, ts `0.34.0`, java `0.33.0`, web-admin `0.8.17`)
 
 Issuer `v0.77.0` (ADR-094 R3) deletes `tenants.allowed_domains`. The SDK

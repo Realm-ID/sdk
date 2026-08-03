@@ -155,4 +155,31 @@ class MeClientTest {
         // facts, and a caller rendering the number must tell them apart.
         assertNull(realm.config().get().singleTenantPendingReconciliation());
     }
+
+    @Test
+    void acceptInvitationHitsItsOwnRouteWithNoBody() {
+        // The route is /accept, NOT /reject with a flag: the two are separate
+        // issuer endpoints (ADR-095 D5), and pointing accept at reject's path
+        // would decline the invitation it was asked to take.
+        fs.on("POST /me/invitations/t1/accept", (ex, body) -> FakeServer.Reply.json(200,
+                Map.of("tenant_id", "t1", "status", "accepted")));
+
+        MembershipResult acc = realm.me().acceptInvitation("t1", MeAuth.bearer("u"));
+        assertEquals("accepted", acc.status());
+        assertEquals("t1", acc.tenantId());
+        assertTrue(fs.last().bodyAsMap().isEmpty(), "accept takes no body");
+    }
+
+    @Test
+    void acceptInvitationNotPendingKeepsItsSpecificCode() {
+        fs.on("POST /me/invitations/t1/accept", (ex, body) -> FakeServer.Reply.json(409,
+                Map.of("error", "invitation already answered", "code", "not_pending")));
+
+        RealmException e = assertThrows(RealmException.class,
+                () -> realm.me().acceptInvitation("t1", MeAuth.bearer("u")));
+        // Must NOT collapse into the generic 409 CONFLICT: NOT_PENDING (already
+        // answered) and NOT_INVITED (already a member) have different remedies,
+        // and only the code tells them apart.
+        assertEquals(ErrorCode.NOT_PENDING, e.getCode());
+    }
 }

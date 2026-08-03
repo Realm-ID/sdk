@@ -300,3 +300,70 @@ func TestConfig_PendingReconciliationIsNilWhenTheRuleIsOff(t *testing.T) {
 		t.Errorf("pending=%v, want nil", *out.SingleTenantPendingReconciliation)
 	}
 }
+
+func TestMe_AcceptInvitationHitsItsOwnRoute(t *testing.T) {
+	hit := false
+	srv := meServer(t, map[string]http.HandlerFunc{
+		// The route is /accept, NOT /reject with a flag: the two are separate
+		// issuer endpoints (ADR-095 D5) and pointing accept at reject's path
+		// would decline the invitation it was asked to take.
+		"/me/invitations/t%20one/accept": func(w http.ResponseWriter, r *http.Request) {
+			hit = true
+			if r.Method != "POST" {
+				t.Errorf("method=%s", r.Method)
+			}
+			// No request body — the path and the session say everything.
+			buf, _ := io.ReadAll(r.Body)
+			if len(buf) != 0 {
+				t.Errorf("accept body=%q, want empty", buf)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"tenant_id": "t one", "status": "accepted"})
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	// A tenant id is a path SEGMENT and must be escaped, not interpolated raw.
+	acc, err := r.Me.AcceptInvitation(context.Background(), MembershipRequest{
+		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t one",
+	})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if !hit {
+		t.Error("accept route not hit")
+	}
+	if acc.Status != "accepted" || acc.TenantID != "t one" {
+		t.Errorf("result=%+v", acc)
+	}
+}
+
+func TestMe_AcceptInvitationSurfacesNotPending(t *testing.T) {
+	srv := meServer(t, map[string]http.HandlerFunc{
+		"/me/invitations/t1/accept": func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
+					"code":    "not_pending",
+					"message": "invitation already answered",
+				},
+			})
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	_, err := r.Me.AcceptInvitation(context.Background(), MembershipRequest{
+		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t1",
+	})
+	re, ok := err.(*RealmError)
+	if !ok {
+		t.Fatalf("err=%T (%v), want *RealmError", err, err)
+	}
+	// Must NOT collapse into the generic 409 `conflict`: `not_pending` (already
+	// answered/revoked/expired) and `not_invited` (already a member) have
+	// different remedies, and only the code tells them apart.
+	if re.Code != "not_pending" || re.HTTPStatus != http.StatusConflict {
+		t.Errorf("code=%q status=%d", re.Code, re.HTTPStatus)
+	}
+}
