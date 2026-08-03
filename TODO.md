@@ -6,6 +6,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > **Reorg note (2026-07-21):** purged ~20 completed entries and regrouped by
 > theme. See root `DECISIONS.md` 2026-07-21.
 
+> **Validation sweep (2026-08-03):** every item re-checked against the tree.
+> One is **done and removed** (the swagger `TransferOwnerRequest` schema — it now
+> carries `owner_user_id`, `outgoing_owner_role`, `leave_entirely`,
+> `new_owner_email` and `suspend_outgoing_owner`, plus the ADR-087 two-caller
+> note, `issuer/docs/swagger.yaml:2253`). Everything else was confirmed still
+> open by grep, evidence inlined. **One item got worse and is called out below:
+> the Go `Version` const has drifted a third time and the drift is LIVE.**
+
 > **Validation sweep (2026-07-28):** every item below was checked against the
 > tree. Two were **done and are removed** — `admin.platforms.updateConfig`
 > (a typed `RealmConfigPatch` surface has existed since web-admin 0.8.8,
@@ -23,12 +31,22 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   the SDK union (and `ui/web/src/OnboardCreate.tsx`'s `STARTER_ROLE_OPTIONS`) in
   lockstep. If the menu ever grows beyond these two, add
   `GET /platforms/starter-roles` and drive both from it.
+  *(Confirmed 2026-08-03: the issuer has `POST /platforms/{id}/starter-roles`
+  (seed) and no GET advertising the menu — `internal/httpapi/routes.go:123`.)*
 
 - [ ] **Release script should assert the Go `Version` const matches the tag.**
-  `go/realmid.go`'s `Version` has now drifted from its published `go/vX.Y.Z` tag
-  twice (`go/v0.29.0` read `0.20.0` and misled a partner; `go/v0.35.0` read
-  `0.34.0`, caught 2026-07-22). The const has no in-module consumers, so nothing
-  fails when it is wrong — a comment has already been tried. Make it a check.
+  ⚠️ **THIRD drift, and it is LIVE right now** (verified 2026-08-03):
+  `go/realmid.go:178` reads `Version = "0.38.0"` while the newest published tag
+  is **`go/v0.44.0`** — six releases stale, so anyone reading `realmid.Version`
+  (or reporting it to us as their pin, which is exactly what the new
+  `docs/integrator-sdk-pins.md` register asks partners to do) gets a wrong
+  number. Prior drifts: `go/v0.29.0` read `0.20.0` and misled a partner;
+  `go/v0.35.0` read `0.34.0`, caught 2026-07-22.
+  The const has no in-module consumers, so nothing fails when it is wrong — a
+  comment has already been tried, twice. **The fix is the check, not the bump**:
+  bumping it now leaves the same mechanism that let it rot three times. Assert
+  `Version == $TAG` in the release workflow, and fix the const in the same
+  change so the first release after this is honest.
 - [ ] **Re-pack `@realm-id/web-admin` with the ADR-081 role fields + re-vendor
   into `ui/`.** `assignable_to` / `can_invite_roles` are typed in `@realm-id/sdk`
   as of ts 0.26.0, and web-admin re-exports `RoleObject` from it, so a repack
@@ -62,10 +80,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   doesn't, so `ui/web/src/Settings/Sessions.tsx:12` augments it locally; repack
   per `sdk/CLAUDE.md` and drop the augmentation; (3) optional — show the device
   name on the `/device` approve page (needs a by-`user_code` lookup).
-  ⚠️ **Still true at the vendored `0.8.15`** (verified 2026-07-28): `Sessions.tsx`
-  still carries the local augmentation. Five repacks have shipped since this was
+  ⚠️ **Still true at the vendored `0.8.18`** (re-verified 2026-08-03):
+  `ui/web/src/Settings/Sessions.tsx:12` still carries
+  `type SessionRow = ActiveSession & { device_name?: string }`, and its comment
+  still points at this item. **Eight repacks** have now shipped since this was
   filed without picking the field up — the `sdk/CLAUDE.md` hoisting gotcha is the
   likely cause, so verify the field inside the TARBALL, not just in `types.ts`.
+  (`0.8.18` proved the tarball check works: it was verified with `npm pack
+  @realm-id/web-admin@0.8.18` before being called done.)
 
 ## ADR-056 deferred follow-ups
 
@@ -73,17 +95,11 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   in-process `sync.Mutex`; the BFF's `Store.AcquireRefreshLock`
   (`api/internal/session/store.go:286`, Redis SETNX) stays the authority. Make the
   SDK lock pluggable / BFF-backed.
-- [x] **TS/Java `X-User-Token` parity (Q5)** — **DONE 2026-08-02**, ts `0.33.0` +
-  java `0.32.0`: `realm.withUserToken(accessJWT)` derives a realm that carries
-  the header on every typed method (Go's equivalent is the ctx value
-  `WithUserToken`, typed path since `go/v0.37.0`). Closing this removes the
-  caveat we gave Traide — the root `TODO.md` entry owns the partner-comms half
-  and is still open for the "tell them" step.
-  > The old text here claimed the header was **absent** from `ts/`+`java/` ("0
-  > matches, re-confirmed 2026-07-28"). That was false — both sent it on `/me`
-  > (`ts/src/me.ts:68`, `java/…/MeClient.java:102`). The gap was the TYPED path,
-  > not the header.
-  *(Q4 encrypt-at-rest is done — ADR-060's AES-256-GCM seal in the BFF store.)*
+*(Q4 encrypt-at-rest is done — ADR-060's AES-256-GCM seal in the BFF store. Q5
+`X-User-Token` typed-path parity shipped 2026-08-02, ts `0.33.0` + java `0.32.0`
+— purged 2026-08-03; the rationale, and the lesson about the wrong grep result
+that stood in this file for a week, are in root `DECISIONS.md` and the root
+`TODO.md` entry that owns the partner-comms half.)*
 
 ## HTTP surface not yet wrapped
 
@@ -120,6 +136,7 @@ this is the SDK-side work.
 - [ ] **`bff.home()` / `bff.tenantFull()` return loose `{ [k: string]: unknown }`.**
   Rich types live in `@realm-id/sdk/internal`; the aggregates package types need a
   refresh before the admin SDK can re-export them.
+
 ## Web-package test infra
 
 - [ ] **`web/packages/firebase/` + `web/packages/react/` are untested**
@@ -143,8 +160,6 @@ this is the SDK-side work.
 
 ## Docs
 
-- [ ] `issuer/docs/swagger.yaml` — the `TransferOwnerRequest` schema is stale: it
-  shows only `new_owner_email`, but the ADR-076 handler reads
-  `{owner_user_id, outgoing_owner_role?, leave_entirely?}`
-  (`issuer/internal/httpapi/tenants.go:924`). Backfill the schema.
+*(Empty. The `TransferOwnerRequest` schema backfill was verified done
+2026-08-03 and removed.)*
 
