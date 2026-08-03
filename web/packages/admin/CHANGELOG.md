@@ -1,5 +1,66 @@
 # @realm-id/web-admin — changelog
 
+## 0.8.18
+
+- **`MeMembership.invitation_pending`** (issuer `v0.83.0`, ADR-095 D5) — the
+  flag that decides whether a membership row gets **Accept + Decline** or
+  **Leave**. The wire has carried it since `v0.83.0` and the BFF passes it
+  through `/me`; only this published type understated it, so any consumer
+  trusting the type had to key the controls on `pending_first_signin` and
+  re-derive the exact defect `v0.83.0` fixed.
+
+  The two flags are ORTHOGONAL and both are true on a pending invitation, which
+  is what makes the wrong one look right in testing: `invitation_pending` means
+  an OFFER is awaiting an answer (`users.status='invited'`, the precondition
+  both handlers enforce), while `pending_first_signin` means nobody has SIGNED
+  IN yet (no approved provider tuple). Accepting writes no provider tuple —
+  only a login does — so a settled invitation keeps `pending_first_signin` and
+  a `pending_first_signin`-keyed UI keeps offering two actions the issuer now
+  refuses with `not_invited` / `not_pending`. A bulk-imported member is the
+  mirror case: unclaimed, with nothing to answer.
+
+  Type-only and additive; no runtime change.
+
+## 0.8.17
+
+- **`Tenant.allowed_domains` is DROPPED (ADR-094 R3, issuer `v0.77.0`).**
+  BREAKING for anyone reading the field. The column is gone server-side, so
+  leaving it typed `string[]` would let `t.allowed_domains.length` typecheck
+  and throw on `undefined` at runtime. Domain SSO is a `tenant_domains` grant,
+  read through the domains API. Also dropped from tenant create. Bundles
+  `@realm-id/sdk` 0.34.0.
+
+## 0.8.16
+
+- **`MeMembership.permissions` + `MeMembership.is_admin_tenant` (ADR-090,
+  issuer `v0.71.0`).** Gate affordances on the permission, never on
+  `role === "admin"` — a role's NAME confers nothing since issuer `v0.54.0`
+  made the starter roles opt-in. There is no implicit-all marker to expand: an
+  owner arrives with the whole catalog already listed and already intersected
+  with the token's ADR-084 `permissions_cap`. `is_admin_tenant` exists because
+  `permissions` alone over-reports — a realm-scoped gate additionally requires
+  sitting in the realm's admin tenant.
+
+## 0.8.15
+
+- **`MeMembership.is_owner`** — the caller's ADR-076 owner-ness, resolved by
+  the issuer from the `tenants.owner_user_id` pointer. Gate owner-only UI on
+  this, never on `role === "owner"`: ADR-076 retired that marker and demoted
+  the rows to `admin`, so no user carries it and a role-string check hides
+  owner affordances from every actual owner.
+
+## 0.8.14
+
+- **`admin.userApiKeys`** — the ADR-084 end-user API-key resource
+  (`UserApiKeysClient`, re-exported from `/internal`).
+
+## 0.8.13
+
+- **`label` + `expires_at` on API-key list rows** (issuer `v0.61.0`). `label`
+  is the only handle on a key — the plaintext is echoed once and `prefix` is
+  hash-derived — so a list without it cannot be traced back to its row.
+  `revoked_at` / `expires_at` are nullable.
+
 ## 0.8.12
 
 - **`platforms.createTenant` now carries the owner (compile-enforced).** Since
@@ -41,6 +102,13 @@
 
 Additive and optional: omitting `starter_roles` reproduces the previous request
 exactly.
+
+## 0.8.8
+
+- **Issuer `v0.52.0` read surfaces typed** — platform config plus the platform
+  and fleet stats aggregates. Config is a LOOSE map by design: the key set is
+  derived server-side by reflection from `RealmConfigPatch`, so a hand-typed
+  shape would go stale and silently drop new keys.
 
 ## 0.8.7
 

@@ -7,6 +7,47 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-03 — the browser SDK's `MeMembership` catches up to `/me`, and the changelog catches up to the versions (web-admin `0.8.18`)
+
+Issuer `v0.83.0` added `invitation_pending` to `/me` and the BFF passed it
+through, but `@realm-id/web-admin`'s `MeMembership` never declared it. Nothing
+was broken: `ui/web`'s `AccountOrganizations.tsx` declared a local mirror of the
+four fields it reads and got the behaviour right. **The mirror is the finding.**
+
+It could only exist because of a cast — `auth.profile?.memberships as
+Membership[]` — asserting a `MeMembership[]` into a wider local shape. That
+assertion silenced the compiler on precisely the drift the type exists to catch:
+the day the console read a field the SDK did not declare, the type system had the
+information to say so and was told not to. So the fix is not only "add the
+field", it is **delete the mirror and the cast**, which is why the ui change here
+is a deletion rather than an addition.
+
+Keying the invitation controls on the wrong flag is not hypothetical — it shipped
+in `v0.38.0` and the ui-e2e run caught it. `invitation_pending` and
+`pending_first_signin` are ORTHOGONAL and BOTH true on a pending invitation,
+which is what makes the wrong one pass every happy-path test; they diverge only
+on a settled invitation and a bulk import. A consumer trusting the published type
+had no field to key on but the wrong one. The doc comment on the new field
+therefore spends more lines on the distinction than on the field, deliberately —
+a one-line `invitation_pending?: boolean` would have been an accurate type and a
+useless one.
+
+**Released rather than left in-repo.** The standing plan was to hold this for the
+next `web-admin` roll so the repack gotcha is paid once. Rejected: an unpublished
+type is the "documented, wired, does nothing" shape this workspace hit four times
+in a week — every installed consumer still resolves `0.8.17`, so a type sitting
+correct in `main` protects nobody. The gotcha cost one staging step that
+`publish-npm.yml` already automates.
+
+**Changelog backfill.** `CHANGELOG.md` jumped `0.8.12` → the current version
+while `package.json` read `0.8.17`; `0.8.8` and `0.8.13`–`0.8.17` had no entries
+at all. Their only record was a prose paragraph inside `ui/web/vendor/README.md`
+— a vendoring note in a different repo, which is how a changelog goes missing
+without anyone noticing. All six are backfilled from the version-bump commits,
+and the vendor README now carries the version table only and points at the
+changelog for the why. A release note stored next to the tarball is a note that
+exists for exactly as long as the tarball does.
+
 ## 2026-08-03 — `acceptInvitation` ships with the tests the feature commit skipped (go `0.44.0`, ts `0.35.0`, java `0.34.0`)
 
 Issuer `v0.82.0` (ADR-095 D5) adds `POST /me/invitations/{tenantId}/accept`, and

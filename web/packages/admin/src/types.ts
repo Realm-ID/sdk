@@ -548,6 +548,31 @@ export interface MeMembership {
    * memberships to report, so the safe reading is "not pending".
    */
   pending_first_signin?: boolean;
+  /**
+   * ADR-095 D5 — an invitation to this tenant is OUTSTANDING: `users.status`
+   * is `invited`, which is the exact precondition
+   * `POST /me/invitations/{tid}/accept` and `/reject` both enforce.
+   *
+   * **Gate Accept and Decline on this, never on `pending_first_signin`.** The
+   * two are ORTHOGONAL and both are true on a pending invitation, which is
+   * what makes the wrong one look right in testing:
+   *
+   * - `invitation_pending` — there is an OFFER awaiting an answer.
+   * - `pending_first_signin` — nobody has SIGNED IN yet (no approved provider
+   *   tuple). A bulk-imported member is active and unclaimed with nothing to
+   *   answer, so it carries this flag and not the one above.
+   *
+   * Accepting writes no provider tuple — only a login does — so a settled
+   * invitation KEEPS `pending_first_signin` until the next sign-in. Keying the
+   * controls on it therefore keeps offering Accept and Decline on a row that
+   * has already been answered, and the issuer refuses both with
+   * `not_invited` / `not_pending`. This is the defect issuer `v0.83.0` fixed;
+   * the flag exists so consumers cannot re-derive it.
+   *
+   * Absent means false: an issuer or BFF too old to send it has no invitation
+   * consent flow at all, so nothing is awaiting an answer.
+   */
+  invitation_pending?: boolean;
 }
 
 export interface ProfileResponse {
