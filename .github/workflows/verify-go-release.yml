@@ -1,0 +1,116 @@
+name: Verify the Go SDK version const matches its tag
+
+# The Go SDK publishes by TAG PUSH alone — the module proxy serves
+# github.com/Realm-ID/sdk/go@vX.Y.Z straight from `go/vX.Y.Z`, with no release
+# script in between. That is precisely why nothing ever checked `realmid.Version`
+# against the tag, and why it drifted three times:
+#
+#   go/v0.29.0 → const read "0.20.0"  (misled a partner: they believed the
+#                                      ADR-071/072 service-account surface was
+#                                      unreleased)
+#   go/v0.35.0 → const read "0.34.0"  (caught 2026-07-22)
+#   go/v0.44.0 → const read "0.38.0"  (six releases stale; found 2026-08-03,
+#                                      while docs/integrator-sdk-pins.md was
+#                                      asking partners to report this exact
+#                                      number back to us as their pin)
+#
+# The const has NO in-module consumers, so nothing fails when it is wrong. A
+# comment saying "keep this in lockstep" was tried as the prevention twice and
+# failed twice. This job is the third attempt and the first one that can fail.
+#
+# ⚠️ When this job goes red, the tag is ALREADY IMMUTABLE (root TODO.md § Tag
+# hygiene: go/v0.21.0 was re-pointed after proxy.golang.org had cached the
+# original tree, and downstream `go.sum` verification broke with a checksum
+# mismatch). The remedy is to fix the const and ship the NEXT PATCH version —
+# never re-point the tag.
+
+on:
+  push:
+    tags:
+      - 'go/v*'
+  # Run against the newest existing tag at any time, to catch drift that has
+  # already shipped rather than waiting for the next release to reveal it.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: const Version == tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tags are needed for the workflow_dispatch path, which resolves the
+          # newest go/v* itself.
+          fetch-depth: 0
+
+      - name: Resolve the tag under test
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            REF="${{ github.ref_name }}"          # e.g. go/v0.44.0
+            echo "source=the pushed tag" >> "$GITHUB_OUTPUT"
+          else
+            REF=$(git tag --list 'go/v*' | sort -V | tail -1)
+            echo "source=the newest existing tag" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::no go/v* tag found"; exit 1
+          fi
+          echo "ref=$REF"                     >> "$GITHUB_OUTPUT"
+          echo "want=${REF#go/v}"             >> "$GITHUB_OUTPUT"
+
+      - name: Read the const
+        id: const
+        run: |
+          set -euo pipefail
+          # Anchored to the declaration so a mention inside a doc comment or a
+          # test cannot satisfy it. Exactly one line may match.
+          N=$(grep -c '^const Version = "' go/realmid.go || true)
+          if [ "$N" != "1" ]; then
+            echo "::error::expected exactly 1 'const Version =' declaration in go/realmid.go, found $N"
+            exit 1
+          fi
+          GOT=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' go/realmid.go)
+          echo "got=$GOT" >> "$GITHUB_OUTPUT"
+
+      - name: Assert they match
+        env:
+          WANT:   ${{ steps.tag.outputs.want }}
+          GOT:    ${{ steps.const.outputs.got }}
+          REF:    ${{ steps.tag.outputs.ref }}
+          SOURCE: ${{ steps.tag.outputs.source }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Go SDK version check"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Checked against | $SOURCE (\`$REF\`) |"
+            echo "| Tag says | \`$WANT\` |"
+            echo "| \`realmid.Version\` says | \`$GOT\` |"
+            echo
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if [ "$WANT" != "$GOT" ]; then
+            {
+              echo "**DRIFTED.** \`go/realmid.go\` declares \`Version = \"$GOT\"\` but the tag is \`$REF\`."
+              echo
+              echo "Partners read \`realmid.Version\` to report their pin (see"
+              echo "\`docs/integrator-sdk-pins.md\` in Realm-ID/project), so a wrong value"
+              echo "here becomes a wrong row in the register we use to decide whether a"
+              echo "breaking issuer change is safe to ship."
+              echo
+              echo "**Do not re-point the tag** — it is immutable once the proxy has cached"
+              echo "it. Fix the const and release the next patch version."
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::realmid.Version=$GOT does not match tag $REF (want $WANT)"
+            exit 1
+          fi
+
+          echo "OK — \`realmid.Version\` matches \`$REF\`." | tee -a "$GITHUB_STEP_SUMMARY"

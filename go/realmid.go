@@ -145,37 +145,28 @@ type Realm struct {
 	Me *MeClient
 }
 
-// Version is the published SDK version (semver). As of 0.30.0 it is
-// REALIGNED to the resolvable Go module tag (`go/vX.Y.Z`) and MUST be
-// kept in lockstep with it on every release — the two had drifted (tag
-// go/v0.29.0 shipped this const reading "0.20.0", which misled a partner
-// into thinking the ADR-071/072 service-account surface was unreleased).
-// The value you `go get` is the source of truth; this const now mirrors
-// it. 0.20.0 (this const's prior value) carried the ADR-071/072 surface:
-// service accounts, sources registry, and the OTP login grant rename
-// (`otp_internal` → `otp`). 0.17.0 is additive over
-// 0.16.0 (ADR-057, SPEC v0.10.0): the CredentialSource abstraction +
-// workload-identity-federation sources (StaticAPIKey, GoogleWorkloadIdentity,
-// GitHubActionsOIDC, zero-config auto-detect). APIKey config is now sugar for
-// StaticAPIKey and optional. 0.16.0 was additive over
-// 0.15.0 (the token-manager round): PassthroughOptions.OnBehalfOfUserToken
-// + WithUserToken(ctx) forward the user's verified access JWT as
-// X-User-Token alongside the platform bearer (ADR-056, SPEC v0.9.0). NOTE:
-// the const skipped 0.15.0 — the token-manager round (CHANGELOG
-// "go-v0.15.0", 2026-05-28) bumped the changelog but not this const; fixed
-// forward here. 0.11.0 is additive
-// over 0.10.0: surface helpers (IsUnauthorized, IsTimeout,
-// AsRealmError, HTTPStatus), Session.NeedsTenantChoice +
-// Session.SelectTenant, and a typed Realm.IdentityProviders. 0.10.0
-// corresponds to RealmID v0.7.0 — the two-endpoint auth surface
-// (ADR-051): the SDK hits POST /auth/login
-// {grant_type:"platform_api_key"} instead of the deleted POST
-// /auth/platform-token, then refreshes via POST /auth/token with the
-// refresh-token bearer. Refresh rotation is gated by the realm's
-// `platform_refresh_rotates` config (default off, non-rotating).
-// 0.5.0 was the platforms-namespace cut (ADR-044) and the signup_mode
-// enum (ADR-045).
-const Version = "0.38.0"
+// Version is the published SDK version (semver), and MUST equal the
+// resolvable Go module tag it ships under (`go/vX.Y.Z`).
+//
+// It has no in-module consumers, so nothing breaks when it is wrong —
+// which is why it drifted three times (go/v0.29.0 read "0.20.0" and
+// misled a partner into thinking the ADR-071/072 service-account surface
+// was unreleased; go/v0.35.0 read "0.34.0"; go/v0.44.0 read "0.38.0",
+// six releases stale, while docs/integrator-sdk-pins.md was asking
+// partners to report this exact number back to us as their pin).
+//
+// A comment saying "keep this in lockstep" was the prevention twice and
+// failed twice. The prevention is now a CHECK:
+// .github/workflows/verify-go-release.yml asserts this const equals the
+// pushed tag. If that job goes red, the tag is already immutable (see
+// root TODO.md § Tag hygiene) — fix the const and ship the next patch
+// version; never re-point the tag.
+//
+// Per-release history belongs in CHANGELOG.md, not here. The accreted
+// version-by-version narrative this comment used to carry was removed in
+// the same change that added the check: duplicating release notes at the
+// declaration is what made the stale value look maintained.
+const Version = "0.44.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

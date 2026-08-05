@@ -7,6 +7,61 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-05 — the Go `Version` const drifted a third time; the fix is the check, not the bump
+
+`go/realmid.go` declared `Version = "0.38.0"` while the newest published tag was
+`go/v0.44.0` — six releases stale, and **live**.
+
+**RCA**
+
+**Symptom** — anyone reading `realmid.Version` got `0.38.0` from a module
+resolved at `0.44.0`. Nothing failed; the wrong number was simply reported as
+fact. It matters now in a way it did not before: `docs/integrator-sdk-pins.md`
+(Realm-ID/project, shipped 2026-08-03) asks partners to report this exact
+number back to us as their pin, and that register is what we diff against the
+ADR-089 hard floors to decide whether a breaking issuer change is safe to ship.
+A wrong const becomes a wrong row in the register built to prevent the Traide
+outage.
+
+**Root cause** — the const has **no in-module consumers**. Nothing reads it, so
+nothing can fail when it is wrong, so the only thing standing between it and
+drift was a human remembering to edit one line during a release that is
+otherwise entirely `git tag && git push`. The Go SDK publishes by tag push
+alone — the module proxy serves the tag directly, with no release script in
+between — so there was never a place where the release *could* have checked.
+
+**Why it wasn't caught** — it was caught, twice, and the prevention chosen both
+times was a comment. `go/v0.29.0` shipped reading `0.20.0` and misled a partner
+into thinking the ADR-071/072 service-account surface was unreleased; the fix
+added a doc comment saying the const MUST be kept in lockstep. `go/v0.35.0`
+shipped reading `0.34.0`; the fix extended the comment. The comment grew to 31
+lines of accreted per-release narrative, which is the second half of the
+mechanism: a declaration wearing that much prose *looks* maintained, so the
+stale value underneath reads as deliberate.
+
+**Fix** — two parts, and the order matters.
+1. `.github/workflows/verify-go-release.yml` asserts `const Version` equals the
+   pushed `go/v*` tag, and can be dispatched to check the newest existing tag at
+   any time. This is the actual fix: it is the first prevention that can fail.
+2. The const is set to `0.44.0` and its comment cut to the rule plus a pointer
+   at the check. Per-release history moved to where it belongs (`CHANGELOG.md`).
+   Bumping alone was explicitly rejected — it leaves the same mechanism that
+   rotted three times and would have made the fourth drift look like the first.
+
+**Prevention** — the workflow above. Verified by mutation: the extraction is
+anchored to `^const Version = "` (so a mention in a comment or a test cannot
+satisfy it), it requires exactly one matching declaration, and fed the old
+`0.38.0` it rejects against tag `0.44.0`.
+
+**Tradeoff, stated rather than solved:** the check fires at TAG time, which is
+after the release exists. It cannot prevent a bad publish, only make it loud —
+and because tags are immutable once `proxy.golang.org` has cached them (root
+`TODO.md` § Tag hygiene, `go/v0.21.0`), the remedy when it goes red is the next
+patch version, never a re-pointed tag. The workflow says so in its failure
+output. An earlier check is possible only by giving the const a real consumer —
+e.g. sending it as a `User-Agent` — which is a wire change and a separate
+decision, so it is not made here.
+
 ## 2026-08-03 — the browser SDK's `MeMembership` catches up to `/me`, and the changelog catches up to the versions (web-admin `0.8.18`)
 
 Issuer `v0.83.0` added `invitation_pending` to `/me` and the BFF passed it

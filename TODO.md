@@ -34,19 +34,27 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   *(Confirmed 2026-08-03: the issuer has `POST /platforms/{id}/starter-roles`
   (seed) and no GET advertising the menu — `internal/httpapi/routes.go:123`.)*
 
-- [ ] **Release script should assert the Go `Version` const matches the tag.**
-  ⚠️ **THIRD drift, and it is LIVE right now** (verified 2026-08-03):
-  `go/realmid.go:178` reads `Version = "0.38.0"` while the newest published tag
-  is **`go/v0.44.0`** — six releases stale, so anyone reading `realmid.Version`
-  (or reporting it to us as their pin, which is exactly what the new
-  `docs/integrator-sdk-pins.md` register asks partners to do) gets a wrong
-  number. Prior drifts: `go/v0.29.0` read `0.20.0` and misled a partner;
-  `go/v0.35.0` read `0.34.0`, caught 2026-07-22.
-  The const has no in-module consumers, so nothing fails when it is wrong — a
-  comment has already been tried, twice. **The fix is the check, not the bump**:
-  bumping it now leaves the same mechanism that let it rot three times. Assert
-  `Version == $TAG` in the release workflow, and fix the const in the same
-  change so the first release after this is honest.
+> **DONE 2026-08-05 — "Release script should assert the Go `Version` const
+> matches the tag."** The third drift was live (`0.38.0` declared against tag
+> `go/v0.44.0`). Fixed as this item specified — **the check, not the bump**:
+> `.github/workflows/verify-go-release.yml` asserts the const equals the pushed
+> `go/v*` tag (and is dispatchable against the newest existing tag at any time),
+> the const now reads `0.44.0`, and the 31-line accreted doc comment was cut to
+> the rule plus a pointer at the check — the prose was half the mechanism, since
+> a declaration wearing that much narrative reads as maintained. Mutation-verified
+> (fed `0.38.0` against tag `0.44.0`, it fails). **Stated tradeoff:** the check
+> fires at TAG time, so it makes a bad publish loud rather than preventing it;
+> because tags are immutable once the proxy has cached them, the remedy on red is
+> the next patch version. Rationale in `DECISIONS.md` 2026-08-05.
+
+- [ ] **`DECISIONS.md` needs an index and an archive split.** It is 1670+ lines
+  with no per-entry index, so `head -50` cannot answer "what decisions exist?"
+  and anything consulting it pays for the whole file. Per the `decision-log`
+  skill: add a one-line-per-entry index under the H1, then move the oldest
+  entries to `DECISIONS-ARCHIVE.md`, keeping them listed in the index. Archive,
+  never delete — an archived file is still greppable in the working tree, a
+  deleted one is not. *(Filed 2026-08-05 while adding the Go-version entry;
+  `issuer/DECISIONS.md` is worth the same check.)*
 - [ ] **Re-pack `@realm-id/web-admin` with the ADR-081 role fields + re-vendor
   into `ui/`.** `assignable_to` / `can_invite_roles` are typed in `@realm-id/sdk`
   as of ts 0.26.0, and web-admin re-exports `RoleObject` from it, so a repack
