@@ -22,8 +22,15 @@ list, so a detail screen built on this cannot disagree with the fleet table.
 
 **Why it matters beyond convenience.** The alternative it replaces is paging
 the list and matching client-side, which is bounded by whatever page budget the
-caller picks — and a platform past that budget is indistinguishable from one
-that has no data. The console was doing exactly this with a 20-page cap.
+caller picks — so a platform past that budget is reported as **not found
+although it exists**. The console was doing exactly this with a 20-page cap
+(2000 rows), a false negative that arrives on its own as a fleet grows.
+
+*(An earlier draft of this entry said the console rendered such a platform as a
+plausible empty one with no error. That was inherited from a stale `ui/TODO.md`
+note and is incorrect — the screen has always rendered a "Platform not found"
+empty state. Corrected here rather than quietly dropped, since the wrong
+description had already been copied into two repos.)*
 
 **A `404` here means "not visible to you" OR "never existed", identically, and
 must stay that way.** A platform the caller may not see returns the same

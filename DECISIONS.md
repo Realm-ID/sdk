@@ -25,11 +25,22 @@ endpoints. The staff read stays out of the partner SDK per the standing
 
 **The staff wrapper is a correctness fix, not a convenience.** The console was
 paging `listPlatforms({limit:100})` up to 20 times and matching client-side, so
-a platform past row 2000 was never found — and the screen then rendered the raw
-UUID as the platform name with empty tiles and **no error**, because the name
-falls back through `display_name || slug || platformId`. A missing platform was
-indistinguishable from an empty one, and the trigger is fleet growth, so it
-arrives on its own.
+the scan was capped at 2000 rows and a platform past that point was reported as
+**not found although it exists** — a false negative no retry would clear, and
+one that arrives on its own as the fleet grows.
+
+**Correction, recorded because it was asserted before it was checked.**
+`ui/TODO.md` described this as rendering "the raw UUID as the platform name with
+empty KPI tiles and **no error**", and that description was carried into the
+first draft of this entry, the `0.36.0` changelog and the commit message. It is
+**wrong**: the screen has always had a `loaded && !summary && !loadErr` branch
+rendering a "Platform not found" EmptyState, and the UUID in the header is
+deliberate — its own copy says "The header still lets you act on it by id", so
+Suspend and Rotate stay usable when the row cannot be read. The bug was a false
+negative, not a silent one. It was caught by writing a test that asserted the
+UUID must not appear and watching it fail against the actual component.
+The lesson is narrow and worth keeping: **a TODO's description of a defect is a
+claim about code, not a fact** — this one had been re-copied across two repos.
 
 **Both wrappers must preserve an identical 404.** A platform the caller cannot
 see returns the same `platform_not_found` as an id that was never issued —
