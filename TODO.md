@@ -151,24 +151,33 @@ that stood in this file for a week, are in root `DECISIONS.md` and the root
 
 ## HTTP surface not yet wrapped
 
-- [ ] **`GET /platforms/{id}` in the PARTNER SDKs (go / ts / java) — needs a
-  surface decision first.** ✅ The two browser wrappers shipped 2026-08-06:
-  `platforms.get(id)` (web-admin `0.8.19`) and the staff-side
-  `admin.getPlatform(id)` (`@realm-id/sdk` `0.36.0`).
-  ⚠️ **"The wrapper is small" was true of the HTTP call and false of the work.**
-  There is **no partner-facing platforms resource in `go/`, `ts/` or `java/` at
-  all** — `/platforms/mine` appears in those SDKs only inside the `realm.Info()`
-  audience-discovery path (`go/info.go:51`, `ts/src/info.ts:55`,
-  `java/.../RealmInfoClient.java:37`), and `SPEC.md` has no Platforms section.
-  So this is not a method on an existing client; it is a **new resource surface
-  plus a SPEC change fanned out to three languages**, and `SPEC.md` is law, so
-  the spec moves first. Decide before building: does a partner SDK get a
-  `platforms` resource (and if so, does it also get `mine()`, making the info
-  path a consumer of it rather than a parallel implementation?), or does the CLI
-  call this endpoint directly without an SDK wrapper?
-  **The CLI's `platforms describe` is the only known consumer** (ADR-085 §7 names
-  it as the destination for the key-hygiene aggregates), so the decision is
-  really "does one CLI command justify a new SDK surface".
+> **CLOSED 2026-08-06 — `GET /platforms/{id}` in the PARTNER SDKs is NOT
+> NEEDED. Do not re-open without a named caller.**
+> ✅ The two browser wrappers shipped: `platforms.get(id)` (web-admin `0.8.19`)
+> and the staff-side `admin.getPlatform(id)` (`@realm-id/sdk` `0.36.0`).
+>
+> **The item's premise was false.** It justified partner-SDK work with "it is
+> the read the CLI's `platforms describe` needs". **The CLI does not use the Go
+> SDK at all** — `cli/go.mod` requires only `gopkg.in/yaml.v3`, and requests go
+> through its own `newRequest` helper. Its commands are DERIVED from an embedded
+> copy of the issuer swagger at runtime (`buildCommands`), and `deriveCommand`
+> already maps a trailing `{param}` + GET to the verb `describe`. Re-vendoring
+> the spec (`0.20.0` → `0.24.0`) delivered `platforms describe` AND
+> `admin platforms describe` with no code change — verified by building the CLI
+> against both specs and diffing the command tree. Shipped in `cli` 2026-08-06.
+>
+> **So the cost estimate was wrong in BOTH directions**, which is why it stalled:
+> "the wrapper is small" understated it (there is no `platforms` resource in
+> `go/`, `ts/` or `java/` at all — `/platforms/mine` appears only inside the
+> `realm.Info()` discovery path, and `SPEC.md` has no Platforms section, so it
+> would be a new surface + a SPEC change + three releases), while the CLI half
+> was overstated (a file copy). Neither number was checked against the consumer.
+>
+> **What would re-open it:** a partner asking to read a platform from a server
+> SDK. Until then there is no caller — building it would add a `SPEC.md`
+> section and three implementations for nobody. If it does re-open, settle
+> first whether `mine()` moves onto the same resource so `realm.Info()` consumes
+> it rather than reimplementing it.
   **Authorization is inherited from `/platforms/mine`**, including the
   `scope="platform"` branch — so an M2M platform key works, which is the whole
   point. A platform the caller cannot see returns `404`, never `403`: wrappers
