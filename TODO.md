@@ -111,6 +111,18 @@ that stood in this file for a week, are in root `DECISIONS.md` and the root
 
 ## HTTP surface not yet wrapped
 
+- [ ] **`GET /platforms/{id}` — the by-id platform read (issuer `v0.87.0`, spec
+  `0.24.0`).** Shipped 2026-08-06 and wrapped nowhere. It is the singular
+  counterpart to `platforms.mine()` and returns the same row shape, so the wrapper
+  is small; it is the read the CLI's `platforms describe` needs (ADR-085 §7 names
+  that command as the destination for the key-hygiene aggregates).
+  **Authorization is inherited from `/platforms/mine`**, including the
+  `scope="platform"` branch — so an M2M platform key works, which is the whole
+  point. A platform the caller cannot see returns `404`, never `403`: wrappers
+  must not translate that into a "forbidden"-flavoured error, because the
+  indistinguishability is deliberate (issuer `DECISIONS.md` 2026-08-06).
+  The staff-side `GET /admin/platforms/{id}` stays OUT of the partner SDK, per
+  the `/admin/*` rule below; it belongs in `@realm-id/web-admin`.
 - [ ] Remaining partner-facing gaps (lower priority): `GET /me` caller identity;
   tenant domain delete (`DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`);
   realm origin bind/detach (`POST` / `DELETE /platforms/{id}/origins[/{id}]`).
