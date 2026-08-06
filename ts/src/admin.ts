@@ -152,6 +152,32 @@ export class AdminClient {
     });
   }
 
+  /**
+   * GET /admin/platforms/{id} — the singular counterpart of
+   * {@link listPlatforms}, returning the identical fleet row for one platform
+   * (issuer v0.87.0, spec 0.24.0).
+   *
+   * It resolves through the same store query and the same serializer as the
+   * list, so a detail screen built on this cannot disagree with the fleet
+   * table. Prefer it over paging the list and matching client-side: that
+   * approach is capped by whatever page budget the caller picks, and a
+   * platform past the cap is indistinguishable from one with no data.
+   *
+   * A platform the caller may not see returns the SAME `404
+   * platform_not_found` as an id that was never issued — never `403`. That is
+   * deliberate (issuer DECISIONS.md 2026-08-06): a distinct refusal would
+   * confirm the id is live. Do not re-label the 404 as a permission error.
+   *
+   * Base-realm staff only; the base realm itself is omitted, exactly as it is
+   * from the list.
+   */
+  async getPlatform(platformId: string): Promise<PlatformSummary> {
+    return this.http.request<PlatformSummary>({
+      method: "GET",
+      path: `/admin/platforms/${encodeURIComponent(platformId)}`,
+    });
+  }
+
   async stats(): Promise<AdminStats> {
     return this.http.request<AdminStats>({
       method: "GET",

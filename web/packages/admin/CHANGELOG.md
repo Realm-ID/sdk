@@ -1,5 +1,35 @@
 # @realm-id/web-admin — changelog
 
+## 0.8.19
+
+- **`platforms.get(id)`** — `GET /platforms/{id}`, the owner-facing by-id read
+  (issuer `v0.87.0`, spec `0.24.0`). The singular counterpart of
+  `platforms.listMine()`, returning the same `Platform` row for one platform.
+  Authorization is INHERITED from `/platforms/mine` rather than restated, so an
+  M2M platform key works here — which is the point, since this is the read a
+  partner's own tooling needs.
+
+- **`admin.getPlatform(id)`** — `GET /admin/platforms/{id}`, the base-realm
+  staff fleet row, carried in via the bundled `@realm-id/sdk` `0.36.0`. This is
+  what lets a platform-detail screen stop paging `admin.listPlatforms()` and
+  matching client-side: that pattern is capped by the caller's page budget, and
+  a platform past the cap looks exactly like one with no data.
+
+  **Both endpoints answer `404` identically for "not visible to you" and "never
+  existed", and consumers must preserve that.** Never re-label either 404 as a
+  permission error — a distinct refusal confirms the id is live, which is the
+  enumeration oracle the identical 404 exists to close (issuer `DECISIONS.md`
+  2026-08-06). Note `platform_not_found` is not in the `ErrorCode` taxonomy, so
+  it surfaces as `not_found` with `httpStatus: 404`.
+
+- **No new fields in this release.** `ActiveSession.device_name` (ADR-062) and
+  `RoleObject.assignable_to` / `can_invite_roles` (ADR-081 / ADR-076 WP4) were
+  already carried by `0.8.18` — verified inside the packed tarball, not just in
+  `types.ts`. `sdk/TODO.md` had recorded them as still-owed and blocked on a
+  repack; that was **stale**, and the consuming shims in `ui/web` (a
+  `& { device_name?: string }` augmentation and five `as AssignableRoleLike`
+  casts) have now been deleted rather than widened.
+
 ## 0.8.18
 
 - **`MeMembership.invitation_pending`** (issuer `v0.83.0`, ADR-095 D5) — the

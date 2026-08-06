@@ -47,6 +47,31 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > because tags are immutable once the proxy has cached them, the remedy on red is
 > the next patch version. Rationale in `DECISIONS.md` 2026-08-05.
 
+- [ ] **`platform_not_found` is not in the `ErrorCode` taxonomy (all three
+  languages).** The issuer returns it on `GET /platforms/{id}`,
+  `GET /admin/platforms/{id}`, `PATCH /platforms/{id}` and others, but it is
+  absent from `ts/src/errors.ts`'s `KNOWN_CODES`, from `go/errors.go`, and from
+  the Java taxonomy — so `mapErrorResponse` falls back to `statusToCode(404)` and
+  every caller sees the generic `not_found`. Consistent across the three SDKs, so
+  no language is the outlier; that is why it reads as intentional and may be.
+  **Decide, don't drift:** either add it in lockstep (a SPEC change + three bumps)
+  or document that platform-scoped 404s normalize deliberately. **The upgrade
+  hazard if it is added:** any consumer today catching `not_found` on a platform
+  route silently stops matching, so it is behaviour-breaking despite being purely
+  additive to a union. Filed 2026-08-06 while wrapping the by-id reads, where the
+  first draft of the test asserted the specific code and failed.
+  *(Whatever is decided, the 404 must stay indistinguishable between "not yours"
+  and "never existed" — that is a security property, not a taxonomy question.)*
+- [ ] **`ts/CHANGELOG.md` is missing `0.29.0`–`0.35.0`** — seven released
+  versions with no entries; the file jumps `0.28.0` → `0.36.0`. Backfill from the
+  version-bump commits, as the `web-admin` `0.8.13`–`0.8.17` gap was on
+  2026-08-03. **Same failure mode, second package**, which makes it a process
+  gap rather than an oversight: nothing fails when a release skips its changelog,
+  so it only surfaces when someone happens to read the file. Worth a check in the
+  publish workflow — assert the version being published has a matching `## `
+  heading, the same shape as the Go `Version`-const check added 2026-08-05.
+  *(Filed 2026-08-06 while adding the `0.36.0` entry; a gap notice now sits at the
+  top of that file so a reader isn't misled in the meantime.)*
 - [ ] **`DECISIONS.md` needs an index and an archive split.** It is 1670+ lines
   with no per-entry index, so `head -50` cannot answer "what decisions exist?"
   and anything consulting it pays for the whole file. Per the `decision-log`
@@ -55,14 +80,28 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   never delete — an archived file is still greppable in the working tree, a
   deleted one is not. *(Filed 2026-08-05 while adding the Go-version entry;
   `issuer/DECISIONS.md` is worth the same check.)*
-- [ ] **Re-pack `@realm-id/web-admin` with the ADR-081 role fields + re-vendor
-  into `ui/`.** `assignable_to` / `can_invite_roles` are typed in `@realm-id/sdk`
-  as of ts 0.26.0, and web-admin re-exports `RoleObject` from it, so a repack
-  carries them. Then `ui/web/src/roleAssignability.ts` can drop its local
-  `AssignableRoleLike` and narrow to the SDK type. Bundle the same repack as the
-  outstanding `device_name` re-vendor below — both are blocked on one release.
-  **Confirmed open 2026-07-28:** `assignable_to` has 0 matches anywhere in
-  `web/packages/admin/src`, so the re-export has not carried it.
+> **DONE 2026-08-06 — the ADR-081 role fields were NEVER actually missing, and
+> the diagnosis in this item was wrong.** `assignable_to` / `can_invite_roles`
+> ship on `RoleObject` in the tarball's bundled `@realm-id/sdk` and have for
+> some time; the vendored `0.8.18` was verified to carry them. The "0 matches in
+> `web/packages/admin/src`" evidence recorded on 2026-07-28 was **a correct grep
+> supporting a false conclusion**: web-admin re-exports `RoleObject` from
+> `@realm-id/sdk/internal`, so the fields were never expected to appear in
+> web-admin's own source, and their absence there proved nothing. No repack was
+> needed at any point.
+>
+> The real remaining work was UI-side and is now done: `RealmRoles.tsx` carried
+> five `r as AssignableRoleLike` casts over values already typed `RoleObject`.
+> Those are deleted. **The casts, not the missing fields, were the defect** — a
+> structural `as` over an SDK type silences exactly the drift the type exists to
+> report, so they would have gone on passing had the fields genuinely never
+> arrived. `AssignableRoleLike` survives as the pure predicate's deliberately
+> tolerant input contract in `roleAssignability.ts` (it must still accept an
+> older issuer's response omitting `assignable_to`), but no caller casts to it.
+>
+> **The lesson is the verification method, not the fields:** this item sat open
+> across eight repacks because it was re-checked by grepping SOURCE. Check the
+> packed tarball — `npm pack <pkg>@<version>` — which is what finally settled it.
 
 ## Cross-language parity gaps
 
@@ -78,24 +117,25 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   its `iss` doesn't reference the configured realm. Java has the
   `ErrorCode.REALM_MISMATCH` constant (added for taxonomy parity) but performs no
   such pin in `PlatformTokenManager`.
-- [ ] **Device-name (ADR-062) lockstep.** Go has it (`go/auth.go:248` sends
-  `X-Device-Name`, `:580` parses `device_name`). **Re-verified 2026-07-28: `ts/`
-  now has it too** (`ts/src/auth.ts`) — so this narrows to **java + the
-  re-vendor**. Still owed: (1) **java** — add `device_name` to the login request
-  + session-list type (0 matches in `java/src/main`); (2) **re-vendor
-  `@realm-id/web-admin`** — the source type has `device_name?`
-  (`web/packages/admin/src/types.ts:110`) but the committed tarball in `ui/web`
-  doesn't, so `ui/web/src/Settings/Sessions.tsx:12` augments it locally; repack
-  per `sdk/CLAUDE.md` and drop the augmentation; (3) optional — show the device
-  name on the `/device` approve page (needs a by-`user_code` lookup).
-  ⚠️ **Still true at the vendored `0.8.18`** (re-verified 2026-08-03):
-  `ui/web/src/Settings/Sessions.tsx:12` still carries
-  `type SessionRow = ActiveSession & { device_name?: string }`, and its comment
-  still points at this item. **Eight repacks** have now shipped since this was
-  filed without picking the field up — the `sdk/CLAUDE.md` hoisting gotcha is the
-  likely cause, so verify the field inside the TARBALL, not just in `types.ts`.
-  (`0.8.18` proved the tarball check works: it was verified with `npm pack
-  @realm-id/web-admin@0.8.18` before being called done.)
+- [ ] **Device-name (ADR-062) lockstep — JAVA ONLY now.** Go has it
+  (`go/auth.go:248` sends `X-Device-Name`, `:580` parses `device_name`) and `ts/`
+  has it (`ts/src/auth.ts`). Still owed: (1) **java** — add `device_name` to the
+  login request + session-list type (0 matches in `java/src/main`); (2) optional
+  — show the device name on the `/device` approve page (needs a by-`user_code`
+  lookup).
+  ✅ **The re-vendor half is CLOSED 2026-08-06, and the alarm in this item was
+  false.** The prior note claimed the committed tarball lacked `device_name` and
+  that "eight repacks shipped without picking the field up". Checked inside the
+  vendored artifact — `tar -xzOf vendor/realm-id-web-admin-0.8.18.tgz
+  package/dist/types.d.ts` — and `device_name?` is declared on `ActiveSession`.
+  It was already there. `ui/web/src/Settings/Sessions.tsx`'s local
+  `& { device_name?: string }` augmentation is deleted; the component reads the
+  field at two sites, so `tsc` passing after the deletion is a real check that
+  the SDK type carries it, not a vacuous one.
+  **Why this stayed open so long is the reusable part:** the item was re-verified
+  three times by checking whether the SHIM still existed in `ui/`, which it did —
+  but a shim outliving its need looks identical to a shim still needed. The
+  question "is the field in the tarball?" was never asked until now.
 
 ## ADR-056 deferred follow-ups
 
@@ -111,11 +151,24 @@ that stood in this file for a week, are in root `DECISIONS.md` and the root
 
 ## HTTP surface not yet wrapped
 
-- [ ] **`GET /platforms/{id}` — the by-id platform read (issuer `v0.87.0`, spec
-  `0.24.0`).** Shipped 2026-08-06 and wrapped nowhere. It is the singular
-  counterpart to `platforms.mine()` and returns the same row shape, so the wrapper
-  is small; it is the read the CLI's `platforms describe` needs (ADR-085 §7 names
-  that command as the destination for the key-hygiene aggregates).
+- [ ] **`GET /platforms/{id}` in the PARTNER SDKs (go / ts / java) — needs a
+  surface decision first.** ✅ The two browser wrappers shipped 2026-08-06:
+  `platforms.get(id)` (web-admin `0.8.19`) and the staff-side
+  `admin.getPlatform(id)` (`@realm-id/sdk` `0.36.0`).
+  ⚠️ **"The wrapper is small" was true of the HTTP call and false of the work.**
+  There is **no partner-facing platforms resource in `go/`, `ts/` or `java/` at
+  all** — `/platforms/mine` appears in those SDKs only inside the `realm.Info()`
+  audience-discovery path (`go/info.go:51`, `ts/src/info.ts:55`,
+  `java/.../RealmInfoClient.java:37`), and `SPEC.md` has no Platforms section.
+  So this is not a method on an existing client; it is a **new resource surface
+  plus a SPEC change fanned out to three languages**, and `SPEC.md` is law, so
+  the spec moves first. Decide before building: does a partner SDK get a
+  `platforms` resource (and if so, does it also get `mine()`, making the info
+  path a consumer of it rather than a parallel implementation?), or does the CLI
+  call this endpoint directly without an SDK wrapper?
+  **The CLI's `platforms describe` is the only known consumer** (ADR-085 §7 names
+  it as the destination for the key-hygiene aggregates), so the decision is
+  really "does one CLI command justify a new SDK surface".
   **Authorization is inherited from `/platforms/mine`**, including the
   `scope="platform"` branch — so an M2M platform key works, which is the whole
   point. A platform the caller cannot see returns `404`, never `403`: wrappers

@@ -102,6 +102,28 @@ export class PlatformsClient {
     return d.items;
   }
 
+  /**
+   * GET /platforms/{id} — read one platform the caller owns (issuer v0.87.0,
+   * spec 0.24.0). The singular counterpart of {@link listMine}, returning the
+   * same row shape for one platform.
+   *
+   * Authorization is INHERITED from `/platforms/mine`, not restated: the
+   * visible set is exactly what that endpoint returns, filtered to one id. So
+   * an M2M platform key works here, which is the point — it is the read the
+   * CLI's `platforms describe` needs.
+   *
+   * A platform the caller may not see returns the SAME `404
+   * platform_not_found` as an id that was never issued — never `403`. Do not
+   * render it as "you don't have access to this platform": that string is
+   * itself the oracle the identical 404 exists to close.
+   */
+  async get(platformId: string): Promise<Platform> {
+    return this.http.request<Platform>({
+      method: "GET",
+      path: `/platforms/${encodeURIComponent(platformId)}`,
+    });
+  }
+
   async rename(platformId: string, displayName: string): Promise<Platform> {
     return this.http.request<Platform>({
       method: "PATCH",

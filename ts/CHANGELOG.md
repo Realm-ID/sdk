@@ -4,6 +4,42 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+> **Gap notice (2026-08-06):** entries for `0.29.0`–`0.35.0` are MISSING — this
+> file jumps from `0.28.0` straight to `0.36.0` below. The releases happened;
+> only their changelog entries don't exist. Backfilling them from the
+> version-bump commits is filed in `../TODO.md`. Same shape as the
+> `web-admin` `0.8.13`–`0.8.17` gap backfilled on 2026-08-03: a changelog stops
+> being trustworthy the moment it silently skips, because a reader cannot tell
+> "nothing shipped" from "nobody wrote it down".
+
+## 0.36.0 — read one platform's fleet row by id (2026-08-06)
+
+`AdminClient.getPlatform(id)` wraps `GET /admin/platforms/{id}` (issuer
+`v0.87.0`, spec `0.24.0`) — the singular counterpart of `listPlatforms`,
+returning the identical `PlatformSummary` fleet row for one platform. The
+issuer resolves it through the same store query and the same serializer as the
+list, so a detail screen built on this cannot disagree with the fleet table.
+
+**Why it matters beyond convenience.** The alternative it replaces is paging
+the list and matching client-side, which is bounded by whatever page budget the
+caller picks — and a platform past that budget is indistinguishable from one
+that has no data. The console was doing exactly this with a 20-page cap.
+
+**A `404` here means "not visible to you" OR "never existed", identically, and
+must stay that way.** A platform the caller may not see returns the same
+`platform_not_found` as an unissued id — never `403` — because a distinct
+refusal would confirm the id is live (issuer `DECISIONS.md` 2026-08-06). Do not
+re-label it as a permission error in a consumer: rendering "you don't have
+access to this platform" reconstructs the oracle the identical 404 exists to
+close.
+
+**Taxonomy note:** `platform_not_found` is not in the curated `ErrorCode`
+union (nor Go's, nor Java's), so it normalizes to `not_found` with
+`httpStatus: 404`. That is the current contract across all three SDKs;
+widening the taxonomy is a lockstep SPEC change, filed in `../TODO.md`.
+
+Additive — no existing behaviour changes.
+
 ## 0.28.0 — owner-required tenant create + BYO id/created_at (2026-07-24)
 
 `TenantsClient.create` now provisions the org and its owner in one call

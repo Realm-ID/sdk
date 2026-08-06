@@ -7,6 +7,76 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-06 — wrap both by-id platform reads; two "blocked on a repack" items were already shipped
+
+Issuer `v0.87.0` added `GET /platforms/{id}` (owner) and
+`GET /admin/platforms/{id}` (base-realm staff). Three TODO items across two
+repos wanted them wrapped. Shipped `@realm-id/sdk` `0.36.0`
+(`AdminClient.getPlatform`) and `@realm-id/web-admin` `0.8.19`
+(`PlatformsClient.get`).
+
+**Why two wrappers and not one.** They are different endpoints with different
+audiences and different row shapes — swagger keeps `PlatformSummary` and
+`AdminPlatformSummary` distinct and carries an explicit "do not re-merge them"
+note, because both were once called `PlatformSummary` and the ops row silently
+won every `$ref` under YAML last-key-wins, mis-documenting two partner
+endpoints. The staff read stays out of the partner SDK per the standing
+`/admin/*` rule.
+
+**The staff wrapper is a correctness fix, not a convenience.** The console was
+paging `listPlatforms({limit:100})` up to 20 times and matching client-side, so
+a platform past row 2000 was never found — and the screen then rendered the raw
+UUID as the platform name with empty tiles and **no error**, because the name
+falls back through `display_name || slug || platformId`. A missing platform was
+indistinguishable from an empty one, and the trigger is fleet growth, so it
+arrives on its own.
+
+**Both wrappers must preserve an identical 404.** A platform the caller cannot
+see returns the same `platform_not_found` as an id that was never issued —
+never `403`. A wrapper that re-labels it (or a consumer that renders "you don't
+have access to this platform") reconstructs the enumeration oracle the
+identical 404 exists to close. Recorded in both changelogs and in the JSDoc,
+because this is the kind of property a well-meaning "better error message" PR
+removes.
+
+**Rejected: adding `platform_not_found` to the `ErrorCode` taxonomy.** The
+first draft of the 404 test asserted that code and failed — it is absent from
+the TS union, and from Go's and Java's too, so a 404 normalizes to `not_found`.
+Adding it is a lockstep SPEC change across three languages, and it is
+behaviour-breaking despite being additive to a union: every consumer currently
+catching `not_found` on a platform route would silently stop matching. Filed in
+`TODO.md` as a decision to take deliberately rather than as a side effect of a
+wrapper release. The test now asserts the real contract (`not_found` +
+`httpStatus: 404` + explicitly not `forbidden`/`unauthorized`), which pins the
+security property without over-specifying the code.
+
+**The finding worth keeping: two items were closed by CHECKING, not by
+building.** `sdk/TODO.md` recorded `ActiveSession.device_name` and
+`RoleObject.assignable_to`/`can_invite_roles` as still-owed and blocked on one
+repack, re-verified three times across eight repacks. Both were **already in
+the published `0.8.18` tarball**. The re-verifications kept asking whether the
+UI still carried its shim — it did — but *a shim that has outlived its need
+looks exactly like a shim still needed*. Nobody asked the question that settles
+it: is the field in the tarball? `tar -xzOf …tgz package/dist/types.d.ts`
+answered it in seconds.
+
+The ADR-081 entry compounded this with a correct grep supporting a false
+conclusion: "0 matches for `assignable_to` in `web/packages/admin/src`" is true
+and proves nothing, because web-admin **re-exports** `RoleObject` from
+`@realm-id/sdk/internal`, so the field was never expected to appear there.
+
+**So the real defect was never the missing fields — it was the shims.**
+`ui/web` carried a `SessionRow = ActiveSession & { device_name?: string }`
+augmentation and five `r as AssignableRoleLike` casts over values already typed
+`RoleObject`. A structural `as` over an SDK type silences precisely the drift
+the type exists to report: had the fields genuinely never arrived, those casts
+would have gone on passing. Deleted rather than widened — same call as the
+`MeMembership` mirror in `0.8.18`. `tsc` passing afterwards is a real check,
+not a vacuous one, because the component reads `device_name` at two sites.
+
+**Verification method, stated so it is reusable:** check the packed artifact,
+not the source, and not the presence of a workaround.
+
 ## 2026-08-05 — the Go `Version` const drifted a third time; the fix is the check, not the bump
 
 `go/realmid.go` declared `Version = "0.38.0"` while the newest published tag was

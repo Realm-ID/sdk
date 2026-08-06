@@ -138,3 +138,89 @@ test("admin.stats: surfaces 403 forbidden envelope as RealmError(forbidden)", as
     return e instanceof RealmError && e.code === "forbidden";
   });
 });
+
+test("admin.getPlatform: GETs /admin/platforms/{id} and decodes the fleet row", async () => {
+  let hitUrl = "";
+  let hitMethod = "";
+  let calls = 0;
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input);
+    if (stub) return stub;
+    calls++;
+    hitUrl = typeof input === "string" ? input : input.toString();
+    hitMethod = init?.method ?? "GET";
+    return new Response(JSON.stringify({
+      id: "p1", display_name: "Acme", slug: "acme",
+      status: "active", signup_mode: "closed",
+      domains: ["acme.test"],
+      owner: { user_id: "u1", name: "Alice", email: "a@acme.test" },
+      tenants_count: 3, users_count: 9,
+      last_activity_at: 1700000000, created_at: 1690000000,
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const out = await realm.admin.getPlatform("p1");
+
+  // The row is the SAME AdminPlatformSummary the list returns — single-sourced
+  // server-side through one store query and one serializer, so the detail
+  // screen and the fleet table cannot disagree about a platform.
+  assert.equal(out.id, "p1");
+  assert.equal(out.display_name, "Acme");
+  assert.equal(out.owner.email, "a@acme.test");
+  assert.equal(out.tenants_count, 3);
+  assert.equal(out.last_activity_at, 1700000000);
+
+  assert.equal(hitMethod, "GET");
+  assert.match(hitUrl, /\/admin\/platforms\/p1$/);
+  // No query string: this is the by-id read, not a filtered list.
+  assert.ok(!hitUrl.includes("?"), `expected no query string, got ${hitUrl}`);
+  // ONE call. The screen this backs previously paged the list up to 20 times;
+  // a wrapper that fans out would reintroduce exactly that.
+  assert.equal(calls, 1);
+});
+
+test("admin.getPlatform: percent-encodes the id into the path", async () => {
+  let hitUrl = "";
+  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+    const stub = platformTokenStub(input);
+    if (stub) return stub;
+    hitUrl = typeof input === "string" ? input : input.toString();
+    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await realm.admin.getPlatform("a/../b");
+  // An unencoded id would escape the /admin/platforms/ prefix and address a
+  // different endpoint entirely.
+  assert.ok(!hitUrl.includes("a/../b"), `id leaked into the path unencoded: ${hitUrl}`);
+  assert.match(hitUrl, /\/admin\/platforms\/a%2F..%2Fb$/);
+});
+
+test("admin.getPlatform: a 404 stays platform_not_found, never a forbidden flavour", async () => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+    const stub = platformTokenStub(input);
+    if (stub) return stub;
+    return new Response(JSON.stringify({
+      error: { code: "platform_not_found", message: "platform not found" },
+    }), { status: 404, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  // The issuer returns an IDENTICAL 404 for an id that was never issued and for
+  // a platform the caller may not see (issuer DECISIONS.md 2026-08-06). That
+  // indistinguishability is the security property: a distinct refusal would
+  // confirm the id is live. The wrapper must not re-label it as a permission
+  // error, which is what a caller would reach for to render "you don't have
+  // access to this platform" — and that string IS the oracle.
+  await assert.rejects(() => realm.admin.getPlatform("nope"), (e: Error) => {
+    if (!(e instanceof RealmError)) return false;
+    // `platform_not_found` is not in the curated ErrorCode taxonomy (nor in
+    // Go's or Java's), so mapErrorResponse falls back to statusToCode(404).
+    // Asserting the normalized code is asserting the real contract; see the
+    // taxonomy item filed in sdk/TODO.md.
+    assert.equal(e.code, "not_found");
+    assert.equal(e.httpStatus, 404);
+    assert.notEqual(e.code, "forbidden");
+    assert.notEqual(e.code, "unauthorized");
+    return true;
+  });
+});

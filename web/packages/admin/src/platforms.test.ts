@@ -104,3 +104,44 @@ describe("PlatformsClient stats", () => {
     assert.notEqual(out.mfa_coverage.percent, 0);
   });
 });
+
+describe("PlatformsClient.get — the by-id read (issuer v0.87.0)", () => {
+  it("GETs /platforms/{id} and returns the row unwrapped", async () => {
+    const { http, calls } = makeHttp({
+      id: "p1",
+      domain: "acme.test",
+      admin_tenant_id: "t1",
+      display_name: "Acme",
+      mfa_policy: "enforced",
+    });
+
+    const out = await new PlatformsClient(http).get("p1");
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.opts.method, "GET");
+    assert.equal(calls[0]!.opts.path, "/platforms/p1");
+    // Same row shape as listMine()'s items — the issuer serves both from
+    // myPlatformsFor, so this is the singular counterpart, not a new shape.
+    assert.equal(out.id, "p1");
+    assert.equal(out.display_name, "Acme");
+    assert.equal(out.admin_tenant_id, "t1");
+    assert.equal(out.mfa_policy, "enforced");
+  });
+
+  it("encodes the id into the path", async () => {
+    const { http, calls } = makeHttp({});
+    await new PlatformsClient(http).get("p 1/x");
+    assert.equal(calls[0]!.opts.path, "/platforms/p%201%2Fx");
+  });
+
+  it("sends no body and does not fan out to the list", async () => {
+    // The whole point of the by-id read is that it replaces paging
+    // /platforms/mine and matching client-side. A wrapper that fell back to
+    // the list would reintroduce the cap this endpoint exists to remove.
+    const { http, calls } = makeHttp({ id: "p1" });
+    await new PlatformsClient(http).get("p1");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.opts.body, undefined);
+    assert.ok(!calls[0]!.opts.path.includes("mine"));
+  });
+});
