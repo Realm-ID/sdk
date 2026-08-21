@@ -184,6 +184,34 @@ export interface MfaChallengeMintResponse {
  * `last_used_at` — the old camelCase `lastUsedAt`/`createdAt` fields never
  * populated at runtime.
  */
+/** The `GET /auth/sessions` envelope: the issuer's locked paged shape, plus the
+ *  legacy flat `sessions` array some mocks still emit. */
+/**
+ * Removes the characters an HTTP header field value cannot carry (C0 controls
+ * and DEL). NOT a policy check: the issuer's `sanitizeDeviceName` strips the
+ * same class and additionally caps the value at 120 characters, and the cap
+ * stays THERE — a client-side copy of a server policy drifts the day either
+ * side changes.
+ *
+ * This exists because the transport refuses the value outright: undici throws
+ * `Headers.append: "..." is an invalid header value` and Go's http client
+ * returns `invalid header field value`, so a label with a newline in it did not
+ * arrive sanitized — the whole login failed, with an error naming the network
+ * rather than the argument. Stripping here produces exactly the value the
+ * server would have stored.
+ */
+export function headerSafeDeviceName(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\u0000-\u001f\u007f]/g, "").trim();
+}
+
+export interface SessionListWire {
+  items?: SessionInfo[];
+  sessions?: SessionInfo[];
+  next_cursor?: string | null;
+  total?: number;
+}
+
 export interface SessionInfo {
   id: string;
   origin?: string;
@@ -324,7 +352,10 @@ export class AuthClient {
     // platform bootstrap the transport performs before this call is an M2M mint
     // that records no device, so it never carries the label. Absent means NO
     // header — the issuer reads a present empty value as a supplied label.
-    if (req.deviceName) headers["x-device-name"] = req.deviceName;
+    if (req.deviceName) {
+      const label = headerSafeDeviceName(req.deviceName);
+      if (label) headers["x-device-name"] = label;
+    }
     const raw = await this.http.request<RawAuthResponse>({
       method: "POST",
       path: "/auth/login",
@@ -485,13 +516,21 @@ export class AuthClient {
 
   /** SPEC §4.6 — list sessions for the user identified by `userBearer`. */
   async listSessions(userBearer?: string): Promise<SessionInfo[]> {
-    const raw = await this.http.request<{ sessions?: SessionInfo[] } | SessionInfo[]>({
+    const raw = await this.http.request<SessionListWire | SessionInfo[]>({
       method: "GET",
       path: "/auth/sessions",
       bearer: userBearer,
     });
     if (Array.isArray(raw)) return raw;
-    return raw.sessions ?? [];
+    // The issuer answers with the LOCKED paged envelope `{items, next_cursor,
+    // total}` (httpapi.pagedSlice). Reading `sessions` alone — as this method
+    // did until 0.37.0 — returns an empty array against every real issuer,
+    // which is indistinguishable from "you have no sessions". `sessions` is
+    // kept as a legacy/mock fallback, exactly as Go's decodeSessionPage does.
+    //
+    // Returns the FIRST PAGE only (server default 50). Go's ListSessions
+    // iterates `next_cursor`; TS does not yet — see ../TODO.md.
+    return raw.items ?? raw.sessions ?? [];
   }
 
   /**

@@ -7,6 +7,82 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-21 (later) — an SDK E2E suite, and the two defects it found on its first run
+
+`tests/sdk-e2e/` drives the TS and Java clients against a real issuer on the
+compose network. Homed in the umbrella per the ADR-053 SUT-span rule (the SUT
+spans sdk + issuer), sharing the existing harness rather than forking one.
+
+**Why it was worth building at all, stated as the finding rather than the
+intent.** The unit suites assert what the SDK SENDS, against a fake server the
+same suite owns. Nothing in that loop can observe what the ISSUER does, and the
+first run turned up two defects that had survived every unit test, both of the
+same shape: **the fixture agreed with the client, and both disagreed with the
+server.**
+
+**1. `listSessions` returned `[]` against every real issuer (TS).** It read
+`raw.sessions`; the issuer answers the LOCKED paged envelope
+`{items, next_cursor, total}` (`httpapi.pagedSlice`). Go has read `items` — with
+`sessions` as an explicit legacy fallback — the whole time, so this was TS
+holding the fallback and not the actual contract. A TS consumer's "your active
+sessions" screen was empty and indistinguishable from having no sessions; the
+`device_name` field we shipped hours earlier would have rendered nowhere.
+
+The unit test could not have caught it: its fixture served `{sessions: [...]}`,
+a shape no issuer emits. **A fixture is a claim about the wire, and an invented
+one measures nothing.** Fixed by reading `items` first, keeping `sessions` as a
+documented legacy/mock fallback (mirroring Go), re-pointing the fixture at the
+real envelope, and moving the legacy case into its OWN test — so the primary
+assertion now rests on the shape the server actually sends.
+
+Left open and filed: TS returns the FIRST PAGE only, where Go iterates
+`next_cursor`. Real, but a different bug from this one, and conflating them
+would have hidden the envelope fix inside a pagination change.
+
+**2. A device label containing a control character never reached the server —
+in ANY SDK.** "Send the value raw; the server sanitizes" is the rule we wrote
+into three SDKs and the SPEC that same morning. It is wrong for exactly the
+input sanitizing exists for: undici throws `Headers.append: … is an invalid
+header value` and Go's `net/http` returns `invalid header field value`
+(**measured in a container, not inferred**), so the login failed outright with
+an error naming the NETWORK rather than the argument.
+
+The fix splits the rule where the responsibility actually splits. The SDK strips
+what an HTTP field value cannot carry — C0 controls and DEL — because that is a
+TRANSPORT constraint the client must satisfy to make any request at all. The
+**120-character cap stays server-side**, because that is a POLICY and a
+client-side copy drifts the day either end changes. The stripped value is
+byte-identical to what `sanitizeDeviceName` would have stored, so the split
+costs nothing observable.
+
+Fixed in all three languages, Go included — it had shipped this hole since
+ADR-062 and nothing had ever sent it a control character. An empty result after
+stripping sends NO header, because the issuer reads a present empty value as a
+supplied label.
+
+**What the E2E is allowed to assume is itself the design.** Each case has a
+positive control or a companion negative, and the suite is mutation-verified
+end to end: reverting the `listSessions` decode fails 3 TS cases, un-sending the
+header fails 3 Java cases, and un-wiring the realm pin from `Realm.builder()`
+fails exactly the pin case — the same mutation that four SDK-level unit tests
+sail through. The pin case is also the only place anything checks that the
+issuer's `iss` is really shaped `<base>/<realmId>` (ADR-020); a unit test mints
+its own `iss` and is blind to both failure modes it could have.
+
+**The Java half compiles against the SOURCE tree** (`includeBuild` with an
+explicit `dependencySubstitution`), not a published artifact. With releases
+blocked, the source is the only thing that changes, and a version coordinate
+would have quietly tested what Maven Central last served.
+
+**Incident worth recording, because it inverts a claim made in this file
+hours earlier:** the Java SDK's `--offline` builds were passing on stale build
+outputs. `jackson-databind:2.17.2` was never in the host Gradle cache; a `clean`
+exposed it, and the "195 tests, 0 failures, offline" runs earlier today had been
+skipping `compileJava` as UP-TO-DATE. The tests themselves were real and did
+run — but "it builds offline" was not true, and is now, since the fetch
+populated the cache. **An offline build proves nothing until it has survived a
+clean.**
+
 ## 2026-08-21 — the Java realm pin, and the device label TS never sent
 
 Two `TODO.md` § *Cross-language parity gaps* entries, closed together because

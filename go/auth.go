@@ -317,8 +317,8 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 	if origin != "" {
 		headers["Origin"] = origin
 	}
-	if req.DeviceName != "" {
-		headers["X-Device-Name"] = req.DeviceName
+	if label := headerSafeDeviceName(req.DeviceName); label != "" {
+		headers["X-Device-Name"] = label
 	}
 
 	method := req.Method
@@ -660,6 +660,27 @@ func decodeSessionPage(raw map[string]any) ([]SessionInfo, string, error) {
 	}
 	next, _ := raw["next_cursor"].(string)
 	return out, next, nil
+}
+
+// headerSafeDeviceName removes the characters an HTTP header field value cannot
+// carry (C0 controls and DEL). It is NOT a policy check: the issuer's
+// sanitizeDeviceName strips the same class AND caps the value at 120
+// characters, and the cap stays there — a client-side copy of a server policy
+// drifts the day either side changes.
+//
+// It exists because the transport refuses such a value outright: net/http fails
+// the request with "invalid header field value" (measured, not assumed), as
+// undici and the JDK client do, so a label containing a newline never arrived
+// sanitized — the whole login failed with an error naming the network rather
+// than the argument. Stripping here yields exactly the value the server would
+// have stored.
+func headerSafeDeviceName(s string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s))
 }
 
 func strField(m map[string]any, k string) string {

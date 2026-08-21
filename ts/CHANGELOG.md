@@ -12,7 +12,23 @@ cross-cutting items affecting every SDK at once.
 > being trustworthy the moment it silently skips, because a reader cannot tell
 > "nothing shipped" from "nobody wrote it down".
 
-## 0.37.0 — `login({ deviceName })` sends `X-Device-Name` (2026-08-21)
+## 0.37.0 — `listSessions` decodes the real envelope; `login({ deviceName })` sends `X-Device-Name` (2026-08-21)
+
+**FIX (user-visible, silent until now): `listSessions` returned an empty array
+against every real issuer.** It decoded `{sessions: [...]}`; the issuer answers
+the locked paged envelope `{items, next_cursor, total}`
+(`httpapi.pagedSlice`), which Go has read all along with `sessions` as an
+explicit legacy fallback. A TS consumer's session list was empty and
+indistinguishable from "you have no other sessions" — including the
+`device_name` label added below. Now reads `items`, keeps `sessions` as a
+legacy/mock fallback, and the unit fixture is re-pointed at the shape a real
+issuer emits (it had served the invented one, so test and client agreed while
+both disagreed with the server). Found by the new `tests/sdk-e2e` suite.
+
+**Known limitation, unchanged:** `listSessions` returns the FIRST PAGE only
+(server default 50) where Go iterates `next_cursor`. Filed in `../TODO.md`.
+
+### `login({ deviceName })` sends `X-Device-Name`
 
 ADR-062's device label was half-implemented in TS: `SessionInfo.device_name`
 carried the READ half from the start, and nothing ever SENT the header, so a TS

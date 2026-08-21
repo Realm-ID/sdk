@@ -13,6 +13,30 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## A device label the transport cannot carry — go `0.45.0` · ts `0.37.0` · java `0.35.0` (2026-08-21)
+
+Cross-cutting fix to the ADR-062 device label, in all three SDKs at once.
+
+"Send the value raw; the issuer sanitizes it" is the rule the SPEC and all three
+clients carried, and it is wrong for exactly the input sanitizing exists for. A
+label containing a C0 control never reached the server: undici throws
+`Headers.append: … is an invalid header value`, the JDK's
+`HttpRequest.Builder.header` refuses it, and Go's `net/http` fails the request
+with `invalid header field value` — so the whole login died with an error naming
+the network rather than the argument. Go had shipped this since ADR-062; nothing
+had ever sent it a control character.
+
+Each SDK now strips what an HTTP field value cannot carry (C0 controls + DEL)
+and sends nothing at all when the result is empty — an empty header reads
+server-side as a supplied label. The **120-character cap stays server-side**:
+that is policy, and a client-side copy drifts the day either end changes. The
+stripped value is byte-identical to what `sanitizeDeviceName` would have stored.
+
+Found by the new `tests/sdk-e2e` suite (umbrella repo), which drives the TS and
+Java clients against a live issuer. Its first run also found that TS's
+`listSessions` decoded an envelope no issuer emits — see `ts/CHANGELOG.md`
+`0.37.0` and `DECISIONS.md` 2026-08-21.
+
 ## `me.acceptInvitation` — the mirror of reject (ADR-095 D5) — go `0.44.0` · ts `0.35.0` · java `0.34.0` (2026-08-03)
 
 `POST /me/invitations/{tenantId}/accept`, added to all three SDKs. Accepts a

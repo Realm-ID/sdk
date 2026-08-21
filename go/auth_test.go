@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -484,3 +485,66 @@ func TestAuth_MintMFAChallenge_OnBehalfOfIP(t *testing.T) {
 		t.Errorf("X-On-Behalf-Of-IP = %q", gotIP)
 	}
 }
+
+// TestLoginDeviceNameIsHeaderSafe pins that a label the transport cannot carry
+// is stripped rather than fatal. net/http fails the whole request with
+// "invalid header field value" on a C0 control (measured in a container, not
+// assumed), so "send it raw and let the server sanitize" was wrong for exactly
+// the input sanitizing exists for — the login never left the process. Found by
+// tests/sdk-e2e driving a real issuer through the TS client; Go had the same
+// hole since ADR-062. The 120-char CAP is deliberately NOT applied here.
+func TestLoginDeviceNameIsHeaderSafe(t *testing.T) {
+	longTail := strings.Repeat("x", 200)
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"control characters are removed", "rogue\nname" + longTail, "roguename" + longTail},
+		{"an all-control label sends no header", "\n\n", ""},
+		{"an ordinary label is untouched", "akshat-mbp", "akshat-mbp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got string
+			var seen bool
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/auth/login" {
+					var body map[string]any
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body["grant_type"] == "platform_api_key" {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write([]byte(`{"access_token":"pt","expires_in":300,"subject_type":"platform"}`))
+						return
+					}
+					got = r.Header.Get("X-Device-Name")
+					_, seen = r.Header["X-Device-Name"]
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"access_token":"at","refresh_token":"rt","expires_in":600,"user":{"id":"u1"},"tenants":[]}`))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer srv.Close()
+
+			r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			if err != nil {
+				t.Fatalf("NewRealm: %v", err)
+			}
+			if _, err := r.Auth.Login(context.Background(), LoginRequest{
+				Method: LoginFirebase, ProviderToken: "tok", DeviceName: tc.in,
+			}); err != nil {
+				t.Fatalf("Login: %v (a stripped label must not fail the request)", err)
+			}
+			if got != tc.want {
+				t.Errorf("X-Device-Name = %q, want %q", got, tc.want)
+			}
+			// An empty header is a SUPPLIED label as far as the issuer is
+			// concerned, so the empty case must send no header at all.
+			if tc.want == "" && seen {
+				t.Errorf("X-Device-Name was sent as an empty header; it must be omitted")
+			}
+		})
+	}
+}
+

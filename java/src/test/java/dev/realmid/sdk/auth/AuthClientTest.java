@@ -421,4 +421,55 @@ class AuthClientTest {
         realm.auth().login(LoginRequest.of("firebase", "provider-tok"));
         assertNull(seen.get().header("X-Device-Name"));
     }
+
+    @Test
+    void loginStripsCharactersTheTransportCannotCarry() {
+        // The JDK's HttpRequest.Builder.header REFUSES a value containing a C0
+        // control, so "send it raw and let the server sanitize" was wrong for
+        // exactly the input sanitizing exists for — the request never left.
+        // Found by tests/sdk-e2e driving a real issuer. The 120-char CAP is
+        // deliberately NOT applied client-side; that stays the server's rule.
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-1", "refresh_token", "rt-1", "expires_in", 600,
+                    "user", Map.of("id", "u1"), "tenants", java.util.List.of()));
+        });
+
+        String longTail = "x".repeat(200);
+        realm.auth().login(LoginRequest.of("firebase", "provider-tok")
+                .withDeviceName("rogue\nname" + longTail));
+
+        assertEquals("roguename" + longTail, seen.get().header("X-Device-Name"),
+                "control characters removed; length left to the server");
+    }
+
+    @Test
+    void loginSendsNoHeaderWhenTheLabelIsAllControlCharacters() {
+        // The stripped value is empty, and an empty header IS a supplied label
+        // to the issuer — so it must be omitted rather than sent blank.
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-1", "refresh_token", "rt-1", "expires_in", 600,
+                    "user", Map.of("id", "u1"), "tenants", java.util.List.of()));
+        });
+
+        realm.auth().login(LoginRequest.of("firebase", "provider-tok").withDeviceName("\n\n"));
+        assertNull(seen.get().header("X-Device-Name"));
+    }
 }

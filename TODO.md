@@ -109,6 +109,31 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ## Cross-language parity gaps
 
+> **An SDK↔issuer E2E suite now exists: `tests/sdk-e2e/` in the umbrella repo**
+> (2026-08-21). TS + Java halves, run in-network against the seeded stack under
+> compose profile `sdk-e2e`. **Its first run found two defects no unit suite
+> could see**, both the same shape — the fixture agreed with the client while
+> both disagreed with the server:
+> - ts `listSessions` returned `[]` against every real issuer (decoded
+>   `{sessions}`, the wire is `{items,next_cursor,total}`). FIXED in ts `0.37.0`.
+> - a device label with a control character never reached the server in ANY SDK;
+>   the transport refuses such a header value. FIXED in go `0.45.0` / ts
+>   `0.37.0` / java `0.35.0`.
+>
+> **Add any new parity check to the E2E suite too, not only to the unit suites.**
+> A parity claim verified only against a fake server is a claim about the SDK's
+> own beliefs.
+
+- [ ] **TS `listSessions` returns the FIRST PAGE only.** Go's `ListSessions`
+  iterates `next_cursor` (`go/auth.go` `decodeSessionPage`); TS returns
+  `items` from one response, so a user with more than the server default (50)
+  sessions silently sees a truncated list. Java pages through `Paginated`.
+  Deliberately NOT folded into the `0.37.0` envelope fix — a pagination change
+  would have hidden the decode fix inside it. (Found 2026-08-21 by
+  `tests/sdk-e2e`.)
+- [ ] **`gofmt -l` reports `go/roles_test.go` and `go/tenants.go`** (checked
+  2026-08-21 in a container). Pre-existing, unrelated to any current change; the
+  issuer has a matching open item for a CI `gofmt` gate.
 - [ ] **TS: BFF on-behalf-of parity** (`ts/src/auth.ts`). The TS current-user
   session/MFA methods (`revokeSession`, `listSessions`, `revokeAllSessions`,
   `enrollMfa`, `confirmMfa`, `disableMfa` — SPEC §4.5–4.10) accept only a direct

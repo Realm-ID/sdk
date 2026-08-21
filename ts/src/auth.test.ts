@@ -226,15 +226,23 @@ test("auth.listSessions: decodes issuer sessionDTO fields incl. last_seen_at", a
   // last-used timestamp field is `last_seen_at`, NOT `last_used_at`, and
   // timestamps are unix-seconds JSON numbers. `listSessions` returns the
   // parsed server JSON unmapped, so SessionInfo must carry the wire names.
+  // The envelope is the issuer's LOCKED paged shape `{items, next_cursor,
+  // total}` (httpapi.pagedSlice) — verbatim from a real response, not invented
+  // here. The old fixture served `{sessions: [...]}`, a shape no issuer emits,
+  // so it agreed with the SDK's decode while both disagreed with the server:
+  // listSessions returned [] in production and the test passed. Confirmed
+  // end-to-end by tests/sdk-e2e.
   const { fetch, calls } = recorder([
     () => new Response(JSON.stringify({
-      sessions: [{
+      items: [{
         id: "sess-1",
         origin: "https://app.realmid.dev",
         device_name: "laptop",
         created_at: 1_751_241_600,
         last_seen_at: 1_751_245_200,
       }],
+      next_cursor: null,
+      total: 1,
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
@@ -283,5 +291,58 @@ test("auth.login: omits X-Device-Name when no device name is given", async () =>
   ]);
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   await realm.auth.login({ method: "firebase", providerToken: "tok" });
+  assert.equal(calls[1]!.headers.has("x-device-name"), false);
+});
+
+test("auth.listSessions: still decodes the legacy flat {sessions: [...]} shape", async () => {
+  // Deliberate tolerance, mirroring Go's decodeSessionPage: partner mocks and
+  // pre-envelope issuers emit the flat shape. Kept as a SEPARATE test so the
+  // real wire shape above is the one the primary assertion rests on — the
+  // reverse arrangement is what hid the defect for as long as it lasted.
+  const { fetch } = recorder([
+    () => new Response(JSON.stringify({
+      sessions: [{ id: "legacy-1", created_at: 1_751_241_600 }],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const list = await realm.auth.listSessions("u-jwt");
+  assert.equal(list.length, 1);
+  assert.equal(list[0]!.id, "legacy-1");
+});
+
+test("auth.login: a device label the transport cannot carry is stripped, not fatal", async () => {
+  // undici throws `Headers.append: "..." is an invalid header value` for a C0
+  // control, surfacing as a `network` RealmError — so "send it raw and let the
+  // server sanitize" was wrong for exactly the input sanitizing exists for: the
+  // request never left. Found by tests/sdk-e2e against a real issuer.
+  // The 120-char CAP is deliberately NOT applied here; that stays the server's.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at-1", refresh_token: "rt-1", expires_in: 600,
+      user: { id: "u1" }, tenants: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const long = "x".repeat(200);
+  await realm.auth.login({
+    method: "firebase",
+    providerToken: "tok",
+    deviceName: "rogue\nname" + long,
+  });
+  assert.equal(calls[1]!.headers.get("x-device-name"), "roguename" + long,
+    "control characters removed; length left to the server");
+});
+
+test("auth.login: a label made ENTIRELY of control characters sends no header", async () => {
+  // The stripped value is empty, and an empty header is a supplied label as far
+  // as the issuer is concerned — so it must be omitted, not sent blank.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at-1", refresh_token: "rt-1", expires_in: 600,
+      user: { id: "u1" }, tenants: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  await realm.auth.login({ method: "firebase", providerToken: "tok", deviceName: "\n\n" });
   assert.equal(calls[1]!.headers.has("x-device-name"), false);
 });

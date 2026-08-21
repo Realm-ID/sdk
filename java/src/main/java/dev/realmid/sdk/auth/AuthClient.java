@@ -44,8 +44,9 @@ public final class AuthClient {
         // ADR-062: the device label rides as a header on the USER grant only.
         // The platform bootstrap this call sits behind is an M2M mint that
         // records no device, so it never carries the label.
-        if (req.deviceName() != null && !req.deviceName().isEmpty()) {
-            r.header("x-device-name", req.deviceName());
+        String deviceLabel = headerSafeDeviceName(req.deviceName());
+        if (!deviceLabel.isEmpty()) {
+            r.header("x-device-name", deviceLabel);
         }
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, Session.class);
@@ -309,6 +310,31 @@ public final class AuthClient {
                 r.header("x-on-behalf-of-ip", onBehalfOfIp);
             }
         }
+    }
+
+
+    /**
+     * Removes the characters an HTTP header field value cannot carry (C0
+     * controls and DEL). NOT a policy check: the issuer's
+     * {@code sanitizeDeviceName} strips the same class AND caps the value at
+     * 120 characters — the cap stays there, because a client-side copy of a
+     * server policy drifts the day either side changes.
+     *
+     * <p>This exists because the transport refuses such a value outright: the
+     * JDK's {@code HttpRequest.Builder.header} rejects illegal characters, as
+     * undici and Go's http client do, so a label containing a newline did not
+     * arrive sanitized — the whole login failed with an error naming the
+     * network rather than the argument. Stripping here yields exactly the value
+     * the server would have stored.
+     */
+    static String headerSafeDeviceName(String s) {
+        if (s == null) return "";
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 0x20 && c != 0x7f) b.append(c);
+        }
+        return b.toString().trim();
     }
 
     private void attachOrigin(HttpTransport.Request r, String perCall) {

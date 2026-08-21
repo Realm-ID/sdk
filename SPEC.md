@@ -329,12 +329,21 @@ Request: `{ method, providerToken, origin?, deviceName? }`
   grant**: the platform bootstrap that precedes it is an M2M mint the issuer
   records no device for. The issuer persists it on the created session and
   echoes it back in `listSessions` (§4.6, `device_name`), which is the point —
-  a user revoking a session needs to tell their sessions apart. The server
-  strips control characters and caps the value at **120 characters**, so no SDK
-  duplicates that sanitizing. Absent means **no header at all**; a present
-  empty value reads server-side as a supplied label. All three SDKs send it
-  (Go `LoginRequest.DeviceName`, TS `deviceName`, Java
-  `LoginRequest.withDeviceName(...)`).
+  a user revoking a session needs to tell their sessions apart. Absent means
+  **no header at all**; a present empty value reads server-side as a supplied
+  label. All three SDKs send it (Go `LoginRequest.DeviceName`, TS `deviceName`,
+  Java `LoginRequest.withDeviceName(...)`).
+
+  **Sanitizing is split, and the split is deliberate.** The server strips
+  control characters and caps the value at **120 characters**
+  (`sanitizeDeviceName`); no SDK duplicates the CAP, because that is policy and
+  a client-side copy drifts the day either end changes. Each SDK does strip
+  what an HTTP header field value cannot carry (C0 controls and DEL), because
+  that is a TRANSPORT constraint, not a policy: undici, the JDK client and Go's
+  `net/http` all refuse such a value outright, so before this the whole login
+  failed with an error naming the network rather than the argument. The stripped
+  value is byte-identical to what the server would have stored; a label
+  consisting only of control characters sends no header.
 
 The wire response includes a typed `subject_type` ∈ `{user, service,
 platform}` (ADR-051 §3). `service` is minted for a **service account**
@@ -538,6 +547,14 @@ Server-side revoke of a specific session id.
 
 Returns sessions for the current user (the user identified by the
 caller's bearer token; this is a user-token operation, not API-key).
+
+The response is the issuer's locked paged envelope
+`{ items, next_cursor, total }` (`httpapi.pagedSlice`) — **not** a bare
+`{sessions: [...]}`, a shape no issuer emits and which the TS client decoded
+until `0.37.0`, returning an empty list against every real server. Go and TS
+accept the flat shape as a legacy/mock fallback; Java reads the envelope
+through `Paginated`. Go and Java follow `next_cursor`; TS returns the first page
+only (tracked in `TODO.md`).
 
 Each row (`SessionInfo` / `Session`) mirrors the issuer's session DTO:
 `{ id, class, created_at, last_seen_at, device_name?, ... }`. Note the

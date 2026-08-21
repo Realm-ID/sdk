@@ -36,6 +36,18 @@ the `listSessions` row — the field the session list has been serving since
 ADR-062 while `@JsonIgnoreProperties(ignoreUnknown = true)` silently swallowed
 it.
 
+The SDK strips what an HTTP header field value cannot carry (C0 controls and
+DEL) before sending — the JDK's `HttpRequest.Builder.header` refuses such a
+value, so a label containing a newline failed the whole login rather than
+arriving sanitized. The 120-char cap stays server-side; the stripped value is
+byte-identical to what the server would have stored. An all-control label sends
+no header at all.
+
+**Verified against a real issuer**, not only a fake server: `tests/sdk-e2e/java`
+compiles against this source tree and drives a live stack (label round-trip,
+header-not-body placement, the split sanitizing, and the realm pin firing
+against the issuer's actual `iss`).
+
 **Source-compatible.** `LoginRequest` gains a fourth record component with a
 3-arg constructor kept for existing callers; `Session` gains a component, which
 is source-incompatible only for code calling its canonical constructor
