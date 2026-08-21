@@ -1,0 +1,121 @@
+name: CI
+
+# The SDK monorepo had NO push/PR gate at all until 2026-08-21 — its only
+# workflows were the two tag-triggered publishers and `verify-go-release.yml`,
+# which fires on a `go/v*` tag. So the Go, TypeScript and Java suites ran only
+# when a human remembered to run them, and a red suite would first have been
+# noticed by a PUBLISH: the worst possible moment, because a tag is immutable
+# once proxy.golang.org or npm has served it (root TODO.md § Tag hygiene).
+#
+# Found while closing the "add a CI gofmt gate" item, which had been re-noticed
+# three times and never done. The reason it was never done is this: there was no
+# CI to add a step to. An item that names a step inside a workflow that does not
+# exist reads as ten minutes of work and is not.
+#
+# Each job is independent on purpose — a broken Java toolchain must not hide a
+# red TypeScript suite. That is the same `if: always()` reasoning the issuer's
+# `workflows` job uses between its two harness steps.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (fmt, vet, test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go/go.sum
+
+      # THE GATE, not hygiene. This drifted four times, and each time the fix
+      # was a hand-written list of unformatted files in a TODO — which rots by
+      # construction: every re-check found the named files clean and DIFFERENT
+      # files drifted. `gofmt -l` derives the list from the tree, which is the
+      # whole point. Printed before failing so the log names the files.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt reports unformatted files:"
+            echo "$unformatted"
+            gofmt -d .
+            exit 1
+          fi
+          echo "gofmt clean"
+
+      - name: Build + vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+  ts:
+    name: TypeScript (tsc + node --test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ts
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+
+      - run: npm ci
+
+      # Typecheck BEFORE the suite: node --test runs through tsx, which
+      # transpiles per file without typechecking, so a type error never fails a
+      # test run. That is exactly how two TS2345s sat on `tests/ui-e2e` main
+      # until 2026-08-20 — the specs compiled to something nobody had checked.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+  java:
+    name: Java (gradle test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # --no-daemon: a CI runner is single-shot, so a daemon buys nothing and
+      # has been a source of stale-output flakes elsewhere in this workspace
+      # (an --offline gradle run passing against stale outputs).
+      - name: Unit tests
+        run: ./gradlew test --no-daemon

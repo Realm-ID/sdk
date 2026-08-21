@@ -67,7 +67,7 @@ type TenantCreate struct {
 	// the server mints a UUIDv7. Present + already exists in this realm ⇒ the
 	// call reconciles idempotently; present + exists in another realm ⇒
 	// `cross_realm_tenant_id`.
-	ID             string     `json:"id,omitempty"`
+	ID          string     `json:"id,omitempty"`
 	DisplayName string     `json:"display_name"`
 	SignupMode  SignupMode `json:"signup_mode,omitempty"`
 	// CreatedAt is an optional RFC3339 creation timestamp (ADR-073 C.4);

@@ -410,7 +410,7 @@ func TestRoles_UpdateDecodesMigratedHolders(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": "role-bot", "name": "bot", "permissions": []string{},
 			"required_mfa_methods": []string{}, "can_invite_roles": []string{},
-			"assignable_to": []string{"service"},
+			"assignable_to":    []string{"service"},
 			"migrated_holders": 12, "migrated_holders_to": "member",
 			"is_system": false, "created_at": 1, "updated_at": 2,
 		})

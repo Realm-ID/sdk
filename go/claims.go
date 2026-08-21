@@ -4,18 +4,18 @@ package realmid
 // RealmID-specific extras (azp, tenant_id, role). Unknown fields land in
 // Extra.
 type Claims struct {
-	Issuer          string         `json:"iss,omitempty"`
-	Subject         string         `json:"sub,omitempty"`
-	Audience        string         `json:"aud,omitempty"`
-	IssuedAt        int64          `json:"iat,omitempty"`
-	NotBefore       int64          `json:"nbf,omitempty"`
-	Expiry          int64          `json:"exp,omitempty"`
-	JWTID           string         `json:"jti,omitempty"`
-	AuthorizedParty string         `json:"azp,omitempty"`
-	TenantID        string         `json:"tenant_id,omitempty"`
-	Role            string         `json:"role,omitempty"`
-	AMR             []string       `json:"amr,omitempty"`
-	ACR             string         `json:"acr,omitempty"`
+	Issuer          string   `json:"iss,omitempty"`
+	Subject         string   `json:"sub,omitempty"`
+	Audience        string   `json:"aud,omitempty"`
+	IssuedAt        int64    `json:"iat,omitempty"`
+	NotBefore       int64    `json:"nbf,omitempty"`
+	Expiry          int64    `json:"exp,omitempty"`
+	JWTID           string   `json:"jti,omitempty"`
+	AuthorizedParty string   `json:"azp,omitempty"`
+	TenantID        string   `json:"tenant_id,omitempty"`
+	Role            string   `json:"role,omitempty"`
+	AMR             []string `json:"amr,omitempty"`
+	ACR             string   `json:"acr,omitempty"`
 	// MFAAt is the unix-seconds timestamp of the user's most recent
 	// successful MFA challenge in this session. Zero means absent — the
 	// session never completed MFA, or the server hasn't been upgraded

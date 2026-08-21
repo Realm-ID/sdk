@@ -1,11 +1,11 @@
 package realmid
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"

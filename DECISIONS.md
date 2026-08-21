@@ -7,6 +7,66 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-21 (last) — the SDK monorepo had no CI, which is why "add a gofmt gate" was never ten minutes
+
+New `.github/workflows/ci.yml`: go (gofmt, build, vet, test), ts (tsc, node
+--test), java (gradle test), on push and PR.
+
+### The gofmt item was ranked at its cheap half and blocked at its expensive one
+
+`TODO.md` carried "`gofmt -l` reports two files", deferring the gate to "the
+issuer has a matching open item". That issuer item had been re-noticed three
+times — 2026-07-28, 2026-08-05, and again here — each time formatting whatever
+had drifted and each time recording that the gate is the real work. It never got
+built, and the reason is not that anyone was lazy: **there was no CI in this repo
+to add a step to.** The only workflows were `publish-npm.yml`, `publish-maven.yml`
+and `verify-go-release.yml`, all tag-triggered.
+
+An item that names a step inside a workflow that does not exist reads as ten
+minutes and is not. In the issuer it genuinely was ten minutes; the two were
+written as one shared item, so it was ranked at the cheap end and blocked at the
+expensive end. **Rank the halves, not the item** — the same lesson the 2026-08-10
+issuer pass recorded about the ADR-080 claim table, paying out a second time.
+
+### The larger finding, which nobody had filed
+
+The Go, TypeScript and Java suites — 203 TS tests alone — ran **only when a human
+ran them**. A red suite would first have been noticed by a PUBLISH, which is the
+worst possible moment: a Go tag is immutable once proxy.golang.org has served it
+(`go/v0.21.0` was re-pointed once and downstream `go.sum` verification broke), and
+npm is no kinder. This is the "guards that report nothing" class — a green check
+means nothing if nothing runs it — except here there was no check at all, only
+suites nobody had wired.
+
+### Choices inside the workflow
+
+- **Jobs are independent, not stages.** A broken Java toolchain must not hide a
+  red TypeScript suite. Same reasoning as the `if: always()` between the issuer's
+  two harness steps.
+- **The gofmt step prints the files before failing.** Every previous repair of
+  this drift produced a hand-written list of filenames in a TODO, and every
+  re-check found the NAMED files clean while DIFFERENT files had drifted —
+  including this pass, where the entry named two files and there were four.
+  `gofmt -l` derives the list from the tree; the log has to show it, or the next
+  reader writes the list down again.
+- **Typecheck runs BEFORE the TS suite.** `node --test` goes through `tsx`, which
+  transpiles per file WITHOUT typechecking, so a type error never fails a test
+  run — exactly how two `TS2345`s sat on `tests/ui-e2e` main until 2026-08-20.
+- **`--no-daemon` on gradle.** A CI runner is single-shot, so the daemon buys
+  nothing, and stale-output flakes have bitten this workspace before.
+
+### Verification, and its honest limit
+
+`actionlint` clean on both files. Both gofmt gates mutation-verified by appending
+a deliberately misformatted function — each fails and names the file. Every job's
+command set was run locally in containers (go build/vet/test, `npm ci` +
+typecheck + 203 tests, `./gradlew test --no-daemon` → BUILD SUCCESSFUL).
+
+**What is NOT verified: the workflows have never run on GitHub.** Actions has
+been dead org-wide since 2026-08-20 (every run `startup_failure` at 0s, billing).
+Trigger syntax, action versions and runner behaviour are unproven until the first
+real run. Say that rather than implying a green tick exists.
+
 ## 2026-08-21 (latest) — TS `listSessions` pages, and the break is deliberate
 
 `AuthClient.listSessions` now returns `Paginated<SessionInfo>` and follows

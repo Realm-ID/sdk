@@ -145,6 +145,24 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   lines: `docs/integration-guide.md` §4.5 showed the old array call AND read
   `s.createdAt`/`s.lastUsedAt`, fields TS has never returned.
   Rationale: `DECISIONS.md` 2026-08-21 (latest).
+- [x] ~~**`gofmt -l` reports FOUR files**~~ — **DONE 2026-08-21, formatted AND
+  gated.** The diff is whitespace-only bar one import reorder in
+  `middleware_test.go`; `go test ./...` green.
+  **The gate is the real change, and finding out why it had never been built is
+  the finding.** This entry deferred to "the issuer has a matching open item for
+  a CI `gofmt` gate", and that issuer item had been re-noticed three times
+  (2026-07-28, 2026-08-05, and implicitly here) as "ten minutes of work". It was
+  not ten minutes, because **`Realm-ID/sdk` had no push/PR CI at all** — only
+  two tag-triggered publishers and `verify-go-release.yml`. There was no
+  workflow to add a step to. An item naming a step inside a workflow that does
+  not exist reads as trivial and is not.
+  New `.github/workflows/ci.yml` runs go (gofmt + build + vet + test), ts (tsc +
+  node --test) and java (gradle test) on push and PR, jobs independent so a
+  broken toolchain in one cannot hide a red suite in another. The issuer's unit
+  job gained the same gofmt step. Both gates mutation-verified; all three job
+  command sets verified locally in containers, since Actions is down and cannot
+  run them. Original entry:
+
 - [ ] **`gofmt -l` reports FOUR files** — `go/claims.go`,
   `go/middleware_test.go`, `go/roles_test.go`, `go/tenants.go` (re-run
   2026-08-21 in a `golang:1.23-alpine` container). Pre-existing, unrelated to
