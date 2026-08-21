@@ -7,6 +7,77 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-21 — the Java realm pin, and the device label TS never sent
+
+Two `TODO.md` § *Cross-language parity gaps* entries, closed together because
+both are "one language disagrees with the other two about a rule that is
+already written down". Java `0.35.0`, TS `0.37.0`. **Neither is released** —
+Actions is down on the org, so the bumps sit in the repo unpublished.
+
+**Why parity gaps are worth closing at all.** A rule three SDKs are supposed to
+enforce, enforced by two, is worse than one enforced by none: the SPEC says the
+check exists, so nobody looks for it, and the language that skips it is the one
+where a partner is least likely to notice. `realm_mismatch` had been in Java's
+`ErrorCode` since the taxonomy pass — a constant that made the taxonomy look
+complete while the check behind it did not exist.
+
+**The pin refuses on mismatch and stays silent on undecodable.** The tempting
+"stricter" reading — an access token whose payload we cannot decode is
+suspicious, refuse it — is wrong, and the mutation run measured how wrong:
+130+ tests across the Java suite go red, because every fixture mints an opaque
+`pt-…`, and so would any consumer whose issuer or mock returns a non-JWT
+access token. The pin answers *which realm is this token for*; an unreadable
+answer is not a wrong answer, and validating tokens is `Verifier`'s job. Go and
+TS had both already made this call (Go returns nil on a malformed payload; TS's
+peek returns `""` → skip), so matching them is also the interop-safe choice.
+
+**The constructor was kept, not replaced.** `PlatformTokenManager`'s 7-arg
+constructor stays and skips the pin, mirroring TS's `if (!realmId) return`. A
+manager with no realm to pin against has nothing to compare, and turning that
+into a hard failure would break direct constructor users for a check they never
+asked for. `Realm.builder()` — how every partner actually builds the SDK —
+passes the realm id, so the default is pinned.
+
+**The wiring test is the one that matters, and the mutation proves it.** Four
+manager-level tests pass with `Realm` handing the manager `null` for the realm
+id: the check is present, correct, and dead for every real consumer. That is
+the exact shape this workspace has shipped repeatedly (v0.88.0's correlation
+subject side, v0.90.0's `/me` fallback, v0.83.0's console-level invitation
+accept) — a guard that is right one layer below where it has to fire.
+`RealmPinWiringTest` builds through the public builder and is the only test
+that dies under that mutation. Its second case is a positive control, so it
+cannot pass by refusing everything.
+
+**The device-name item's own description was false, and in the direction that
+hides work.** It read "JAVA ONLY now — `ts/` has it". TS had the READ half
+(`SessionInfo.device_name`) and no send half at all: no `deviceName` on
+`LoginRequest`, no `X-Device-Name` anywhere in `ts/src`. So a TS consumer could
+render a device label with no way to set one, and the entry's own evidence —
+the field being present — is what made it look done. Tenth confirmed case in
+two weeks of a TODO description outliving its facts; the reusable rule is the
+one this very item already carried in its other half: **check the artifact the
+consumer gets, not the presence of something nearby.**
+
+**Header, not body, and only on the user grant.** The issuer reads
+`X-Device-Name` on `POST /auth/login` (swagger, `maxLength: 120`) and sanitizes
+it server-side (`sanitizeDeviceName` strips control characters and caps the
+length), so no SDK duplicates that — a client-side cap would silently disagree
+with the server's the day either changes. The platform bootstrap that precedes
+every user login is an M2M mint the issuer records no device for; sending the
+operator's hostname there would leak it onto a credential session for nothing,
+so both SDKs assert its absence. Absent means **no header**, not an empty one:
+the issuer treats a present empty value as a supplied label.
+
+**Java's session-list fixture had been serving `device_name` since the test was
+written** and asserting nothing about it, because `Session` had no such
+component and `@JsonIgnoreProperties(ignoreUnknown = true)` swallowed it in
+silence. A fixture that carries a field is not coverage of that field.
+
+Every new guard was mutation-verified (8 mutations: pin not called, comparison
+inverted, undecodable-treated-as-mismatch, realm id not wired, header
+unconditional, header never sent — in both languages, `Session` component
+renamed). Java 195 tests / 0 failures; TS 197 / 0 with `tsc --noEmit` clean.
+
 ## 2026-08-06 — wrap both by-id platform reads; two "blocked on a repack" items were already shipped
 
 Issuer `v0.87.0` added `GET /platforms/{id}` (owner) and

@@ -14,6 +14,8 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 /**
  * Two-endpoint platform session (SPEC §4.0, ADR-051). First acquire goes
@@ -168,5 +171,109 @@ class PlatformTokenManagerTest {
         assertEquals("workload.jwt.tok", body.get("subject_token"));
         assertEquals("urn:ietf:params:oauth:token-type:jwt", body.get("subject_token_type"));
         assertNull(body.get("api_key"));
+    }
+
+    // ---- ADR-041 client-side realm pin (SPEC §4.0) ----
+    //
+    // Go (go/platform_token.go checkIssuer) and TS
+    // (ts/src/platform-token-manager.ts checkIssuer) decode the freshly minted
+    // platform access token and refuse it when its `iss` does not reference the
+    // configured realm. Java carried only ErrorCode.REALM_MISMATCH, so the
+    // confused-deputy case — SDK constructed for realm A, credential belonging
+    // to realm B — surfaced as a cryptic 4xx on some later management call, or
+    // not at all.
+
+    private static final String REALM_A = "01HREALMA";
+    private static final String REALM_B = "01HREALMB";
+
+    private PlatformTokenManager managerFor(String realmId) {
+        return new PlatformTokenManager(CredentialSources.staticApiKey("rk_live_secret"), fs.baseUrl,
+                HttpClient.newHttpClient(), new ObjectMapper(), null,
+                Clock.systemUTC(), Duration.ofSeconds(30), realmId);
+    }
+
+    /** An unsigned-but-well-formed JWT carrying just `iss`. The pin decodes the
+     *  payload without verifying the signature — it just received the token
+     *  from RI over TLS; signature checking stays the Verifier's job. */
+    private static String jwtWithIssuer(String iss) {
+        try {
+            String hdr = b64(FakeServer.M.writeValueAsBytes(Map.of("alg", "RS256", "typ", "JWT")));
+            Map<String, Object> claims = new LinkedHashMap<>();
+            claims.put("iss", iss);
+            claims.put("sub", "bot-user");
+            String pl = b64(FakeServer.M.writeValueAsBytes(claims));
+            return hdr + "." + pl + "." + b64("sig-not-checked-here".getBytes());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String b64(byte[] b) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+    }
+
+    private void serveLoginWithIssuer(String iss, AtomicInteger logins) {
+        fs.on("POST /auth/login", (ex, body) -> {
+            logins.incrementAndGet();
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", jwtWithIssuer(iss),
+                    "expires_in", 300, "subject_type", "platform"));
+        });
+    }
+
+    @Test
+    void realmPinRefusesATokenMintedForAnotherRealm() {
+        AtomicInteger logins = new AtomicInteger();
+        serveLoginWithIssuer("https://auth.realmid.dev/" + REALM_B, logins);
+        var ptm = managerFor(REALM_A);
+
+        RealmException ex = assertThrows(RealmException.class, ptm::getToken);
+        assertEquals(ErrorCode.REALM_MISMATCH, ex.getCode());
+        assertEquals(1, logins.get());
+        // The refused token must not be cached: a second call re-mints and
+        // refuses again rather than handing out the foreign-realm token.
+        assertThrows(RealmException.class, ptm::getToken);
+        assertEquals(2, logins.get());
+    }
+
+    @Test
+    void realmPinAcceptsATokenMintedForTheConfiguredRealm() {
+        // POSITIVE CONTROL. Without it, a pin that refused every token — or one
+        // whose suffix comparison is inverted — would satisfy the test above.
+        AtomicInteger logins = new AtomicInteger();
+        String iss = "https://auth.realmid.dev/" + REALM_A;
+        serveLoginWithIssuer(iss, logins);
+        var ptm = managerFor(REALM_A);
+
+        String tok = assertDoesNotThrow(ptm::getToken);
+        assertEquals(jwtWithIssuer(iss), tok);
+        assertEquals(1, logins.get());
+    }
+
+    @Test
+    void realmPinIgnoresATokenItCannotDecode() {
+        // Parity with Go (peekJWTIssuer error → return nil) and TS (peek returns
+        // "" → skip): an opaque or malformed access token is NOT a realm
+        // mismatch. The pin is a confused-deputy check, not a token validator —
+        // a token whose provenance it cannot read is left to the Verifier.
+        AtomicInteger logins = new AtomicInteger();
+        fs.on("POST /auth/login", (ex, body) -> {
+            logins.incrementAndGet();
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "pt-opaque", "expires_in", 300, "subject_type", "platform"));
+        });
+        var ptm = managerFor(REALM_A);
+        assertEquals("pt-opaque", assertDoesNotThrow(ptm::getToken));
+    }
+
+    @Test
+    void realmPinIsSkippedWhenNoRealmIdIsConfigured() {
+        // The 7-arg constructor predates the pin and carries no realm to pin
+        // against; it must keep working rather than start refusing. Mirrors
+        // TS's `if (!this.opts.realmId) return`.
+        AtomicInteger logins = new AtomicInteger();
+        serveLoginWithIssuer("https://auth.realmid.dev/" + REALM_B, logins);
+        var ptm = manager(Clock.systemUTC());
+        assertDoesNotThrow(ptm::getToken);
     }
 }

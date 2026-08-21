@@ -43,6 +43,12 @@ public record Session(
         @JsonProperty("last_seen_at") @JsonAlias({"lastSeenAt", "last_used_at", "lastUsedAt"}) String lastUsedAt,
         @JsonProperty("user_agent") @JsonAlias("userAgent") String userAgent,
         String ip,
+        // ADR-062 — the human-readable device label supplied at login via the
+        // X-Device-Name header (e.g. a CLI hostname), so a user can tell their
+        // sessions apart before revoking one. null when the session was created
+        // without one, and on every M2M session. Parity: Go
+        // SessionInfo.DeviceName, TS SessionInfo.device_name.
+        @JsonProperty("device_name") @JsonAlias("deviceName") String deviceName,
         // ADR-092 D5 — the caller holds more than one ACTIVE membership in a
         // realm that requires single-tenant membership and must give the
         // extras up. The login SUCCEEDED (access + refresh tokens are present),

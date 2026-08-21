@@ -25,6 +25,15 @@ export interface LoginRequest {
   providerToken: string;
   /** Optional Origin header override (server resolves realm by host if set). */
   origin?: string;
+  /**
+   * ADR-062 — human-readable label for the device this login happens on (a CLI
+   * hostname, a browser name). Travels as the `X-Device-Name` header, never in
+   * the body, and the issuer persists it on the created session so a user can
+   * tell their sessions apart when revoking one (`listSessions` →
+   * {@link SessionInfo.device_name}). The server strips control characters and
+   * caps it at 120 chars, so nothing is sanitized client-side.
+   */
+  deviceName?: string;
   // NOTE: customClaims intentionally NOT accepted here. Per SPEC §4.1 the
   // refresh token carries identity only; access-token claims are minted via
   // `auth.token({ customClaims })`.
@@ -311,6 +320,11 @@ export class AuthClient {
    */
   async login(req: LoginRequest): Promise<LoginResponse> {
     const headers = await this.originHeaders(req.origin);
+    // ADR-062: the device label rides as a header on the USER grant only. The
+    // platform bootstrap the transport performs before this call is an M2M mint
+    // that records no device, so it never carries the label. Absent means NO
+    // header — the issuer reads a present empty value as a supplied label.
+    if (req.deviceName) headers["x-device-name"] = req.deviceName;
     const raw = await this.http.request<RawAuthResponse>({
       method: "POST",
       path: "/auth/login",

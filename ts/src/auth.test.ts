@@ -246,3 +246,42 @@ test("auth.listSessions: decodes issuer sessionDTO fields incl. last_seen_at", a
   assert.equal(list[0]!.created_at, 1_751_241_600);
   assert.equal(list[0]!.last_seen_at, 1_751_245_200, "last-used must decode from the wire last_seen_at field");
 });
+
+test("auth.login: sends the ADR-062 X-Device-Name header, and only on the user grant", async () => {
+  // The issuer reads X-Device-Name on POST /auth/login only
+  // (issuer/docs/swagger.yaml, maxLength 120); it sanitizes and caps the value
+  // server-side, so the SDK sends it raw. TS carried the READ half
+  // (SessionInfo.device_name) since ADR-062 and never had the send half —
+  // sdk/TODO.md recorded this gap as Java-only, which was wrong.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at-1", refresh_token: "rt-1", expires_in: 600,
+      user: { id: "u1" }, tenants: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  await realm.auth.login({ method: "firebase", providerToken: "tok", deviceName: "akshat-mbp" });
+
+  const bootstrap = calls[0]!;
+  const login = calls[1]!;
+  assert.equal(login.headers.get("x-device-name"), "akshat-mbp");
+  // The bootstrap is an M2M mint that records no device label; sending the
+  // operator's hostname there leaks it onto a credential session for nothing.
+  assert.equal(bootstrap.headers.get("x-device-name"), null,
+    "the platform bootstrap must not carry the device label");
+});
+
+test("auth.login: omits X-Device-Name when no device name is given", async () => {
+  // POSITIVE CONTROL for the test above — an unconditionally-set header would
+  // satisfy it. Absent must mean no header, not an empty one: the issuer treats
+  // a present empty value as a supplied label.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      access_token: "at-1", refresh_token: "rt-1", expires_in: 600,
+      user: { id: "u1" }, tenants: [],
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  await realm.auth.login({ method: "firebase", providerToken: "tok" });
+  assert.equal(calls[1]!.headers.has("x-device-name"), false);
+});

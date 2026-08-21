@@ -101,7 +101,10 @@ public final class Realm {
 
         this.platformTokens = new PlatformTokenManager(
                 credential, this.baseUrl, httpClient, mapper, this.logger, clock,
-                b.refreshSkew == null ? Duration.ofSeconds(30) : b.refreshSkew);
+                b.refreshSkew == null ? Duration.ofSeconds(30) : b.refreshSkew,
+                // ADR-041 realm pin: the manager refuses a platform token whose
+                // iss belongs to a different realm than the one configured here.
+                this.realmId);
         this.http = new HttpTransport(this.baseUrl, httpClient, mapper, this.logger, this.platformTokens);
 
         this.info = new RealmInfoClient(this.http, this.realmId, true);

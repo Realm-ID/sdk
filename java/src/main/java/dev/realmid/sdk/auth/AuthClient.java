@@ -41,6 +41,12 @@ public final class AuthClient {
         body.put("token", req.providerToken());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
+        // ADR-062: the device label rides as a header on the USER grant only.
+        // The platform bootstrap this call sits behind is an M2M mint that
+        // records no device, so it never carries the label.
+        if (req.deviceName() != null && !req.deviceName().isEmpty()) {
+            r.header("x-device-name", req.deviceName());
+        }
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, Session.class);
     }

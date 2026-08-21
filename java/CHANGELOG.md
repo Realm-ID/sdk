@@ -4,6 +4,43 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.35.0 — the ADR-041 realm pin, and the ADR-062 device label (2026-08-21)
+
+Two cross-language parity gaps, both closed against the Go and TS
+implementations rather than re-derived.
+
+**`PlatformTokenManager` performs the ADR-041 client-side realm pin.** It
+decodes the platform access token it has just minted — no signature check; it
+arrived from RI over TLS and verifying it is `Verifier`'s job — and refuses a
+token whose `iss` does not reference the configured realm, with
+`ErrorCode.REALM_MISMATCH`. Java had carried that constant since the taxonomy
+parity pass and never performed the check, so the confused-deputy case (SDK
+built for realm A, API key belonging to realm B) surfaced as a cryptic 4xx on
+whichever management call happened to run first, or not at all.
+
+A token whose payload cannot be decoded is deliberately **not** a mismatch —
+the pin answers "which realm is this token for", and an unreadable answer is
+left to the verifier. Mirrors Go (`checkIssuer` returns nil on a malformed
+payload) and TS (peek returns `""` → skip).
+
+New constructor overload takes the realm id; the 7-arg constructor is kept and
+**skips** the pin, exactly as TS skips it when no `realmId` is configured.
+`Realm.builder()` passes the realm id, so the pin is on by default for every
+partner-built client.
+
+**`LoginRequest.deviceName` → the `X-Device-Name` header (ADR-062).** Sent on
+the user grant only, never on the platform bootstrap, and never in the body.
+The issuer caps it at 120 chars and strips control characters, so nothing is
+sanitized client-side. `Session` gains the matching `deviceName()` accessor for
+the `listSessions` row — the field the session list has been serving since
+ADR-062 while `@JsonIgnoreProperties(ignoreUnknown = true)` silently swallowed
+it.
+
+**Source-compatible.** `LoginRequest` gains a fourth record component with a
+3-arg constructor kept for existing callers; `Session` gains a component, which
+is source-incompatible only for code calling its canonical constructor
+positionally (no first-party caller does).
+
 ## java-v0.33.0 — BREAKING: `TenantCreate.allowedDomains` removed (ADR-094 R3) (2026-08-02)
 
 `tenants.allowed_domains` no longer exists server-side (issuer `v0.77.0`). The

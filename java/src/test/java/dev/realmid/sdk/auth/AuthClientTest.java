@@ -358,5 +358,67 @@ class AuthClientTest {
         assertEquals("1751241600", s.createdAt());
         assertNotNull(s.lastUsedAt(), "lastUsedAt must decode from the wire last_seen_at field");
         assertEquals("1751245200", s.lastUsedAt());
+        // ADR-062: the fixture has served `device_name` since this test was
+        // written; nothing read it, because the record had no such component
+        // and @JsonIgnoreProperties(ignoreUnknown = true) swallowed it silently.
+        assertEquals("laptop", s.deviceName(),
+                "the session-list row must carry the ADR-062 device label");
+    }
+
+    // ---- ADR-062 device name (swagger: X-Device-Name on POST /auth/login) ----
+
+    @Test
+    void loginSendsTheDeviceNameHeader() {
+        // The issuer reads X-Device-Name on /auth/login only, caps it at 120
+        // chars and strips control characters server-side
+        // (issuer/internal/httpapi/auth.go sanitizeDeviceName); the SDK sends
+        // the raw value and does not second-guess that sanitizer.
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        AtomicReference<FakeServer.Recorded> bootstrap = new AtomicReference<>();
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                bootstrap.set(fs.last());
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-1", "refresh_token", "rt-1", "expires_in", 600,
+                    "user", Map.of("id", "u1"), "tenants", java.util.List.of()));
+        });
+
+        realm.auth().login(LoginRequest.of("firebase", "provider-tok").withDeviceName("akshat-mbp"));
+
+        assertEquals("akshat-mbp", seen.get().header("X-Device-Name"));
+        // The platform bootstrap is an M2M mint that records no device; sending
+        // the label there would leak the operator's hostname onto a credential
+        // session for nothing. Only the user grants record it (swagger §/auth/login).
+        assertNull(bootstrap.get().header("X-Device-Name"),
+                "the platform bootstrap must not carry the device label");
+    }
+
+    @Test
+    void loginOmitsTheDeviceNameHeaderWhenUnset() {
+        // POSITIVE CONTROL for the assertion above: an always-present header
+        // would satisfy it. An absent label must send no header at all rather
+        // than an empty one, which the issuer would treat as a present value.
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/login", (ex, body) -> {
+            Map<String, Object> b = fs.last().bodyAsMap();
+            if ("platform_api_key".equals(b.get("grant_type"))) {
+                return FakeServer.Reply.json(200, Map.of(
+                        "access_token", "pt-12345", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of(
+                    "access_token", "at-1", "refresh_token", "rt-1", "expires_in", 600,
+                    "user", Map.of("id", "u1"), "tenants", java.util.List.of()));
+        });
+
+        realm.auth().login(LoginRequest.of("firebase", "provider-tok"));
+        assertNull(seen.get().header("X-Device-Name"));
     }
 }

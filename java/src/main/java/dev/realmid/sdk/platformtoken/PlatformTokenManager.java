@@ -55,6 +55,8 @@ public final class PlatformTokenManager {
 
     private final CredentialSource credential;
     private final String baseUrl;
+    /** Realm this SDK was constructed for; null disables the ADR-041 pin. */
+    private final String realmId;
     private final HttpClient http;
     private final ObjectMapper mapper;
     private final Logger logger;
@@ -64,9 +66,22 @@ public final class PlatformTokenManager {
     private String cachedToken;
     private long cachedExpiresAtMs;
 
+    /**
+     * Pre-realm-pin constructor. Kept for source compatibility; the ADR-041
+     * realm pin is SKIPPED for a manager built this way, exactly as the TS
+     * client skips it when no {@code realmId} is configured. Prefer the
+     * overload that takes the realm id.
+     */
     public PlatformTokenManager(CredentialSource credential, String baseUrl, HttpClient http,
                                 ObjectMapper mapper, Logger logger, Clock clock,
                                 Duration refreshSkew) {
+        this(credential, baseUrl, http, mapper, logger, clock, refreshSkew, null);
+    }
+
+    public PlatformTokenManager(CredentialSource credential, String baseUrl, HttpClient http,
+                                ObjectMapper mapper, Logger logger, Clock clock,
+                                Duration refreshSkew, String realmId) {
+        this.realmId = realmId == null || realmId.isEmpty() ? null : realmId;
         this.credential = credential;
         this.baseUrl = stripSlash(baseUrl);
         this.http = http;
@@ -133,7 +148,49 @@ public final class PlatformTokenManager {
                     new Object[] {cred.grantType(), redacted});
         }
         JsonNode resp = send("/auth/login", null, body, "platform login");
+        JsonNode tok = resp.get("access_token");
+        if (tok != null && tok.isTextual()) checkIssuer(tok.asText());
         store(resp, "platform login");
+    }
+
+    /**
+     * ADR-041 client-side realm pin (SPEC §4.0). Decodes the just-minted
+     * platform access token — no signature check, it arrived from RI over TLS
+     * and verifying it is {@code Verifier}'s job — and confirms its {@code iss}
+     * references the configured realm. Catches the confused-deputy case where
+     * the SDK was built for realm A while the API key or workload credential
+     * belongs to realm B, and raises it HERE rather than letting it surface as
+     * a cryptic 4xx on some later management call.
+     *
+     * <p>A token whose payload cannot be decoded is NOT a mismatch: the pin
+     * answers "whose realm is this token for", and an answer it cannot read is
+     * left to the verifier. Mirrors Go's {@code checkIssuer} (returns nil on a
+     * malformed payload) and TS's (peek returns "" → skip).
+     */
+    private void checkIssuer(String jwt) {
+        if (realmId == null) return;
+        String iss = peekJwtIssuer(jwt);
+        if (iss == null || iss.isEmpty()) return;
+        if (!iss.endsWith("/" + realmId)) {
+            throw new RealmException(ErrorCode.REALM_MISMATCH,
+                    "platform access token's iss does not match configured realm: got " + iss
+                            + ", configured realm " + realmId);
+        }
+    }
+
+    /** Returns the {@code iss} claim of a JWT payload, or "" when the token is
+     *  not a decodable JWT. No signature verification. */
+    private String peekJwtIssuer(String jwt) {
+        String[] parts = jwt.split("\\.");
+        if (parts.length != 3) return "";
+        try {
+            byte[] raw = java.util.Base64.getUrlDecoder().decode(parts[1]);
+            JsonNode claims = mapper.readTree(raw);
+            JsonNode iss = claims == null ? null : claims.get("iss");
+            return iss != null && iss.isTextual() ? iss.asText() : "";
+        } catch (RuntimeException | IOException e) {
+            return "";
+        }
     }
 
     private JsonNode send(String path, String bearer, Map<String, Object> body, String what) {

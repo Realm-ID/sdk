@@ -62,6 +62,10 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   first draft of the test asserted the specific code and failed.
   *(Whatever is decided, the 404 must stay indistinguishable between "not yours"
   and "never existed" — that is a security property, not a taxonomy question.)*
+- [ ] **`java/CHANGELOG.md` has no `java-v0.34.0` entry** (noticed 2026-08-21
+  while adding `0.35.0`: `build.gradle.kts` was on `0.34.0` and the file jumped
+  from `0.33.0` to it). Same class as the item below — backfill from the
+  version-bump commit.
 - [ ] **`ts/CHANGELOG.md` is missing `0.29.0`–`0.35.0`** — seven released
   versions with no entries; the file jumps `0.28.0` → `0.36.0`. Backfill from the
   version-bump commits, as the `web-admin` `0.8.13`–`0.8.17` gap was on
@@ -111,19 +115,37 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   `userBearer`; Go and Java also support BFF mode (`userId` + platform token +
   `X-On-Behalf-Of-User`). Add the on-behalf-of header path to the TS `HttpClient`
   and these methods.
-- [ ] **Java: implement the ADR-041 client-side realm pin.** Go
-  (`sessionManager.checkIssuer`) and TS (`platform-token-manager.checkIssuer`)
-  decode the freshly-minted platform access token and raise `realm_mismatch` when
-  its `iss` doesn't reference the configured realm. Java has the
-  `ErrorCode.REALM_MISMATCH` constant (added for taxonomy parity) but performs no
-  such pin in `PlatformTokenManager`.
-- [ ] **Device-name (ADR-062) lockstep — JAVA ONLY now.** Go has it
-  (`go/auth.go:248` sends `X-Device-Name`, `:580` parses `device_name`) and `ts/`
-  has it (`ts/src/auth.ts`). Still owed: (1) **java** — add `device_name` to the
-  login request + session-list type (0 matches in `java/src/main`); (2) optional
-  — show the device name on the `/device` approve page (needs a by-`user_code`
-  lookup).
-  ✅ **The re-vendor half is CLOSED 2026-08-06, and the alarm in this item was
+- [x] **Java: implement the ADR-041 client-side realm pin.** **DONE 2026-08-21,
+  java `0.35.0`.** `PlatformTokenManager` decodes the freshly-minted platform
+  token and raises `REALM_MISMATCH` when its `iss` does not end in the
+  configured realm; `Realm.builder()` wires the realm id in, so the pin is on
+  for every partner-built client.
+  **The finding is the WIRING, not the check.** Four manager-level tests pass
+  with `Realm` passing `null` for the realm id — i.e. with the pin dead for
+  every real consumer — which is this workspace's recurring "correct one layer
+  below where it must fire" shape. `RealmPinWiringTest` builds through
+  `Realm.builder()` and is the only test that dies under that mutation.
+  **The skip branch is load-bearing and was nearly missed**: treating an
+  undecodable token as a mismatch (the obvious "stricter" reading) turns every
+  opaque access token into an auth failure — mutating it red 130+ tests across
+  the suite, because every fixture mints an opaque `pt-…`. A pin is a
+  provenance question, not a token validator.
+- [x] **Device-name (ADR-062) lockstep** — **DONE 2026-08-21** (java `0.35.0`,
+  ts `0.37.0`).
+  ⚠️ **This entry said "JAVA ONLY now" and that was WRONG.** TS had only the
+  READ half (`SessionInfo.device_name`); `LoginRequest` had no `deviceName` and
+  nothing in `ts/src` ever sent `X-Device-Name`, so the send half was **Go-only**
+  and a TS consumer could display a label it had no way to set. The claim
+  survived because the read half is the visible one — the same "check the
+  artifact, not the shim" lesson this item already carried, one layer over.
+  Both SDKs now send the header on the **user grant only** (never the platform
+  bootstrap, an M2M mint the issuer records no device for) and Java's `Session`
+  gains `deviceName()`. Java's session-list fixture had been serving
+  `device_name` all along while `@JsonIgnoreProperties(ignoreUnknown = true)`
+  swallowed it — a test can serve a field for months and assert nothing about it.
+  Still open, unchanged: (2) optional — show the device name on the `/device`
+  approve page (needs a by-`user_code` lookup).
+  ✅ **The re-vendor half was CLOSED 2026-08-06, and the alarm in this item was
   false.** The prior note claimed the committed tarball lacked `device_name` and
   that "eight repacks shipped without picking the field up". Checked inside the
   vendored artifact — `tar -xzOf vendor/realm-id-web-admin-0.8.18.tgz
@@ -136,6 +158,11 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   three times by checking whether the SHIM still existed in `ui/`, which it did —
   but a shim outliving its need looks identical to a shim still needed. The
   question "is the field in the tarball?" was never asked until now.
+
+> **NOT RELEASED — both bumps are committed locally only.** GitHub Actions is
+> down on the `Realm-ID` org (billing), so `java-v0.35.0` and `ts-v0.37.0` are
+> unpublished; Maven Central still serves `0.34.0` and npm `0.36.0`. Tag and
+> publish when CI returns.
 
 ## ADR-056 deferred follow-ups
 

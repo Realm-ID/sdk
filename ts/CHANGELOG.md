@@ -12,6 +12,21 @@ cross-cutting items affecting every SDK at once.
 > being trustworthy the moment it silently skips, because a reader cannot tell
 > "nothing shipped" from "nobody wrote it down".
 
+## 0.37.0 — `login({ deviceName })` sends `X-Device-Name` (2026-08-21)
+
+ADR-062's device label was half-implemented in TS: `SessionInfo.device_name`
+carried the READ half from the start, and nothing ever SENT the header, so a TS
+consumer could display a device label it had no way to set. `sdk/TODO.md`
+recorded this gap as Java-only; that was wrong, and it went unnoticed because
+the read half is the visible one.
+
+`LoginRequest.deviceName` is optional and rides as the `X-Device-Name` header on
+the user grant only — never on the platform bootstrap, which is an M2M mint the
+issuer records no device for, and never in the body. Absent means **no header**:
+the issuer reads a present empty value as a supplied label. The server caps the
+value at 120 chars and strips control characters (`sanitizeDeviceName`), so the
+SDK sends it raw.
+
 ## 0.36.0 — read one platform's fleet row by id (2026-08-06)
 
 `AdminClient.getPlatform(id)` wraps `GET /admin/platforms/{id}` (issuer

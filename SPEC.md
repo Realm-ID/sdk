@@ -117,8 +117,11 @@ SDK failure. It carries:
 > is a confused-deputy bug; the SDK raises `realm_mismatch` locally
 > **before** any subsequent management call rather than letting it surface
 > as a cryptic downstream 4xx. It is never emitted by the issuer on the
-> partner surface. Go and TS perform this pin today; Java carries the code
-> for taxonomy parity (its pin is a tracked follow-up).
+> partner surface. **All three SDKs perform this pin.** A token whose payload
+> cannot be decoded is deliberately NOT a mismatch — the pin answers "which
+> realm is this token for", and an unreadable answer is left to the verifier,
+> so an opaque access token from a mock or a future issuer does not become an
+> auth failure.
 
 > `refresh_invalid` is returned by `POST /auth/token` (and surfaced by
 > `auth.token()` / the token manager) when the presented refresh token is
@@ -309,7 +312,7 @@ SDK posts to `POST /auth/login` with a `grant_type` discriminator
 | `"google"`       | `"provider_token"` | `provider: "google"`, `token: <id token>` |
 | `"otp"`          | `"otp"`            | `identifier`, `presented` (use the `auth.otpLogin` helper; ADR-071 §4 renamed the grant from `otp_internal`) |
 
-Request (Go/TS surface unchanged from 0.9.x): `{ method, providerToken, origin? }`
+Request: `{ method, providerToken, origin?, deviceName? }`
 - `method`: `"firebase" | "google" | "otp"`. `otp` (ADR-071 §4;
   formerly `otp_internal`) is the partner OTP login (see §X), gated
   server-side by `realms.config.otp_login_enabled`. When `method == "otp"`,
@@ -320,6 +323,18 @@ Request (Go/TS surface unchanged from 0.9.x): `{ method, providerToken, origin? 
 - `providerToken`: opaque string from the upstream IdP.
 - `origin`: optional override. If unset, the SDK auto-attaches the
   Origin derived from the realm's claimed domain (see §1).
+- `deviceName` (ADR-062): optional human-readable label for the device the
+  login happens on — a CLI hostname, a browser name. It travels as the
+  **`X-Device-Name` header**, never in the body, and **only on the user
+  grant**: the platform bootstrap that precedes it is an M2M mint the issuer
+  records no device for. The issuer persists it on the created session and
+  echoes it back in `listSessions` (§4.6, `device_name`), which is the point —
+  a user revoking a session needs to tell their sessions apart. The server
+  strips control characters and caps the value at **120 characters**, so no SDK
+  duplicates that sanitizing. Absent means **no header at all**; a present
+  empty value reads server-side as a supplied label. All three SDKs send it
+  (Go `LoginRequest.DeviceName`, TS `deviceName`, Java
+  `LoginRequest.withDeviceName(...)`).
 
 The wire response includes a typed `subject_type` ∈ `{user, service,
 platform}` (ADR-051 §3). `service` is minted for a **service account**
@@ -530,7 +545,11 @@ last-used timestamp's wire field is **`last_seen_at`** (unix seconds) —
 the SDKs decode it into their last-used accessor (Go
 `SessionInfo.LastUsedAt`, Java `Session.lastUsedAt`, TS keeps the raw
 `last_seen_at`); there is no `last_used_at` field on this DTO (that
-name exists only on the api-key DTO, §6.5).
+name exists only on the api-key DTO, §6.5). `device_name` is the ADR-062
+label supplied at login (§4.1) and is carried by all three SDKs (Go
+`SessionInfo.DeviceName`, Java `Session.deviceName()`, TS raw
+`device_name`); it is absent on sessions created without one and on every
+M2M session.
 
 ### 4.7 `revokeAllSessions(req)`
 
