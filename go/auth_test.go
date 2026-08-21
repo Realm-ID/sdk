@@ -300,7 +300,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var ids []string
 	var createdAt, lastUsedAt int64
-	for s, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{
+	for s, err := range r.Auth.ListSessions(WithUserToken(context.Background(), "user-jwt"), ListSessionsRequest{
 		UserID:       "user-42",
 		OnBehalfOfIP: "203.0.113.7",
 	}) {
@@ -418,7 +418,7 @@ func TestAuth_RevokeSession_OnBehalfOf(t *testing.T) {
 	})
 	defer srv.Close()
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	if err := r.Auth.RevokeSession(context.Background(), RevokeSessionRequest{
+	if err := r.Auth.RevokeSession(WithUserToken(context.Background(), "user-jwt"), RevokeSessionRequest{
 		SessionID: "sess+1",
 		UserID:    "u-7",
 	}); err != nil {
@@ -548,3 +548,64 @@ func TestLoginDeviceNameIsHeaderSafe(t *testing.T) {
 	}
 }
 
+// TestBFFModeRequiresAUserToken pins that an on-behalf-of USER ID alone is
+// refused locally. Since issuer v0.66.0 a bare X-On-Behalf-Of-User is not an
+// identity — it was an unauthenticated id any platform-key holder could use to
+// act as any user in the realm — and the issuer answers
+// 401 x_user_token_required (measured against a live issuer, 2026-08-21).
+// Issuing that request anyway produces a server error that cannot name the call
+// site which forgot the token.
+func TestBFFModeRequiresAUserToken(t *testing.T) {
+	var reached bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/auth/login" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"pt","expires_in":300,"subject_type":"platform"}`))
+			return
+		}
+		reached = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"items":[],"next_cursor":""}`))
+	}))
+	defer srv.Close()
+
+	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatalf("NewRealm: %v", err)
+	}
+
+	// Without a user token in ctx: refused before any request.
+	var listErr error
+	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{UserID: "u42"}) {
+		if err != nil {
+			listErr = err
+			break
+		}
+	}
+	if listErr == nil {
+		t.Fatal("BFF mode with no user token must fail before the request is issued")
+	}
+	var re *RealmError
+	if !errors.As(listErr, &re) || re.Code != ErrCodeBadRequest {
+		t.Fatalf("want a bad_request RealmError, got %v", listErr)
+	}
+	if !strings.Contains(re.Message, "WithUserToken") {
+		t.Errorf("the error must name the remedy, got %q", re.Message)
+	}
+	if reached {
+		t.Error("no request may be issued at all")
+	}
+
+	// POSITIVE CONTROL: with the token threaded through ctx the same call goes
+	// out — so the refusal above is about the missing token, not about BFF mode
+	// being unreachable in this fixture.
+	ctx := WithUserToken(context.Background(), "user-jwt")
+	for _, err := range r.Auth.ListSessions(ctx, ListSessionsRequest{UserID: "u42"}) {
+		if err != nil {
+			t.Fatalf("BFF mode with a user token must work: %v", err)
+		}
+	}
+	if !reached {
+		t.Error("the request was never issued")
+	}
+}

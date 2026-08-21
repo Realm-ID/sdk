@@ -7,6 +7,57 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-21 (later still) — the last parity gap was a mode the issuer refuses
+
+`TODO.md` § *Cross-language parity gaps* carried one entry after the realm pin
+and the device label: add the `userId` + `X-On-Behalf-Of-User` BFF path to TS,
+"because Go and Java support it". **It is closed by measurement, and the item
+was pointing at the wrong SDK.**
+
+**What the live issuer says** (`tests/sdk-e2e`, 2026-08-21):
+
+| call | result |
+|---|---|
+| platform bearer + bare `X-On-Behalf-Of-User` | `401 x_user_token_required` |
+| platform bearer + `X-User-Token`, no id at all | `200` |
+
+Issuer v0.66.0 removed the id-as-identity mode — it was an unauthenticated user
+id that any holder of a realm's platform key could use to act as any user in
+that realm — and `derivePlatformActsOnUser` now refuses it explicitly rather
+than demoting it to the bearer's own authority.
+
+**So TS was never missing the working mode.** `realm.withUserToken(jwt)` has
+sent exactly the shape the issuer accepts since ts `0.33.0`. Building the item
+as written would have added a mode that 401s — "documented, wired, does
+nothing", the shape this workspace has now paid for repeatedly. **Checking the
+premise cost one probe against a stack that was already up; building it would
+have cost a release.**
+
+**The real defect was on the side the item cited as correct.** Go's and Java's
+`UserID` path sends the id with no user token at all, so BFF mode there has been
+dead against any issuer since v0.66.0 unless the caller separately threads a
+token (Go: `WithUserToken(ctx, …)`; Java/TS: the derived `withUserToken` handle).
+Both now refuse locally with an error naming the remedy, rather than issuing a
+request that cannot succeed — the server's `401` cannot say which SDK call site
+forgot the token, and this can.
+
+**The refusal is SCOPED, and the scoping is the part worth remembering.** The
+same header means two different things on the issuer: an IDENTITY pivot on the
+sessions and MFA-self routes (`derivePlatformActsOnUser`), and a DOMAIN
+PARAMETER on the OTP routes — the OTP subject, read straight off the header,
+which `internal/httpapi/otp.go` marks "NOT an authz pivot". A blanket refusal in
+Go's shared `resolveOnBehalfOf` broke three OTP tests; the helper now takes an
+`idAssertsIdentity` flag and OTP passes false. **A header's name is not its
+meaning** — the same bytes were an assertion on one route and an argument on
+another.
+
+**Nine tests were pinning the dead mode** (7 Go, 2 Java): they asserted a bare
+on-behalf-of id against a fake server that accepts any header, so they passed
+throughout the two years the issuer would have refused them. Updated to thread a
+user token. Same shape as every other finding in this log where the guard tested
+the half that was not broken — and another argument for the E2E suite, which is
+where the truth came from.
+
 ## 2026-08-21 (later) — an SDK E2E suite, and the two defects it found on its first run
 
 `tests/sdk-e2e/` drives the TS and Java clients against a real issuer on the

@@ -52,7 +52,7 @@ type RecoveryCodes struct {
 // and remaining backup-code count via GET /auth/mfa/authenticators. A read —
 // NOT MFA-gated.
 func (a *AuthClient) ListAuthenticators(ctx ctxpkg.Context, req ListAuthenticatorsRequest) (*AuthenticatorList, error) {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (a *AuthClient) ListAuthenticators(ctx ctxpkg.Context, req ListAuthenticato
 // gated on a FRESH TOTP within the elevated window (RealmError(mfa_required),
 // 412, until re-verified). Codes are shown once and also emailed (ADR-079).
 func (a *AuthClient) RegenerateRecoveryCodes(ctx ctxpkg.Context, req RegenerateRecoveryCodesRequest) (*RecoveryCodes, error) {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
 	if err != nil {
 		return nil, err
 	}

@@ -51,6 +51,14 @@ public final class HttpTransport {
         this.userToken = userToken;
     }
 
+    /** Whether this transport carries a verified user token to forward as
+     *  {@code X-User-Token}. Callers that assert an on-behalf-of USER ID need
+     *  it: since issuer v0.66.0 the id alone is refused with
+     *  {@code 401 x_user_token_required}. */
+    public boolean hasUserToken() {
+        return userToken != null && !userToken.isEmpty();
+    }
+
     /**
      * Returns a COPY of this transport that forwards {@code accessJWT} as
      * {@code X-User-Token} on every request (SPEC §4 verified on-behalf-of; ADR-056). The
@@ -84,7 +92,7 @@ public final class HttpTransport {
         // header still wins. Per-call names are lower-cased on the way in:
         // HttpRequest.Builder.header() APPENDS, so a differently-cased duplicate
         // would be sent as two values rather than overriding.
-        if (userToken != null && !userToken.isEmpty()) headers.put("x-user-token", userToken);
+        if (hasUserToken()) headers.put("x-user-token", userToken);
         if (r.headers != null) {
             for (Map.Entry<String, String> e : r.headers.entrySet()) {
                 headers.put(e.getKey().toLowerCase(java.util.Locale.ROOT), e.getValue());

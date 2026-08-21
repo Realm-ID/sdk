@@ -86,7 +86,7 @@ type VerifyResponse struct {
 // Issue mints a fresh OTP. The plaintext Value is returned exactly once
 // — partners deliver it out-of-band (manager UI display, SMS, email).
 func (c *OTPClient) Issue(ctx ctxpkg.Context, req IssueRequest) (*IssueResponse, error) {
-	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, false)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +118,7 @@ func (c *OTPClient) Issue(ctx ctxpkg.Context, req IssueRequest) (*IssueResponse,
 // code, not a colleague). Cross-issuer / cross-tenant attempts return
 // 404 with no info leak.
 func (c *OTPClient) View(ctx ctxpkg.Context, otpID string, opts ViewOptions) (*ViewResponse, error) {
-	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, opts.UserID, opts.UserBearer, opts.OnBehalfOfIP)
+	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, opts.UserID, opts.UserBearer, opts.OnBehalfOfIP, false)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ type ViewOptions struct {
 // can attribute the action to the human who minted the code without a
 // follow-up RealmID query.
 func (c *OTPClient) Verify(ctx ctxpkg.Context, req VerifyRequest) (*VerifyResponse, error) {
-	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, false)
 	if err != nil {
 		return nil, err
 	}

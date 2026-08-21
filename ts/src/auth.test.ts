@@ -346,3 +346,28 @@ test("auth.login: a label made ENTIRELY of control characters sends no header", 
   await realm.auth.login({ method: "firebase", providerToken: "tok", deviceName: "\n\n" });
   assert.equal(calls[1]!.headers.has("x-device-name"), false);
 });
+
+test("auth: BFF mode is withUserToken — the platform bearer plus X-User-Token", async () => {
+  // The parity claim `sdk/TODO.md` tracked as "TS has no BFF mode" is closed by
+  // MEASUREMENT, not by code: against a live issuer, a platform bearer plus a
+  // bare X-On-Behalf-Of-User answers 401 x_user_token_required (v0.66.0), and a
+  // platform bearer plus X-User-Token — with no on-behalf id at all — answers
+  // 200. That second shape is what `realm.withUserToken(jwt)` already sends, so
+  // the mode the item asked for is the DEAD one.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({ items: [{ id: "sess-1" }], next_cursor: null, total: 1 }),
+      { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const list = await realm.withUserToken("user-jwt").auth.listSessions();
+
+  assert.equal(list.length, 1);
+  const call = calls[1]!;
+  assert.match(call.url, /\/auth\/sessions$/);
+  // The platform token authorizes the CALLER; the user token asserts WHO.
+  assert.equal(call.headers.get("authorization"), "Bearer pt_test_abc");
+  assert.equal(call.headers.get("x-user-token"), "user-jwt");
+  // No on-behalf-of id is sent, and none is needed — the issuer resolves the
+  // subject from the verified token.
+  assert.equal(call.headers.has("x-on-behalf-of-user"), false);
+});

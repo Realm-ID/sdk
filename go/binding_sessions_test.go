@@ -161,7 +161,7 @@ func TestAuth_ListAuthenticators(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	out, err := r.Auth.ListAuthenticators(context.Background(), ListAuthenticatorsRequest{UserID: "u5"})
+	out, err := r.Auth.ListAuthenticators(WithUserToken(context.Background(), "user-jwt"), ListAuthenticatorsRequest{UserID: "u5"})
 	if err != nil {
 		t.Fatalf("list-authenticators: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestAuth_RegenerateRecoveryCodes(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	out, err := r.Auth.RegenerateRecoveryCodes(context.Background(), RegenerateRecoveryCodesRequest{UserID: "u5"})
+	out, err := r.Auth.RegenerateRecoveryCodes(WithUserToken(context.Background(), "user-jwt"), RegenerateRecoveryCodesRequest{UserID: "u5"})
 	if err != nil {
 		t.Fatalf("regenerate: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestAuth_RegenerateRecoveryCodes_MFARequired(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	_, err := r.Auth.RegenerateRecoveryCodes(context.Background(), RegenerateRecoveryCodesRequest{UserID: "u5"})
+	_, err := r.Auth.RegenerateRecoveryCodes(WithUserToken(context.Background(), "user-jwt"), RegenerateRecoveryCodesRequest{UserID: "u5"})
 	if !IsCode(err, ErrCodeMFARequired) {
 		t.Errorf("want mfa_required, got %v", err)
 	}

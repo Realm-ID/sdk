@@ -134,12 +134,32 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 - [ ] **`gofmt -l` reports `go/roles_test.go` and `go/tenants.go`** (checked
   2026-08-21 in a container). Pre-existing, unrelated to any current change; the
   issuer has a matching open item for a CI `gofmt` gate.
-- [ ] **TS: BFF on-behalf-of parity** (`ts/src/auth.ts`). The TS current-user
-  session/MFA methods (`revokeSession`, `listSessions`, `revokeAllSessions`,
-  `enrollMfa`, `confirmMfa`, `disableMfa` — SPEC §4.5–4.10) accept only a direct
-  `userBearer`; Go and Java also support BFF mode (`userId` + platform token +
-  `X-On-Behalf-Of-User`). Add the on-behalf-of header path to the TS `HttpClient`
-  and these methods.
+- [x] ~~**TS: BFF on-behalf-of parity**~~ — **CLOSED 2026-08-21 BY MEASUREMENT.
+  Do not re-open as a build task.** The item asked for a `userId` +
+  `X-On-Behalf-Of-User` path in TS "because Go and Java have it". Checked
+  against a live issuer (`tests/sdk-e2e`) before writing any code:
+  - platform bearer + bare `X-On-Behalf-Of-User` → **401
+    `x_user_token_required`**. Issuer v0.66.0 removed that mode: the id was an
+    unauthenticated user id any platform-key holder could use to act as any
+    user in the realm.
+  - platform bearer + `X-User-Token`, **no id at all** → **200**.
+
+  So TS was never missing the working mode — `realm.withUserToken(jwt)` has sent
+  exactly that since ts `0.33.0`. **Building the item as written would have
+  shipped a mode the issuer refuses**, the "documented, wired, does nothing"
+  shape this workspace keeps paying for.
+  **What was wrong on the Go/Java side is the real finding:** their `UserID`
+  path sends the id with NO user token, so it 401s against any current issuer
+  unless the caller separately threads one. Both now refuse locally, naming the
+  remedy. **Scoped carefully** — the id is an IDENTITY pivot on sessions/MFA-self
+  (`derivePlatformActsOnUser`) but a DOMAIN PARAMETER on the OTP routes
+  (`internal/httpapi/otp.go`: "NOT an authz pivot"), so Go's `resolveOnBehalfOf`
+  takes an `idAssertsIdentity` flag and OTP passes false; a blanket refusal broke
+  three OTP tests, which is how the distinction was found.
+  **Nine tests (7 Go, 2 Java) were PINNING the dead mode** — asserting a bare
+  on-behalf-of id against a fake server that accepts anything. Updated to thread
+  a user token. Same shape as every other "the guard tested the half that was
+  not broken" finding here.
 - [x] **Java: implement the ADR-041 client-side realm pin.** **DONE 2026-08-21,
   java `0.35.0`.** `PlatformTokenManager` decodes the freshly-minted platform
   token and raises `REALM_MISMATCH` when its `iss` does not end in the

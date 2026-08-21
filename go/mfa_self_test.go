@@ -94,7 +94,7 @@ func TestAuth_DisableMFA_SendsCodeOnDelete(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	err := r.Auth.DisableMFA(context.Background(), DisableMFARequest{UserID: "u9", Code: "654321"})
+	err := r.Auth.DisableMFA(WithUserToken(context.Background(), "user-jwt"), DisableMFARequest{UserID: "u9", Code: "654321"})
 	if err != nil {
 		t.Fatalf("disable: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestAuth_RevokeAllSessions_OnBehalfOf(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	err := r.Auth.RevokeAllSessions(context.Background(), RevokeAllSessionsRequest{UserID: "u-42"})
+	err := r.Auth.RevokeAllSessions(WithUserToken(context.Background(), "user-jwt"), RevokeAllSessionsRequest{UserID: "u-42"})
 	if err != nil {
 		t.Fatalf("revoke-all: %v", err)
 	}

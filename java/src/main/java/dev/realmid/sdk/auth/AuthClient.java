@@ -305,6 +305,22 @@ public final class AuthClient {
         if (hasBearer) {
             r.bearer(userBearer);
         } else {
+            // Since issuer v0.66.0 a BARE X-On-Behalf-Of-User is NOT an
+            // identity — it was an unauthenticated user id that any holder of a
+            // realm's platform key could use to act as any user in that realm.
+            // The issuer answers 401 x_user_token_required and only the
+            // VERIFIED X-User-Token asserts the caller; the id survives as
+            // attribution beside it.
+            //
+            // Refuse here rather than issuing a request that is certain to 401
+            // (measured against a live issuer, 2026-08-21): the server's error
+            // cannot name the SDK call site that forgot the token, and this can.
+            if (!http.hasUserToken()) {
+                throw new RealmException(ErrorCode.BAD_REQUEST,
+                        "realmid: BFF mode needs the user's access JWT as well as userId — "
+                                + "derive the client with realm.withUserToken(accessJWT); the issuer "
+                                + "refuses a bare X-On-Behalf-Of-User with 401 x_user_token_required");
+            }
             r.header("x-on-behalf-of-user", userId);
             if (onBehalfOfIp != null && !onBehalfOfIp.isEmpty()) {
                 r.header("x-on-behalf-of-ip", onBehalfOfIp);

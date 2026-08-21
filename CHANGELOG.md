@@ -13,6 +13,25 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## BFF mode refuses a tokenless on-behalf-of id — go `0.45.0` · java `0.35.0` (2026-08-21)
+
+An `X-On-Behalf-Of-User` id with no `X-User-Token` beside it has been refused by
+the issuer since v0.66.0 (`401 x_user_token_required`): the id was an
+unauthenticated user id any platform-key holder could use to act as any user in
+the realm. Go's and Java's BFF mode sent exactly that, so the mode was dead
+against any current issuer unless the caller separately supplied a user token
+(Go `WithUserToken(ctx, …)`, Java `realm.withUserToken(jwt)`).
+
+Both SDKs now refuse such a call LOCALLY, naming the remedy — the server's 401
+cannot say which call site forgot the token. **Scoped to the routes where the id
+asserts an identity** (sessions, MFA self-service): on the OTP routes the same
+header is a domain parameter — the OTP subject — and requiring a token there
+would break calls the issuer accepts.
+
+TS needed no change: `realm.withUserToken(jwt)` (ts `0.33.0`) already sends the
+shape the issuer accepts. The long-standing "TS lacks BFF mode" TODO is closed
+by measurement — it asked for the mode that does not work.
+
 ## A device label the transport cannot carry — go `0.45.0` · ts `0.37.0` · java `0.35.0` (2026-08-21)
 
 Cross-cutting fix to the ADR-062 device label, in all three SDKs at once.

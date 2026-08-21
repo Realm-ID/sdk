@@ -66,16 +66,36 @@ class MfaSelfServiceTest {
 
     @Test
     void listAuthenticatorsOnBehalfSendsHeader() {
+        // BFF mode carries BOTH: the verified X-User-Token asserts WHO, the
+        // on-behalf-of id is attribution beside it. This test used to assert
+        // the id ALONE — pinning a mode issuer v0.66.0 refuses with
+        // 401 x_user_token_required, which the fake server happily accepted.
         fs.on("GET /auth/mfa/authenticators", (ex, body) -> {
             assertEquals("u42", fs.last().header("x-on-behalf-of-user"));
             assertEquals("Bearer pt", fs.last().header("authorization"));
+            assertEquals("user-jwt", fs.last().header("x-user-token"));
             return FakeServer.Reply.json(200, Map.of(
                     "authenticators", List.of(), "backup_codes_remaining", 0));
         });
-        AuthenticatorList out = realm.auth().listAuthenticators(
+        AuthenticatorList out = realm.withUserToken("user-jwt").auth().listAuthenticators(
                 ListAuthenticatorsRequest.forUser("u42"));
         assertEquals(0, out.backupCodesRemaining());
         assertTrue(out.authenticators().isEmpty());
+    }
+
+    @Test
+    void anOnBehalfOfIdWithoutAUserTokenIsRefusedLocally() {
+        // The issuer answers 401 x_user_token_required (v0.66.0, measured
+        // against a live issuer). Refusing here names the SDK call site that
+        // forgot the token, which the server's error cannot.
+        fs.on("GET /auth/mfa/authenticators", (ex, body) -> {
+            throw new AssertionError("the request must not be issued at all");
+        });
+        RealmException ex = assertThrows(RealmException.class,
+                () -> realm.auth().listAuthenticators(ListAuthenticatorsRequest.forUser("u42")));
+        assertEquals(ErrorCode.BAD_REQUEST, ex.getCode());
+        assertTrue(ex.getMessage().contains("withUserToken"),
+                "the error must name the remedy, got: " + ex.getMessage());
     }
 
     @Test
@@ -110,7 +130,8 @@ class MfaSelfServiceTest {
         envelope.put("code", "not_enrolled");
         fs.on("POST /auth/mfa/recovery/regenerate", (ex, body) -> FakeServer.Reply.json(409, envelope));
         RealmException ex = assertThrows(RealmException.class, () ->
-                realm.auth().regenerateRecoveryCodes(RegenerateRecoveryCodesRequest.forUser("u1")));
+                realm.withUserToken("user-jwt").auth()
+                        .regenerateRecoveryCodes(RegenerateRecoveryCodesRequest.forUser("u1")));
         // not_enrolled is not in the ErrorCode enum → falls back to the 409 status code.
         assertEquals(ErrorCode.CONFLICT, ex.getCode());
         assertEquals(409, ex.getHttpStatus());

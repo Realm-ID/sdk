@@ -86,7 +86,7 @@ func (a *AuthClient) SelfEnrollMFA(ctx ctxpkg.Context, req SelfEnrollMFARequest)
 // success. Server error codes (missing_code, not_enrolled (400),
 // unauthorized) surface as the usual RealmError.
 func (a *AuthClient) DisableMFA(ctx ctxpkg.Context, req DisableMFARequest) error {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (a *AuthClient) DisableMFA(ctx ctxpkg.Context, req DisableMFARequest) error
 // success. The server rejects revocation-class tokens with
 // insufficient_scope, which surfaces as the usual RealmError.
 func (a *AuthClient) RevokeAllSessions(ctx ctxpkg.Context, req RevokeAllSessionsRequest) error {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
 	if err != nil {
 		return err
 	}

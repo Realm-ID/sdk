@@ -572,9 +572,14 @@ M2M session.
 
 Revokes **every** session for the current user in one call —
 `DELETE /auth/sessions`. Current-user operation: identify the user the
-same way `revokeSession` / `listSessions` do (BFF mode: `userId` +
-platform token + `X-On-Behalf-Of-User`; legacy mode: the user's own
-access JWT as `userBearer`). A revocation token is rejected
+same way `revokeSession` / `listSessions` do — **BFF mode: the platform
+token as bearer plus the user's verified access JWT as `X-User-Token`**
+(`realm.withUserToken(jwt)`; in Go `WithUserToken(ctx, jwt)`); legacy
+mode: the user's own access JWT as `userBearer`. A `userId` may ride
+alongside as `X-On-Behalf-Of-User` for attribution, but **is not an
+identity on its own** — issuer v0.66.0 answers `401
+x_user_token_required` — and the SDKs refuse such a call locally rather
+than issue one that cannot succeed. A revocation token is rejected
 (`insufficient_scope`). Response `{ status: "ok" }`; the SDK returns
 void.
 
@@ -2071,14 +2076,15 @@ Detailed proposals tracked in repo `TODO.md`. Headlines:
 - WebAuthn / passkeys
 - Custom domains for hosted UIs
 - CSRF protection layer in the middleware (double-submit-cookie pattern)
-- BFF on-behalf-of parity for the TS SDK's current-user session/MFA
-  methods (§4.5–4.10) — Go and Java accept a per-call user identity
-  there; TS is `userBearer`-only today. Note this is now the *only*
-  remaining gap: `realm.withUserToken()` (§4, verified on-behalf-of)
-  covers the typed surface in all three SDKs, and the bare
-  `X-On-Behalf-Of-User` id it was originally scoped around stopped being
-  an identity in issuer v0.66.0 — so the parity to close is the
-  `X-User-Token` one, not the id
+- ~~BFF on-behalf-of parity for the TS SDK's current-user session/MFA
+  methods (§4.5–4.10)~~ — **CLOSED 2026-08-21 by measurement, not code.**
+  Against a live issuer a platform bearer plus a bare
+  `X-On-Behalf-Of-User` answers `401 x_user_token_required`, and a
+  platform bearer plus `X-User-Token` — with no id at all — answers
+  `200`. `realm.withUserToken()` already sends that shape in all three
+  SDKs, so TS was never missing the working mode; the mode it was
+  "missing" is the one the issuer refuses. Go and Java now refuse a
+  tokenless on-behalf-of call locally (see §4.7)
 - Idempotency-key pass-through on mutations
 
 ## 12. Versioning

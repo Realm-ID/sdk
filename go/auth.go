@@ -264,6 +264,11 @@ type SessionInfo struct {
 //     the bearer and sends X-On-Behalf-Of-User: <UserID>.
 //     Required when realm.config.require_bff_login=true
 //     (ADR-041 §7).
+//     The id ALONE is not an identity — since issuer v0.66.0 a bare
+//     X-On-Behalf-Of-User is refused with 401 x_user_token_required —
+//     so the call must also carry the user's verified access JWT via
+//     realmid.WithUserToken(ctx, jwt). The SDK refuses locally when it
+//     is missing rather than issuing a request that cannot succeed.
 //   - UserBearer: legacy / public-client mode. The user's access JWT
 //     rides as Authorization: Bearer. Subject is read from
 //     the JWT.
@@ -571,7 +576,7 @@ func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 // user either via a user-bearer JWT (legacy / public-client realms) or
 // via UserID + the SDK's platform token (BFF realms; ADR-041 §7).
 func (a *AuthClient) RevokeSession(ctx ctxpkg.Context, req RevokeSessionRequest) error {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
 	if err != nil {
 		return err
 	}
@@ -588,7 +593,7 @@ func (a *AuthClient) RevokeSession(ctx ctxpkg.Context, req RevokeSessionRequest)
 // attaches the platform token + X-On-Behalf-Of-User (ADR-041 §7).
 func (a *AuthClient) ListSessions(ctx ctxpkg.Context, req ListSessionsRequest) iter.Seq2[*SessionInfo, error] {
 	return func(yield func(*SessionInfo, error) bool) {
-		bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP)
+		bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -759,7 +764,13 @@ func (a *AuthClient) MintMFAChallenge(ctx ctxpkg.Context, req MFAChallengeReques
 // userBearer → that JWT direct (legacy / public-client mode). When set,
 // onBehalfOfIP rides as X-On-Behalf-Of-IP for per-IP rate-limit
 // attribution (ADR-050 plan §8.2).
-func (a *AuthClient) resolveOnBehalfOf(ctx ctxpkg.Context, userID, userBearer, onBehalfOfIP string) (string, map[string]string, error) {
+// idAssertsIdentity distinguishes the two meanings the id carries on the wire.
+// On the sessions + MFA-self routes it is an IDENTITY pivot, which the issuer
+// resolves through derivePlatformActsOnUser and refuses without X-User-Token.
+// On the OTP routes it is a DOMAIN PARAMETER — the OTP subject, read straight
+// off the header (issuer internal/httpapi/otp.go: "NOT an authz pivot") — and
+// requiring a user token there would break a call the issuer accepts.
+func (a *AuthClient) resolveOnBehalfOf(ctx ctxpkg.Context, userID, userBearer, onBehalfOfIP string, idAssertsIdentity bool) (string, map[string]string, error) {
 	if userID == "" && userBearer == "" {
 		return "", nil, &RealmError{
 			Code:    ErrCodeBadRequest,
@@ -777,6 +788,24 @@ func (a *AuthClient) resolveOnBehalfOf(ctx ctxpkg.Context, userID, userBearer, o
 		headers["X-On-Behalf-Of-IP"] = onBehalfOfIP
 	}
 	if userID != "" {
+		// Since issuer v0.66.0 a BARE X-On-Behalf-Of-User is NOT an identity:
+		// it was an unauthenticated user id that any holder of a realm's
+		// platform key could use to act as any user in that realm, so the
+		// issuer now answers 401 x_user_token_required and only the VERIFIED
+		// X-User-Token asserts who the caller is. The id survives as
+		// attribution alongside it.
+		//
+		// Refuse here rather than issuing a request that is certain to 401
+		// (measured against a live issuer, 2026-08-21): the server's error
+		// cannot say which SDK call site forgot the token, and this one can.
+		if idAssertsIdentity && userTokenFrom(ctx) == "" {
+			return "", nil, &RealmError{
+				Code: ErrCodeBadRequest,
+				Message: "BFF mode needs the user's access JWT as well as UserID: " +
+					"call with realmid.WithUserToken(ctx, accessJWT) — the issuer refuses " +
+					"a bare X-On-Behalf-Of-User with 401 x_user_token_required (v0.66.0)",
+			}
+		}
 		tok, err := a.realm.platformToken.get(ctx)
 		if err != nil {
 			return "", nil, err
