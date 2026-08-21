@@ -553,8 +553,21 @@ The response is the issuer's locked paged envelope
 `{sessions: [...]}`, a shape no issuer emits and which the TS client decoded
 until `0.37.0`, returning an empty list against every real server. Go and TS
 accept the flat shape as a legacy/mock fallback; Java reads the envelope
-through `Paginated`. Go and Java follow `next_cursor`; TS returns the first page
-only (tracked in `TODO.md`).
+through `Paginated`.
+
+**All three languages follow `next_cursor`** as of go `0.45.0` / ts `0.37.0` /
+java `0.35.0`, each in its own idiom: Go returns
+`iter.Seq2[*SessionInfo, error]`, Java returns `Paginated<Session>`, TS returns
+`Paginated<SessionInfo>` (an `AsyncIterable` that also exposes `.page(opts)`).
+TS returned a bare first-page array through `0.36.0`; past the server default of
+50 that silently truncated, which is sharper here than on most list surfaces —
+a session missing from the list is one the user cannot revoke, and this is the
+surface someone uses when they believe they are compromised. The `0.37.0` change
+is BREAKING and deliberately so: a compile error with an obvious fix beats the
+same call quietly returning a different number of rows.
+
+Neither legacy shape carries a cursor, so a pre-envelope server yields one page
+and stops — it cannot put a client in an endless loop.
 
 Each row (`SessionInfo` / `Session`) mirrors the issuer's session DTO:
 `{ id, class, created_at, last_seen_at, device_name?, ... }`. Note the

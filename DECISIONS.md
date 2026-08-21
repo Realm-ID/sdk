@@ -7,6 +7,81 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-21 (latest) — TS `listSessions` pages, and the break is deliberate
+
+`AuthClient.listSessions` now returns `Paginated<SessionInfo>` and follows
+`next_cursor`. Through `0.36.0` it resolved to `Promise<SessionInfo[]>` holding
+the FIRST PAGE ONLY (server default 50). Lands in the unpublished `0.37.0`,
+marked BREAKING; SPEC §4.6 updated, since that section documented the divergence
+as a standing carve-out.
+
+### Why this list, and not "one more paging TODO"
+
+Silent truncation is bad everywhere; it is sharper here. `listSessions` is what
+"sign out everywhere" and "revoke that device" are built on — the controls
+someone reaches for when they believe they are compromised. A session missing
+from the list is a session they cannot act on, and nothing in the response says
+rows were withheld. This is the same reasoning that made issuer `v0.86.0` a
+security fix rather than a tidy-up.
+
+### The break was chosen, and the alternatives were real
+
+Three options, all workable:
+
+1. **`Paginated<SessionInfo>`** — breaking, parity-exact.
+2. **Keep the array, loop internally to fetch every page** — non-breaking, fixes
+   the truncation, but unbounded in requests and memory with no way for a caller
+   to stop early, and TS stays shaped unlike both siblings, so SPEC §7's
+   cross-language pagination contract keeps a TS carve-out.
+3. **Add `listSessionsPaged()` alongside** — nothing breaks, but the truncating
+   method stays the one everybody reaches for, so the bug remains the
+   out-of-the-box behaviour, and the SDK carries two methods for one endpoint.
+
+(1) was chosen (user call). **The deciding argument was internal consistency,
+not cross-language tidiness**: `Paginated<T>` is already exported TS public API
+and already what `federationBindings.list()` returns, so the bare array was the
+odd one out *inside the TS SDK itself*. It is also the exact counterpart of
+Java's `Paginated<Session>`; Go's `iter.Seq2` is the same idea in Go's idiom.
+
+The break is worth naming honestly: a partner on the published `0.36.0` gets a
+compile error. That is the POINT — a loud break with an obvious fix beats the
+same call quietly returning a different number of rows, which is the failure
+mode (2) would have shipped.
+
+### The legacy tolerance is kept, and cannot spin the iterator
+
+`readSessionPage` normalises the flat `{sessions: […]}` and bare-array bodies
+before delegating to `readPage`, so SPEC §7's validation still applies to the
+envelope a real server sends while partner mocks keep working. Neither legacy
+shape carries a cursor, so such a server yields one page and stops — a
+pre-envelope mock cannot put a caller in an endless loop. That is asserted, not
+assumed: the legacy test now drains through the ITERATOR rather than `page()`.
+
+### Verified against the real issuer, not only a fixture
+
+The unit test proves the SDK follows a cursor its own fixture hands it. It
+cannot prove the issuer emits one — and "the fixture agreed with the client
+while both disagreed with the server" is exactly how the `{sessions: […]}`
+decode survived, in this same method, four days ago. So `tests/sdk-e2e` gained a
+case driving the issuer's own `pagedSlice` with `limit: 1`, so two sessions
+force a second page and the test costs two logins rather than fifty-one. It
+asserts as a PRECONDITION that the server emits `next_cursor` at all; without
+that, a server returning everything on page one would satisfy the drain
+assertion vacuously.
+
+Mutation-verified three ways: dropping `next_cursor` from the page reader fails
+both unit tests AND the e2e case (at the precondition); omitting the cursor from
+follow-up requests fails the unit cursor assertion. ts unit 203 pass / 0 fail,
+`tsc --noEmit` clean, sdk-e2e ts 8 pass / 0 fail.
+
+### Also fixed, same lines
+
+`docs/integration-guide.md` §4.5 was wrong twice over: it showed the old array
+call AND read `s.createdAt` / `s.lastUsedAt`, which TS has never returned — it
+hands back the parsed server JSON unmapped, so the fields are `created_at` and
+`last_seen_at`. A snippet that cannot run is worse than no snippet; it was the
+first thing a partner building a sessions UI would copy.
+
 ## 2026-08-21 (later still) — the last parity gap was a mode the issuer refuses
 
 `TODO.md` § *Cross-language parity gaps* carried one entry after the realm pin

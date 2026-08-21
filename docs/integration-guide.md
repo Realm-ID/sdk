@@ -854,13 +854,24 @@ await realm.tenants.users.confirmMfa(tenantId, userId, userCode);
 ### 4.5 Sessions UI
 
 ```ts
-const sessions = await realm.auth.listSessions();
-for (const s of sessions) {
-  // s.id, s.createdAt, s.lastUsedAt, s.userAgent, s.ip
+// listSessions returns Paginated<SessionInfo> and follows next_cursor for you
+// (ts 0.37.0; it was a bare first-page array through 0.36.0).
+for await (const s of realm.auth.listSessions()) {
+  // s.id, s.created_at, s.last_seen_at, s.user_agent, s.ip, s.device_name
 }
+
+// …or take one page at a time, for a table with a "load more" control:
+const page = await realm.auth.listSessions().page({ limit: 25 });
+// page.items, page.nextCursor, page.total
+
 await realm.auth.revokeSession(sessionId);
 await realm.auth.revokeAllSessions();
 ```
+
+> Field names on `SessionInfo` are the issuer's **wire** names, not camelCase —
+> TS returns the parsed server JSON unmapped. The last-used timestamp is
+> `last_seen_at` (unix seconds); there is no `last_used_at` on this DTO. (Go and
+> Java do map them: `SessionInfo.LastUsedAt` / `Session.lastUsedAt()`.)
 
 Build the page once; it works for both web sessions and long-lived
 desktop sessions (§6) — the latter show up with a stable `userAgent`

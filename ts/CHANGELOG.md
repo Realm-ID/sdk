@@ -25,8 +25,38 @@ legacy/mock fallback, and the unit fixture is re-pointed at the shape a real
 issuer emits (it had served the invented one, so test and client agreed while
 both disagreed with the server). Found by the new `tests/sdk-e2e` suite.
 
-**Known limitation, unchanged:** `listSessions` returns the FIRST PAGE only
-(server default 50) where Go iterates `next_cursor`. Filed in `../TODO.md`.
+**BREAKING: `listSessions` now returns `Paginated<SessionInfo>`, not
+`Promise<SessionInfo[]>` — and it follows `next_cursor`.** Through `0.36.0` it
+resolved to a bare array that was the FIRST PAGE ONLY (server default 50), so a
+user past that saw a silently truncated list. That is worse than a wrong list on
+this surface specifically: a session missing from it is a session the user
+cannot revoke, and `listSessions` is what "sign out everywhere" and "revoke that
+device" are built on — the controls people reach for when they think they are
+compromised.
+
+Parity was the deciding argument, not tidiness. Go returns
+`iter.Seq2[*SessionInfo, error]` and Java returns `Paginated<Session>`; TS
+already had `Paginated<T>` as exported public API, already used by
+`federationBindings.list()`, so the bare array was the odd one out **inside the
+TS SDK itself**. The break is loud (a compile error, obvious fix) rather than
+the same call quietly returning a different row count.
+
+```ts
+// before (0.36.0) — first page only
+const list: SessionInfo[] = await realm.auth.listSessions(jwt);
+
+// after (0.37.0) — every session, or one page on request
+for await (const s of realm.auth.listSessions(jwt)) { ... }
+const first = await realm.auth.listSessions(jwt).page({ limit: 50 });
+```
+
+The legacy `{sessions: [...]}` and bare-array tolerances survive as fallbacks.
+Neither carries a cursor, so a pre-envelope server yields one page and stops —
+it cannot spin the iterator. Verified against a REAL issuer, not only a fixture
+(`tests/sdk-e2e`): a new case drives the issuer's own `pagedSlice` with
+`limit: 1` so two sessions force a second page, and asserts as a PRECONDITION
+that the server emits `next_cursor` at all — without which the paging assertion
+would pass vacuously. Both unit tests and the e2e case are mutation-verified.
 
 ### `login({ deviceName })` sends `X-Device-Name`
 

@@ -124,13 +124,27 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > A parity claim verified only against a fake server is a claim about the SDK's
 > own beliefs.
 
-- [ ] **TS `listSessions` returns the FIRST PAGE only.** Go's `ListSessions`
-  iterates `next_cursor` (`go/auth.go` `decodeSessionPage`); TS returns
-  `items` from one response, so a user with more than the server default (50)
-  sessions silently sees a truncated list. Java pages through `Paginated`.
-  Deliberately NOT folded into the `0.37.0` envelope fix — a pagination change
-  would have hidden the decode fix inside it. (Found 2026-08-21 by
-  `tests/sdk-e2e`.)
+- [x] ~~**TS `listSessions` returns the FIRST PAGE only.**~~ **DONE 2026-08-21,
+  ts `0.37.0` — BREAKING.** Now returns `Paginated<SessionInfo>` and follows
+  `next_cursor`. All three languages page as of go `0.45.0` / ts `0.37.0` /
+  java `0.35.0`; SPEC §4.6 updated, since it documented the divergence as a
+  standing carve-out.
+  **The deciding argument was internal consistency, not cross-language
+  tidiness**: `Paginated<T>` is already exported TS public API and already what
+  `federationBindings.list()` returns, so the bare array was the odd one out
+  *inside the TS SDK itself*. Two non-breaking options were weighed and
+  rejected — looping internally behind the array signature (unbounded, no early
+  stop, keeps the SPEC §7 carve-out) and adding a second paged method (leaves
+  the truncating call as the default one everybody reaches for). A compile
+  error with an obvious fix beats the same call quietly returning a different
+  row count.
+  **Verified against a REAL issuer**, not only a fixture: the new e2e case
+  drives the issuer's own `pagedSlice` with `limit: 1` so two sessions force a
+  second page, and asserts as a PRECONDITION that the server emits
+  `next_cursor` at all. Mutation-verified three ways. Also fixed on the same
+  lines: `docs/integration-guide.md` §4.5 showed the old array call AND read
+  `s.createdAt`/`s.lastUsedAt`, fields TS has never returned.
+  Rationale: `DECISIONS.md` 2026-08-21 (latest).
 - [ ] **`gofmt -l` reports FOUR files** — `go/claims.go`,
   `go/middleware_test.go`, `go/roles_test.go`, `go/tenants.go` (re-run
   2026-08-21 in a `golang:1.23-alpine` container). Pre-existing, unrelated to

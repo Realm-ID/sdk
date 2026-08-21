@@ -17,6 +17,7 @@
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
+import { paginate, readPage, type Paginated, type Page, type PageOpts } from "./pagination.js";
 
 export type LoginMethod = "firebase" | "google";
 
@@ -210,6 +211,32 @@ export interface SessionListWire {
   sessions?: SessionInfo[];
   next_cursor?: string | null;
   total?: number;
+}
+
+/**
+ * Normalise a `/auth/sessions` body into a {@link Page}.
+ *
+ * The issuer answers the LOCKED paged envelope `{items, next_cursor, total}`
+ * (`httpapi.pagedSlice`); that path delegates to `readPage`, so SPEC §7's
+ * validation still applies to the shape a real server sends. The flat
+ * `{sessions: [...]}` and bare-array bodies are a deliberate legacy/mock
+ * tolerance mirroring Go's `decodeSessionPage` — reading `sessions` ALONE is
+ * what made this method return `[]` against every real issuer until 0.37.0, so
+ * the tolerance is kept strictly as a fallback and never as the primary read.
+ *
+ * Neither legacy shape carries a cursor, so it yields no `nextCursor` and the
+ * iterator stops after one round trip — a legacy server cannot put the caller
+ * in an endless loop.
+ */
+function readSessionPage(raw: unknown): Page<SessionInfo> {
+  if (Array.isArray(raw)) return { items: raw as SessionInfo[] };
+  if (raw && typeof raw === "object") {
+    const obj = raw as SessionListWire;
+    if (obj.items === undefined && Array.isArray(obj.sessions)) {
+      return { items: obj.sessions };
+    }
+  }
+  return readPage<SessionInfo>(raw);
 }
 
 export interface SessionInfo {
@@ -514,23 +541,38 @@ export class AuthClient {
     });
   }
 
-  /** SPEC §4.6 — list sessions for the user identified by `userBearer`. */
-  async listSessions(userBearer?: string): Promise<SessionInfo[]> {
-    const raw = await this.http.request<SessionListWire | SessionInfo[]>({
-      method: "GET",
-      path: "/auth/sessions",
-      bearer: userBearer,
+  /**
+   * SPEC §4.6 — sessions for the user identified by `userBearer`.
+   *
+   * Returns a {@link Paginated} handle, the same shape `federationBindings.list()`
+   * uses and the direct counterpart of Java's `Paginated<Session>` and Go's
+   * `iter.Seq2` iterator. Iterate it to walk EVERY session (the SDK follows
+   * `next_cursor` for you), or call `.page(opts)` for exactly one page:
+   *
+   * ```ts
+   * for await (const s of realm.auth.listSessions(jwt)) { ... }
+   * const first = await realm.auth.listSessions(jwt).page({ limit: 50 });
+   * ```
+   *
+   * BREAKING in 0.37.0 — this returned `Promise<SessionInfo[]>` through
+   * `0.36.0`, and that array was the FIRST PAGE ONLY (server default 50). Past
+   * that a caller silently saw a truncated list, which is worse than a wrong
+   * one: "sign out everywhere" and "revoke that device" are the controls people
+   * reach for when they believe they are compromised, and a session missing
+   * from the list is a session they cannot act on. The break is deliberate and
+   * loud — a compile error with an obvious fix — rather than the same call
+   * quietly returning a different number of rows.
+   */
+  listSessions(userBearer?: string, opts?: PageOpts): Paginated<SessionInfo> {
+    return paginate<SessionInfo>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: "/auth/sessions",
+        bearer: userBearer,
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readSessionPage(raw);
     });
-    if (Array.isArray(raw)) return raw;
-    // The issuer answers with the LOCKED paged envelope `{items, next_cursor,
-    // total}` (httpapi.pagedSlice). Reading `sessions` alone — as this method
-    // did until 0.37.0 — returns an empty array against every real issuer,
-    // which is indistinguishable from "you have no sessions". `sessions` is
-    // kept as a legacy/mock fallback, exactly as Go's decodeSessionPage does.
-    //
-    // Returns the FIRST PAGE only (server default 50). Go's ListSessions
-    // iterates `next_cursor`; TS does not yet — see ../TODO.md.
-    return raw.items ?? raw.sessions ?? [];
   }
 
   /**

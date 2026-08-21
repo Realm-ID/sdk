@@ -246,9 +246,9 @@ test("auth.listSessions: decodes issuer sessionDTO fields incl. last_seen_at", a
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
-  const list = await realm.auth.listSessions("u-jwt");
+  const list = (await realm.auth.listSessions("u-jwt").page()).items;
   // userBearer path uses the JWT directly — no platform-token bootstrap.
-  assert.match(calls[0]!.url, /\/auth\/sessions$/);
+  assert.match(calls[0]!.url, /\/auth\/sessions/);
   assert.equal(list.length, 1);
   assert.equal(list[0]!.id, "sess-1");
   assert.equal(list[0]!.created_at, 1_751_241_600);
@@ -305,9 +305,66 @@ test("auth.listSessions: still decodes the legacy flat {sessions: [...]} shape",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
-  const list = await realm.auth.listSessions("u-jwt");
-  assert.equal(list.length, 1);
-  assert.equal(list[0]!.id, "legacy-1");
+  // Drained through the ITERATOR, not page(): the legacy body carries no
+  // cursor, so this also pins that a pre-envelope server cannot spin the
+  // iterator forever — it must stop after exactly one round trip.
+  const list: string[] = [];
+  for await (const s of realm.auth.listSessions("u-jwt")) list.push(s.id);
+  assert.deepEqual(list, ["legacy-1"]);
+});
+
+test("auth.listSessions: follows next_cursor across pages", async () => {
+  // The parity gap tests/sdk-e2e surfaced on 2026-08-21: Go's ListSessions
+  // iterates next_cursor and Java pages through Paginated, while TS read ONE
+  // response. Past the issuer's default page size a TS consumer silently saw a
+  // truncated list — and a truncated session list is worse than a wrong one,
+  // because "sign out everywhere" and "revoke that device" are what people
+  // reach for when they think they are compromised.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      items: [{ id: "sess-1" }, { id: "sess-2" }],
+      next_cursor: "cur-2",
+      total: 3,
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+    () => new Response(JSON.stringify({
+      items: [{ id: "sess-3" }],
+      next_cursor: null,
+      total: 3,
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+
+  const ids: string[] = [];
+  for await (const s of realm.auth.listSessions("u-jwt")) ids.push(s.id);
+
+  assert.deepEqual(ids, ["sess-1", "sess-2", "sess-3"]);
+  // PRECONDITION, not decoration: a single-page fixture would satisfy the
+  // assertion above under the truncating implementation too. Two round trips
+  // is what says the cursor was actually followed.
+  assert.equal(calls.length, 2, "expected two GETs — one per page");
+  assert.doesNotMatch(calls[0]!.url, /cursor=/, "the first page must not send a cursor");
+  assert.match(calls[1]!.url, /cursor=cur-2/, "the second page must send the server's next_cursor");
+});
+
+test("auth.listSessions: page() returns one page and surfaces the cursor", async () => {
+  // The other half of Paginated — a caller who wants ONE page (a UI table)
+  // must not be forced to drain every session to render the first screen.
+  const { fetch, calls } = recorder([
+    () => new Response(JSON.stringify({
+      items: [{ id: "sess-1" }],
+      next_cursor: "cur-2",
+      total: 9,
+    }), { status: 200, headers: { "content-type": "application/json" } }),
+  ]);
+  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const page = await realm.auth.listSessions("u-jwt").page({ limit: 1 });
+
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0]!.id, "sess-1");
+  assert.equal(page.nextCursor, "cur-2");
+  assert.equal(page.total, 9);
+  assert.equal(calls.length, 1, "page() must not drain the rest");
+  assert.match(calls[0]!.url, /limit=1/);
 });
 
 test("auth.login: a device label the transport cannot carry is stripped, not fatal", async () => {
@@ -359,11 +416,11 @@ test("auth: BFF mode is withUserToken — the platform bearer plus X-User-Token"
       { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
-  const list = await realm.withUserToken("user-jwt").auth.listSessions();
+  const list = (await realm.withUserToken("user-jwt").auth.listSessions().page()).items;
 
   assert.equal(list.length, 1);
   const call = calls[1]!;
-  assert.match(call.url, /\/auth\/sessions$/);
+  assert.match(call.url, /\/auth\/sessions/);
   // The platform token authorizes the CALLER; the user token asserts WHO.
   assert.equal(call.headers.get("authorization"), "Bearer pt_test_abc");
   assert.equal(call.headers.get("x-user-token"), "user-jwt");
