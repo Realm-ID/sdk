@@ -131,9 +131,13 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   Deliberately NOT folded into the `0.37.0` envelope fix — a pagination change
   would have hidden the decode fix inside it. (Found 2026-08-21 by
   `tests/sdk-e2e`.)
-- [ ] **`gofmt -l` reports `go/roles_test.go` and `go/tenants.go`** (checked
-  2026-08-21 in a container). Pre-existing, unrelated to any current change; the
-  issuer has a matching open item for a CI `gofmt` gate.
+- [ ] **`gofmt -l` reports FOUR files** — `go/claims.go`,
+  `go/middleware_test.go`, `go/roles_test.go`, `go/tenants.go` (re-run
+  2026-08-21 in a `golang:1.23-alpine` container). Pre-existing, unrelated to
+  any current change; the issuer has a matching open item for a CI `gofmt` gate.
+  ⚠️ **This entry named only two of them** and was cited as "the cheapest item"
+  on that count. Same class as every other stale figure in these files: a number
+  measured once and quoted later as a finding. Re-measure before quoting.
 - [x] ~~**TS: BFF on-behalf-of parity**~~ — **CLOSED 2026-08-21 BY MEASUREMENT.
   Do not re-open as a build task.** The item asked for a `userId` +
   `X-On-Behalf-Of-User` path in TS "because Go and Java have it". Checked
