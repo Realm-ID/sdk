@@ -7,6 +7,26 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-23 (later still) — SPEC §10.4's "backstop" claim is WITHDRAWN (ADR-096 D3)
+
+§10.4 said: *"The server's `RequireMFA(pattern, opts)` registry is the backstop
+for non-SDK callers."*
+
+Under ADR-096 D2 that is not merely unimplemented, it is **impossible**: the
+route→policy map lives in the enforcing backend, RealmID stores no list of a
+partner's operations, and **you cannot back-stop a policy you do not hold**.
+
+Corrected rather than left standing, because the sentence is load-bearing in the
+wrong direction: the next reader designs against a guarantee that is not there
+and ships an unenforced gate. The replacement says what the issuer registry
+actually is — the gate for RealmID's OWN auth-surface operations, where RI is
+the enforcing party — and points a non-SDK adopter at
+`issuer/docs/partner-integration-guide.md` §5.1, which now carries the HTTP-level
+contract they need.
+
+No package version moves: this is a SPEC edit with no behavioural change in any
+language SDK.
+
 ## 2026-08-23 (later) — tag hygiene extended to ts/java, and the one check that can actually prevent
 
 Both residuals filed earlier today were decided by the repo owner and shipped:

@@ -1937,8 +1937,21 @@ Realm-wide default lives at
 
 **SDK middleware enforces locally.** The middleware reads `mfa_at`
 from the verified claims it already holds and applies the policy
-without an extra round trip. The server's `RequireMFA(pattern, opts)`
-registry is the backstop for non-SDK callers.
+without an extra round trip.
+
+**The issuer's `RequireMFA(pattern, opts)` registry is NOT a backstop
+for non-SDK callers** (ADR-096 D3 — this paragraph previously said it
+was). It cannot be: under ADR-096 D2 the route→policy map lives in the
+ENFORCING backend, and RealmID stores no list of a partner's
+operations, so it has nothing to back-stop with. What that registry
+actually is, and the only thing that may ever be registered in it, is
+the gate for **RealmID's own auth-surface operations** — the ones where
+RI is the enforcing party (e.g. `/auth/mfa/recovery/regenerate`).
+
+A non-SDK caller implements the gate itself; the HTTP-level contract it
+needs — the `mfa_at` claim, the per-`(session, tenant)` rule (ADR-059),
+and the challenge → verify → new-tokens sequence — is written out in
+`issuer/docs/partner-integration-guide.md` §5.1.
 
 **Step-down semantics (advanced).** Some workflows want "after this
 op, fall back to non-MFA" (require fresh MFA next time). Expose a
