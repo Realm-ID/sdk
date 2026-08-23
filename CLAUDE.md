@@ -37,6 +37,16 @@ One locked spec, multiple language-idiomatic implementations.
   `ctxpkg "context"` for new exported funcs.
 - **Version bumping** — SPEC change → bump all language SDKs in lockstep
   with matching CHANGELOG entries.
+- **Cutting a release tag — `git tag -a`, always, and never re-point.**
+  `go/vX.Y.Z` is not a label on the Go release, it *is* the release: the module
+  proxy serves the tag directly. So a tag is immutable the moment anything
+  fetches it, and `.github/workflows/verify-go-release.yml` now fails a
+  lightweight tag and a re-pointed one (`scripts/tag-hygiene.sh`). **Both fire
+  after the tag exists and neither has a remedy** — the only recovery is the
+  next patch version, so the procedure is what prevents them:
+  `git tag -a go/v0.45.0 -m "go sdk 0.45.0" && git push origin go/v0.45.0`.
+  22 of the first 41 `go/v*` tags were lightweight, the three most recent
+  included, which is what the rule was worth while only a comment carried it.
 - **Two-SDK browser split** — `@realm-id/web` is the tenant-app SDK
   (auth, storage, multi-tab); `@realm-id/web-admin` is the admin-UI SDK
   (tenants, users, roles, platforms, notes, signing keys, BFF

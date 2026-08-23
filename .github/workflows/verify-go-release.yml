@@ -1,4 +1,4 @@
-name: Verify the Go SDK version const matches its tag
+name: Verify the Go SDK release tag
 
 # The Go SDK publishes by TAG PUSH alone — the module proxy serves
 # github.com/Realm-ID/sdk/go@vX.Y.Z straight from `go/vX.Y.Z`, with no release
@@ -23,6 +23,27 @@ name: Verify the Go SDK version const matches its tag
 # original tree, and downstream `go.sum` verification broke with a checksum
 # mismatch). The remedy is to fix the const and ship the NEXT PATCH version —
 # never re-point the tag.
+#
+# ── Tag hygiene (added 2026-08-23) ────────────────────────────────────────────
+# The same reasoning that justified the const check justifies two more, and the
+# TODO item asking for them had been open since that 2026-07-05 incident with
+# nothing enforcing it. `scripts/tag-hygiene.sh` holds the logic — deliberately
+# a script rather than inline `run:` blocks, because a step body is only ever
+# testable by pushing a tag, which is the one thing this must not require.
+#
+#   annotated     a `go/v*` tag must be an annotated tag object. 22 of the 41
+#                 that existed when this was written were lightweight, the three
+#                 most recent releases included, so the documented rule was being
+#                 followed by roughly a coin flip.
+#   go-immutable  sum.golang.org is append-only. If it already holds a hash for
+#                 this version, the tag must still hash to it — otherwise the tag
+#                 was moved after publication and every downstream `go.sum` is
+#                 now broken.
+#
+# Both run on the TAG PUSH only. They are skipped on workflow_dispatch on
+# purpose: their remedy is always "ship the next patch version", which is no
+# remedy at all for a release that shipped months ago, and a gate that is
+# permanently red over an uncorrectable fact is a gate people learn to ignore.
 
 on:
   push:
@@ -37,7 +58,7 @@ permissions:
 
 jobs:
   verify:
-    name: const Version == tag
+    name: tag hygiene + const Version == tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -64,7 +85,28 @@ jobs:
           echo "ref=$REF"                     >> "$GITHUB_OUTPUT"
           echo "want=${REF#go/v}"             >> "$GITHUB_OUTPUT"
 
+      - uses: actions/setup-go@v6
+        if: github.event_name == 'push'
+        with:
+          go-version: '1.26'
+          cache: false   # the immutability probe needs a cold module cache
+
+      # A lightweight tag can be force-moved without a trace, which is the
+      # mechanism behind the incident in the header.
+      - name: The tag is annotated
+        if: github.event_name == 'push'
+        run: ./scripts/tag-hygiene.sh annotated "${{ steps.tag.outputs.ref }}"
+
+      # If this version is already in the checksum DB, the tag must still hash
+      # to what was recorded. Runs even when the annotation step fails, because
+      # "lightweight" and "moved" are independent faults and the second is the
+      # one that breaks consumers — reporting only the first would understate it.
+      - name: The tag has not been re-pointed since publication
+        if: always() && github.event_name == 'push'
+        run: ./scripts/tag-hygiene.sh go-immutable "${{ steps.tag.outputs.ref }}"
+
       - name: Read the const
+        if: always()
         id: const
         run: |
           set -euo pipefail
@@ -78,7 +120,12 @@ jobs:
           GOT=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' go/realmid.go)
           echo "got=$GOT" >> "$GITHUB_OUTPUT"
 
+      # Guarded on both producers SUCCEEDING, not merely running. Each has
+      # already reported its own failure, and the empty string either would then
+      # hand over reads here as a version drift — a different and wrong
+      # diagnosis for "no tag found" or "no const declaration found".
       - name: Assert they match
+        if: always() && steps.tag.outcome == 'success' && steps.const.outcome == 'success'
         env:
           WANT:   ${{ steps.tag.outputs.want }}
           GOT:    ${{ steps.const.outputs.got }}

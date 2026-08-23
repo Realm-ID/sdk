@@ -7,6 +7,109 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-23 — the annotated/immutable tag rule was documented for seven weeks and followed by a coin flip
+
+`scripts/tag-hygiene.sh` (annotated + not-re-pointed) wired into
+`.github/workflows/verify-go-release.yml` on the `go/v*` tag push, plus the
+release procedure in `CLAUDE.md` that keeps it green.
+
+### Why now, and why this item and not a bigger one
+
+Three SDK versions are bumped in-repo and unreleased — go `0.45.0`, ts `0.37.0`
+(BREAKING), java `0.35.0`. GitHub Actions has been dead org-wide since
+2026-08-20 (re-probed today: run `32650232345`, `startup_failure` at 1s), so the
+first thing that will happen when it returns is a tag push. The tag that must
+not be wrong is the *next* one, which is the only window in which this work has
+any value at all.
+
+### The measurement is the finding
+
+Root `TODO.md` § *Tag hygiene* has said since 2026-07-05 that `go/v*` tags are
+annotated and immutable. Counting the tree:
+
+| family | annotated | lightweight |
+|---|---|---|
+| `go/v*` | 19 | **22** |
+| `ts-v*` | 10 | 15 |
+| `java-v*` | 10 | 14 |
+| `web-v*` | 3 | 2 |
+
+The most recent three Go releases — `0.42.0`, `0.43.0`, `0.44.0` — are all
+lightweight, as is `go/v0.21.0`, the tag whose re-pointing caused the checksum
+incident this rule was written in response to (2026-07-05). A rule carried by
+prose alone was obeyed slightly *less* than half the time, and its own
+counterexample sat at the top of `git tag --list`.
+
+### What each check actually detects
+
+**Annotated** is a one-line `git cat-file -t`: an annotated tag resolves to a
+`tag` object, a lightweight one to the commit. That difference is the whole
+question of whether a tagger, a date and a message exist to be moved.
+
+**Immutable** is the one that needed a mechanism. `sum.golang.org` is an
+append-only signed log, so if it already holds a hash for `vX.Y.Z`, that hash is
+the permanent public truth about that version; the check re-hashes the tree the
+tag points at *now* and compares. A mismatch is not a warning, it is the
+statement that every consumer with the old hash in `go.sum` is already broken —
+the `go/v0.21.0` incident, live.
+
+`GOMODCACHE` is a fresh directory per run, deliberately. A warm cache can still
+hold the pre-re-point zip for the same version, and comparing that against the
+sumdb agrees for the wrong reason — a false PASS on the single input the check
+exists to catch.
+
+### It is a script, not a `run:` block, because of how it had to be verified
+
+Actions is down and a tag-push workflow is only exercisable by pushing a tag —
+the one action whose consequences are irreversible here. Putting the logic in
+`scripts/tag-hygiene.sh` made all four outcomes testable on this laptop against
+the real repository and the real checksum DB: annotated (`go/v0.41.0`) passes,
+lightweight (`go/v0.44.0`) fails 1, an unpublished version short-circuits before
+downloading anything, and a published-and-unchanged one passes. The mismatch
+branch was mutation-verified by hashing `v0.43.0`'s tree against `v0.44.0`'s
+recorded hash — it fails 1 and prints both. `actionlint` and `shellcheck` clean.
+
+### Ordering: a gate with no remedy has to ship with the instruction that avoids it
+
+Both checks run *after* the tag exists, so neither can prevent anything; their
+message says "ship the next patch version" and never "fix the tag", because
+re-pointing is the harm, not the repair. That makes the documentation half
+load-bearing rather than decorative: there was **no written release procedure
+for the Go SDK anywhere in this repo** — the only trace was this file's own
+prose noting that a release is "otherwise entirely `git tag && git push`", which
+is precisely the lightweight form the gate now rejects. `CLAUDE.md` now carries
+`git tag -a`. Without that, the next releaser follows the repo and trips an
+irreversible gate.
+
+### Skipped on `workflow_dispatch`, on purpose
+
+Dispatched, this workflow resolves the newest existing tag — which is
+lightweight today and can never be anything else. A gate that is permanently red
+over an uncorrectable historical fact is one people learn to scroll past, and it
+would have taken the const check, which *is* dispatchable for a reason, down
+with it. The two hygiene steps run on the tag push only; the const check keeps
+both triggers.
+
+### Scoped to `go/v*` only
+
+`ts-v*` and `java-v*` tags are lightweight at a similar rate, and it does not
+have the same consequence: npm refuses to publish over a version (the workflow
+already treats that as a skip) and Maven Central is immutable by policy, so the
+artifact cannot be silently replaced by moving a tag. What is lost there is
+provenance, not correctness. Enforcing it would mean a red publish over a
+cosmetic property — filed in `TODO.md` rather than decided by whoever happened to
+be writing this workflow.
+
+### Not done, and it is the half that could actually prevent
+
+A check on `main` — "the declared version already has a tag, and `go/` has
+changed since it" — would catch the content-change-under-a-released-version
+shape *before* any tag exists, which is the real root of the 2026-07-05
+incident. It is not shipped because it imposes a real policy: every PR touching
+`go/` after a release would have to bump the version or go red. That is a
+workflow decision for the repo owner, not a side effect of closing a CI item.
+Filed in `TODO.md`.
+
 ## 2026-08-21 (last) — the SDK monorepo had no CI, which is why "add a gofmt gate" was never ten minutes
 
 New `.github/workflows/ci.yml`: go (gofmt, build, vet, test), ts (tsc, node
