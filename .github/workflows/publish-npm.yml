@@ -28,6 +28,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the tag OBJECT is needed, not just the commit
+
+
+      # Runs BEFORE anything publishes, deliberately: a lightweight tag here is
+      # still fixable (delete, re-cut with -a) because no registry has seen the
+      # artifact yet. That is the opposite of `go/v*`, where the tag IS the
+      # release — hence the separate `annotated-prepublish` mode, which prints
+      # the recut remedy instead of "ship the next patch version".
+      #
+      # Only on a tag push: a workflow_dispatch has no tag to check.
+      - name: The release tag is annotated
+        if: github.event_name == 'push'
+        run: ./scripts/tag-hygiene.sh annotated-prepublish "${{ github.ref_name }}"
 
       - uses: actions/setup-node@v7
         with:

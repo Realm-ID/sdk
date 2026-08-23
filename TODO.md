@@ -47,31 +47,19 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > because tags are immutable once the proxy has cached them, the remedy on red is
 > the next patch version. Rationale in `DECISIONS.md` 2026-08-05.
 
-- [ ] **Decide whether `ts-v*` / `java-v*` release tags must be annotated too.**
-  `go/v*` is enforced as of 2026-08-23 (`scripts/tag-hygiene.sh`, wired into
-  `verify-go-release.yml`). The other two families are lightweight at the same
-  rate — ts 15 of 25, java 14 of 24 — but the consequence differs: npm refuses a
-  republish and Maven Central is immutable by policy, so a moved tag there costs
-  **provenance, not correctness** (the published artifact stands; the tag simply
-  stops identifying it). Enforcing means a publish going red over a cosmetic
-  property, which is why it was not decided unilaterally while wiring the Go
-  gate. Either enforce in both publishers — the script already takes the tag as
-  an argument, so it is one step each — or write down that the two families are
-  deliberately unenforced, so the next reader does not re-open this.
-
-- [ ] **Pre-tag check: refuse a content change under an already-released Go
-  version.** The 2026-08-23 gates both fire *after* the tag exists and neither
-  has a remedy. The check that could actually prevent runs on `main`: if
-  `const Version = V` and `go/vV` already exists, and `git diff go/vV HEAD --
-  go/` is non-empty, then released version `V` now has two different trees —
-  which is the `go/v0.21.0` incident's root shape, caught before anything is
-  immutable.
-  **It is unshipped because it is a policy, not a check**: once `go/v0.45.0` is
-  cut, every later PR touching `go/` goes red until someone bumps the const. That
-  may well be the right rule (it is ordinary release hygiene, and the const is
-  already asserted at tag time), but it changes how every Go PR is merged, so it
-  needs a decision rather than a workflow edit. Rationale in `DECISIONS.md`
-  2026-08-23.
+> **BOTH TAG-HYGIENE RESIDUALS DECIDED 2026-08-23 (user call) and shipped.**
+> **ts/java annotation — ENFORCED**, in both publishers, as the FIRST step so it
+> runs before anything is released. That ordering turns out to matter more than
+> the decision did: unlike `go/v*`, nothing has been published when the check
+> fires, so the remedy is to delete the tag and re-cut it annotated. The script
+> has a separate `annotated-prepublish` mode purely to print that remedy instead
+> of Go's "ship the next patch version", which would burn a version for nothing.
+> **Pre-tag check — ADOPTED.** `tag-hygiene.sh unreleased-go` runs in the CI Go
+> job on main and every PR and fails when `go/` differs from the tag matching its
+> declared `const Version`. The accepted cost is a policy: after a release, the
+> first PR touching `go/` must bump the const. Mutation-verified against the real
+> tree (declaring the released `0.44.0` reports 12 changed files and fails).
+> Rationale: `DECISIONS.md` 2026-08-23.
 
 - [ ] **`platform_not_found` is not in the `ErrorCode` taxonomy (all three
   languages).** The issuer returns it on `GET /platforms/{id}`,

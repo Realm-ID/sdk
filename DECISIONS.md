@@ -7,6 +7,56 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-23 (later) — tag hygiene extended to ts/java, and the one check that can actually prevent
+
+Both residuals filed earlier today were decided by the repo owner and shipped:
+`annotated-prepublish` wired into `publish-npm.yml` and `publish-maven.yml`, and
+`unreleased-go` wired into the CI Go job.
+
+### ts/java: the ORDERING mattered more than the decision
+
+The filed question was whether to enforce annotation on `ts-v*` / `java-v*` at
+all, given npm and Maven Central are immutable by policy so a moved tag costs
+provenance rather than correctness. Answer: enforce.
+
+Wiring it exposed something the question had not: **for these two, the check runs
+BEFORE anything is published**, because the tag merely triggers a publisher. So a
+lightweight tag is still the operator's to fix — delete it, re-cut with `-a`,
+push. That is the exact opposite of `go/v*`, where the tag IS the release and the
+only remedy is the next patch version.
+
+Printing Go's remedy here would tell an operator to burn a version number for a
+tag they could simply recut. Hence a separate `annotated-prepublish` mode whose
+sole difference is the remedy it prints, with the caveat that a re-RUN after a
+partial publish must not delete the tag. The check is the FIRST step in both
+publish jobs so that the "nothing has been released yet" premise it states is
+actually true.
+
+### `unreleased-go`: a policy, adopted knowingly
+
+`tag-hygiene.sh unreleased-go` runs on main and every PR: if `const Version` is
+`V` and `go/vV` exists and `go/` differs from that tag, it fails and says to bump
+the const before merging.
+
+This is the only check in the repo that can prevent rather than report, and it is
+aimed at the root shape of the 2026-07-05 incident — a tree changed, the version
+did not, and the "fix" was to move the tag. The two tag-time checks cannot help
+there: by the time either runs, the tag exists and the proxy may have served it.
+
+**Its cost is a workflow policy and was accepted as one:** after a release, the
+first PR touching `go/` goes red until someone bumps the const. That is not a
+side effect to apologise for — the skipped bump is the defect. It was filed as a
+decision rather than shipped with the earlier work precisely because it changes
+how every Go PR merges.
+
+Mutation-verified against the real tree rather than a fixture: declaring the
+already-released `0.44.0` makes it fail and print the 12 files that have changed
+since that tag. With today's unreleased `0.45.0` it passes, correctly, because
+nothing is tagged under it.
+
+`actionlint` and `shellcheck` clean; every mode exercised locally against the
+real repository, since Actions is still down.
+
 ## 2026-08-23 — the annotated/immutable tag rule was documented for seven weeks and followed by a coin flip
 
 `scripts/tag-hygiene.sh` (annotated + not-re-pointed) wired into

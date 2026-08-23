@@ -39,11 +39,29 @@ jobs:
         working-directory: go
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # tags: the released-version check compares against them
 
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
           cache-dependency-path: go/go.sum
+
+      # The only check in this repo that can PREVENT rather than report. Both
+      # tag-hygiene checks in verify-go-release.yml run after the tag exists, by
+      # which point the module proxy may already have served it and there is no
+      # remedy but the next patch version. This one runs here, on main and on
+      # every PR, and refuses a content change under a version number that has
+      # already been released — the root shape of the 2026-07-05 checksum
+      # incident, where a tree changed, the version did not, and the "fix" was
+      # to move the tag.
+      #
+      # Its cost is a policy, accepted deliberately: after a release, the first
+      # PR to touch go/ must bump `const Version`. The bump is exactly what kept
+      # being skipped.
+      - name: go/ has not changed under a released version
+        working-directory: .
+        run: ./scripts/tag-hygiene.sh unreleased-go
 
       # THE GATE, not hygiene. This drifted four times, and each time the fix
       # was a hand-written list of unformatted files in a TODO — which rots by
