@@ -79,6 +79,10 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeOwnerCannotLeave, ErrCodeAlreadyLeft,
 		ErrCodeUnauthorized, ErrCodeForbidden, ErrCodeNotFound, ErrCodeConflict,
 		ErrCodeRateLimited, ErrCodeBadRequest, ErrCodeNetwork, ErrCodeServerError,
+		// ADR-097.
+		ErrCodeInvalidScope, ErrCodeTooManyScopes, ErrCodeScopeTooLong,
+		ErrCodeScopeNotSupported, ErrCodeReservedClaimKey,
+		ErrCodeRealmIDAudienceImmutable, ErrCodeInvalidRename,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

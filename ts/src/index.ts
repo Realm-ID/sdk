@@ -225,6 +225,27 @@ export type {
 } from "./integrations.js";
 
 export { createMiddleware, globMatch } from "./middleware.js";
+// ADR-097: SDK-enforced route authorization. Layer 1 (predicate), layer 2
+// (route map, default DENY), layer 3 (Express + Fastify adapters).
+export {
+  scopesFrom,
+  scopeAllows,
+  scopeAllowsAny,
+  decideScope,
+  validateScopePolicy,
+  isRfc6749ScopeToken,
+  createScopeMiddleware,
+  fastifyScopeHook,
+} from "./scope.js";
+export type {
+  ScopeRule,
+  ScopePolicy,
+  ScopeDecision,
+  ScopeConfigError,
+  ScopeMiddlewareOptions,
+  ScopeReqLike,
+  ScopeResLike,
+} from "./scope.js";
 export type {
   MiddlewareConfig,
   ConnectMiddleware,

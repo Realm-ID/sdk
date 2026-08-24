@@ -2130,7 +2130,187 @@ _, _ = r.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{
 })
 ```
 
-## 11. Roadmap (deferred)
+## 11. Route authorization — `scope` (ADR-097)
+
+A partner adding an endpoint to their own product must not have to come back and
+update configuration inside RealmID. The division:
+
+| Owner | Artefact |
+|---|---|
+| RealmID | identity, attestation, session lifecycle, the token |
+| **your repo** | the route → scope map, the role → scope map |
+| the SDK | the gate that evaluates one against the other |
+
+RealmID stores **no** partner catalog. Your scope strings are opaque to it:
+never parsed, never validated against a vocabulary, never stored.
+
+### 11.1 The claim
+
+`scope` — a **space-delimited string**, RFC 9068 §2.2.3, which defines it by
+reference to RFC 8693 §4.2 in RFC 6749 §3.3 format. **Not an array.** RFC 9068
+§2.2.3.1's array-shaped `groups`/`roles`/`entitlements` express identity
+*attributes* of the subject, not granted scope for the token.
+
+> **Conformance, stated honestly:** adopting this claim aligns *this claim* with
+> RFC 9068. It does not make the token conformant — RealmID emits neither
+> `client_id` nor `typ: "at+jwt"`. Full conformance is a follow-up.
+
+**Charset (RFC 6749 §3.3):** `%x21 / %x23-5B / %x5D-7E` — printable ASCII minus
+SPACE, `"` and `\`. **Case-sensitive**, no normalization. A space inside a value
+would split one scope into two, so a malformed entry is refused at mint
+(`invalid_scope`) rather than silently reshaped.
+
+**Bounded** by the realm's `user_api_keys.max_permission_strings` and
+`max_permission_string_len` (defaults 32 / 128) — `too_many_scopes` /
+`scope_too_long`. The same knobs, not a second limit vocabulary for the same
+kind of string.
+
+### 11.2 Getting a scoped token
+
+Send `scope` on `POST /auth/token`. **From your BACKEND** — and that is
+structural, not a request: the ADR-041 escort runs on that route for every
+refresh class, so a browser cannot reach it directly and self-assert a scope.
+
+Three properties worth knowing before you build against it:
+
+- **Intersected server-side.** When the session came from a user API key, the
+  minted claim is `scope ∩ permissions_cap` — exact match, no wildcards, no
+  hierarchy. RealmID does this so a caller who bypasses the SDK still gets a
+  narrowed token.
+- **Re-resolved on every call.** The claim is never stored on the session. Send
+  it each time; omitting it mints no `scope` at all.
+- **Refused, not ignored, where it cannot apply.** A service-class refresh
+  answers `scope_not_supported`, and a `scope` inside `custom_claims` answers
+  `reserved_claim_key`.
+
+### 11.3 Layer 1 — the predicate
+
+```go
+realmid.ScopeAllows(claims, "orders:read", "orders:write") // ALL of them
+realmid.ScopeAllowsAny(claims, "r:a", "r:b")               // at least one
+realmid.ScopesFrom(claims)                                 // []string
+```
+
+```ts
+scopeAllows(claims, "orders:read", "orders:write");
+scopeAllowsAny(claims, "r:a", "r:b");
+scopesFrom(claims);
+```
+
+```java
+Scopes.scopeAllows(claims, List.of("orders:read", "orders:write"));
+Scopes.scopeAllowsAny(claims, List.of("r:a", "r:b"));
+Scopes.scopesFrom(claims);
+```
+
+**All-of is the default**, because it is the safe reading of a list: passing two
+scopes and getting any-of would grant you on half the evidence you asked for,
+and nothing would tell you. Any-of has to be named.
+
+**Fails closed**, including on an EMPTY requirement — `scopeAllows(claims)` with
+no scopes is **false**, not true. "Requires nothing" is almost always a route
+someone forgot to configure, and vacuous-true is how a gate silently stops
+gating. A genuinely public route is declared (§11.4).
+
+**No pattern matching.** `read` does not imply `read:orders`; `Read` is not
+`read`; `*` is a scope named `*`. Same rule as `capAllows` (§6.6.2), same
+reason: RealmID does not interpret your vocabulary, and neither does the SDK.
+
+### 11.4 Layer 2 — the route map
+
+```go
+policy := realmid.ScopePolicy{Rules: []realmid.ScopeRule{
+    {Path: "/health", Public: true},
+    {Path: "/orders/**", Method: "GET", Scopes: []string{"orders:read"}},
+    {Path: "/orders/**", Scopes: []string{"orders:write", "orders:read"}},
+    {Path: "/reports/**", Scopes: []string{"r:a", "r:b"}, AnyOf: true},
+}}
+for _, err := range policy.Validate() { log.Fatal(err) }
+compiled := policy.Compile()
+```
+
+**It denies by default.** A request matching no rule is refused — adding an
+endpoint and forgetting to declare its scope must produce a locked door, not an
+open one. `Public` exists so that "unauthenticated" is something you SAY, never
+something you get by forgetting.
+
+**First match wins**, so place a specific rule before the general one it
+narrows. Order-dependence is stated rather than sorted-for: "most specific wins"
+needs a specificity metric, and any metric would be a guess about your routing.
+
+**`Validate()` returns every problem, not the first** — including a scope RealmID
+would refuse to mint, which would otherwise present as a route no token can ever
+satisfy. Run it at startup.
+
+### 11.5 Layer 3 — framework adapters
+
+| Language | Adapter |
+|---|---|
+| Go | `compiled.Middleware(...)` — `net/http` |
+| TypeScript | `createScopeMiddleware(...)` — Express/Connect; `fastifyScopeHook(...)` |
+| Java | `ScopeFilter` — a servlet `Filter` (works in Spring MVC / Boot unchanged) |
+
+Mount them **inside** the auth middleware, which is what verifies the token and
+puts the claims where the adapter reads them. Mounted outside, there are no
+claims and every request is — correctly, and unhelpfully — denied.
+
+They answer **403** with RFC 6750 §3.1's `insufficient_scope`, and deliberately
+**do not name the missing scopes on the wire**: telling an unauthorized caller
+which permissions they lack is a map of your authority model, handed out for
+free. The names reach *your* server through the denial hook.
+
+There is no Gin/Echo/Fiber adapter, and no Spring-native one. These SDKs take
+zero external dependencies (Java's only web dependency is a `compileOnly`
+servlet API), and importing a framework would put it in every partner's tree
+including the ones who do not use it. Layer 2 is the adapter surface — three
+lines in any framework:
+
+```go
+r.Use(func(c *gin.Context) {
+    cl, _ := realmid.ClaimsFrom(c.Request.Context())
+    if !compiled.Decide(cl, c.Request.Method, c.Request.URL.Path).Allowed {
+        c.AbortWithStatus(http.StatusForbidden)
+        return
+    }
+    c.Next()
+})
+```
+
+### 11.6 Token scope vs `capAllows` — which to use, and when
+
+Both are correct. They trade different things, and mixing them without deciding
+gets you the worst of both.
+
+| | token scope (§11) | `capAllows` (§6.6.2) |
+|---|---|---|
+| per-request I/O | none | one live read |
+| revocation lag | the realm's `access_ttl_seconds` (1..86400) | **zero** |
+| where the map lives | your repo | your repo |
+
+**The rule: token scope by default; `capAllows` for operations where a stale
+grant is unacceptable** — money movement, permission administration, data
+export.
+
+`capAllows` is **not deprecated**. Token-carried scope converts zero-lag
+revocation from *impossible* to *bounded*; it does not replace it. Set
+`access_ttl_seconds` to the lag you can accept.
+
+### 11.7 Renaming a scope
+
+`POST /platforms/{id}/scopes/rename` (realm owner) rewrites one of your scope
+strings across every user API key cap in the realm, in one transaction:
+idempotent, deduping on collision, `?dry_run=true` for the counts.
+
+**Not reversible in general** — where a key held both `from` and `to`, the merge
+destroys what a reversal would need. That is why the dry run and the audit
+record exist. Removal is deliberately not offered.
+
+Refused on a `realmid`-audience realm, whose vocabulary is RealmID's own
+catalog. `realm_roles.permissions` is not renamed for the same reason: it is
+validated against that catalog on every write, in every realm, so it cannot hold
+your vocabulary.
+
+## 12. Roadmap (deferred)
 
 Detailed proposals tracked in repo `TODO.md`. Headlines:
 
@@ -2158,7 +2338,7 @@ Detailed proposals tracked in repo `TODO.md`. Headlines:
   tokenless on-behalf-of call locally (see §4.7)
 - Idempotency-key pass-through on mutations
 
-## 12. Versioning
+## 13. Versioning
 
 The repository tags each SDK independently. Surface changes that break
 wire compatibility require **all three** SDKs to bump together. The

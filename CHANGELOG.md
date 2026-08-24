@@ -13,6 +13,68 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-097 — SDK-enforced route authorization — go `0.47.0` · ts `0.39.0` · java `0.37.0` (2026-08-24)
+
+**A partner adding an endpoint to their own product no longer has to update
+configuration inside RealmID.** RealmID stores identity and attestation; YOUR
+repo owns the route → scope and role → scope maps; the SDK is the gate. SPEC
+§11.
+
+**The hole this closes.** `capAllows` was the ONLY authorization primitive in any
+of the three SDKs, and it covers the API-key path alone. A partner protecting a
+route for an ordinary signed-in user hand-rolled it — so the safety property
+`capAllows`'s two-operand signature was designed to guarantee held on the key
+path and nowhere else.
+
+**Three layers.**
+
+1. `ScopeAllows` / `scopeAllows` / `Scopes.scopeAllows` — a pure predicate over
+   the `scope` claim. No I/O.
+2. `ScopePolicy` — route → required scopes. **Denies by default**; a route is
+   made public by SAYING so, never by forgetting.
+3. Adapters — Go `net/http`, TS Express + Fastify, Java servlet `Filter`.
+
+Layer 3 is a handful of lines BECAUSE layer 1 is a predicate over one claim with
+no I/O — the payoff of RealmID intersecting `scope ∩ permissions_cap` at mint.
+Had the issuer emitted both operands, every adapter would carry policy.
+
+**`scope` is a space-delimited STRING** (RFC 9068 §2.2.3 → RFC 8693 §4.2 → RFC
+6749 §3.3), not an array. `Claims.scope` and `Claims.token_class` are declared
+in ts; Go and Java read them through the helpers.
+
+**Two models now coexist, and the SPEC says which to use when** — otherwise you
+mix them and get the worst of both. Token scope: no per-request I/O, revocation
+lag equal to the realm's `access_ttl_seconds`. `capAllows`: a live read per
+check, zero lag. **Token scope by default; `capAllows` where a stale grant is
+unacceptable** — money movement, permission administration, data export.
+`capAllows` is NOT deprecated.
+
+**No Gin / Echo / Fiber / Spring-native adapter, deliberately.** These SDKs take
+zero external dependencies (Java's only web dependency is a `compileOnly`
+servlet API, which is why a servlet `Filter` works unchanged in Spring Boot).
+Importing a framework would put it in every partner's tree including those who
+do not use it. SPEC §11.5 carries the three-line snippet for any framework.
+
+**The 403 does not name the missing scopes.** Telling an unauthorized caller
+which permissions they lack is a map of your authority model, handed out for
+free. The names reach YOUR server through the denial hook.
+
+**Seven error codes added to the §3.1 taxonomy** in all three languages:
+`invalid_scope`, `too_many_scopes`, `scope_too_long`, `scope_not_supported`,
+`reserved_claim_key`, `realmid_audience_immutable`, `invalid_rename`.
+`insufficient_scope` — the 403 the SDK gate emits — is deliberately NOT in the
+taxonomy: no issuer handler produces it, and an entry with no producer is the
+`not_service` phantom this taxonomy already carries one of.
+
+**Java makes one mistake unrepresentable that the other two only validate.**
+`ScopeRule`'s factories mean a public rule cannot carry scopes at all — a
+compile error there, a startup diagnostic elsewhere. Pinned by
+`publicRuleCannotAlsoCarryScopes`, so if a constructor is ever widened the
+validator's branch stops being belt-and-braces and the test says so.
+
+Every guard mutation-verified in all three languages: default-allow and
+vacuous-true-on-empty-requirement each go red on the case that names them.
+
 ## BREAKING — the error taxonomy was eight codes out of sync — go `0.46.0` · ts `0.38.0` · java `0.36.0` (2026-08-24)
 
 **`platform_not_found` is registered in all three languages.** The issuer

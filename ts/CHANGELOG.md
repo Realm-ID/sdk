@@ -12,6 +12,36 @@ cross-cutting items affecting every SDK at once.
 > being trustworthy the moment it silently skips, because a reader cannot tell
 > "nothing shipped" from "nobody wrote it down".
 
+## 0.39.0 — ADR-097: SDK-enforced route authorization (2026-08-24)
+
+New module `scope.ts`, exported from the package root. Three layers:
+
+- `scopeAllows` / `scopeAllowsAny` / `scopesFrom` — a pure predicate over the
+  `scope` claim (RFC 9068 §2.2.3: a space-delimited STRING, not an array). No
+  I/O.
+- `decideScope` + a `ScopePolicy` route map, `validateScopePolicy` for startup.
+  **Denies by default** — a route is made public by SAYING so, never by
+  forgetting.
+- `createScopeMiddleware` (Express/Connect) and `fastifyScopeHook`. Both typed
+  STRUCTURALLY, so neither framework enters your dependency tree.
+
+`Claims` now declares `scope` and `token_class`.
+
+**All-of is the default** on a multi-scope rule; any-of has to be named.
+`scopeAllows(claims)` with NO required scopes is **false**, not vacuously true —
+"requires nothing" is almost always a route someone forgot to configure.
+
+The 403 carries RFC 6750 §3.1's `insufficient_scope` and deliberately does not
+name the missing scopes; they reach your server through `onScopeDenied`.
+
+Seven codes added to the §3.1 taxonomy: `invalid_scope`, `too_many_scopes`,
+`scope_too_long`, `scope_not_supported`, `reserved_claim_key`,
+`realmid_audience_immutable`, `invalid_rename`.
+
+See SPEC §11, and §11.6 for when to use token scope vs `capAllows` — they trade
+per-request I/O against revocation lag, and mixing them without deciding gets
+you the worst of both.
+
 ## 0.38.0 — BREAKING: `platform_not_found` and `mfa_registration_required` reach `error.code` (2026-08-24)
 
 **BREAKING for anyone matching `not_found` on a platform route.** Both codes are

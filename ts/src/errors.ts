@@ -38,6 +38,34 @@ export type ErrorCode =
   | "realm_origin_mismatch"
   | "realm_mismatch"
   | "missing_origin"
+  // ADR-097 — the `scope` intake on POST /auth/token (SPEC §11). These are the
+  // issuer's REFUSALS; `insufficient_scope`, the 403 an SDK route gate emits,
+  // is deliberately absent because no issuer handler produces it and a taxonomy
+  // entry with no producer is a phantom.
+  //
+  // `invalid_scope` — a scope entry is not an RFC 6749 §3.3 scope-token.
+  // Refused rather than reshaped: a SPACE inside a value would split one scope
+  // into two, silently changing the authority granted.
+  | "invalid_scope"
+  // `too_many_scopes` / `scope_too_long` — over the realm's
+  // user_api_keys.max_permission_strings / max_permission_string_len. Refused
+  // at mint rather than handed back as a token that dies at the next hop with
+  // an opaque proxy error.
+  | "too_many_scopes"
+  | "scope_too_long"
+  // `scope_not_supported` — this session class mints no `scope` (a
+  // service-class refresh). Refused rather than ignored: a field that is
+  // sendable and enforced nowhere reads as working.
+  | "scope_not_supported"
+  // `reserved_claim_key` — a `custom_claims` key collides with a reserved JWT
+  // claim name. Previously dropped silently; refused from ADR-097 D3, because a
+  // dropped claim is indistinguishable from an honoured one on your side.
+  | "reserved_claim_key"
+  // `realmid_audience_immutable` — a scope rename against a `realmid`-audience
+  // realm, whose vocabulary is RealmID's own validated catalog.
+  | "realmid_audience_immutable"
+  // `invalid_rename` — `to` equals `from`.
+  | "invalid_rename"
   // `refresh_invalid` is returned by POST /auth/token (surfaced by
   // `auth.token()` / the TokenManager) when the presented refresh token is
   // expired, revoked, or reuse-detected — terminal for the caller, no
@@ -154,6 +182,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "account_deactivated", "contact_admin_required",
   "realm_origin_mismatch", "realm_mismatch",
   "missing_origin", "refresh_invalid",
+  "invalid_scope", "too_many_scopes", "scope_too_long", "scope_not_supported",
+  "reserved_claim_key", "realmid_audience_immutable", "invalid_rename",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",
   "bad_request", "network", "server_error",
   "invalid_otp", "otp_expired", "otp_locked", "otp_not_found",

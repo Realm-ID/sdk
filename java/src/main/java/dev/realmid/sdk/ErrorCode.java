@@ -54,6 +54,46 @@ public enum ErrorCode {
      */
     REALM_MISMATCH("realm_mismatch"),
     MISSING_ORIGIN("missing_origin"),
+
+    /**
+     * ADR-097 — a {@code scope} entry on {@code POST /auth/token} is not an RFC
+     * 6749 §3.3 scope-token. Refused rather than reshaped: a SPACE inside a
+     * value would split one scope into two, silently changing the authority
+     * granted.
+     *
+     * <p>{@code insufficient_scope} — the 403 an SDK route gate emits — is
+     * deliberately NOT in this taxonomy: no issuer handler produces it, and a
+     * taxonomy entry with no producer is a phantom.
+     */
+    INVALID_SCOPE("invalid_scope"),
+    /**
+     * ADR-097 — {@code scope} exceeds the realm's
+     * {@code user_api_keys.max_permission_strings}. Refused at mint rather than
+     * handed back as a token that dies at the next hop with an opaque proxy
+     * error.
+     */
+    TOO_MANY_SCOPES("too_many_scopes"),
+    /** ADR-097 — a {@code scope} entry exceeds {@code max_permission_string_len}. */
+    SCOPE_TOO_LONG("scope_too_long"),
+    /**
+     * ADR-097 — this session class mints no {@code scope} claim (a
+     * service-class refresh). Refused rather than ignored: a field that is
+     * sendable and enforced nowhere reads as working.
+     */
+    SCOPE_NOT_SUPPORTED("scope_not_supported"),
+    /**
+     * ADR-097 D3 — a {@code custom_claims} key collides with a reserved JWT
+     * claim name. Previously dropped silently; refused now, because a dropped
+     * claim is indistinguishable from an honoured one on the caller's side.
+     */
+    RESERVED_CLAIM_KEY("reserved_claim_key"),
+    /**
+     * ADR-097 §F — a scope rename against a {@code realmid}-audience realm,
+     * whose permission vocabulary is RealmID's own validated ADR-074 catalog.
+     */
+    REALMID_AUDIENCE_IMMUTABLE("realmid_audience_immutable"),
+    /** {@code to} equals {@code from} on a role or scope rename. */
+    INVALID_RENAME("invalid_rename"),
     /**
      * Returned by {@code POST /auth/token} when the presented refresh token is
      * expired, revoked, or reuse-detected — terminal for the caller (no retry

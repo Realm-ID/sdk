@@ -64,6 +64,43 @@ const (
 	// can branch on "re-auth required" vs a transient 401. SPEC §3.1.
 	ErrCodeRefreshInvalid ErrorCode = "refresh_invalid"
 
+	// ADR-097 — the `scope` intake on POST /auth/token (SPEC §11).
+	//
+	// These are the issuer's REFUSALS. `insufficient_scope`, the 403 an SDK
+	// route gate emits, is deliberately NOT here: no issuer handler produces
+	// it, and a taxonomy entry with no producer is the `not_service` phantom
+	// this taxonomy already carries one of.
+	//
+	// ErrCodeInvalidScope: a `scope` entry is not an RFC 6749 §3.3
+	// scope-token. Refused rather than reshaped — a SPACE inside a value would
+	// split one scope into two, silently changing the authority granted.
+	ErrCodeInvalidScope ErrorCode = "invalid_scope"
+	// ErrCodeTooManyScopes / ErrCodeScopeTooLong: `scope` exceeds the realm's
+	// user_api_keys.max_permission_strings / max_permission_string_len. The
+	// claim rides an Authorization header against ~8KB server limits, so the
+	// issuer refuses at mint rather than handing back a token that dies at the
+	// next hop with an opaque proxy error.
+	ErrCodeTooManyScopes ErrorCode = "too_many_scopes"
+	ErrCodeScopeTooLong  ErrorCode = "scope_too_long"
+	// ErrCodeScopeNotSupported: this session class mints no `scope` claim (a
+	// service-class refresh). Refused rather than ignored — a field that is
+	// sendable and enforced nowhere reads as working, and a partner would ship
+	// a gate against a claim that never arrives.
+	ErrCodeScopeNotSupported ErrorCode = "scope_not_supported"
+	// ErrCodeReservedClaimKey: a `custom_claims` key collides with a reserved
+	// JWT claim name. Previously dropped silently; from ADR-097 D3 it is
+	// refused, because a dropped claim is indistinguishable from an honoured
+	// one on the caller's side.
+	ErrCodeReservedClaimKey ErrorCode = "reserved_claim_key"
+	// ErrCodeRealmIDAudienceImmutable: POST /platforms/{id}/scopes/rename on a
+	// `realmid`-audience realm. Its permission vocabulary is RealmID's OWN
+	// ADR-074 catalog, validated at mint, so a rename could write a string past
+	// that gate and the cap would quietly stop matching anything.
+	ErrCodeRealmIDAudienceImmutable ErrorCode = "realmid_audience_immutable"
+	// ErrCodeInvalidRename: `to` equals `from`, on either the role rename or
+	// the ADR-097 scope rename.
+	ErrCodeInvalidRename ErrorCode = "invalid_rename"
+
 	// Partner OTP primitive (docs/proposals/partner-otp-primitive.md).
 	ErrCodeInvalidOTP        ErrorCode = "invalid_otp"
 	ErrCodeOTPExpired        ErrorCode = "otp_expired"
@@ -272,6 +309,10 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeMethodViolatesKind: {}, ErrCodeServiceAccountNotFound: {},
 	ErrCodeSourceNotFound: {}, ErrCodeUserNotFound: {},
 	ErrCodePlatformNotFound: {},
+	// ADR-097.
+	ErrCodeInvalidScope: {}, ErrCodeTooManyScopes: {}, ErrCodeScopeTooLong: {},
+	ErrCodeScopeNotSupported: {}, ErrCodeReservedClaimKey: {},
+	ErrCodeRealmIDAudienceImmutable: {}, ErrCodeInvalidRename: {},
 }
 
 func isKnownCode(s string) bool {

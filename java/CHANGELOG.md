@@ -4,6 +4,33 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.37.0 — ADR-097: SDK-enforced route authorization (2026-08-24)
+
+New package `dev.realmid.sdk.scope`. Three layers:
+
+- `Scopes.scopeAllows` / `scopeAllowsAny` / `scopesFrom` — a pure predicate over
+  the `scope` claim (RFC 9068 §2.2.3: a space-delimited STRING, not an array).
+- `ScopePolicy` + `ScopeRule` — a route map that **denies by default**, with
+  `validate()` for startup.
+- `ScopeFilter` — a servlet `Filter`.
+
+**Why a servlet Filter and not a Spring component.** This SDK's only web
+dependency is `jakarta.servlet-api`, declared `compileOnly`. Spring MVC and Boot
+both run on servlets, so a Filter works there with no new dependency — whereas a
+Spring-native `HandlerInterceptor` would put Spring into the dependency graph of
+every partner using this SDK, including those who do not use it.
+
+**Java makes one mistake unrepresentable that Go and TypeScript only validate.**
+`ScopeRule`'s factories mean a public rule cannot carry scopes at all — a
+compile error here, a startup diagnostic there. Pinned by
+`publicRuleCannotAlsoCarryScopes`.
+
+Seven codes added to the §3.1 taxonomy: `INVALID_SCOPE`, `TOO_MANY_SCOPES`,
+`SCOPE_TOO_LONG`, `SCOPE_NOT_SUPPORTED`, `RESERVED_CLAIM_KEY`,
+`REALMID_AUDIENCE_IMMUTABLE`, `INVALID_RENAME`.
+
+See SPEC §11, and §11.6 for token scope vs `capAllows`.
+
 ## java-v0.36.0 — BREAKING: `platform_not_found` and `mfa_registration_required` resolve (2026-08-24)
 
 **BREAKING for anyone matching `NOT_FOUND` on a platform route.** Both are now
