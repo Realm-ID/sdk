@@ -20,6 +20,7 @@ import type { Realm } from "@realm-id/web";
 import {
   TenantsClient,
   RolesClient,
+  ScopesClient,
   DomainsClient,
   AdminClient,
   SigningKeysClient as OwnerSigningKeysClient,
@@ -49,6 +50,14 @@ export interface Admin {
    *  hard-reject ops (see {@link AdminTenantsClient}). */
   tenants: AdminTenantsClient;
   roles: RolesClient;
+  /**
+   * ADR-097 §F — the realm-wide bulk scope rename (realm-owner only).
+   *
+   * Distinct from {@link roles}: a ROLE name is RealmID's concept, a SCOPE
+   * string is the partner's own vocabulary, which RealmID stores in exactly one
+   * place and understands not at all.
+   */
+  scopes: ScopesClient;
   apiKeys: ApiKeysClient;
   identityProviders: IdentityProvidersClient;
   domains: DomainsClient;
@@ -117,6 +126,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
   return {
     tenants: new AdminTenantsClient(httpAsClient, rid),
     roles: new RolesClient(httpAsClient, rid),
+    scopes: new ScopesClient(httpAsClient, rid),
     apiKeys: new ApiKeysClient(http),
     identityProviders: new IdentityProvidersClient(http),
     domains: new DomainsClient(httpAsClient),

@@ -17,6 +17,7 @@ import { UserApiKeysClient } from "./user-api-keys.js";
 import { ConfigClient } from "./config.js";
 import { StatsClient } from "./stats.js";
 import { RolesClient } from "./roles.js";
+import { ScopesClient } from "./scopes.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
@@ -107,6 +108,14 @@ export interface Realm {
   /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
   readonly stats: StatsClient;
   readonly roles: RolesClient;
+  /**
+   * ADR-097 §F — the realm-wide bulk scope rename. Realm-owner only.
+   *
+   * Distinct from `roles`: a ROLE name is RealmID's concept, a SCOPE string is
+   * yours. RealmID stores one of yours in exactly one place and understands
+   * neither.
+   */
+  readonly scopes: ScopesClient;
   /** Owner-facing signing-key read + self-serve rotate. */
   readonly signingKeys: SigningKeysClient;
   /**
@@ -258,6 +267,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       config: new ConfigClient(client, cfg.realmId),
       stats: new StatsClient(client, cfg.realmId),
       roles: new RolesClient(client, cfg.realmId),
+      scopes: new ScopesClient(client, cfg.realmId),
       signingKeys: new SigningKeysClient(client, cfg.realmId),
       identityProviderConfig: new IdentityProviderConfigClient(client, cfg.realmId),
       identityProviders: new IdentityProvidersClient(client, cfg.realmId),

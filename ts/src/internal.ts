@@ -54,6 +54,12 @@ export {
 } from "./roles.js";
 
 export {
+  ScopesClient,
+  type ScopeRenameRequest,
+  type ScopeRenameResult,
+} from "./scopes.js";
+
+export {
   SigningKeysClient,
   type SigningKey,
   type SigningKeyRotation,

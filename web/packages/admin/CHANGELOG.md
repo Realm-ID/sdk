@@ -1,5 +1,22 @@
 # @realm-id/web-admin — changelog
 
+## 0.8.20 — `admin.scopes.rename` (ADR-097 §F)
+
+Wires the ts SDK's `ScopesClient` onto the admin handle:
+`admin.scopes.rename({ from, to, dryRun })` →
+`POST /platforms/{id}/scopes/rename`, realm-owner only.
+
+Renames one of the PARTNER'S scope strings across every user API key cap in the
+realm, in one transaction: idempotent, deduping on collision, dry-runnable.
+
+**Not reversible in general** — where a key held both `from` and `to`, the merge
+destroys what a reversal would need. `dryRun` is not a convenience; preview
+first.
+
+`realm_roles.permissions` is NOT renamed and the `roles` count is always `0`:
+that column is validated against RealmID's own ADR-074 catalog on every write,
+in every realm, so it holds RealmID's vocabulary rather than a partner's.
+
 ## 0.8.19
 
 - **`platforms.get(id)`** — `GET /platforms/{id}`, the owner-facing by-id read

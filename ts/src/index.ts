@@ -112,6 +112,9 @@ export type {
 export { capAllows, isUserApiKeyRevoked } from "./user-api-keys.js";
 
 export { OWNER, MEMBER } from "./roles.js";
+// ADR-097 §F — the realm-wide bulk scope rename.
+export { ScopesClient } from "./scopes.js";
+export type { ScopeRenameRequest, ScopeRenameResult } from "./scopes.js";
 export type {
   Role,
   PrincipalKind,
