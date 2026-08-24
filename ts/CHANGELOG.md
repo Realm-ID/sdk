@@ -12,6 +12,33 @@ cross-cutting items affecting every SDK at once.
 > being trustworthy the moment it silently skips, because a reader cannot tell
 > "nothing shipped" from "nobody wrote it down".
 
+## 0.38.0 — BREAKING: `platform_not_found` and `mfa_registration_required` reach `error.code` (2026-08-24)
+
+**BREAKING for anyone matching `not_found` on a platform route.** Both codes are
+now in the `ErrorCode` union and `KNOWN_CODES`, so `mapErrorResponse` keeps the
+server's specific code instead of falling back to `statusToCode(...)`.
+
+- **`platform_not_found`** — the issuer answers it on every by-id platform route
+  (16 call sites). Callers previously saw a generic `not_found` and could not
+  tell "no such platform" from any other 404 on the request. **Migration:** match
+  both, which is already the idiom for the sibling codes —
+  `case "platform_not_found": case "not_found":`. It still never distinguishes
+  "not yours" from "never existed"; the issuer answers both identically on
+  purpose (`v0.78.0` oracle rule) and that is a security property, not a
+  taxonomy one.
+- **`mfa_registration_required`** (412) — the first-factor-ENROLLMENT variant of
+  the MFA gate, where the remedy is an enrollment screen rather than a code
+  prompt. Go has carried it since ADR-061; ts collapsed it into the generic 412
+  mapping, losing the distinction for exactly the clients that must render the
+  other screen.
+
+`sdk/TODO.md` had recorded the taxonomy as "consistent across the three SDKs,
+so no language is the outlier; that is why it reads as intentional and may be."
+Measured, it was **eight codes out of sync**. Consistency was never evidence of
+intent: the three lists are hand-maintained from one SPEC, so a single omission
+propagates identically to all three and agreement is what a shared oversight
+looks like. `scripts/taxonomy-parity.py` now measures it on every CI run.
+
 ## 0.37.0 — `listSessions` decodes the real envelope; `login({ deviceName })` sends `X-Device-Name` (2026-08-21)
 
 **FIX (user-visible, silent until now): `listSessions` returned an empty array

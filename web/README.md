@@ -12,8 +12,8 @@ management, refresh dedupe, tenant switching, MFA, and multi-tab sync.
 | `@realm-id/web-admin`          | Admin-UI SDK companion: tenants, roles, api keys, domains, platforms, notes, signing keys, BFF aggregates | 0.8.19 | 0.8.19 |
 | `@realm-id/web-react`          | React provider + hooks (`useRealm`, `useUser`, `useTenant`)          | 0.4.0   | 0.4.0  |
 | `@realm-id/web-bff-realmid`    | Adapters + gates for the realmid.dev reference BFF (`api.realmid.dev`) | 0.3.6  | 0.3.6  |
-| `@realm-id/web-firebase`       | **Superseded, never published.** Firebase Auth kickoff adapter        | 0.4.0   | —      |
-| `@realm-id/web-google`         | **Superseded, never published.** Google Identity Services adapter     | 0.4.0   | —      |
+| `@realm-id/web-firebase`       | Firebase Auth kickoff adapter — **never published; vendored only**    | 0.4.0   | —      |
+| `@realm-id/web-google`         | Google Identity Services adapter — **never published; unused**        | 0.4.0   | —      |
 
 > **Release status (2026-08-24), read off the npm registry, not off this
 > repo.** The four published packages are at the versions in the table — the
@@ -21,15 +21,25 @@ management, refresh dedupe, tenant switching, MFA, and multi-tab sync.
 > `0.3.x`, which stopped being true when `web-v0.4.0` shipped on 2026-05-15.
 >
 > **`@realm-id/web-firebase` and `@realm-id/web-google` were never published at
-> all** — `registry.npmjs.org` returns 404 for both, across every version. They
-> are marked `"private": true` so that fact lives in the package rather than in
-> the omission of a name from a `for` loop in `publish-npm.yml`. They are
-> superseded by **`realm.signIn(type)`** in the core package (added `0.4.2`,
-> completed `0.4.5`), which fetches the provider's public config from
-> `realm.providers()` and needs no provider config in the app at all: it lazily
-> loads the Firebase SDK for `firebase`, and runs a PKCE redirect for `google`
-> and `microsoft`. Sections below still document the adapter API for the record;
-> **do not `npm install` either package — it will 404.**
+> all** — `registry.npmjs.org` returns 404 for both, across every version, and
+> `publish-npm.yml` has never listed them. They are now marked
+> `"private": true` so that fact lives in the package rather than in the
+> omission of a name from a `for` loop in a workflow. `npm pack` still works on
+> a private package, so the vendoring path below is unaffected; only `npm
+> publish` refuses.
+>
+> **`-firebase` is NOT dead code**: `Realm-ID/ui`'s console imports
+> `createFirebaseProvider` from it (`ui/web/src/auth-providers.ts`), consuming
+> it as a **vendored `file:` tarball** rather than from the registry.
+> `-google` has no consumer at all.
+>
+> **New integrations should use `realm.signIn(type)`** in the core package
+> (added `0.4.2`, completed `0.4.5`) rather than either adapter: it fetches the
+> provider's public config from `realm.providers()`, so the app carries no
+> `clientId` and no `firebaseConfig`, lazily loading the Firebase SDK for
+> `firebase` and running a PKCE redirect for `google` and `microsoft`. The
+> adapter sections below are documented for the existing consumer's sake —
+> **do not `npm install` either package; it will 404.**
 
 ### BFF-fronted SPA combo
 
@@ -107,10 +117,12 @@ function ProfileBadge() {
 
 ## Provider adapters (superseded — kept for the record)
 
-> Neither package below is on npm; both are `private` in this monorepo. Use
-> `realm.signIn("google" | "microsoft" | "firebase")` from `@realm-id/web`
-> instead — it needs no `clientId` and no `firebaseConfig`, because it reads
-> the provider's public config from `realm.providers()`.
+> Neither package below is on npm; both are `private` in this monorepo, and
+> only `-firebase` has a consumer (the RealmID console, via a vendored
+> tarball). New code should use
+> `realm.signIn("google" | "microsoft" | "firebase")` from `@realm-id/web` —
+> it needs no `clientId` and no `firebaseConfig`, because it reads the
+> provider's public config from `realm.providers()`.
 
 
 ### `@realm-id/web-google` (Google Identity Services, no Firebase)

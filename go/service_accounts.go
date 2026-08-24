@@ -24,7 +24,7 @@ func mapServiceAccountErr(err error) error {
 	if !errors.As(err, &re) {
 		return err
 	}
-	switch detailCode(re) {
+	switch specificCode(re) {
 	case "handle_taken":
 		return errors.Join(ErrServiceAccountHandleTaken, re)
 	case "invalid_role":

@@ -80,3 +80,53 @@ test("HttpClient: platform-token manager bearer is sent on every request (SPEC �
   await c.request({ path: "/anything" });
   assert.equal(seenAuth, "Bearer pt_stub_value");
 });
+
+// ─── SPEC §3.1 taxonomy ──────────────────────────────────────────────────────
+// These assert the CONSEQUENCE of registering a code, not the presence of a
+// string in a list — a membership assertion is satisfied by a list nothing
+// reads. The consequence is that the server's specific code survives to
+// `error.code` instead of collapsing into the HTTP-status fallback.
+
+async function codeFor(status: number, body: unknown): Promise<string> {
+  const f: typeof fetch = (async () =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    })) as typeof fetch;
+  const c = new HttpClient({ baseUrl: "https://x.example", fetch: f });
+  try {
+    await c.request({ path: "/platforms/p1" });
+  } catch (e) {
+    return (e as RealmError).code;
+  }
+  throw new Error("expected the request to reject");
+}
+
+test("errors: platform_not_found survives to error.code (SPEC §3.1)", async () => {
+  // Before it was registered this returned "not_found" — statusToCode(404) —
+  // so a caller could not tell "no such platform" from any other 404.
+  assert.equal(
+    await codeFor(404, { code: "platform_not_found", message: "platform not found" }),
+    "platform_not_found",
+  );
+});
+
+test("errors: mfa_registration_required survives to error.code (SPEC §3.1)", async () => {
+  // The ENROLLMENT variant of the MFA gate. Go has carried it since ADR-061;
+  // ts did not, so it collapsed into the 412 fallback for exactly the clients
+  // that must render an enrollment screen rather than a code prompt.
+  assert.equal(
+    await codeFor(412, { code: "mfa_registration_required", message: "enroll first" }),
+    "mfa_registration_required",
+  );
+});
+
+test("errors: an UNregistered code still falls back to the status", async () => {
+  // The control. Without it the two tests above pass against an SDK that
+  // simply echoes whatever `code` the server sent, which would make the
+  // registration they exist to check irrelevant.
+  assert.equal(
+    await codeFor(404, { code: "definitely_not_a_registered_code", message: "x" }),
+    "not_found",
+  );
+});

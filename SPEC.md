@@ -1,7 +1,7 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-08-03 — go `go/v0.44.0` · ts `ts-v0.35.0` · java
-`java-v0.34.0`** (see §12 for the tag matrix).
+**Current as of 2026-08-24 — go `go/v0.46.0` · ts `ts-v0.38.0` · java
+`java-v0.36.0`** (see §12 for the tag matrix).
 
 > **Revision history.** This body is kept **current** — it always
 > describes the shipped surface, not an amendment trail. The
@@ -105,10 +105,19 @@ SDK failure. It carries:
 
 **Auth-flow codes** (used by `auth.*`):
 
-`provider_token_invalid`, `mfa_required`, `session_limit_reached`,
-`tenant_required`, `tenant_invalid`, `account_suspended`,
-`account_deactivated`, `realm_origin_mismatch`, `realm_mismatch`,
-`missing_origin`, `refresh_invalid`.
+`provider_token_invalid`, `mfa_required`, `mfa_registration_required`,
+`session_limit_reached`, `tenant_required`, `tenant_invalid`,
+`account_suspended`, `account_deactivated`, `realm_origin_mismatch`,
+`realm_mismatch`, `missing_origin`, `refresh_invalid`.
+
+> `mfa_registration_required` (412) is the first-factor-ENROLLMENT variant of
+> `mfa_required`: the realm or tenant requires MFA and the user has no
+> confirmed factor yet, so the remedy is an enrollment screen, not a code
+> prompt. It carries `mfa_challenge_token` + `tenant_id` in the same 412
+> envelope. **Registered in ts and Java as of `ts-v0.38.0` / `java-v0.36.0`** —
+> Go has had it since ADR-061, and the two languages that lacked it collapsed
+> it into the generic 412 mapping, losing the distinction for exactly the
+> clients that must render the other screen.
 
 > `realm_mismatch` is a **client-side** code (ADR-041 realm pin): the SDK
 > decodes the platform access token it just minted and confirms the `iss`
@@ -143,6 +152,42 @@ SDK failure. It carries:
 > than collapsing into the generic `conflict` — each has its own remedy
 > (transfer ownership, use `leave` instead of `reject`, nothing to do),
 > and the HTTP status alone cannot tell them apart.
+
+**Service-account (ADR-071) + source (ADR-072) codes:**
+
+`handle_taken`, `invalid_role`, `method_violates_kind`,
+`service_account_not_found`, `source_not_found`, `user_not_found`.
+
+> **Registered in Go as of `go/v0.46.0`.** ts and Java had carried all six
+> since those ADRs shipped; Go had not, so for Go callers alone every one of
+> them collapsed into the generic status code. `sdk/TODO.md` had recorded the
+> taxonomy as "consistent across the three SDKs" — measured on 2026-08-24 it
+> was eight codes out of sync. `scripts/taxonomy-parity.py` now measures it on
+> every CI run instead of asserting it in prose.
+>
+> `not_service` is declared by ts and Java and is **deliberately not in Go**:
+> no issuer handler emits it (its only near-match is the distinct
+> `role_not_service_typed`). A code with no producer is a phantom; the parity
+> gate carries it as a reviewed exception, and removing it from ts/Java is
+> filed separately.
+
+**Platform codes:**
+
+`platform_not_found`.
+
+> **Registered in all three languages as of `ts-v0.38.0` / `go/v0.46.0` /
+> `java-v0.36.0`.** The issuer answers it on every by-id platform route (16
+> call sites); before registration it fell back to the 404 mapping and callers
+> saw a generic `not_found`.
+>
+> **BREAKING for a caller that matched `not_found` on a platform route** — it
+> now receives `platform_not_found` instead. The migration is to match both,
+> which is already the idiom for the sibling codes:
+> `case "platform_not_found": case "not_found":`.
+>
+> It never distinguishes "not yours" from "never existed" — the issuer answers
+> both identically on purpose (issuer `v0.78.0` oracle rule). That is a
+> security property and no taxonomy change may erode it.
 
 **Management / generic codes:**
 

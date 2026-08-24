@@ -7,6 +7,74 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-24 (later) — the taxonomy claim was measured, and it was eight codes wrong
+
+**Problem.** `sdk/TODO.md` asked whether `platform_not_found` should join the
+`ErrorCode` taxonomy, and argued: *"Consistent across the three SDKs, so no
+language is the outlier; that is why it reads as intentional and may be."*
+
+**The premise was false twice over.**
+
+1. **Consistency is not evidence of intent.** The three lists are hand-maintained
+   from one SPEC, so a single omission propagates identically to all three.
+   Agreement between them is exactly what a shared oversight looks like; it can
+   never distinguish a decision from a miss.
+2. **They were not consistent.** Measured: Go lacked six codes ts and Java had
+   carried since ADR-071/072; ts and Java both lacked `mfa_registration_required`,
+   which Go has had since ADR-061. Eight codes, in both directions.
+
+The taxonomy also already held **six** entity-specific `*_not_found` codes, so
+the alternative the item offered — "document that platform-scoped 404s normalize
+deliberately" — was not a coherent rule either. It would have been an exception
+by decree, with nothing for the next `*_not_found` to follow.
+
+**Decision 1 — register it, and close the whole gap rather than the one code.**
+Shipping `platform_not_found` "in lockstep" while eight codes stayed out of
+lockstep would have been the ceremony without the substance.
+
+**Decision 2 — `not_service` is NOT propagated.** ts and Java declare it; no
+issuer handler emits it (the only near-match is the distinct
+`role_not_service_typed`). A code with no producer is a phantom, and adding a
+third copy spreads one. It is a reviewed exception in the parity gate, carrying
+its reason, and removing it from ts/Java is filed rather than smuggled into a
+release about something else.
+
+**Decision 3 — accept the break, and name the migration.** A caller matching
+`not_found` on a platform route now stops matching. That is behaviour-breaking
+even though the change is purely additive to a union, so all three changelogs
+say BREAKING and give the remedy — match both, which is already the idiom the
+sibling codes use. Zero first-party consumers branch on `not_found` for a
+platform route; the exposure is external partners, and the cost of leaving it is
+a taxonomy nobody can reason about.
+
+**What registration BROKE, and why the existing test mattered more than the new
+ones.** A registered code lands in `RealmError.Code` and is never copied into
+the envelope siblings; an unregistered one survives only in the siblings. Go's
+`mapServiceAccountErr` and `mapSourceErr` read only the siblings, via
+`detailCode` — so the day their codes became canonical they stopped matching,
+and stopped **silently**: the call returns a bare `*RealmError` and
+`errors.Is(err, ErrSourceNotFound)` goes false at every call site with nothing
+logged. `TestServiceAccounts_HandleTakenMapsSentinel` caught it on the first
+run. `integrations.go` had already hit this exact thing and fixed it inline with
+a comment; that inline fix is now the named, shared `specificCode` helper, so
+the next code to be registered does not re-earn the bug.
+
+**Decision 4 — the gate is a separate CI job reading all three languages.** The
+drift is invisible from inside any single language's suite, because each list is
+individually self-consistent — which is precisely how it survived. The script
+also checks Go's `knownCodes` map against Go's own const block (a second
+hand-maintained list in one file, where a const that never reaches the map is
+registered in name only), and refuses to pass when it parses implausibly few
+codes: a regex that quietly stops matching would otherwise report perfect parity
+across three empty sets. Five mutations; one found that the ts anchor matched
+`ErrorCodeX` as a prefix and kept parsing a renamed union.
+
+**Not done: `web-admin`.** Its browser transport keeps a **separate** 33-code
+list against ts's 60, so the admin console still normalizes `platform_not_found`
+— and 26 others. That is a bigger, older drift with its own release path
+(a repack + re-vendor into `ui/`), and folding it in here would have hidden it
+inside a release about something else. Filed.
+
 ## 2026-08-24 — the changelog gate derives its subjects, and refuses to check nothing
 
 **Problem.** Three packages independently lost changelog history (`ts`

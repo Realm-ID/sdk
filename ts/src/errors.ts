@@ -19,6 +19,13 @@ export type ErrorCode =
   // auth-flow
   | "provider_token_invalid"
   | "mfa_required"
+  // `mfa_registration_required` (412) is the first-factor-ENROLLMENT variant of
+  // the MFA gate: the realm/tenant requires MFA and the user has no confirmed
+  // factor yet, so the remedy is an enrollment screen, not a code prompt. Go
+  // has carried it since ADR-061; ts and Java did not, so it collapsed into the
+  // generic 412 mapping and the distinction was lost for exactly the clients
+  // that must render a different screen.
+  | "mfa_registration_required"
   | "session_limit_reached"
   | "tenant_required"
   | "tenant_invalid"
@@ -55,6 +62,15 @@ export type ErrorCode =
   | "method_violates_kind"
   | "source_not_found"
   | "user_not_found"
+  // platform-scoped 404s. `platform_not_found` is what the issuer answers on
+  // every by-id platform route (16 call sites). It is registered for the same
+  // reason as the six sibling `*_not_found` codes above: without it the code
+  // falls back to `statusToCode(404)` and the caller cannot tell "no such
+  // platform" from any other 404 on the request. It NEVER distinguishes "not
+  // yours" from "never existed" — the issuer answers both identically on
+  // purpose (v0.78.0 oracle rule), and that is a security property, not a
+  // taxonomy one.
+  | "platform_not_found"
   // cross-realm integrations (ADR-082/083)
   | "slug_taken"
   | "integration_not_found"
@@ -132,7 +148,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "malformed", "wrong_algorithm", "bad_signature", "wrong_issuer",
   "wrong_audience", "expired", "not_yet_valid", "unknown_kid",
   "jwks_fetch_failed",
-  "provider_token_invalid", "mfa_required", "session_limit_reached",
+  "provider_token_invalid", "mfa_required", "mfa_registration_required",
+  "session_limit_reached",
   "tenant_required", "tenant_invalid", "account_suspended",
   "account_deactivated", "contact_admin_required",
   "realm_origin_mismatch", "realm_mismatch",
@@ -143,6 +160,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "invalid_purpose", "invalid_subject_ref",
   "handle_taken", "invalid_role", "service_account_not_found",
   "not_service", "method_violates_kind", "source_not_found", "user_not_found",
+  "platform_not_found",
   "slug_taken", "integration_not_found", "already_installed",
   "role_not_service_typed", "role_not_installable", "installation_not_found",
   "installation_revoked", "role_unavailable", "key_class_mismatch",

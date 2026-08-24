@@ -30,6 +30,33 @@ permissions:
   contents: read
 
 jobs:
+  # Deliberately its own job, reading all three languages' sources at once: the
+  # drift it exists for is INVISIBLE from inside any single language's suite,
+  # because each list is individually self-consistent. That is exactly how the
+  # taxonomy came to be eight codes out of sync while `sdk/TODO.md` recorded it
+  # as "consistent across the three SDKs" and reasoned from that consistency.
+  taxonomy:
+    name: Error-code taxonomy parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: The three taxonomies agree
+        # NOT `... | tee -a $GITHUB_STEP_SUMMARY`: the default shell for a
+        # `run:` step is `bash -e`, WITHOUT pipefail, so a pipeline reports
+        # tee's exit status and the gate would go green on every drift it
+        # detects. Redirect after, on a saved status.
+        # `set -e` is deliberately OFF for the run itself: with it, a drift
+        # aborts the step before `rc=$?` is read and the report never reaches
+        # the summary — the gate fails correctly and tells nobody why.
+        run: |
+          set -uo pipefail
+          python3 scripts/taxonomy-parity.py > parity.md
+          rc=$?
+          cat parity.md
+          cat parity.md >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
   go:
     name: Go (fmt, vet, test)
     runs-on: ubuntu-latest

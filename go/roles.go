@@ -378,6 +378,29 @@ func mapRoleErr(err error) error {
 	return re
 }
 
+// specificCode returns the most specific code available for an error, whichever
+// era of the taxonomy it arrived in.
+//
+// A code that is NOT registered in knownCodes never reaches RealmError.Code —
+// mapErrorResponse falls back to the status — but it does survive in the
+// envelope siblings, which is what detailCode reads. A code that IS registered
+// lands in RealmError.Code and is NOT copied into the siblings. So a mapper
+// that reads only one of the two silently stops matching the day its code is
+// registered, which is exactly what happened to mapServiceAccountErr and
+// mapSourceErr when handle_taken / source_not_found / user_not_found were
+// registered on 2026-08-24 — caught by TestServiceAccounts_HandleTakenMapsSentinel.
+// (integrations.go had already hit this and fixed it inline; this is that fix,
+// named and shared.)
+func specificCode(re *RealmError) string {
+	if c := detailCode(re); c != "" {
+		return c
+	}
+	if re == nil {
+		return ""
+	}
+	return string(re.Code)
+}
+
 // detailCode pulls a non-canonical `code` out of an error envelope's
 // siblings.
 func detailCode(re *RealmError) string {

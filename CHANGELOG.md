@@ -13,6 +13,52 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## BREAKING — the error taxonomy was eight codes out of sync — go `0.46.0` · ts `0.38.0` · java `0.36.0` (2026-08-24)
+
+**`platform_not_found` is registered in all three languages.** The issuer
+answers it on every by-id platform route (16 call sites); until now it fell
+back to the 404 mapping and every caller saw a generic `not_found`.
+**BREAKING for anyone matching `not_found` on a platform route** — despite being
+purely additive to a union. The migration is to match both, already the idiom
+for the sibling codes: `case "platform_not_found": case "not_found":`. An
+existing ts test asserted the old normalized code and is the visible half of the
+change. The 404 still never distinguishes "not yours" from "never existed"
+(issuer `v0.78.0` oracle rule): a security property no taxonomy change may
+erode.
+
+**The item said the three taxonomies were consistent. They were not.** Measured:
+Go was missing **six** codes ts and Java had carried since ADR-071/072
+(`handle_taken`, `invalid_role`, `method_violates_kind`,
+`service_account_not_found`, `source_not_found`, `user_not_found`), and ts and
+Java were both missing `mfa_registration_required`, which Go has had since
+ADR-061. Every one of them silently normalized in the language that lacked it.
+**Consistency was never evidence of intent** — the three lists are
+hand-maintained from one SPEC, so a single omission propagates identically to
+all three and agreement is exactly what a shared oversight looks like.
+
+**`not_service` is NOT propagated to Go**, deliberately: no issuer handler emits
+it (its only near-match is the distinct `role_not_service_typed`). A code with
+no producer is a phantom, and propagating it would spread one. Carried as a
+reviewed exception in the parity gate, with the reason attached.
+
+**Registering a code BROKE two Go sentinel mappers, and an existing test caught
+it.** A registered code lands in `RealmError.Code` and is never copied into the
+envelope siblings; an unregistered one only survives in the siblings. So
+`mapServiceAccountErr` and `mapSourceErr`, which read only the siblings via
+`detailCode`, stopped matching the day their codes became canonical — silently:
+the call returns a bare `*RealmError` and `errors.Is(err, ErrSourceNotFound)`
+just goes false at every call site. `integrations.go` had already hit this and
+fixed it inline; that fix is now the named, shared `specificCode` helper.
+
+**`scripts/taxonomy-parity.py`** is the gate, in its own CI job because the
+drift is invisible from inside any single language's suite — each list is
+individually self-consistent. It reads all three sources, checks Go's
+`knownCodes` map against Go's own const block (a second hand-maintained list in
+one file), and refuses to pass when it parses implausibly few codes, so a regex
+that stops matching cannot report parity across three empty sets. Five mutations
+run; one of them found that the ts anchor matched `ErrorCodeX` as a prefix and
+kept parsing a renamed union.
+
 ## A release cannot publish without a changelog entry — tooling only (2026-08-24)
 
 No SDK version changes. `scripts/changelog-hygiene.sh` is a pre-publish gate,

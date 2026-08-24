@@ -20,6 +20,14 @@ public enum ErrorCode {
     // auth-flow
     PROVIDER_TOKEN_INVALID("provider_token_invalid"),
     MFA_REQUIRED("mfa_required"),
+    /**
+     * The first-factor-ENROLLMENT variant of the MFA gate (412): the realm or
+     * tenant requires MFA and the user has no confirmed factor yet, so the
+     * remedy is an enrollment screen rather than a code prompt. Go has carried
+     * this since ADR-061; Java did not, so it collapsed into the generic 412
+     * mapping for exactly the clients that must render a different screen.
+     */
+    MFA_REGISTRATION_REQUIRED("mfa_registration_required"),
     SESSION_LIMIT_REACHED("session_limit_reached"),
     TENANT_REQUIRED("tenant_required"),
     TENANT_INVALID("tenant_invalid"),
@@ -73,6 +81,17 @@ public enum ErrorCode {
     METHOD_VIOLATES_KIND("method_violates_kind"),
     SOURCE_NOT_FOUND("source_not_found"),
     USER_NOT_FOUND("user_not_found"),
+
+    /**
+     * What the issuer answers on every by-id platform route (16 call sites).
+     * Registered for the same reason as the six sibling {@code *_not_found}
+     * codes: without it the code falls back to the status mapping and the
+     * caller cannot tell "no such platform" from any other 404 on the request.
+     * It never distinguishes "not yours" from "never existed" — the issuer
+     * answers both identically on purpose (issuer v0.78.0 oracle rule), which
+     * is a security property rather than a taxonomy one.
+     */
+    PLATFORM_NOT_FOUND("platform_not_found"),
 
     // cross-realm integrations (ADR-082/083)
     SLUG_TAKEN("slug_taken"),

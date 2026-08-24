@@ -138,14 +138,9 @@ func mapIntegrationErr(err error) error {
 	if !errors.As(err, &re) {
 		return err
 	}
-	// The specific code is in the envelope siblings (nested shape) or, for the
-	// issuer's flat envelope, in re.Code (because these codes are registered in
-	// knownCodes). Prefer the sibling, fall back to re.Code.
-	code := detailCode(re)
-	if code == "" {
-		code = string(re.Code)
-	}
-	switch code {
+	// See specificCode: a registered code lands in re.Code and never in the
+	// siblings, an unregistered one only in the siblings.
+	switch specificCode(re) {
 	case "integration_not_found":
 		return errors.Join(ErrIntegrationNotFound, re)
 	case "slug_taken":

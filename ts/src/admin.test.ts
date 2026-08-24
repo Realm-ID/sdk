@@ -213,11 +213,12 @@ test("admin.getPlatform: a 404 stays platform_not_found, never a forbidden flavo
   // access to this platform" — and that string IS the oracle.
   await assert.rejects(() => realm.admin.getPlatform("nope"), (e: Error) => {
     if (!(e instanceof RealmError)) return false;
-    // `platform_not_found` is not in the curated ErrorCode taxonomy (nor in
-    // Go's or Java's), so mapErrorResponse falls back to statusToCode(404).
-    // Asserting the normalized code is asserting the real contract; see the
-    // taxonomy item filed in sdk/TODO.md.
-    assert.equal(e.code, "not_found");
+    // `platform_not_found` is REGISTERED as of ts 0.38.0 / go 0.46.0 /
+    // java 0.36.0, so it now survives to `error.code` instead of falling back
+    // to statusToCode(404). This assertion moved with it — it is the visible
+    // half of that behaviour change, and the reason the release is flagged
+    // BREAKING despite being purely additive to the union.
+    assert.equal(e.code, "platform_not_found");
     assert.equal(e.httpStatus, 404);
     assert.notEqual(e.code, "forbidden");
     assert.notEqual(e.code, "unauthorized");

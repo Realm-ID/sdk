@@ -61,7 +61,7 @@ func mapSourceErr(err error) error {
 	if !errors.As(err, &re) {
 		return err
 	}
-	switch detailCode(re) {
+	switch specificCode(re) {
 	case "method_violates_kind":
 		return errors.Join(ErrSourceMethodViolatesKind, re)
 	case "source_not_found":

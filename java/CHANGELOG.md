@@ -4,6 +4,24 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.36.0 — BREAKING: `platform_not_found` and `mfa_registration_required` resolve (2026-08-24)
+
+**BREAKING for anyone matching `NOT_FOUND` on a platform route.** Both are now
+`ErrorCode` constants, so `fromWire` resolves them and `mapErrorResponse` keeps
+the specific code instead of falling back to `fromHttpStatus`.
+
+- **`PLATFORM_NOT_FOUND`** — answered by the issuer on every by-id platform
+  route. **Migration:** match both `PLATFORM_NOT_FOUND` and `NOT_FOUND`. It
+  still never distinguishes "not yours" from "never existed" (issuer `v0.78.0`
+  oracle rule) — a security property, not a taxonomy one.
+- **`MFA_REGISTRATION_REQUIRED`** (412) — the first-factor-ENROLLMENT variant of
+  the MFA gate; the remedy is an enrollment screen, not a code prompt. Go has
+  had it since ADR-061.
+
+See `../CHANGELOG.md` for why the taxonomy was eight codes out of sync across
+the three languages, and `../scripts/taxonomy-parity.py`, which now measures it
+on every CI run.
+
 ## java-v0.35.0 — the ADR-041 realm pin, and the ADR-062 device label (2026-08-21)
 
 Two cross-language parity gaps, both closed against the Go and TS

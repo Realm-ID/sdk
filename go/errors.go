@@ -72,6 +72,32 @@ const (
 	ErrCodeInvalidPurpose    ErrorCode = "invalid_purpose"
 	ErrCodeInvalidSubjectRef ErrorCode = "invalid_subject_ref"
 
+	// Service accounts (ADR-071) + sources (ADR-072). ts and Java have carried
+	// these since those releases; Go did not, so every one of them collapsed
+	// into the generic status code for Go callers alone. Found 2026-08-24 while
+	// adding ErrCodePlatformNotFound — the taxonomy was recorded as "consistent
+	// across the three SDKs" and was eight codes out of sync.
+	//
+	// NOT added: `not_service`, which ts and Java declare and the issuer emits
+	// NOWHERE (its only near-match is the distinct `role_not_service_typed`).
+	// A code with no producer is a phantom; propagating it would spread one.
+	// See scripts/taxonomy-parity.sh, which carries it as a reviewed exception.
+	ErrCodeHandleTaken            ErrorCode = "handle_taken"
+	ErrCodeInvalidRole            ErrorCode = "invalid_role"
+	ErrCodeMethodViolatesKind     ErrorCode = "method_violates_kind"
+	ErrCodeServiceAccountNotFound ErrorCode = "service_account_not_found"
+	ErrCodeSourceNotFound         ErrorCode = "source_not_found"
+	ErrCodeUserNotFound           ErrorCode = "user_not_found"
+
+	// ErrCodePlatformNotFound is what the issuer answers on every by-id
+	// platform route (16 call sites). Registered for the same reason as the
+	// six sibling *_not_found codes: without it the code falls back to
+	// statusToCode(404) and the caller cannot tell "no such platform" from
+	// any other 404 on the request. It never distinguishes "not yours" from
+	// "never existed" — the issuer answers both identically on purpose
+	// (v0.78.0 oracle rule), which is a security property, not a taxonomy one.
+	ErrCodePlatformNotFound ErrorCode = "platform_not_found"
+
 	// Cross-realm integrations (ADR-082/083). Registered so the flat error
 	// envelope's specific code lands in RealmError.Code (isKnownCode gate),
 	// letting the integrations surface map precise sentinels.
@@ -242,6 +268,10 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeNotInvited: {}, ErrCodeNotPending: {},
 	ErrCodeInvitationsUnavailable: {}, ErrCodeOwnerCannotLeave: {},
 	ErrCodeAlreadyLeft: {},
+	ErrCodeHandleTaken: {}, ErrCodeInvalidRole: {},
+	ErrCodeMethodViolatesKind: {}, ErrCodeServiceAccountNotFound: {},
+	ErrCodeSourceNotFound: {}, ErrCodeUserNotFound: {},
+	ErrCodePlatformNotFound: {},
 }
 
 func isKnownCode(s string) bool {

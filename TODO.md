@@ -61,8 +61,18 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > tree (declaring the released `0.44.0` reports 12 changed files and fails).
 > Rationale: `DECISIONS.md` 2026-08-23.
 
-- [ ] **`platform_not_found` is not in the `ErrorCode` taxonomy (all three
-  languages).** The issuer returns it on `GET /platforms/{id}`,
+- [x] **DONE 2026-08-24 — `platform_not_found` is registered in all three
+  languages** (ts `0.38.0` / go `0.46.0` / java `0.36.0`), and so are the seven
+  other codes the sweep found out of sync. **Both halves of this item's premise
+  were false**: the three taxonomies were EIGHT codes apart, and "all three
+  agree" was never evidence of intent in the first place — the lists are
+  hand-maintained from one SPEC, so one omission propagates to all three and
+  agreement is what a shared oversight looks like.
+  `scripts/taxonomy-parity.py` now measures it every CI run.
+  Shipped BREAKING with the migration named (match both codes). See
+  `DECISIONS.md` 2026-08-24 (later). Original entry, kept for its history:
+- [ ] ~~**`platform_not_found` is not in the `ErrorCode` taxonomy (all three
+  languages).**~~ The issuer returns it on `GET /platforms/{id}`,
   `GET /admin/platforms/{id}`, `PATCH /platforms/{id}` and others, but it is
   absent from `ts/src/errors.ts`'s `KNOWN_CODES`, from `go/errors.go`, and from
   the Java taxonomy — so `mapErrorResponse` falls back to `statusToCode(404)` and
@@ -369,3 +379,25 @@ this is the SDK-side work.
 *(Empty. The `TransferOwnerRequest` schema backfill was verified done
 2026-08-03 and removed.)*
 
+
+- [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
+      taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes
+      against `ts/src/errors.ts`'s **60** (measured 2026-08-24). So the admin
+      console normalizes `platform_not_found` and 26 others to their HTTP-status
+      fallback, no matter what the typed SDKs do. It is mitigated, not harmless:
+      the transport stashes the raw code in `details.server_code`, so the
+      information survives where a caller thinks to look for it.
+      **Deliberately NOT folded into the 2026-08-24 taxonomy release** — it is a
+      separate, older drift with its own release path (a `web-admin` repack plus
+      a re-vendor into `ui/`), and fixing it inside a release about something
+      else would have hidden it. `scripts/taxonomy-parity.py` does NOT cover
+      this file yet; extending it there is the cheap half, and it should be
+      done first so the gap is measured rather than re-discovered.
+- [ ] **`not_service` is declared by ts + Java and emitted by NOTHING.** A repo
+      sweep of the issuer finds no handler returning it; the only near-match is
+      the distinct `role_not_service_typed` (`integration_installations.go:138`).
+      It is carried as a reviewed exception in `scripts/taxonomy-parity.py`.
+      Removing it is safe in principle — nothing can be matching a code that
+      never arrives — but it is a SPEC change across two languages and belongs
+      in its own release, not smuggled into one about something else.
+      *(Filed 2026-08-24 while registering `platform_not_found`.)*
