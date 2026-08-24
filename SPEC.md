@@ -2138,11 +2138,34 @@ update configuration inside RealmID. The division:
 | Owner | Artefact |
 |---|---|
 | RealmID | identity, attestation, session lifecycle, the token |
-| **your repo** | the route → scope map, the role → scope map |
+| **your repo** | the route → scope map, and the map from YOUR roles to scopes |
 | the SDK | the gate that evaluates one against the other |
 
 RealmID stores **no** partner catalog. Your scope strings are opaque to it:
 never parsed, never validated against a vocabulary, never stored.
+
+> **"Your roles" are not RealmID roles.** A RealmID role's `permissions` (§6.3,
+> ADR-074) is a closed catalog governing the **RealmID admin API** — what your
+> admins may do inside RealmID. It has nothing to do with scopes, which govern
+> what a user may do inside **your** product. Your role → scope map lives in
+> your database next to your roles; RealmID never sees it.
+
+Three things in this API look like "a list of permission strings". They are not
+interchangeable:
+
+| | role `permissions` (§6.3) | `permissionsCap` (§6.6.2) | `scope` (§11) |
+|---|---|---|---|
+| Answers | what may my admin do **inside RealmID**? | ceiling on this key | what may this user do **inside my product**? |
+| Whose words | RealmID's, fixed catalog | **mine** — see below | **mine** |
+| Validated by RealmID? | always | only for `realmid`-audience keys | never — shape only |
+| Other operand | n/a | my DB, via `capAllows` | my route map |
+
+**`permissionsCap` is the one that shifts.** Its audience is derived from the
+realm the user lives in, never supplied. In **your** realm the strings are yours
+and are shape-checked only (count, length) — RealmID cannot validate a
+vocabulary it does not hold. In RealmID's own base realm they are the ADR-074
+catalog and ARE validated (`unknown_permission`); that is RealmID being a
+platform on itself, not a rule about you.
 
 ### 11.1 The claim
 
