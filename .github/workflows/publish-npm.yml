@@ -43,6 +43,14 @@ jobs:
         if: github.event_name == 'push'
         run: ./scripts/tag-hygiene.sh annotated-prepublish "${{ github.ref_name }}"
 
+      # Runs BEFORE any publish, and on workflow_dispatch too (it reads
+      # package.json, not the tag): three packages silently lost changelog
+      # history because nothing ever failed when a release skipped its entry.
+      # Subjects are DERIVED from ts/ + web/packages/*, so a package added
+      # later is covered the day it exists rather than when someone remembers.
+      - name: Every publishable package has a changelog entry
+        run: ./scripts/changelog-hygiene.sh npm
+
       - uses: actions/setup-node@v7
         with:
           node-version: '20'

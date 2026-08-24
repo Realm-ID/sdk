@@ -78,16 +78,19 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   and "never existed" — that is a security property, not a taxonomy question.)*
 - [ ] **`java/CHANGELOG.md` has no `java-v0.34.0` entry** (noticed 2026-08-21
   while adding `0.35.0`: `build.gradle.kts` was on `0.34.0` and the file jumped
-  from `0.33.0` to it). Same class as the item below — backfill from the
-  version-bump commit.
+  from `0.33.0` to it). Backfill from the version-bump commit. **The MECHANISM is
+  now closed** (`scripts/changelog-hygiene.sh`, 2026-08-24) — a future release
+  cannot repeat this; what is left here is the historical backfill only.
 - [ ] **`ts/CHANGELOG.md` is missing `0.29.0`–`0.35.0`** — seven released
   versions with no entries; the file jumps `0.28.0` → `0.36.0`. Backfill from the
   version-bump commits, as the `web-admin` `0.8.13`–`0.8.17` gap was on
   2026-08-03. **Same failure mode, second package**, which makes it a process
   gap rather than an oversight: nothing fails when a release skips its changelog,
-  so it only surfaces when someone happens to read the file. Worth a check in the
-  publish workflow — assert the version being published has a matching `## `
-  heading, the same shape as the Go `Version`-const check added 2026-08-05.
+  so it only surfaces when someone happens to read the file.
+  **The publish-workflow check this item asked for SHIPPED 2026-08-24**
+  (`scripts/changelog-hygiene.sh`, wired into all three release workflows), so
+  what remains here is the historical backfill of the seven entries — the gap
+  cannot grow.
   *(Filed 2026-08-06 while adding the `0.36.0` entry; a gap notice now sits at the
   top of that file so a reader isn't misled in the meantime.)*
 - [ ] **`DECISIONS.md` needs an index and an archive split.** It is **2261 lines**

@@ -48,6 +48,12 @@ jobs:
         if: github.event_name == 'push'
         run: ./scripts/tag-hygiene.sh annotated-prepublish "${{ github.ref_name }}"
 
+      # Runs BEFORE the publish, and on workflow_dispatch too (it reads
+      # build.gradle.kts, not the tag). `java-v0.34.0` shipped with no
+      # changelog entry and nothing noticed for weeks.
+      - name: The release version has a changelog entry
+        run: ./scripts/changelog-hygiene.sh maven
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

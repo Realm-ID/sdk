@@ -7,6 +7,58 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-24 — the changelog gate derives its subjects, and refuses to check nothing
+
+**Problem.** Three packages independently lost changelog history (`ts`
+`0.29.0`–`0.35.0`, `web-admin` `0.8.13`–`0.8.17`, `java` `java-v0.34.0`). Two
+TODO items proposed backfilling the entries. Backfilling is the wrong first
+move: nothing failed when a release skipped its entry, so the next release skips
+again and the backfill is re-earned. The mechanism goes first; the backfills stay
+open and can no longer grow.
+
+**Decision 1 — the subject list is the filesystem, never a list in the script.**
+`npm` mode globs `web/packages/*` and adds `ts/`. This workspace has been burned
+repeatedly by guards whose subject list was hand-maintained (root `TODO.md`, the
+2026-08-02 sweep: three findings in one day, every one a check whose subjects
+were enumerated by hand). The cost of deriving is that the gate sees packages the
+publish workflow does not — which is the point, and is what it found: two
+non-private packages, `@realm-id/web-firebase` and `@realm-id/web-google`,
+versioned `0.4.0` and **404 on the npm registry across every version**, absent
+from the workflow's `for pkg in core react bff-realmid admin` loop.
+
+**Decision 2 — record "not published" in the package, not in the omission.**
+Both are marked `"private": true` rather than special-cased in the gate. npm
+itself then refuses to publish them, and the fact stops depending on a name
+being missing from a `for` loop in a YAML file. They are genuinely superseded:
+`realm.signIn(type)` in `@realm-id/web` reads the provider's public config from
+`realm.providers()` and needs no adapter package. `web/README.md` had been
+telling partners to install exactly one of the two — an `npm i` that 404s — and
+its "Release status (2026-06-03)" block still claimed the whole `0.4.0` line was
+unreleased. Corrected against the registry, not against the repo.
+
+**Decision 3 — a missing CHANGELOG.md is a failure, not a skip.** Three web
+packages had none at all. Treating that as "this package doesn't keep one" is
+how fourteen published versions went unrecorded without ever looking wrong. All
+three are seeded from their current version, each stating plainly where the
+earlier history is (`git log`, and for `bff-realmid` the monorepo changelog's
+own `web-bff-realmid/v0.3.x` headings). **Nothing is reconstructed from commit
+subjects and presented as a record**, and the `bff-realmid` entries are NOT
+copied out of the monorepo file — two copies of one changelog is the mechanism
+that lost `web-admin` `0.8.13`–`0.8.17` in the first place.
+
+**Decision 4 — `go` is gated even though its remedy comes late.** The module
+publishes by tag push, so the check necessarily runs after release. Unlike the
+`Version`-const check, that is acceptable here: prose is not immutable the way a
+module hash is, so a red gate means "write the entry", never "re-point the tag".
+
+**What the mutations were worth.** Seven were run; six confirmed the intended
+check. The seventh found a defect in the gate itself: with the derivation
+returning nothing, `set -u` aborted on the empty array *before* the "inspected 0
+packages" guard could run — exit 1 with no diagnosis, in exactly the case that
+guard exists for. A zero-subject guard placed after the loop it protects cannot
+fire. Moved above it; both empty cases (no directories, all directories private)
+now exit 2 with a distinct message.
+
 ## 2026-08-23 (later still) — SPEC §10.4's "backstop" claim is WITHDRAWN (ADR-096 D3)
 
 §10.4 said: *"The server's `RequireMFA(pattern, opts)` registry is the backstop

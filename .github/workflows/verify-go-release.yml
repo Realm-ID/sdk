@@ -105,6 +105,15 @@ jobs:
         if: always() && github.event_name == 'push'
         run: ./scripts/tag-hygiene.sh go-immutable "${{ steps.tag.outputs.ref }}"
 
+      # The Go module publishes by tag push, so this necessarily runs AFTER the
+      # release — unlike the npm/Maven gates. That is still worth having: prose
+      # is not immutable the way a module hash is, so the remedy when it goes
+      # red is to write the entry, never to re-point the tag. `always()` because
+      # a missing changelog entry and a drifted const are independent faults.
+      - name: The released version has a changelog entry
+        if: always()
+        run: ./scripts/changelog-hygiene.sh go
+
       - name: Read the const
         if: always()
         id: const

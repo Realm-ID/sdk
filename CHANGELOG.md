@@ -13,6 +13,41 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## A release cannot publish without a changelog entry — tooling only (2026-08-24)
+
+No SDK version changes. `scripts/changelog-hygiene.sh` is a pre-publish gate,
+wired into `publish-npm.yml`, `publish-maven.yml` and `verify-go-release.yml`:
+the version a workflow is about to publish must have a matching `## <version>`
+heading in that package's changelog, or the job fails before anything reaches a
+registry.
+
+**Why now.** Three packages lost history to the same silence — `ts` `0.29.0`–
+`0.35.0` (seven releases), `web-admin` `0.8.13`–`0.8.17`, `java` `java-v0.34.0`.
+Backfilling entries fixes none of that; the next release skips again. Backfills
+stay open in `TODO.md`, the gap just cannot grow.
+
+**Writing it found the fault one degree worse.** `@realm-id/web`,
+`@realm-id/web-react` and `@realm-id/web-bff-realmid` had **no `CHANGELOG.md`
+at all**, across fourteen published versions between them — a missing file never
+looks wrong, where a missing entry at least leaves a hole between two version
+numbers. All three are seeded, starting at their current version and saying so;
+nothing is reconstructed from commit subjects and presented as history.
+
+**And it found two packages the publish workflow does not publish.** The gate
+derives its subjects from `ts/` + `web/packages/*` rather than a list, which
+immediately turned up `@realm-id/web-firebase` and `@realm-id/web-google` —
+non-private, versioned `0.4.0`, and **404 on `registry.npmjs.org` across every
+version**. They are superseded by `realm.signIn()` in the core package. Both are
+now `"private": true`, so "not published" is a fact in the package instead of
+the absence of a name from a `for` loop in the workflow. `web/README.md`, which
+told partners to install exactly one of them, is corrected against the registry.
+
+**The gate's own zero-subject guard was broken, and a mutation caught it.** With
+the derivation returning nothing, `set -u` aborted on the empty array before the
+"inspected 0 packages" check could run — exit 1, no diagnosis, in precisely the
+case the check exists for. Moved above the loop; both empty cases now exit 2.
+Seven mutations run in total, each caught by the check aimed at it.
+
 ## BFF mode refuses a tokenless on-behalf-of id — go `0.45.0` · java `0.35.0` (2026-08-21)
 
 An `X-On-Behalf-Of-User` id with no `X-User-Token` beside it has been refused by
