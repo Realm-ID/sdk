@@ -90,8 +90,9 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   heading, the same shape as the Go `Version`-const check added 2026-08-05.
   *(Filed 2026-08-06 while adding the `0.36.0` entry; a gap notice now sits at the
   top of that file so a reader isn't misled in the meantime.)*
-- [ ] **`DECISIONS.md` needs an index and an archive split.** It is 1670+ lines
-  with no per-entry index, so `head -50` cannot answer "what decisions exist?"
+- [ ] **`DECISIONS.md` needs an index and an archive split.** It is **2261 lines**
+  (re-measured 2026-08-24; the entry said 1670+) across 57 entries, with no
+  per-entry index and no `DECISIONS-ARCHIVE.md`, so `head -50` cannot answer "what decisions exist?"
   and anything consulting it pays for the whole file. Per the `decision-log`
   skill: add a one-line-per-entry index under the H1, then move the oldest
   entries to `DECISIONS-ARCHIVE.md`, keeping them listed in the index. Archive,
@@ -177,13 +178,6 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   command sets verified locally in containers, since Actions is down and cannot
   run them. Original entry:
 
-- [ ] **`gofmt -l` reports FOUR files** — `go/claims.go`,
-  `go/middleware_test.go`, `go/roles_test.go`, `go/tenants.go` (re-run
-  2026-08-21 in a `golang:1.23-alpine` container). Pre-existing, unrelated to
-  any current change; the issuer has a matching open item for a CI `gofmt` gate.
-  ⚠️ **This entry named only two of them** and was cited as "the cheapest item"
-  on that count. Same class as every other stale figure in these files: a number
-  measured once and quoted later as a finding. Re-measure before quoting.
 - [x] ~~**TS: BFF on-behalf-of parity**~~ — **CLOSED 2026-08-21 BY MEASUREMENT.
   Do not re-open as a build task.** The item asked for a `userId` +
   `X-On-Behalf-Of-User` path in TS "because Go and Java have it". Checked
@@ -329,10 +323,15 @@ this is the SDK-side work.
   the BFF resolves server-side. *Cross-check before building:* the ADR-076 handler
   already accepts a `new_owner_email` fallback — this may be a pure type/method
   addition rather than new behavior.
-- [ ] **`federationBindings` resource** — no client for the ADR-057 WIF CRUD
-  (`GET/POST/DELETE /platforms/{id}/federation-bindings`); the UI carries
-  `list/create/revokeFederationBinding` shims. Mirror `ApiKeysClient`. The `scope`
-  field is currently free-text — tighten if a scope catalog is ever defined.
+- [ ] **`federationBindings` resource in `@realm-id/web-admin`** — the UI still
+  carries `list/create/revokeFederationBinding` shims (`ui/web/src/api.ts:449`,
+  and the comment at `:19` says why). The `scope` field is free-text — tighten
+  if a scope catalog is ever defined.
+  ⚠️ **CORRECTED 2026-08-24 — this is a PORT, not a build, and the entry said
+  "Mirror `ApiKeysClient`" as if from scratch.** `sdk/ts` ALREADY has the
+  resource: `ts/src/federation-bindings.ts` with `federation-bindings.test.ts`,
+  wired into `realm.ts`. The gap is web-admin only. Copying a tested
+  implementation is a materially different cost from mirroring a sibling.
 - [ ] **`RolesClient` is realmId-bound at construction.** A per-call `realmId`
   override would help cross-realm ops UIs. Not blocking today — the UI works
   around it with `useAdminForRealm(realmId)`, which returns a realm-scoped cached
