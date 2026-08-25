@@ -145,8 +145,17 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
       its only consumer today) or a lockstep one; SPEC §13 says surface changes
       that break wire compatibility need all three, and an ADDITIVE resource does
       not, so this is a product call rather than a spec violation.
-- [ ] **`web-admin` needs `scopes.remove`** to match `scopes.rename`, and the
-      console screen is blocked on it (`ui/TODO.md`).
+> ~~**`web-admin` needs `scopes.remove`** to match `scopes.rename`~~
+> **FALSE, checked 2026-08-25 — it already had it.** `web-admin` does not
+> implement `ScopesClient`; it re-exports the ts one
+> (`@realm-id/sdk` is a SYMLINK to `../../../ts`), so `remove` arrived with ts
+> `0.40.0` the moment it was written. The item was filed from the shape of the
+> `rename` release rather than from the package. What was genuinely missing is
+> a TEST: **no test in this package went through `createAdmin` at all**, so the
+> wiring `0.8.20`'s changelog claims was unverified in both directions. Five
+> now do (`src/scopes.test.ts`), each mutation-verified. `0.8.20`'s changelog
+> entry amended in place — it is unpublished, so no version bump.
+> The ui console screen stays blocked on PUBLISHING `0.8.20`, which is CI.
 > ~~**`sdk/ts` `npm test` fails on the macOS host**~~ **FIXED 2026-08-25.**
 > Host tree reinstalled (`npm test` 221/0 on macOS), and
 > `scripts/npm-in-docker.sh <pkg> [npm args...]` now shadows `node_modules` with

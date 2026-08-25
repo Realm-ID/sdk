@@ -1,10 +1,25 @@
 # @realm-id/web-admin — changelog
 
-## 0.8.20 — `admin.scopes.rename` (ADR-097 §F)
+## 0.8.20 — `admin.scopes.rename` + `admin.scopes.remove` (ADR-097 §F, §G)
 
 Wires the ts SDK's `ScopesClient` onto the admin handle:
 `admin.scopes.rename({ from, to, dryRun })` →
-`POST /platforms/{id}/scopes/rename`, realm-owner only.
+`POST /platforms/{id}/scopes/rename`, and
+`admin.scopes.remove({ scope, onEmpty, dryRun })` →
+`POST /platforms/{id}/scopes/remove`. Both realm-owner only.
+
+**`remove` is not a narrowing operation in every case, and that is the point.**
+An empty `permissions_cap` means NO RESTRICTION, so removing a key's last scope
+leaves it UNRESTRICTED rather than powerless. The server refuses such a removal
+(`409 scope_removal_would_uncap`, nothing written) unless you pass
+`onEmpty: "revoke"`. Call with `dryRun: true` first and read `emptied` — it is a
+list of ROWS, and the preview is the only surface that can hand it to you,
+because the 409 error envelope carries no payload.
+
+`remove` needed no code here: `ScopesClient` comes from `@realm-id/sdk`, so it
+arrived with ts `0.40.0`. What it needed was a TEST — this package had none
+going through `createAdmin` at all, so the wiring both entries claim was
+unverified in either direction. Five now do, mutation-verified.
 
 Renames one of the PARTNER'S scope strings across every user API key cap in the
 realm, in one transaction: idempotent, deduping on collision, dry-runnable.

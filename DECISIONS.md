@@ -7,6 +7,48 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-25 (later) — the web-admin suite tested a build artifact, and three mutations proved it
+
+**Found while closing a TODO that turned out to be false.** `sdk/TODO.md` said
+`web-admin` needed `scopes.remove` to match `scopes.rename`. It did not:
+`web/node_modules/@realm-id/sdk` is a **symlink to `../../../ts`**, so
+`web-admin` re-exports the ts `ScopesClient` and `remove` arrived with ts
+`0.40.0`. The item was filed from the shape of the `rename` release rather than
+from the package — the same "verify the artifact, not the workaround's absence"
+lesson this repo has now recorded three times.
+
+**What was genuinely missing was a test.** No test in this package went through
+`createAdmin` at all, so a handle that dropped `scopes`, passed the wrong realm
+id, or lost the `/api` prefix would have shipped green — and `0.8.20`'s
+changelog asserts exactly that wiring.
+
+**Then the new tests failed to fail.** Three deliberate mutations to
+`ts/src/scopes.ts` — remove's path repointed at `/rename`, `dry_run` moved from
+query to body, `on_empty` dropped — **all left the suite green**. The cause is
+the `exports` map: `@realm-id/sdk/internal` resolves to `dist/internal.js`, so
+this suite tests a **build artifact**, and nothing kept it current. `dist/` was
+hours stale, so the mutations were never in the code under test.
+
+This is `stack.sh test` running against an unrebuilt api image (issuer
+`DECISIONS.md`, 2026-08-25) one layer over, in JS. **Fourth instance of the same
+family in two days: the guard is fine and the RUNNER reports success for work it
+never did.** The recurring tell is that green costs nothing to obtain.
+
+**Decision — `pretest` rebuilds the dependency, rather than a documented "run
+`npm run build` in ts first".** A written prerequisite is a hand-maintained
+subject list with one entry, and this workspace's standing finding is that those
+decay. Verified by re-running the M1 mutation with **no manual build**: 3 red,
+exit 1; clean tree green.
+
+Also rejected: pointing `exports` at `src/`. It would make the tests honest and
+the PUBLISHED package wrong — consumers get `dist/`, so testing `src/` would
+stop testing what ships.
+
+Five tests, each mutation-verified (M1 remove-path → 3 red · M2 dry_run
+query→body → 1 · M3 on_empty dropped → 1 · M4 realm-id default → 1 · M5 dry_run
+always sent → 4). web-admin 58 pass / 0 fail; the `web` workspace green
+throughout.
+
 ## 2026-08-25 — the host `npm test` was broken by the workaround written to work around it
 
 **Symptom.** `npm test` in `sdk/ts` failed on the macOS host with *"You installed
