@@ -503,7 +503,23 @@ Additive (non-breaking). Implements SPEC v0.10.0 §4.0.1 (ADR-057).
   Actions) and exchanges its OIDC token via
   `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`.
 
-## Unreleased
+## 0.13.0 — token manager + `refresh_invalid` + api-key DTO (2026-05-28)
+
+**Heading recovered 2026-08-25; the body below is the original draft, unedited.**
+It sat as `## Unreleased` at the BOTTOM of this file — a released entry that
+never got its number — until `scripts/changelog-hygiene.sh order` flagged it.
+The identification rests on three things that agree: the monorepo
+`../CHANGELOG.md`'s *"Go + TS — token manager + refresh_invalid + api-key DTO
+(2026-05-28)"* names this release **`ts-v0.13.0`**; `0.13.0` is absent from this
+file, whose lowest numbered entry is `0.14.0`; and the block already sits
+directly beneath `0.14.0`, which is exactly where `0.13.0` belongs.
+
+**One thing does NOT agree and is left as it stands:** this draft cites
+**SPEC v0.7.0** while the released monorepo entry cites **v0.8.0**, which reads
+like a draft written before the SPEC bump and then finished in the other file.
+The number and date are taken from the released entry; the prose is not
+rewritten to match, because that would be inventing a record rather than
+recovering one.
 
 Additive (non-breaking surface) plus one wire-shape correction on
 `apiKeys`. Mirrors the Go SDK and SPEC v0.7.0 §3.1 / §4.2.1 / §6.5.

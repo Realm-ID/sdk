@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-62 entries total — 23 here, 39 in `DECISIONS-ARCHIVE.md` (entries before 2026-07-27). Newest first.
+63 entries total — 24 here, 39 in `DECISIONS-ARCHIVE.md` (entries before 2026-07-27). Newest first.
 
+- [2026-08-25 (latest) — a changelog can be present and unreachable: the order gate, and the entry that never got its number](#2026-08-25-latest--a-changelog-can-be-present-and-unreachable-the-order-gate-and-the-entry-that-never-got-its-number)
 - [2026-08-25 — changelog backfill + the DECISIONS.md index/archive split, re-pointed at the real problem file](#2026-08-25-changelog-backfill-the-decisionsmd-indexarchive-split-re-pointed-at-the-real-problem-file)
 - [2026-08-25 (later) — the web-admin suite tested a build artifact, and three mutations proved it](#2026-08-25-later-the-web-admin-suite-tested-a-build-artifact-and-three-mutations-proved-it)
 - [2026-08-25 — the host `npm test` was broken by the workaround written to work around it](#2026-08-25-the-host-npm-test-was-broken-by-the-workaround-written-to-work-around-it)
@@ -76,6 +77,69 @@ Newest first.
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06-session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
 ---
+
+## 2026-08-25 (latest) — a changelog can be present and unreachable: the order gate, and the entry that never got its number
+
+**Problem.** `scripts/changelog-hygiene.sh` landed on 2026-08-24 after three
+packages silently lost changelog history, and it gates exactly one thing: the
+version being published has a `## ` heading. That says nothing about where the
+heading SITS. Found by hand on 2026-08-25 while verifying the backfill it
+enabled: `ts/CHANGELOG.md`'s `0.36.0` (2026-08-06) sat between `0.29.0` and
+`0.28.0`, six releases out of descending order.
+
+**Why that is the same defect and not a cosmetic one.** A reader scanning a
+descending changelog stops at the first heading below the version they want. A
+heading in the wrong place is therefore invisible in exactly the way a MISSING
+heading is — *present and unreachable reads the same as absent* — which is the
+fault the script's own header describes at length. It is also why the seven-entry
+backfill could only be spot-checked by `grep`: there was no gate to run.
+
+**Decision: an `order` mode, and it runs in `ci.yml`, not in the publishers.**
+Placement is the substantive call. The three existing modes fire at publish
+time, so `java/CHANGELOG.md` would be order-checked only on a Maven release and
+a misplaced heading could sit for weeks. Order is a property of the file at all
+times, so it belongs on every push.
+
+**The root `CHANGELOG.md` is deliberately NOT checked, and that was measured
+rather than assumed.** Its headings name up to three languages at once
+(`… go 0.47.0 · ts 0.39.0 · java 0.37.0`), so there is no single version to
+order by — and **15 of its 64 headings carry no date either**, so date order is
+not available as a fallback. There is no total order to assert over that file.
+Asserting one anyway would mean inventing a rule the file has never followed,
+and a gate that fails on correct input teaches people to bypass it — worse than
+no gate. Written into the script so the next reader does not "fix" the omission.
+
+**It found a second defect the same minute, one degree worse than the first.**
+`ts/CHANGELOG.md` ended with `## Unreleased` — below `0.14.0`, at the bottom of
+the file. It is not unreleased: it is a released entry that never got its
+number. Identified as **`0.13.0`** on three agreeing pieces of evidence: the
+monorepo `CHANGELOG.md`'s *"Go + TS — token manager + refresh_invalid + api-key
+DTO (2026-05-28)"* names the release `ts-v0.13.0`; `0.13.0` is absent from the
+file, whose lowest entry is `0.14.0`; and the block already sat directly beneath
+`0.14.0`, exactly where `0.13.0` belongs.
+**One thing does not agree and is left standing rather than smoothed over:** the
+draft cites SPEC v0.7.0 while the released entry cites v0.8.0 — a draft written
+before the SPEC bump and finished in the other file. The heading takes the
+number and date from the released entry; the prose is NOT rewritten to match,
+because that would be inventing a record instead of recovering one. The
+uncertainty is stated in the entry itself.
+
+**`## Unreleased` is accepted only as the FIRST heading**, which is the
+convention it belongs to. Anywhere else it is precisely what it was here.
+
+**Mutation-verified**, not merely observed green: restoring the pre-fix
+`ts/CHANGELOG.md` makes the gate name `0.36.0` at its exact line and the
+`0.29.0` it sits below.
+
+**A latent defect in `ci.yml` was verified and fixed on the way.** The taxonomy
+job's comment says *"`set -e` is deliberately OFF for the run itself"* and then
+writes only `set -uo pipefail` — which does not clear the `-e` that a `run:`
+step's `bash -e {0}` shell already has in force. Verified, not reasoned:
+`bash -e -c 'set -uo pipefail; false; rc=$?; echo reached'` prints nothing. So
+on every drift that job has ever detected, the summary it exists to write was
+skipped. The gate still failed correctly, which is why nothing ever showed. The
+comment described the intent; the code did the opposite. `set +e` added to both
+that step and the umbrella's new one.
 
 ## 2026-08-25 — changelog backfill + the DECISIONS.md index/archive split, re-pointed at the real problem file
 

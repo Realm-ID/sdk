@@ -104,22 +104,43 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > version at publish time, so this is a spot-check of the seven headings by
 > `grep`, not the gate itself).
 
-- [ ] **`changelog-hygiene.sh` gates PRESENCE, never ORDER — and `ts/CHANGELOG.md`
-      had a six-release inversion nobody could have caught.** Found 2026-08-25
-      while verifying the backfill above: `0.36.0` (2026-08-06) sat between
-      `0.29.0` and `0.28.0`. A reader scanning a descending changelog stops at
-      the first heading below what they want, so `0.36.0` was invisible in
-      exactly the way the seven missing entries were — a version that is present
-      and unreachable reads the same as one that is absent.
-      **Moved into place 2026-08-25** (pure move: 35 insertions / 35 deletions,
-      no wording touched), so the file is now correct. **What is NOT fixed is
-      the mechanism**: the script checks that the version being published has a
-      heading, which says nothing about the ones beneath it, and the backfill
-      itself was only spot-checked by `grep` for the same reason. Add a descending
-      -order assertion over every `## ` heading in all three changelogs (plus
-      `web/packages/admin/CHANGELOG.md`), so it fails the next inversion rather
-      than the next reader. Not verified for the other three files — the check is
-      the point, not another hand sweep.
+> ~~**`changelog-hygiene.sh` gates PRESENCE, never ORDER — and `ts/CHANGELOG.md`
+> had a six-release inversion nobody could have caught.**~~ **BUILT + CLOSED
+> 2026-08-25 — `changelog-hygiene.sh order`, wired into `ci.yml`** (not into the
+> publishers: order is a property of the file at all times, and a publish-time
+> check would order-verify `java/CHANGELOG.md` only on a Maven release).
+> Subjects derived from `ts/` + `java/` + `web/packages/*`; refuses to inspect
+> zero files AND zero headings; refuses to swallow a heading it cannot parse.
+> Mutation-verified against the original defect (it names `0.36.0` at its exact
+> line). **The root `CHANGELOG.md` is excluded on measured grounds** — multi-
+> language headings, and 15 of its 64 carry no date, so no total order exists to
+> assert. **It found a second defect immediately**: `## Unreleased` at the BOTTOM
+> of `ts/CHANGELOG.md`, recovered as `0.13.0` from three agreeing pieces of
+> evidence, with the one piece that does NOT agree (SPEC v0.7.0 vs v0.8.0) left
+> standing in the entry rather than smoothed over. Full reasoning in
+> `DECISIONS.md`.
+> >
+> The ORIGINAL text of this item, kept because it separates what was fixed by
+> hand from what the gate now prevents:
+> > Found 2026-08-25 while verifying the backfill above: `0.36.0`
+> > (2026-08-06) sat between `0.29.0` and `0.28.0`. A reader scanning a
+> > descending changelog stops at the first heading below what they want, so
+> > `0.36.0` was invisible in exactly the way the seven missing entries were —
+> > a version that is present and unreachable reads the same as one that is
+> > absent.
+> > **Moved into place 2026-08-25** (pure move: 35 insertions / 35 deletions,
+> > no wording touched), so the file is now correct. **What is NOT fixed is
+> > the mechanism**: the script checks that the version being published has a
+> > heading, which says nothing about the ones beneath it, and the backfill
+> > itself was only spot-checked by `grep` for the same reason. Add a
+> > descending-order assertion over every `## ` heading in all three changelogs
+> > (plus `web/packages/admin/CHANGELOG.md`), so it fails the next inversion
+> > rather than the next reader. Not verified for the other three files — the
+> > check is the point, not another hand sweep.
+> >
+> **The "not verified for the other three files" caveat is now discharged**: the
+> gate reads all six per-package changelogs (63 headings) and reports the count,
+> so "checked nothing" cannot read as "all clean".
 
 - [ ] **`ui/DECISIONS.md` (3,147) and the root `DECISIONS.md` (3,167) are both
       unsplit, and both now exceed `issuer/DECISIONS.md`'s post-split main file

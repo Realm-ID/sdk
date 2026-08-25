@@ -49,13 +49,43 @@ jobs:
         # `set -e` is deliberately OFF for the run itself: with it, a drift
         # aborts the step before `rc=$?` is read and the report never reaches
         # the summary — the gate fails correctly and tells nobody why.
+        #
+        # `set +e` EXPLICITLY, added 2026-08-25. This step said the above and
+        # then wrote only `set -uo pipefail`, which does NOT clear the -e a
+        # `run:` step's `bash -e {0}` shell already has in force — verified:
+        # `bash -e -c 'set -uo pipefail; false; rc=$?; echo reached'` prints
+        # nothing. So on every drift this has ever detected, the summary it
+        # exists to write was skipped. The comment described the intent and the
+        # code did the opposite; nothing was red on a green run, so nothing
+        # showed.
         run: |
+          set +e
           set -uo pipefail
           python3 scripts/taxonomy-parity.py > parity.md
           rc=$?
           cat parity.md
           cat parity.md >> "$GITHUB_STEP_SUMMARY"
           exit $rc
+
+  changelogs:
+    name: Changelogs read in descending order
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      # HERE, not in the publishers, and that placement is the point. The three
+      # existing changelog-hygiene modes run at PUBLISH time and ask only
+      # whether the version being published has a heading — so java/CHANGELOG.md
+      # would be order-checked only on a Maven release, and a heading that
+      # landed in the wrong place would sit there until someone happened to
+      # publish that language. Order is a property of the file at all times.
+      #
+      # It caught two real defects on the day it was written (2026-08-25):
+      # ts/CHANGELOG.md's `0.36.0` six releases out of place, and a `##
+      # Unreleased` at the BOTTOM of that same file which turned out to be
+      # `0.13.0`'s entry, never numbered.
+      - name: Every per-package changelog is in descending order
+        run: ./scripts/changelog-hygiene.sh order
 
   go:
     name: Go (fmt, vet, test)
