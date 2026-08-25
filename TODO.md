@@ -71,21 +71,21 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   `scripts/taxonomy-parity.py` now measures it every CI run.
   Shipped BREAKING with the migration named (match both codes). See
   `DECISIONS.md` 2026-08-24 (later). Original entry, kept for its history:
-- [ ] ~~**`platform_not_found` is not in the `ErrorCode` taxonomy (all three
-  languages).**~~ The issuer returns it on `GET /platforms/{id}`,
-  `GET /admin/platforms/{id}`, `PATCH /platforms/{id}` and others, but it is
-  absent from `ts/src/errors.ts`'s `KNOWN_CODES`, from `go/errors.go`, and from
-  the Java taxonomy — so `mapErrorResponse` falls back to `statusToCode(404)` and
-  every caller sees the generic `not_found`. Consistent across the three SDKs, so
-  no language is the outlier; that is why it reads as intentional and may be.
-  **Decide, don't drift:** either add it in lockstep (a SPEC change + three bumps)
-  or document that platform-scoped 404s normalize deliberately. **The upgrade
-  hazard if it is added:** any consumer today catching `not_found` on a platform
-  route silently stops matching, so it is behaviour-breaking despite being purely
-  additive to a union. Filed 2026-08-06 while wrapping the by-id reads, where the
-  first draft of the test asserted the specific code and failed.
-  *(Whatever is decided, the 404 must stay indistinguishable between "not yours"
-  and "never existed" — that is a security property, not a taxonomy question.)*
+> ~~**`platform_not_found` is not in the `ErrorCode` taxonomy (all three
+> languages).**~~ The issuer returns it on `GET /platforms/{id}`,
+> `GET /admin/platforms/{id}`, `PATCH /platforms/{id}` and others, but it is
+> absent from `ts/src/errors.ts`'s `KNOWN_CODES`, from `go/errors.go`, and from
+> the Java taxonomy — so `mapErrorResponse` falls back to `statusToCode(404)` and
+> every caller sees the generic `not_found`. Consistent across the three SDKs, so
+> no language is the outlier; that is why it reads as intentional and may be.
+> **Decide, don't drift:** either add it in lockstep (a SPEC change + three bumps)
+> or document that platform-scoped 404s normalize deliberately. **The upgrade
+> hazard if it is added:** any consumer today catching `not_found` on a platform
+> route silently stops matching, so it is behaviour-breaking despite being purely
+> additive to a union. Filed 2026-08-06 while wrapping the by-id reads, where the
+> first draft of the test asserted the specific code and failed.
+> *(Whatever is decided, the 404 must stay indistinguishable between "not yours"
+> and "never existed" — that is a security property, not a taxonomy question.)*
 - [ ] **`java/CHANGELOG.md` has no `java-v0.34.0` entry** (noticed 2026-08-21
   while adding `0.35.0`: `build.gradle.kts` was on `0.34.0` and the file jumped
   from `0.33.0` to it). Backfill from the version-bump commit. **The MECHANISM is
