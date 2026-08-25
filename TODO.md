@@ -103,6 +103,35 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > `scripts/changelog-hygiene.sh npm` (passes — it only gates the current
 > version at publish time, so this is a spot-check of the seven headings by
 > `grep`, not the gate itself).
+
+- [ ] **`changelog-hygiene.sh` gates PRESENCE, never ORDER — and `ts/CHANGELOG.md`
+      had a six-release inversion nobody could have caught.** Found 2026-08-25
+      while verifying the backfill above: `0.36.0` (2026-08-06) sat between
+      `0.29.0` and `0.28.0`. A reader scanning a descending changelog stops at
+      the first heading below what they want, so `0.36.0` was invisible in
+      exactly the way the seven missing entries were — a version that is present
+      and unreachable reads the same as one that is absent.
+      **Moved into place 2026-08-25** (pure move: 35 insertions / 35 deletions,
+      no wording touched), so the file is now correct. **What is NOT fixed is
+      the mechanism**: the script checks that the version being published has a
+      heading, which says nothing about the ones beneath it, and the backfill
+      itself was only spot-checked by `grep` for the same reason. Add a descending
+      -order assertion over every `## ` heading in all three changelogs (plus
+      `web/packages/admin/CHANGELOG.md`), so it fails the next inversion rather
+      than the next reader. Not verified for the other three files — the check is
+      the point, not another hand sweep.
+
+- [ ] **`ui/DECISIONS.md` (3,147) and the root `DECISIONS.md` (3,167) are both
+      unsplit, and both now exceed `issuer/DECISIONS.md`'s post-split main file
+      (3,485 main / 8,598 archive).** Measured 2026-08-25. The item that produced
+      the sdk + issuer split named `sdk/DECISIONS.md` — the smallest of the five
+      — because that is the file someone happened to be looking at; the same
+      mis-file is still live for these two, which no item anywhere names. Same
+      `decision-log` treatment: index under the H1 + a `DECISIONS-ARCHIVE.md`
+      split, text MOVED not rewritten, every `## ` heading verified present in
+      exactly one of the two files afterwards. (Filed in `sdk/TODO.md` only
+      because that is where the split item lives; the work is in `ui/` and the
+      umbrella repo.)
 > >
 > ~~**`DECISIONS.md` needs an index and an archive split.**~~ **The filed file
 > was not the problem file — corrected and closed 2026-08-25.**

@@ -154,6 +154,41 @@ the issuer reads a present empty value as a supplied label. The server caps the
 value at 120 chars and strips control characters (`sanitizeDeviceName`), so the
 SDK sends it raw.
 
+## 0.36.0 — read one platform's fleet row by id (2026-08-06)
+
+`AdminClient.getPlatform(id)` wraps `GET /admin/platforms/{id}` (issuer
+`v0.87.0`, spec `0.24.0`) — the singular counterpart of `listPlatforms`,
+returning the identical `PlatformSummary` fleet row for one platform. The
+issuer resolves it through the same store query and the same serializer as the
+list, so a detail screen built on this cannot disagree with the fleet table.
+
+**Why it matters beyond convenience.** The alternative it replaces is paging
+the list and matching client-side, which is bounded by whatever page budget the
+caller picks — so a platform past that budget is reported as **not found
+although it exists**. The console was doing exactly this with a 20-page cap
+(2000 rows), a false negative that arrives on its own as a fleet grows.
+
+*(An earlier draft of this entry said the console rendered such a platform as a
+plausible empty one with no error. That was inherited from a stale `ui/TODO.md`
+note and is incorrect — the screen has always rendered a "Platform not found"
+empty state. Corrected here rather than quietly dropped, since the wrong
+description had already been copied into two repos.)*
+
+**A `404` here means "not visible to you" OR "never existed", identically, and
+must stay that way.** A platform the caller may not see returns the same
+`platform_not_found` as an unissued id — never `403` — because a distinct
+refusal would confirm the id is live (issuer `DECISIONS.md` 2026-08-06). Do not
+re-label it as a permission error in a consumer: rendering "you don't have
+access to this platform" reconstructs the oracle the identical 404 exists to
+close.
+
+**Taxonomy note:** `platform_not_found` is not in the curated `ErrorCode`
+union (nor Go's, nor Java's), so it normalizes to `not_found` with
+`httpStatus: 404`. That is the current contract across all three SDKs;
+widening the taxonomy is a lockstep SPEC change, filed in `../TODO.md`.
+
+Additive — no existing behaviour changes.
+
 ## 0.35.0 — `me.acceptInvitation`, the mirror of reject (ADR-095 D5) (2026-08-03)
 
 Backfilled 2026-08-25 from commit `1b5e1c0` — see `../CHANGELOG.md`'s matching
@@ -316,41 +351,6 @@ Tracks issuer `v0.61.0` (ADR-085 §2/§3/§7).
 Also in this version: ADR-084 user API keys (`uk_live_…`) across the SDK —
 `realm.userApiKeys` — the surface `0.30.0` above then re-exported from
 `/internal`.
-
-## 0.36.0 — read one platform's fleet row by id (2026-08-06)
-
-`AdminClient.getPlatform(id)` wraps `GET /admin/platforms/{id}` (issuer
-`v0.87.0`, spec `0.24.0`) — the singular counterpart of `listPlatforms`,
-returning the identical `PlatformSummary` fleet row for one platform. The
-issuer resolves it through the same store query and the same serializer as the
-list, so a detail screen built on this cannot disagree with the fleet table.
-
-**Why it matters beyond convenience.** The alternative it replaces is paging
-the list and matching client-side, which is bounded by whatever page budget the
-caller picks — so a platform past that budget is reported as **not found
-although it exists**. The console was doing exactly this with a 20-page cap
-(2000 rows), a false negative that arrives on its own as a fleet grows.
-
-*(An earlier draft of this entry said the console rendered such a platform as a
-plausible empty one with no error. That was inherited from a stale `ui/TODO.md`
-note and is incorrect — the screen has always rendered a "Platform not found"
-empty state. Corrected here rather than quietly dropped, since the wrong
-description had already been copied into two repos.)*
-
-**A `404` here means "not visible to you" OR "never existed", identically, and
-must stay that way.** A platform the caller may not see returns the same
-`platform_not_found` as an unissued id — never `403` — because a distinct
-refusal would confirm the id is live (issuer `DECISIONS.md` 2026-08-06). Do not
-re-label it as a permission error in a consumer: rendering "you don't have
-access to this platform" reconstructs the oracle the identical 404 exists to
-close.
-
-**Taxonomy note:** `platform_not_found` is not in the curated `ErrorCode`
-union (nor Go's, nor Java's), so it normalizes to `not_found` with
-`httpStatus: 404`. That is the current contract across all three SDKs;
-widening the taxonomy is a lockstep SPEC change, filed in `../TODO.md`.
-
-Additive — no existing behaviour changes.
 
 ## 0.28.0 — owner-required tenant create + BYO id/created_at (2026-07-24)
 
