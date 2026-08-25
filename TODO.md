@@ -61,16 +61,16 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > tree (declaring the released `0.44.0` reports 12 changed files and fails).
 > Rationale: `DECISIONS.md` 2026-08-23.
 
-- [x] **DONE 2026-08-24 — `platform_not_found` is registered in all three
-  languages** (ts `0.38.0` / go `0.46.0` / java `0.36.0`), and so are the seven
-  other codes the sweep found out of sync. **Both halves of this item's premise
-  were false**: the three taxonomies were EIGHT codes apart, and "all three
-  agree" was never evidence of intent in the first place — the lists are
-  hand-maintained from one SPEC, so one omission propagates to all three and
-  agreement is what a shared oversight looks like.
-  `scripts/taxonomy-parity.py` now measures it every CI run.
-  Shipped BREAKING with the migration named (match both codes). See
-  `DECISIONS.md` 2026-08-24 (later). Original entry, kept for its history:
+> **DONE 2026-08-24 — `platform_not_found` is registered in all three
+> languages** (ts `0.38.0` / go `0.46.0` / java `0.36.0`), and so are the seven
+> other codes the sweep found out of sync. **Both halves of this item's premise
+> were false**: the three taxonomies were EIGHT codes apart, and "all three
+> agree" was never evidence of intent in the first place — the lists are
+> hand-maintained from one SPEC, so one omission propagates to all three and
+> agreement is what a shared oversight looks like.
+> `scripts/taxonomy-parity.py` now measures it every CI run.
+> Shipped BREAKING with the migration named (match both codes). See
+> `DECISIONS.md` 2026-08-24 (later). Original entry, kept for its history:
 > ~~**`platform_not_found` is not in the `ErrorCode` taxonomy (all three
 > languages).**~~ The issuer returns it on `GET /platforms/{id}`,
 > `GET /admin/platforms/{id}`, `PATCH /platforms/{id}` and others, but it is
@@ -92,7 +92,7 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > matching entry in `../CHANGELOG.md`. Entry now sits between `java-v0.35.0`
 > and `java-v0.33.0`. The mechanism that let this happen was already closed
 > 2026-08-24 (`scripts/changelog-hygiene.sh`).
->
+> >
 > ~~**`ts/CHANGELOG.md` is missing `0.29.0`–`0.35.0`.**~~ **BACKFILLED
 > 2026-08-25**, all seven versions, from their release commits (`ffa935c`,
 > `a512679`, `b6c9ad0`, `52f4eb1`, `398c3ef`, `5f44408`, `1b5e1c0`) —
@@ -103,7 +103,7 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > `scripts/changelog-hygiene.sh npm` (passes — it only gates the current
 > version at publish time, so this is a spot-check of the seven headings by
 > `grep`, not the gate itself).
->
+> >
 > ~~**`DECISIONS.md` needs an index and an archive split.**~~ **The filed file
 > was not the problem file — corrected and closed 2026-08-25.**
 > `sdk/DECISIONS.md` was **2,480 lines** / 61 entries when re-measured
@@ -128,7 +128,7 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > `@realm-id/sdk/internal`, so the fields were never expected to appear in
 > web-admin's own source, and their absence there proved nothing. No repack was
 > needed at any point.
->
+> >
 > The real remaining work was UI-side and is now done: `RealmRoles.tsx` carried
 > five `r as AssignableRoleLike` casts over values already typed `RoleObject`.
 > Those are deleted. **The casts, not the missing fields, were the defect** — a
@@ -137,11 +137,10 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > arrived. `AssignableRoleLike` survives as the pure predicate's deliberately
 > tolerant input contract in `roleAssignability.ts` (it must still accept an
 > older issuer's response omitting `assignable_to`), but no caller casts to it.
->
+> >
 > **The lesson is the verification method, not the fields:** this item sat open
 > across eight repacks because it was re-checked by grepping SOURCE. Check the
 > packed tarball — `npm pack <pkg>@<version>` — which is what finally settled it.
-
 ## Scope removal (ADR-097 §G) — partial language coverage
 
 - [ ] **`scopes.remove` exists in `ts` ONLY.** Written and tested at
@@ -192,120 +191,118 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > A parity claim verified only against a fake server is a claim about the SDK's
 > own beliefs.
 
-- [x] ~~**TS `listSessions` returns the FIRST PAGE only.**~~ **DONE 2026-08-21,
-  ts `0.37.0` — BREAKING.** Now returns `Paginated<SessionInfo>` and follows
-  `next_cursor`. All three languages page as of go `0.45.0` / ts `0.37.0` /
-  java `0.35.0`; SPEC §4.6 updated, since it documented the divergence as a
-  standing carve-out.
-  **The deciding argument was internal consistency, not cross-language
-  tidiness**: `Paginated<T>` is already exported TS public API and already what
-  `federationBindings.list()` returns, so the bare array was the odd one out
-  *inside the TS SDK itself*. Two non-breaking options were weighed and
-  rejected — looping internally behind the array signature (unbounded, no early
-  stop, keeps the SPEC §7 carve-out) and adding a second paged method (leaves
-  the truncating call as the default one everybody reaches for). A compile
-  error with an obvious fix beats the same call quietly returning a different
-  row count.
-  **Verified against a REAL issuer**, not only a fixture: the new e2e case
-  drives the issuer's own `pagedSlice` with `limit: 1` so two sessions force a
-  second page, and asserts as a PRECONDITION that the server emits
-  `next_cursor` at all. Mutation-verified three ways. Also fixed on the same
-  lines: `docs/integration-guide.md` §4.5 showed the old array call AND read
-  `s.createdAt`/`s.lastUsedAt`, fields TS has never returned.
-  Rationale: `DECISIONS.md` 2026-08-21 (latest).
-- [x] ~~**`gofmt -l` reports FOUR files**~~ — **DONE 2026-08-21, formatted AND
-  gated.** The diff is whitespace-only bar one import reorder in
-  `middleware_test.go`; `go test ./...` green.
-  **The gate is the real change, and finding out why it had never been built is
-  the finding.** This entry deferred to "the issuer has a matching open item for
-  a CI `gofmt` gate", and that issuer item had been re-noticed three times
-  (2026-07-28, 2026-08-05, and implicitly here) as "ten minutes of work". It was
-  not ten minutes, because **`Realm-ID/sdk` had no push/PR CI at all** — only
-  two tag-triggered publishers and `verify-go-release.yml`. There was no
-  workflow to add a step to. An item naming a step inside a workflow that does
-  not exist reads as trivial and is not.
-  New `.github/workflows/ci.yml` runs go (gofmt + build + vet + test), ts (tsc +
-  node --test) and java (gradle test) on push and PR, jobs independent so a
-  broken toolchain in one cannot hide a red suite in another. The issuer's unit
-  job gained the same gofmt step. Both gates mutation-verified; all three job
-  command sets verified locally in containers, since Actions is down and cannot
-  run them. Original entry:
-
-- [x] ~~**TS: BFF on-behalf-of parity**~~ — **CLOSED 2026-08-21 BY MEASUREMENT.
-  Do not re-open as a build task.** The item asked for a `userId` +
-  `X-On-Behalf-Of-User` path in TS "because Go and Java have it". Checked
-  against a live issuer (`tests/sdk-e2e`) before writing any code:
-  - platform bearer + bare `X-On-Behalf-Of-User` → **401
-    `x_user_token_required`**. Issuer v0.66.0 removed that mode: the id was an
-    unauthenticated user id any platform-key holder could use to act as any
-    user in the realm.
-  - platform bearer + `X-User-Token`, **no id at all** → **200**.
-
-  So TS was never missing the working mode — `realm.withUserToken(jwt)` has sent
-  exactly that since ts `0.33.0`. **Building the item as written would have
-  shipped a mode the issuer refuses**, the "documented, wired, does nothing"
-  shape this workspace keeps paying for.
-  **What was wrong on the Go/Java side is the real finding:** their `UserID`
-  path sends the id with NO user token, so it 401s against any current issuer
-  unless the caller separately threads one. Both now refuse locally, naming the
-  remedy. **Scoped carefully** — the id is an IDENTITY pivot on sessions/MFA-self
-  (`derivePlatformActsOnUser`) but a DOMAIN PARAMETER on the OTP routes
-  (`internal/httpapi/otp.go`: "NOT an authz pivot"), so Go's `resolveOnBehalfOf`
-  takes an `idAssertsIdentity` flag and OTP passes false; a blanket refusal broke
-  three OTP tests, which is how the distinction was found.
-  **Nine tests (7 Go, 2 Java) were PINNING the dead mode** — asserting a bare
-  on-behalf-of id against a fake server that accepts anything. Updated to thread
-  a user token. Same shape as every other "the guard tested the half that was
-  not broken" finding here.
-- [x] **Java: implement the ADR-041 client-side realm pin.** **DONE 2026-08-21,
-  java `0.35.0`.** `PlatformTokenManager` decodes the freshly-minted platform
-  token and raises `REALM_MISMATCH` when its `iss` does not end in the
-  configured realm; `Realm.builder()` wires the realm id in, so the pin is on
-  for every partner-built client.
-  **The finding is the WIRING, not the check.** Four manager-level tests pass
-  with `Realm` passing `null` for the realm id — i.e. with the pin dead for
-  every real consumer — which is this workspace's recurring "correct one layer
-  below where it must fire" shape. `RealmPinWiringTest` builds through
-  `Realm.builder()` and is the only test that dies under that mutation.
-  **The skip branch is load-bearing and was nearly missed**: treating an
-  undecodable token as a mismatch (the obvious "stricter" reading) turns every
-  opaque access token into an auth failure — mutating it red 130+ tests across
-  the suite, because every fixture mints an opaque `pt-…`. A pin is a
-  provenance question, not a token validator.
-- [x] **Device-name (ADR-062) lockstep** — **DONE 2026-08-21** (java `0.35.0`,
-  ts `0.37.0`).
-  ⚠️ **This entry said "JAVA ONLY now" and that was WRONG.** TS had only the
-  READ half (`SessionInfo.device_name`); `LoginRequest` had no `deviceName` and
-  nothing in `ts/src` ever sent `X-Device-Name`, so the send half was **Go-only**
-  and a TS consumer could display a label it had no way to set. The claim
-  survived because the read half is the visible one — the same "check the
-  artifact, not the shim" lesson this item already carried, one layer over.
-  Both SDKs now send the header on the **user grant only** (never the platform
-  bootstrap, an M2M mint the issuer records no device for) and Java's `Session`
-  gains `deviceName()`. Java's session-list fixture had been serving
-  `device_name` all along while `@JsonIgnoreProperties(ignoreUnknown = true)`
-  swallowed it — a test can serve a field for months and assert nothing about it.
-  Still open, unchanged: (2) optional — show the device name on the `/device`
-  approve page (needs a by-`user_code` lookup).
-  ✅ **The re-vendor half was CLOSED 2026-08-06, and the alarm in this item was
-  false.** The prior note claimed the committed tarball lacked `device_name` and
-  that "eight repacks shipped without picking the field up". Checked inside the
-  vendored artifact — `tar -xzOf vendor/realm-id-web-admin-0.8.18.tgz
-  package/dist/types.d.ts` — and `device_name?` is declared on `ActiveSession`.
-  It was already there. `ui/web/src/Settings/Sessions.tsx`'s local
-  `& { device_name?: string }` augmentation is deleted; the component reads the
-  field at two sites, so `tsc` passing after the deletion is a real check that
-  the SDK type carries it, not a vacuous one.
-  **Why this stayed open so long is the reusable part:** the item was re-verified
-  three times by checking whether the SHIM still existed in `ui/`, which it did —
-  but a shim outliving its need looks identical to a shim still needed. The
-  question "is the field in the tarball?" was never asked until now.
-
+> ~~**TS `listSessions` returns the FIRST PAGE only.**~~ **DONE 2026-08-21,
+> ts `0.37.0` — BREAKING.** Now returns `Paginated<SessionInfo>` and follows
+> `next_cursor`. All three languages page as of go `0.45.0` / ts `0.37.0` /
+> java `0.35.0`; SPEC §4.6 updated, since it documented the divergence as a
+> standing carve-out.
+> **The deciding argument was internal consistency, not cross-language
+> tidiness**: `Paginated<T>` is already exported TS public API and already what
+> `federationBindings.list()` returns, so the bare array was the odd one out
+> *inside the TS SDK itself*. Two non-breaking options were weighed and
+> rejected — looping internally behind the array signature (unbounded, no early
+> stop, keeps the SPEC §7 carve-out) and adding a second paged method (leaves
+> the truncating call as the default one everybody reaches for). A compile
+> error with an obvious fix beats the same call quietly returning a different
+> row count.
+> **Verified against a REAL issuer**, not only a fixture: the new e2e case
+> drives the issuer's own `pagedSlice` with `limit: 1` so two sessions force a
+> second page, and asserts as a PRECONDITION that the server emits
+> `next_cursor` at all. Mutation-verified three ways. Also fixed on the same
+> lines: `docs/integration-guide.md` §4.5 showed the old array call AND read
+> `s.createdAt`/`s.lastUsedAt`, fields TS has never returned.
+> Rationale: `DECISIONS.md` 2026-08-21 (latest).
+> ~~**`gofmt -l` reports FOUR files**~~ — **DONE 2026-08-21, formatted AND
+> gated.** The diff is whitespace-only bar one import reorder in
+> `middleware_test.go`; `go test ./...` green.
+> **The gate is the real change, and finding out why it had never been built is
+> the finding.** This entry deferred to "the issuer has a matching open item for
+> a CI `gofmt` gate", and that issuer item had been re-noticed three times
+> (2026-07-28, 2026-08-05, and implicitly here) as "ten minutes of work". It was
+> not ten minutes, because **`Realm-ID/sdk` had no push/PR CI at all** — only
+> two tag-triggered publishers and `verify-go-release.yml`. There was no
+> workflow to add a step to. An item naming a step inside a workflow that does
+> not exist reads as trivial and is not.
+> New `.github/workflows/ci.yml` runs go (gofmt + build + vet + test), ts (tsc +
+> node --test) and java (gradle test) on push and PR, jobs independent so a
+> broken toolchain in one cannot hide a red suite in another. The issuer's unit
+> job gained the same gofmt step. Both gates mutation-verified; all three job
+> command sets verified locally in containers, since Actions is down and cannot
+> run them. Original entry:
+> ~~**TS: BFF on-behalf-of parity**~~ — **CLOSED 2026-08-21 BY MEASUREMENT.
+> Do not re-open as a build task.** The item asked for a `userId` +
+> `X-On-Behalf-Of-User` path in TS "because Go and Java have it". Checked
+> against a live issuer (`tests/sdk-e2e`) before writing any code:
+> - platform bearer + bare `X-On-Behalf-Of-User` → **401
+> `x_user_token_required`**. Issuer v0.66.0 removed that mode: the id was an
+> unauthenticated user id any platform-key holder could use to act as any
+> user in the realm.
+> - platform bearer + `X-User-Token`, **no id at all** → **200**.
+>
+> So TS was never missing the working mode — `realm.withUserToken(jwt)` has sent
+> exactly that since ts `0.33.0`. **Building the item as written would have
+> shipped a mode the issuer refuses**, the "documented, wired, does nothing"
+> shape this workspace keeps paying for.
+> **What was wrong on the Go/Java side is the real finding:** their `UserID`
+> path sends the id with NO user token, so it 401s against any current issuer
+> unless the caller separately threads one. Both now refuse locally, naming the
+> remedy. **Scoped carefully** — the id is an IDENTITY pivot on sessions/MFA-self
+> (`derivePlatformActsOnUser`) but a DOMAIN PARAMETER on the OTP routes
+> (`internal/httpapi/otp.go`: "NOT an authz pivot"), so Go's `resolveOnBehalfOf`
+> takes an `idAssertsIdentity` flag and OTP passes false; a blanket refusal broke
+> three OTP tests, which is how the distinction was found.
+> **Nine tests (7 Go, 2 Java) were PINNING the dead mode** — asserting a bare
+> on-behalf-of id against a fake server that accepts anything. Updated to thread
+> a user token. Same shape as every other "the guard tested the half that was
+> not broken" finding here.
+> **Java: implement the ADR-041 client-side realm pin.** **DONE 2026-08-21,
+> java `0.35.0`.** `PlatformTokenManager` decodes the freshly-minted platform
+> token and raises `REALM_MISMATCH` when its `iss` does not end in the
+> configured realm; `Realm.builder()` wires the realm id in, so the pin is on
+> for every partner-built client.
+> **The finding is the WIRING, not the check.** Four manager-level tests pass
+> with `Realm` passing `null` for the realm id — i.e. with the pin dead for
+> every real consumer — which is this workspace's recurring "correct one layer
+> below where it must fire" shape. `RealmPinWiringTest` builds through
+> `Realm.builder()` and is the only test that dies under that mutation.
+> **The skip branch is load-bearing and was nearly missed**: treating an
+> undecodable token as a mismatch (the obvious "stricter" reading) turns every
+> opaque access token into an auth failure — mutating it red 130+ tests across
+> the suite, because every fixture mints an opaque `pt-…`. A pin is a
+> provenance question, not a token validator.
+> **Device-name (ADR-062) lockstep** — **DONE 2026-08-21** (java `0.35.0`,
+> ts `0.37.0`).
+> ⚠️ **This entry said "JAVA ONLY now" and that was WRONG.** TS had only the
+> READ half (`SessionInfo.device_name`); `LoginRequest` had no `deviceName` and
+> nothing in `ts/src` ever sent `X-Device-Name`, so the send half was **Go-only**
+> and a TS consumer could display a label it had no way to set. The claim
+> survived because the read half is the visible one — the same "check the
+> artifact, not the shim" lesson this item already carried, one layer over.
+> Both SDKs now send the header on the **user grant only** (never the platform
+> bootstrap, an M2M mint the issuer records no device for) and Java's `Session`
+> gains `deviceName()`. Java's session-list fixture had been serving
+> `device_name` all along while `@JsonIgnoreProperties(ignoreUnknown = true)`
+> swallowed it — a test can serve a field for months and assert nothing about it.
+> Still open, unchanged: (2) optional — show the device name on the `/device`
+> approve page (needs a by-`user_code` lookup).
+> ✅ **The re-vendor half was CLOSED 2026-08-06, and the alarm in this item was
+> false.** The prior note claimed the committed tarball lacked `device_name` and
+> that "eight repacks shipped without picking the field up". Checked inside the
+> vendored artifact — `tar -xzOf vendor/realm-id-web-admin-0.8.18.tgz
+> package/dist/types.d.ts` — and `device_name?` is declared on `ActiveSession`.
+> It was already there. `ui/web/src/Settings/Sessions.tsx`'s local
+> `& { device_name?: string }` augmentation is deleted; the component reads the
+> field at two sites, so `tsc` passing after the deletion is a real check that
+> the SDK type carries it, not a vacuous one.
+> **Why this stayed open so long is the reusable part:** the item was re-verified
+> three times by checking whether the SHIM still existed in `ui/`, which it did —
+> but a shim outliving its need looks identical to a shim still needed. The
+> question "is the field in the tarball?" was never asked until now.
+>
 > **NOT RELEASED — both bumps are committed locally only.** GitHub Actions is
 > down on the `Realm-ID` org (billing), so `java-v0.35.0` and `ts-v0.37.0` are
 > unpublished; Maven Central still serves `0.34.0` and npm `0.36.0`. Tag and
 > publish when CI returns.
-
 ## ADR-056 deferred follow-ups
 
 - [ ] **SDK distributed `WithLock` (Q2).** `go/token_manager.go:32` uses an
