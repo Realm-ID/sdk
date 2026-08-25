@@ -94,7 +94,13 @@ that was actually missing. The host tree was reinstalled; `npm test` is 221/0 on
 macOS again.
 
 **Prevention.** The script replaces the recipe in `sdk/TODO.md` and
-`ts/README.md`, so the written remedy is no longer the cause. A regression *test*
+`ts/README.md`, so the written remedy is no longer the cause. It handles
+SELF-CONTAINED packages only and **refuses the `web` workspace outright** rather
+than half-running it: measured, `web` as a target fails web-admin's pretest with
+`ENOENT /ts/package.json` (the sdk symlink points above the mount), then runs the
+other three workspaces anyway and exits 254 — a partial run under a non-zero
+code, the shape that gets skimmed as "noisy but passing". The web tree needs no
+native binaries, so the host is the right place for it. A regression *test*
 was considered and rejected: asserting "a container run leaves the host tree
 alone" requires a docker-in-test harness to prove a property that is now
 structural (there is no unshadowed mount left to exercise), and the guard would

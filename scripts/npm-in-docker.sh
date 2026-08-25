@@ -28,6 +28,16 @@
 #
 # `npm ci` runs first, into the shadow volume. The volume is per-package and
 # persists, so repeat runs skip the download; `docker volume rm` it to reset.
+#
+# SELF-CONTAINED PACKAGES ONLY — `ts`, today. The `web` tree is an npm WORKSPACE:
+# its deps hoist to `web/node_modules` and `@realm-id/sdk` is a symlink to
+# `../../../ts`, OUTSIDE any mount this script makes. Measured rather than
+# assumed: `web` as a target gets `ENOENT /ts/package.json` on web-admin's
+# pretest, then npm carries on and runs the OTHER three workspaces before
+# exiting 254 — a partial run with a non-zero code, which is exactly the shape
+# that gets skimmed as "some noise but it passed". So both are REFUSED below.
+# Run the web tree on the host: it needs no native binaries (the esbuild hazard
+# is `ts`'s, via tsx).
 set -euo pipefail
 
 readonly NODE_IMAGE="${NODE_IMAGE:-node:22-alpine}"
@@ -48,8 +58,21 @@ if [ ! -f "$pkg_dir/package.json" ]; then
   exit 2
 fi
 
-# One volume per package. `/` in a nested package dir (web/packages/admin) is
-# not legal in a volume name.
+# Refuse the workspace tree rather than half-running it. See the header: a
+# workspace member's deps live above the mount, so `npm ci` cannot resolve them
+# and npm reports the failure while still running everything else.
+if grep -q '"workspaces"' "$pkg_dir/package.json" 2>/dev/null; then
+  echo "error: $pkg is an npm workspace ROOT — its members' deps hoist above any mount" >&2
+  echo "       this script makes. Run it on the host: (cd $pkg && npm test)" >&2
+  exit 2
+fi
+if [ -f "$pkg_dir/../../package.json" ] && grep -q '"workspaces"' "$pkg_dir/../../package.json" 2>/dev/null; then
+  echo "error: $pkg is an npm workspace MEMBER; its deps hoist to the workspace root," >&2
+  echo "       outside this script's mount. Run it on the host: (cd $pkg && npm test)" >&2
+  exit 2
+fi
+
+# One volume per package.
 vol="realmid_sdk_node_$(printf '%s' "$pkg" | tr '/' '_')"
 
 echo "==> $NODE_IMAGE :: npm ci && npm $* (in $pkg, node_modules shadowed by $vol)"
