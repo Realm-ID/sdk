@@ -98,6 +98,31 @@ against the issuer's actual `iss`).
 is source-incompatible only for code calling its canonical constructor
 positionally (no first-party caller does).
 
+## java-v0.34.0 — `me().acceptInvitation`, the mirror of reject (ADR-095 D5) (2026-08-03)
+
+Backfilled 2026-08-25 from commit `1b5e1c0` — see `../CHANGELOG.md`'s matching
+entry (go `0.44.0` · ts `0.35.0` · java `0.34.0`) for the full cross-language
+writeup; this entry states the Java-specific surface.
+
+`realm.me().acceptInvitation(tenantId, auth)` wraps `POST
+/me/invitations/{tenantId}/accept`, alongside the existing `rejectInvitation`.
+Accepts a **pending** invitation: the lifecycle row is stamped `accepted` and
+the membership becomes `active`; returns the same `{tenantId, status}`
+envelope as `rejectInvitation`/`leave`, no request body.
+
+Exists because a realm on `invitation_acceptance: "explicit"` (ADR-095 D2,
+issuer `v0.82.0`) no longer activates an invitation implicitly at login, so a
+decline path with no matching accept path left an invitee able to say no and
+unable to say yes.
+
+Errors keep specific codes rather than collapsing into a generic 409:
+`not_invited` (already an active member) vs. `not_pending` (already answered,
+revoked or expired). `404` deliberately does not distinguish "no such tenant"
+from "not yours".
+
+Additive — no existing signature changed. Spec `0.20.0` → `0.21.0`. 185 tests
+pass.
+
 ## java-v0.33.0 — BREAKING: `TenantCreate.allowedDomains` removed (ADR-094 R3) (2026-08-02)
 
 `tenants.allowed_domains` no longer exists server-side (issuer `v0.77.0`). The

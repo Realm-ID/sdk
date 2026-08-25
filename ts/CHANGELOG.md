@@ -4,14 +4,6 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-> **Gap notice (2026-08-06):** entries for `0.29.0`–`0.35.0` are MISSING — this
-> file jumps from `0.28.0` straight to `0.36.0` below. The releases happened;
-> only their changelog entries don't exist. Backfilling them from the
-> version-bump commits is filed in `../TODO.md`. Same shape as the
-> `web-admin` `0.8.13`–`0.8.17` gap backfilled on 2026-08-03: a changelog stops
-> being trustworthy the moment it silently skips, because a reader cannot tell
-> "nothing shipped" from "nobody wrote it down".
-
 ## 0.40.0 — `scopes.remove` (2026-08-25)
 
 Additive. Issuer spec `0.32.0`, ADR-097 §G. **Not published** — CI is down; the
@@ -161,6 +153,169 @@ issuer records no device for, and never in the body. Absent means **no header**:
 the issuer reads a present empty value as a supplied label. The server caps the
 value at 120 chars and strips control characters (`sanitizeDeviceName`), so the
 SDK sends it raw.
+
+## 0.35.0 — `me.acceptInvitation`, the mirror of reject (ADR-095 D5) (2026-08-03)
+
+Backfilled 2026-08-25 from commit `1b5e1c0` — see `../CHANGELOG.md`'s matching
+entry (go `0.44.0` · ts `0.35.0` · java `0.34.0`) for the full cross-language
+writeup; this entry states the TS-specific surface.
+
+`realm.me.acceptInvitation({ tenantId })` wraps `POST
+/me/invitations/{tenantId}/accept`, alongside the existing `rejectInvitation`.
+Accepts a **pending** invitation: the lifecycle row is stamped `accepted` and
+the membership becomes `active`; returns the same `{ tenantId, status }`
+envelope as `rejectInvitation`/`leave`, no request body.
+
+Exists because a realm on `invitation_acceptance: "explicit"` (ADR-095 D2,
+issuer `v0.82.0`) no longer activates an invitation implicitly at login, so a
+decline path with no matching accept path left an invitee able to say no and
+unable to say yes.
+
+Errors keep specific codes rather than collapsing into a generic 409:
+`not_invited` (already an active member) vs. `not_pending` (already answered,
+revoked or expired) — different remedies, only the code tells them apart.
+`404` deliberately does not distinguish "no such tenant" from "not yours".
+
+Additive — no existing signature changed. Spec `0.20.0` → `0.21.0`.
+
+## 0.34.0 — BREAKING: `allowedDomains` removed from tenant create (ADR-094 R3) (2026-08-02)
+
+Backfilled 2026-08-25 from commit `5f44408` — see `../CHANGELOG.md`'s matching
+entry (go `0.43.0` · ts `0.34.0` · java `0.33.0` · web-admin `0.8.17`) for the
+full cross-language writeup.
+
+`tenants.allowed_domains` no longer exists server-side (issuer `v0.77.0`,
+migration `1785888000`). `TenantCreate.allowedDomains` is **deleted**; the
+create body no longer sends `allowed_domains`. `updateConfig` no longer
+honours it either — the server answers `400 unknown_config_key`.
+
+Domains that auto-provision are now `tenant_domains` grants, claimed and
+proven through the domains API — a settable allowlist required no proof of
+control, which is what let a domain confer access nobody had demonstrated.
+Note for migrations: a bulk-imported org therefore starts with its domains
+**inert** — there is no bulk-approve path, by design.
+
+Spec `0.17.0` → `0.18.0`.
+
+## 0.33.0 — `withUserToken`: on-behalf-of reaches the typed surface (2026-08-02)
+
+Backfilled 2026-08-25 from commit `398c3ef` — see `../CHANGELOG.md`'s matching
+entry (ts `0.33.0` · java `0.32.0`) for the full cross-language writeup.
+
+Additive. No existing method, signature or default changed; a caller that
+never calls `withUserToken` sends exactly the bytes it sent before.
+
+A partner BFF acting for a signed-in user must forward that user's verified
+access JWT as `X-User-Token` beside the platform bearer (§4, ADR-056) — the
+bare `X-On-Behalf-Of-User` id stopped being an identity in issuer `v0.66.0`.
+Before this release TS could only send that header on `realm.me.*`; a partner
+calling `tenants.list()` on a user's behalf had to drop to raw HTTP.
+
+- **`realm.withUserToken(accessJWT)`** returns a **derived** realm whose every
+  call carries the header. The platform token stays the wire bearer — the
+  user JWT is additive, never a replacement.
+- **Derivation, not a setter** — a settable field on a long-lived realm handle
+  would let one request's user leak into the next. The parent's
+  platform-token cache, verifier and JWKS cache are shared, so deriving per
+  request is cheap.
+- **A per-call user token still wins**, and the header is now sent **exactly
+  once** — header names are lower-cased on the way in, closing a
+  double-header hazard (`fetch` joins same-named headers with a comma, which
+  the issuer cannot parse).
+
+189 → 190 tests pass.
+
+## 0.32.0 — membership self-service + the single-tenant picker (ADR-092) (2026-07-30)
+
+Backfilled 2026-08-25 from commit `52f4eb1` (version bump; feature landed in
+`eff0322`) — see `../CHANGELOG.md`'s matching entry (go `0.42.0` · ts `0.32.0`
+· java `0.31.0`) for the full cross-language writeup.
+
+Purely additive typing of an already-live issuer contract. No existing field,
+method or signature changed.
+
+- **`realm.me.*`** gains `chooseTenant` (`POST /me/tenant-choice`),
+  `rejectInvitation` (`POST /me/invitations/{tenantId}/reject`), `leave`
+  (`POST /me/memberships/{tenantId}/leave`). Authorized by the end user:
+  direct (`userBearer`) or BFF (`userToken` → `X-User-Token`). No user-id
+  mode.
+- **Login response** gains `tenantChoiceRequired` + `tenantChoices[]`
+  (`{ tenantId, displayName, isOwner }`). Login still succeeds and still
+  returns tokens; the picker is a reconciliation prompt, not an auth failure.
+- **`config.get()`** gains `singleTenantPendingReconciliation` — derived,
+  read-only. Absent ≠ `0`: reported only while `single_tenant_membership` is
+  on.
+- **Seven error codes** registered in the taxonomy: `owner_cannot_be_revoked`,
+  `single_tenant_not_required`, `not_invited`, `not_pending`,
+  `invitations_unavailable`, `owner_cannot_leave`, `already_left`.
+
+## 0.31.0 — BREAKING: the platform session has no refresh token (ADR-089) (2026-07-27)
+
+Backfilled 2026-08-25 from commit `b6c9ad0` — see `../CHANGELOG.md`'s matching
+entry (go `0.40.0` · ts `0.31.0` · java `0.29.0`) for the full cross-language
+writeup, including the mandatory release-order note.
+
+**Ship this before the issuer deploys `v0.68.0`** — an older SDK *requires*
+`refresh_token` in the login response and throws
+`"platform login returned empty tokens"` when it's absent, so it fails hard
+against a `v0.68.0`+ issuer on the first call. This SDK version works against
+old and new issuers alike.
+
+The SDK's platform identity is now an **access token only**. Every
+acquisition is a `POST /auth/login` with the bootstrap credential; when the
+cached token comes within 30s of expiry, the SDK does that again.
+`POST /auth/token` is no longer called for this identity.
+
+- `PlatformTokenManager` loses its refresh-token path; `login` no longer
+  requires `refresh_token`; `invalidate()` now clears the whole cached
+  session rather than preserving a refresh token.
+
+Why: ADR-089 withdrew the refresh token from every credential-bootstrapped
+session — the caller already holds the credential needed to mint a fresh
+token, so the refresh token was a strictly weaker duplicate that also
+outlived revocation of its source.
+
+Also: `platform_refresh_rotates` is gone from the realm-config surface
+(`PATCH /platforms/{id}/config` → `unknown_config_key`).
+
+## 0.30.0 — `admin.userApiKeys` reaches the `/internal` entry point (2026-07-26)
+
+Backfilled 2026-08-25 from commit `a512679` — see `../CHANGELOG.md`'s matching
+entry (ts `0.30.0` · web-admin `0.8.14`) for the full writeup.
+
+TypeScript only; no wire change — this exposes a client that already existed.
+
+`UserApiKeysClient` is now re-exported from the `/internal` entry point. It
+shipped in `0.29.0` on the public `realm.userApiKeys` facade but never on
+`@realm-id/sdk/internal` — the entry `@realm-id/web-admin` builds on — so the
+admin surface had no way to reach it. Also newly exported from `/internal`:
+`capAllows`, `isUserApiKeyRevoked`, and the `UserApiKey` /
+`UserApiKeyCreate` / `OrgScope` / `LivePermissionResolver` types.
+
+## 0.29.0 — admin-key lifecycle: `label` + `expires_at` on list rows (2026-07-26)
+
+Backfilled 2026-08-25 from commit `ffa935c` (ADR-084 user API keys landed
+first in `b976e86` on the same version) — see `../CHANGELOG.md`'s matching
+entry (go `0.39.0` · ts `0.29.0` · java `0.28.0` · web-admin `0.8.13`) for the
+full cross-language writeup.
+
+Tracks issuer `v0.61.0` (ADR-085 §2/§3/§7).
+
+- **`label` on every api-key list row.** The issuer had omitted it, though it
+  is the *only* handle on a key — the plaintext is echoed once at create and
+  `prefix` is derived from the stored hash.
+- **`expires_at` everywhere** (create response + list rows). Nullable, and
+  `null` is a value: "never expires", not "unknown".
+- **`ttlSeconds` / `nonExpiring` on create.** Omitting both applies the
+  issuer's built-in 90-day default; the 300s floor rejects rather than
+  clamps.
+- **Two new create failures** callers must expect: `too_many_api_keys` (409 —
+  a realm holds at most 2 active platform keys) and `non_expiring_not_allowed`
+  (400 — at most one permanent key).
+
+Also in this version: ADR-084 user API keys (`uk_live_…`) across the SDK —
+`realm.userApiKeys` — the surface `0.30.0` above then re-exported from
+`/internal`.
 
 ## 0.36.0 — read one platform's fleet row by id (2026-08-06)
 

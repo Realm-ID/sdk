@@ -86,32 +86,39 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > first draft of the test asserted the specific code and failed.
 > *(Whatever is decided, the 404 must stay indistinguishable between "not yours"
 > and "never existed" — that is a security property, not a taxonomy question.)*
-- [ ] **`java/CHANGELOG.md` has no `java-v0.34.0` entry** (noticed 2026-08-21
-  while adding `0.35.0`: `build.gradle.kts` was on `0.34.0` and the file jumped
-  from `0.33.0` to it). Backfill from the version-bump commit. **The MECHANISM is
-  now closed** (`scripts/changelog-hygiene.sh`, 2026-08-24) — a future release
-  cannot repeat this; what is left here is the historical backfill only.
-- [ ] **`ts/CHANGELOG.md` is missing `0.29.0`–`0.35.0`** — seven released
-  versions with no entries; the file jumps `0.28.0` → `0.36.0`. Backfill from the
-  version-bump commits, as the `web-admin` `0.8.13`–`0.8.17` gap was on
-  2026-08-03. **Same failure mode, second package**, which makes it a process
-  gap rather than an oversight: nothing fails when a release skips its changelog,
-  so it only surfaces when someone happens to read the file.
-  **The publish-workflow check this item asked for SHIPPED 2026-08-24**
-  (`scripts/changelog-hygiene.sh`, wired into all three release workflows), so
-  what remains here is the historical backfill of the seven entries — the gap
-  cannot grow.
-  *(Filed 2026-08-06 while adding the `0.36.0` entry; a gap notice now sits at the
-  top of that file so a reader isn't misled in the meantime.)*
-- [ ] **`DECISIONS.md` needs an index and an archive split.** It is **2261 lines**
-  (re-measured 2026-08-24; the entry said 1670+) across 57 entries, with no
-  per-entry index and no `DECISIONS-ARCHIVE.md`, so `head -50` cannot answer "what decisions exist?"
-  and anything consulting it pays for the whole file. Per the `decision-log`
-  skill: add a one-line-per-entry index under the H1, then move the oldest
-  entries to `DECISIONS-ARCHIVE.md`, keeping them listed in the index. Archive,
-  never delete — an archived file is still greppable in the working tree, a
-  deleted one is not. *(Filed 2026-08-05 while adding the Go-version entry;
-  `issuer/DECISIONS.md` is worth the same check.)*
+> ~~**`java/CHANGELOG.md` has no `java-v0.34.0` entry.**~~ **BACKFILLED
+> 2026-08-25** from release commit `1b5e1c0` (the same commit that cut
+> `go 0.44.0` / `ts 0.35.0` / `java 0.34.0`), cross-checked against the
+> matching entry in `../CHANGELOG.md`. Entry now sits between `java-v0.35.0`
+> and `java-v0.33.0`. The mechanism that let this happen was already closed
+> 2026-08-24 (`scripts/changelog-hygiene.sh`).
+>
+> ~~**`ts/CHANGELOG.md` is missing `0.29.0`–`0.35.0`.**~~ **BACKFILLED
+> 2026-08-25**, all seven versions, from their release commits (`ffa935c`,
+> `a512679`, `b6c9ad0`, `52f4eb1`, `398c3ef`, `5f44408`, `1b5e1c0`) —
+> cross-checked against each version's matching entry in `../CHANGELOG.md`,
+> which already carried the full cross-language writeup for every one of
+> these releases (nothing here was invented). The stale "Gap notice"
+> blockquote at the top of the file is removed along with it. Verified via
+> `scripts/changelog-hygiene.sh npm` (passes — it only gates the current
+> version at publish time, so this is a spot-check of the seven headings by
+> `grep`, not the gate itself).
+>
+> ~~**`DECISIONS.md` needs an index and an archive split.**~~ **The filed file
+> was not the problem file — corrected and closed 2026-08-25.**
+> `sdk/DECISIONS.md` was **2,480 lines** / 61 entries when re-measured
+> 2026-08-25 (up from the 2,261 the item said), but `issuer/DECISIONS.md` was
+> **11,565 lines** / 198 entries the same day — 4.6× larger, and named in NO
+> item anywhere. Both now carry the `decision-log`-skill treatment: a
+> one-line-per-entry index under the H1 (linking into the archive where an
+> entry moved) plus a `DECISIONS-ARCHIVE.md` split. `sdk/DECISIONS.md` →
+> 1,285 lines main / 1,274 archive (22 recent entries kept, 39 moved,
+> split at 2026-07-27). `issuer/DECISIONS.md` → 3,183 lines main / 8,598
+> archive (46 recent entries kept, 152 moved, split at 2026-08-07). Every
+> original `## ` heading verified present in exactly one of the two files
+> post-split (diff of sorted heading lists, both repos) and every entry BODY
+> verified byte-identical to the pre-split original (no rewording) — text was
+> moved, not rewritten. No entry lost.
 > **DONE 2026-08-06 — the ADR-081 role fields were NEVER actually missing, and
 > the diagnosis in this item was wrong.** `assignable_to` / `can_invite_roles`
 > ship on `RoleObject` in the tarball's bundled `@realm-id/sdk` and have for
