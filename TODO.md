@@ -135,6 +135,27 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > across eight repacks because it was re-checked by grepping SOURCE. Check the
 > packed tarball — `npm pack <pkg>@<version>` — which is what finally settled it.
 
+## Scope removal (ADR-097 §G) — partial language coverage
+
+- [ ] **`scopes.remove` exists in `ts` ONLY.** Written and tested at
+      `sdk/ts/src/scopes.ts` (`0.40.0`, unpublished — CI down). `go` and `java`
+      have no `ScopesClient` at all, so this is not "add a method" but "add the
+      resource" in both — the same shape as the rename, which is also ts-only.
+      Decide deliberately whether `scopes` is a ts-only surface (the console is
+      its only consumer today) or a lockstep one; SPEC §13 says surface changes
+      that break wire compatibility need all three, and an ADDITIVE resource does
+      not, so this is a product call rather than a spec violation.
+- [ ] **`web-admin` needs `scopes.remove`** to match `scopes.rename`, and the
+      console screen is blocked on it (`ui/TODO.md`).
+- [ ] **`sdk/ts` `npm test` fails on the macOS host** — `@esbuild/linux-arm64`
+      present, `@esbuild/darwin-arm64` needed: a container `npm ci` ran over the
+      bind-mounted host tree. Suite is green in Docker
+      (`docker run --rm -v "$(pwd)":/w -w /w node:22-alpine npm test`, 221/0).
+      Same class as the `ui/web` rollup-binaries issue fixed on 2026-07-27 by
+      SHADOWING `node_modules` in compose — re-running `npm ci` on the host only
+      papers over it until the next container run.
+
+
 ## Cross-language parity gaps
 
 > **An SDK↔issuer E2E suite now exists: `tests/sdk-e2e/` in the umbrella repo**

@@ -2326,12 +2326,44 @@ idempotent, deduping on collision, `?dry_run=true` for the counts.
 
 **Not reversible in general** — where a key held both `from` and `to`, the merge
 destroys what a reversal would need. That is why the dry run and the audit
-record exist. Removal is deliberately not offered.
+record exist.
 
 Refused on a `realmid`-audience realm, whose vocabulary is RealmID's own
 catalog. `realm_roles.permissions` is not renamed for the same reason: it is
 validated against that catalog on every write, in every realm, so it cannot hold
 your vocabulary.
+
+### 11.8 Removing a scope
+
+`POST /platforms/{id}/scopes/remove` (realm owner) deletes one of your scope
+strings from every cap in the realm. Same gate, same transaction discipline,
+same `realmid`-audience refusal.
+
+**It is a separate endpoint, not a flag on the rename, because removal is not
+reliably a narrowing operation.** An empty `permissions_cap` means **NO
+RESTRICTION** (§6.6.2) — so a key holding this scope and nothing else does not
+become powerless when you remove it, it becomes *unrestricted*: unconstrained at
+RealmID's permission gates, and passing every scope it requests through
+unfiltered.
+
+So such a key is treated as a **precondition failure**:
+
+| `on_empty` | behaviour |
+|---|---|
+| `refuse` (default) | Writes NOTHING — not even the keys that were not at risk — and answers `409 scope_removal_would_uncap`. |
+| `revoke` | Removes the scope AND revokes those keys, in the same transaction. Destructive and irreversible, so it must be named; an unrecognised value is rejected (`400 invalid_on_empty`), never defaulted. |
+
+**`?dry_run=true` always answers `200`, even when the write would answer 409**,
+and carries an `emptied` array naming the affected keys. That asymmetry is
+deliberate: the error envelope carries no structured payload, so the preview is
+the only surface that can hand you the list. It still reports the true outcome
+in `outcome` (`applied` · `would_apply` · `refused`), and a refusing preview
+still reports the full `keys` count so you can judge whether `revoke` is
+proportionate.
+
+Revoked and expired keys are never counted as blockers — they cannot mint — but
+their caps are still rewritten, so the vocabulary stays consistent everywhere it
+is stored.
 
 ## 12. Roadmap (deferred)
 

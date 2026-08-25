@@ -12,6 +12,38 @@ cross-cutting items affecting every SDK at once.
 > being trustworthy the moment it silently skips, because a reader cannot tell
 > "nothing shipped" from "nobody wrote it down".
 
+## 0.40.0 — `scopes.remove` (2026-08-25)
+
+Additive. Issuer spec `0.32.0`, ADR-097 §G. **Not published** — CI is down; the
+wrapper is written, tested and unreleased.
+
+- **`ScopesClient.remove({ scope, onEmpty?, dryRun? })`** wraps
+  `POST /platforms/{id}/scopes/remove`, alongside the existing `rename`.
+- **Read its doc comment before calling it.** Removal is not reliably a
+  narrowing operation: an empty `permissions_cap` means NO RESTRICTION, so
+  removing a key's last scope **uncaps** it. The server refuses by default
+  (`scope_removal_would_uncap`, HTTP 409) and writes nothing; `onEmpty:
+  "revoke"` removes and revokes in one transaction and must be named.
+- `dryRun: true` always answers 200 and is **the only way to obtain the
+  `emptied` list** — a refusing write returns 409, whose envelope carries no
+  payload.
+- `onEmpty` is OMITTED from the body when unset rather than sent as `"refuse"`:
+  the server owns the default, and a client hardcoding it would keep sending the
+  old one after a server-side change.
+- New exported types: `ScopeRemoveRequest`, `ScopeRemoveResult`,
+  `ScopeRemoveOnEmpty`, `ScopeRemoveEmptiedKey`.
+
+Suite 221 pass / 0 fail. The path assertion is mutation-verified (re-pointing
+`remove` at `/scopes/rename` fails two tests) — a wrapper's entire job is the
+path, and the ADR-095 `acceptInvitation` lesson is that one shipped in three
+languages with nothing verifying it.
+
+> **Host note:** `npm test` fails on macOS with an `@esbuild/linux-arm64`
+> platform error — the `node_modules` tree carries linux binaries from a
+> container install over the host mount. Run the suite in Docker
+> (`docker run --rm -v "$(pwd)":/w -w /w node:22-alpine npm test`). Same class
+> as the rollup binaries issue in `ui/web`, filed in `../TODO.md`.
+
 ## 0.39.0 — ADR-097: SDK-enforced route authorization (2026-08-24)
 
 New module `scope.ts`, exported from the package root. Three layers:
