@@ -147,13 +147,16 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
       not, so this is a product call rather than a spec violation.
 - [ ] **`web-admin` needs `scopes.remove`** to match `scopes.rename`, and the
       console screen is blocked on it (`ui/TODO.md`).
-- [ ] **`sdk/ts` `npm test` fails on the macOS host** — `@esbuild/linux-arm64`
-      present, `@esbuild/darwin-arm64` needed: a container `npm ci` ran over the
-      bind-mounted host tree. Suite is green in Docker
-      (`docker run --rm -v "$(pwd)":/w -w /w node:22-alpine npm test`, 221/0).
-      Same class as the `ui/web` rollup-binaries issue fixed on 2026-07-27 by
-      SHADOWING `node_modules` in compose — re-running `npm ci` on the host only
-      papers over it until the next container run.
+> ~~**`sdk/ts` `npm test` fails on the macOS host**~~ **FIXED 2026-08-25.**
+> Host tree reinstalled (`npm test` 221/0 on macOS), and
+> `scripts/npm-in-docker.sh <pkg> [npm args...]` now shadows `node_modules` with
+> a per-package named volume so a container run cannot reach the host tree.
+> **The entry's own diagnosis was wrong in both halves and that is the finding:**
+> the prescribed fix — shadow `node_modules` in compose — was ALREADY shipped
+> (`tests/docker-compose.test.yml`'s `sdk-e2e-ts`, since `dbeeb75`, with a
+> comment naming this hazard), and the cause was the unshadowed `docker run -v
+> "$(pwd)":/w` recipe **this entry published as the workaround**. Reproduced in
+> both directions before and after. RCA: `DECISIONS.md` 2026-08-25.
 
 
 ## Cross-language parity gaps

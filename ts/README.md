@@ -123,6 +123,19 @@ npm run build
 npm test
 ```
 
+To run them in a container instead, use the repo script — **not** a bare
+`docker run -v "$(pwd)":/w`:
+
+```bash
+../scripts/npm-in-docker.sh ts test
+```
+
+An unshadowed bind mount lets the container's `npm ci` install **linux**
+binaries over your host `node_modules`, after which a host `npm test` dies on
+"You installed esbuild for another platform". The script shadows
+`node_modules` with a per-package named volume so the two trees stay separate.
+See `DECISIONS.md`, 2026-08-25.
+
 ## License
 
 MIT — see the [LICENSE](../LICENSE) at the repo root.

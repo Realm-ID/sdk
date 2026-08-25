@@ -7,6 +7,57 @@ did this change happen."
 
 Newest first.
 
+## 2026-08-25 — the host `npm test` was broken by the workaround written to work around it
+
+**Symptom.** `npm test` in `sdk/ts` failed on the macOS host with *"You installed
+esbuild for another platform"* — **0 pass / 30 fail, on a clean HEAD**. The tree
+held `@esbuild/linux-arm64` and nothing else, while the lockfile lists every
+platform as an optional dependency. Measured 2026-08-24; the suite is 221/0 in
+Docker, so a green CI and a red laptop disagreed about the same commit.
+
+**Root cause.** A container `npm ci` ran over the **bind-mounted host tree**, so
+the linux binary replaced the darwin one. The tracker recorded this as
+compose damage and prescribed *"shadow `node_modules` in compose, as the
+2026-07-27 `ui/web` rollup fix did"* — and **that shadow was already in place**:
+`tests/docker-compose.test.yml`'s `sdk-e2e-ts` mounts a named volume at
+`/work/sdk/ts/node_modules`, and has since `dbeeb75`, the commit that introduced
+the service. Its comment names this exact hazard. Compose could not have done it.
+
+What did it is the recipe people reach for **when there is no compose service** —
+the one the TODO itself published as the remedy:
+
+    docker run --rm -v "$(pwd)":/w -w /w node:22-alpine npm ci && npm test
+
+That bind-mounts the package with no shadow. **The documented workaround was the
+defect**, and the prescribed fix was already shipped, so following the entry
+would have produced no change and left the tree broken.
+
+**Reproduced, not argued.** Host `darwin-arm64` → one run of the recipe above →
+host `linux-arm64`. Then repaired and re-run under the new script → host stays
+`darwin-arm64`, suite 221/0 in the container. Four measurements, both directions.
+
+**Why it wasn't caught.** Nothing observes the host tree. The unit suite runs in
+CI on linux, where a linux-only `node_modules` is correct, so the only surface
+that can see the breakage is a developer's laptop — and the damage is silent at
+write time and only surfaces on the *next* host run, by which point the container
+run that caused it is far away. The dating is what closed it: `node_modules` and
+`package-lock.json` share an mtime of 2026-08-24 19:11, inside the session that
+ran the recipe.
+
+**Fix.** `scripts/npm-in-docker.sh <package-dir> [npm args...]` — bind-mounts the
+package, shadows `node_modules` with a per-package named volume, runs `npm ci`
+into the shadow, then the requested npm command. The shadow now lives **wherever
+an npm command meets a bind mount**, not only in compose, which is the property
+that was actually missing. The host tree was reinstalled; `npm test` is 221/0 on
+macOS again.
+
+**Prevention.** The script replaces the recipe in `sdk/TODO.md` and
+`ts/README.md`, so the written remedy is no longer the cause. A regression *test*
+was considered and rejected: asserting "a container run leaves the host tree
+alone" requires a docker-in-test harness to prove a property that is now
+structural (there is no unshadowed mount left to exercise), and the guard would
+cost more than the class it protects. Stated rather than skipped silently.
+
 ## 2026-08-24 (later) — the taxonomy claim was measured, and it was eight codes wrong
 
 **Problem.** `sdk/TODO.md` asked whether `platform_not_found` should join the
