@@ -13,6 +13,18 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## gofmt only — go `0.47.1` (2026-08-26)
+
+**Cosmetic, no API or behaviour change.** `go/scope.go` carried a trailing
+blank line that failed CI's `gofmt` step; `go/v0.47.0` was cut from that
+commit, so formatting it changed `go/` after publication.
+
+The version bump is not optional and the CI message says why: two different
+trees would otherwise answer to one version, and re-pointing `go/v0.47.0` to
+pick it up breaks every consumer holding the old hash in `go.sum` with
+`checksum mismatch` — the 2026-07-05 incident. So the fix ships forward as a
+patch rather than by moving a published tag.
+
 ## ADR-097 — SDK-enforced route authorization — go `0.47.0` · ts `0.39.0` · java `0.37.0` (2026-08-24)
 
 **A partner adding an endpoint to their own product no longer has to update
