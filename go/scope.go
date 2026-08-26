@@ -407,4 +407,3 @@ func isRFC6749ScopeToken(s string) bool {
 }
 
 func quoteScope(s string) string { return `"` + s + `"` }
-
