@@ -157,7 +157,12 @@ check_go_immutable() {
       go mod download -json "${MODULE_PATH}@${version}" > download.json
   )
   local_sum=$(sed -n 's/.*"Sum": "\([^"]*\)".*/\1/p' "$probe/download.json" | head -1)
-  rm -rf "$probe"
+  # The Go module cache is written READ-ONLY, so a bare `rm -rf` exits non-zero
+  # and, under `set -e`, aborts this function BEFORE the comparison below — the
+  # guard failed during housekeeping and never ran its own assertion. Make the
+  # tree writable first, and never let cleanup decide the verdict.
+  chmod -R u+w "$probe" 2>/dev/null || true
+  rm -rf "$probe" || true
   if [ -z "$local_sum" ]; then
     echo "::error::go mod download did not report a Sum for ${MODULE_PATH}@${version}" >&2
     exit 2
