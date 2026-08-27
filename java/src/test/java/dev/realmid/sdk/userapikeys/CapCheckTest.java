@@ -73,6 +73,15 @@ class CapCheckTest {
         // PRESENT but empty = capped to nothing = deny everything. Conflating this
         // with "absent" would turn every empty-cap key into a FULL-AUTHORITY one,
         // which is the worst direction for the bug to go.
+        //
+        // ⚠️ ADR-100 made this a state the SERVER CAN NO LONGER PRODUCE: {} is
+        // not a storable cap, and an empty intersection at mint is a 403 rather
+        // than an empty claim. This assertion is deliberately kept anyway. It is
+        // not dead coverage — it pins the behaviour for a claim that arrives
+        // GARBLED or hostile off the wire, where "I am capped, to something
+        // unreadable" must still read as "to nothing". We no longer emit the
+        // state; we still deny on it. Do not delete it on the grounds that the
+        // issuer cannot reach it.
         assertFalse(CapCheck.capAllows(claimsWithCap(List.of()), "users:manage", live("users:manage")));
     }
 
@@ -101,10 +110,12 @@ class CapCheckTest {
     @Test
     void revokedKeysOffRevokedAt() {
         UserAPIKey live = new UserAPIKey("k1", null, "pfx", "l", OrgScope.SELECTED,
-                List.of("o1"), List.of("audit:read"), null, 1L, null, null, null);
+                List.of("o1"), Boolean.FALSE, List.of("audit:read"), null, 1L, null, null, null);
         assertFalse(live.revoked());
+        // uncapped=TRUE with a null cap, which is the only shape the server can
+        // now return for an unrestricted key (ADR-100 D1: {} is not storable).
         UserAPIKey dead = new UserAPIKey("k2", null, "pfx", "l", OrgScope.SELECTED,
-                List.of("o1"), List.of(), null, 1L, null, null, 1000L);
+                List.of("o1"), Boolean.TRUE, null, null, 1L, null, null, 1000L);
         assertTrue(dead.revoked());
     }
 }

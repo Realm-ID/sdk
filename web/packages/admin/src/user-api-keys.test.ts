@@ -38,11 +38,33 @@ describe("UserApiKeysClient via web-admin transport (ADR-084)", () => {
 
   it("create POSTs the mint body and returns the one-time value", async () => {
     const { http, calls } = makeHttp({ id: "k2", value: "uk_live_secret", label: "ci" });
-    const out = await asClient(http).create("t1", "u1", { label: "ci", org_scope: "selected" });
+    const out = await asClient(http).create("t1", "u1", {
+      label: "ci",
+      org_scope: "selected",
+      uncapped: false,
+      permissions_cap: ["users:read"],
+    });
     assert.equal(calls[0]!.opts.method, "POST");
     assert.equal(calls[0]!.opts.path, "/tenants/t1/users/u1/user-api-keys");
-    assert.deepEqual(calls[0]!.opts.body, { label: "ci", org_scope: "selected" });
+    // ADR-100: `uncapped` is on the wire even though it is FALSE — the value a
+    // conditional spread would drop. An absent `uncapped` used to mean "grant
+    // the holder's full authority", so the field being unconditional is the
+    // whole mechanism, not a detail of the serialiser.
+    assert.deepEqual(calls[0]!.opts.body, {
+      label: "ci",
+      uncapped: false,
+      org_scope: "selected",
+      permissions_cap: ["users:read"],
+    });
     assert.equal(out.value, "uk_live_secret");
+  });
+
+  it("update PUTs the same write body at the key's own path", async () => {
+    const { http, calls } = makeHttp({ id: "k2", label: "ci" });
+    await asClient(http).update("t1", "u1", "k/3", { label: "ci", uncapped: true });
+    assert.equal(calls[0]!.opts.method, "PUT");
+    assert.equal(calls[0]!.opts.path, "/tenants/t1/users/u1/user-api-keys/k%2F3");
+    assert.deepEqual(calls[0]!.opts.body, { label: "ci", uncapped: true });
   });
 
   it("revoke DELETEs the key path", async () => {

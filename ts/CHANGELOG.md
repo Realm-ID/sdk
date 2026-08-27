@@ -4,6 +4,36 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.41.0 — ADR-100: a key's authority is stated, never inferred (2026-08-27)
+
+**BREAKING.** `uncapped` is now required on the user-API-key write schema, and
+`scopes.remove` is gone. Unreleased — no tag is cut by this work.
+
+- **`UserApiKeyWrite`** replaces the create-only payload and is shared by
+  `create` and the new `update` (ADR-100 D12). `UserApiKeyCreate` remains as an
+  alias of it. **`uncapped: boolean` is required and has no default**, and it is
+  spread onto the wire UNCONDITIONALLY — `false` is exactly the value a
+  conditional spread drops, and dropping it would rebuild inside the SDK the bug
+  ADR-100 exists to remove: before this, a body of `{ label }` minted a key
+  carrying the holder's FULL authority, so ticking nothing in a console granted
+  everything.
+- **`userApiKeys.update(tenantId, userId, id, write)`** — `PUT`, sharing the one
+  write schema. **It resets what it omits**: change only the cap and the label
+  is blanked and the org scope reset. Read-then-write.
+- **`auth.login` / `auth.token` accept `rolePermissions`** (wire
+  `role_permissions`), the partner's own role→permission list, used to narrow a
+  key-derived token's `permissions_cap` claim per org. Optional; omitted means
+  unnarrowed. It can only narrow — the claim is `stored_cap ∩ supplied` — so a
+  wrong list cannot widen a key. An empty intersection is a `403` naming the
+  org, never an empty claim.
+- **REMOVED: `scopes.remove`, `ScopeRemoveOnEmpty`, `ScopeRemoveRequest`,
+  `ScopeRemoveResult`, `ScopeRemoveEmptiedKey`.** The endpoint was deleted
+  outright (ADR-100 D10) — retiring a scope is self-healing now that the partner
+  supplies `role_permissions` at mint. `scopes.rename` is untouched.
+- `capAllows` still denies on a PRESENT-but-empty claim, and now says why it
+  keeps a branch the issuer can no longer reach: a garbled claim off the wire
+  must fail closed.
+
 ## 0.40.0 — `scopes.remove` (2026-08-25)
 
 Additive. Issuer spec `0.32.0`, ADR-097 §G. **Not published** — CI is down; the

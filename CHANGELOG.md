@@ -13,6 +13,32 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-100: a key's authority is stated, never inferred — ts `0.41.0` · go `0.48.0` · java `0.38.0` · web-admin `0.9.0` (2026-08-27)
+
+**BREAKING in all four, and unreleased — no tag is cut by this work.** Issuer
+side lands separately and LAST (ADR-100 D19); new clients are correct against
+the old issuer, which ignores unknown fields and already treats an empty stored
+cap as uncapped, so there is no broken interval and no dual-accept release.
+
+- **`uncapped` is required on the user-API-key write schema, and unconditional
+  on the wire.** Before this, the body every client produced when nothing was
+  selected — `{"label": "x"}` — minted a key carrying the holder's FULL
+  authority, and on a `realmid`-audience key that is RealmID admin authority.
+  The same shape was also the only way to ask for an unrestricted key on
+  purpose, so the server could not refuse the accident without refusing the
+  intent. Naming the state separates them. Each SDK expresses "I did not say" in
+  its own idiom and lets it fail loudly: TS coerces, Go sends a pointer with no
+  `omitempty` so nil travels as JSON `null`, and Java simply deletes
+  `UserAPIKeyCreate.of(label)` so the four-null call no longer compiles.
+- **`update` — one write schema, shared with `create`, on `PUT`.** It **resets
+  what it omits**; read-then-write.
+- **`role_permissions` on login and refresh.** The partner's own role→permission
+  list, narrowing a key-derived token's `permissions_cap` claim per org.
+  Optional, and it can only narrow — the claim is `stored_cap ∩ supplied`.
+- **`scopes.remove` is DELETED** (TS + web-admin; go/java never had it).
+  Retiring a scope is self-healing now that the partner supplies
+  `role_permissions` at mint. `scopes.rename` is untouched.
+
 ## gofmt only — go `0.47.1` (2026-08-26)
 
 **Cosmetic, no API or behaviour change.** `go/scope.go` carried a trailing

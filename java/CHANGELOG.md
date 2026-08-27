@@ -4,6 +4,26 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.38.0 — ADR-100: a key's authority is stated, never inferred (2026-08-27)
+
+**BREAKING.** Unreleased — no `java-v*` tag is cut by this work.
+
+- **`UserAPIKeyWrite` replaces `UserAPIKeyCreate`, which is DELETED**, and with
+  it `UserAPIKeyCreate.of(label)`. That factory passed four nulls and produced
+  `{"label": "…"}` — the exact wire shape ADR-100 makes illegal, because it used
+  to mint a key carrying the holder's FULL authority. The compile error is the
+  point. Two named factories replace it: `UserAPIKeyWrite.capped(label, perms)`
+  and `UserAPIKeyWrite.uncapped(label)`.
+- `uncapped` is put on the body UNCONDITIONALLY, unlike every neighbouring
+  field — a null travels as JSON null and earns a loud `400`.
+- **`userApiKeys().update(tenantId, userId, id, write)`** — `PUT`, sharing the
+  one write schema. **It resets what it omits.**
+- **`LoginRequest` / `TokenRequest` gain `rolePermissions`** (wire
+  `role_permissions`), with `withRolePermissions(...)`; the pre-ADR-100
+  constructors are kept so existing arities still compile.
+- `UserAPIKey.uncapped()` on the response record — a positional widening, so
+  direct `new UserAPIKey(...)` calls need the extra component.
+
 ## java-v0.37.0 — ADR-097: SDK-enforced route authorization (2026-08-24)
 
 New package `dev.realmid.sdk.scope`. Three layers:

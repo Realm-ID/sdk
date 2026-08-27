@@ -61,6 +61,30 @@ type LoginRequest struct {
 	// auth server returns the tenant list (no tokens) so the caller can
 	// re-POST with the chosen tenant_id.
 	TenantID string
+
+	// RolePermissions is the permission list the holder's ROLE confers, in YOUR
+	// vocabulary, used to narrow a user-API-key token's permissions_cap claim to
+	// this org (ADR-100 D16/D5).
+	//
+	// Supply it from your own role→permission map. RealmID stores no partner
+	// catalog and will not resolve it for you (D17): a scope string is opaque
+	// here.
+	//
+	// OPTIONAL, and omitting it can only widen TOWARD the stored cap, never past
+	// it. The claim minted is stored_cap ∩ RolePermissions; omit the field and
+	// the stored cap travels unnarrowed, which is exactly the pre-ADR-100
+	// behaviour. A wrong or hostile list therefore cannot widen a key —
+	// A ∩ B ⊆ A for every B — which is what makes a caller-asserted value
+	// acceptable at all. It is audited as ASSERTED and unverified, the same
+	// convention SourceOrgID uses.
+	//
+	// Ignored for a token that is not key-derived, and ignored for an UNCAPPED
+	// key, whose claim stays ABSENT whatever you send (D7).
+	//
+	// An empty INTERSECTION is 403, not an empty claim (D8), and the narrowing
+	// is per-org — so a multi-org key can mint in one org and be refused in
+	// another. The error names the org.
+	RolePermissions []string
 }
 
 // TenantRef is the abbreviated tenant info embedded in Session.Tenants.
@@ -188,6 +212,32 @@ type TokenRequest struct {
 	RefreshToken string
 	TenantID     string
 	CustomClaims map[string]any
+
+	// RolePermissions is the permission list the holder's ROLE confers, in YOUR
+	// vocabulary, used to narrow a user-API-key token's permissions_cap claim to
+	// this org — on REFRESH as well as login (ADR-100 D16/D18).
+	//
+	// Supply it on EVERY mint. A user-API-key session IS refreshable, so a
+	// refresh that omits the list comes back WIDER than the token it replaces,
+	// silently. Supply it from your own role→permission map. RealmID stores no partner
+	// catalog and will not resolve it for you (D17): a scope string is opaque
+	// here.
+	//
+	// OPTIONAL, and omitting it can only widen TOWARD the stored cap, never past
+	// it. The claim minted is stored_cap ∩ RolePermissions; omit the field and
+	// the stored cap travels unnarrowed, which is exactly the pre-ADR-100
+	// behaviour. A wrong or hostile list therefore cannot widen a key —
+	// A ∩ B ⊆ A for every B — which is what makes a caller-asserted value
+	// acceptable at all. It is audited as ASSERTED and unverified, the same
+	// convention SourceOrgID uses.
+	//
+	// Ignored for a token that is not key-derived, and ignored for an UNCAPPED
+	// key, whose claim stays ABSENT whatever you send (D7).
+	//
+	// An empty INTERSECTION is 403, not an empty claim (D8), and the narrowing
+	// is per-org — so a multi-org key can mint in one org and be refused in
+	// another. The error names the org.
+	RolePermissions []string
 }
 
 // MintResult is realm.Auth.Token's response.
@@ -347,6 +397,9 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 	if req.TenantID != "" {
 		body["tenant_id"] = req.TenantID
 	}
+	if req.RolePermissions != nil {
+		body["role_permissions"] = req.RolePermissions
+	}
 	var resp Session
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method:  "POST",
@@ -397,6 +450,14 @@ func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 	}
 	if len(req.CustomClaims) > 0 {
 		body["custom_claims"] = req.CustomClaims
+	}
+	// Keyed on nil, not len — an EMPTY supplied list is a real instruction ("this
+	// role confers nothing here"), and the issuer answers it with a 403 naming
+	// the org. Folding it into "not supplied" would silently mint the unnarrowed
+	// cap instead, which is the widest possible reading of the narrowest possible
+	// input.
+	if req.RolePermissions != nil {
+		body["role_permissions"] = req.RolePermissions
 	}
 	var resp MintResult
 	if err := a.realm.http.do(ctx, requestOptions{
@@ -462,6 +523,10 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 	if req.TenantID != "" {
 		body["tenant_id"] = req.TenantID
 	}
+	// No role_permissions here, deliberately. The field narrows a USER API KEY's
+	// stored cap (ADR-100 D5), and an OTP login is not key-derived — there is no
+	// cap for it to intersect with, so accepting one would be a knob that does
+	// nothing. Add it only if a grant appears that can produce a capped token.
 	var resp Session
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method:  "POST",

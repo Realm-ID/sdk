@@ -105,6 +105,7 @@ export type { ApiKey, ApiKeyCreate } from "./api-keys.js";
 // partner must be able to call it rather than reimplement the intersection.
 export type {
   UserApiKey,
+  UserApiKeyWrite,
   UserApiKeyCreate,
   OrgScope,
   LivePermissionResolver,
@@ -114,14 +115,7 @@ export { capAllows, isUserApiKeyRevoked } from "./user-api-keys.js";
 export { OWNER, MEMBER } from "./roles.js";
 // ADR-097 §F — the realm-wide bulk scope rename.
 export { ScopesClient } from "./scopes.js";
-export type {
-  ScopeRenameRequest,
-  ScopeRenameResult,
-  ScopeRemoveRequest,
-  ScopeRemoveResult,
-  ScopeRemoveOnEmpty,
-  ScopeRemoveEmptiedKey,
-} from "./scopes.js";
+export type { ScopeRenameRequest, ScopeRenameResult } from "./scopes.js";
 export type {
   Role,
   PrincipalKind,

@@ -1,5 +1,17 @@
 # @realm-id/web-admin — changelog
 
+## 0.9.0 — ADR-100 passthrough (2026-08-27)
+
+**BREAKING**, and entirely inherited — this package owns no types of its own
+here, it re-exports `@realm-id/sdk`.
+
+- `admin.userApiKeys.create` now requires `uncapped`; `admin.userApiKeys.update`
+  is available (`PUT`, one shared write schema, resets what it omits).
+- `UserApiKeyWrite` re-exported.
+- **`admin.scopes.remove` is GONE** — the endpoint was deleted outright
+  (ADR-100 D10). `admin.scopes.rename` is untouched, and now carries the
+  dry-run and realm-id-default coverage the removed tests used to hold.
+
 ## 0.8.20 — `admin.scopes.rename` + `admin.scopes.remove` (ADR-097 §F, §G)
 
 Wires the ts SDK's `ScopesClient` onto the admin handle:

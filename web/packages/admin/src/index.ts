@@ -245,6 +245,7 @@ export type {
   ImportUserRowResult,
   ImportUsersResult,
   UserApiKey,
+  UserApiKeyWrite,
   UserApiKeyCreate,
   OrgScope,
   LivePermissionResolver,

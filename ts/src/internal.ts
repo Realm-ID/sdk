@@ -83,6 +83,7 @@ export {
   capAllows,
   isUserApiKeyRevoked,
   type UserApiKey,
+  type UserApiKeyWrite,
   type UserApiKeyCreate,
   type OrgScope,
   type LivePermissionResolver,

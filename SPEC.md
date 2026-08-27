@@ -357,7 +357,7 @@ SDK posts to `POST /auth/login` with a `grant_type` discriminator
 | `"google"`       | `"provider_token"` | `provider: "google"`, `token: <id token>` |
 | `"otp"`          | `"otp"`            | `identifier`, `presented` (use the `auth.otpLogin` helper; ADR-071 §4 renamed the grant from `otp_internal`) |
 
-Request: `{ method, providerToken, origin?, deviceName? }`
+Request: `{ method, providerToken, origin?, deviceName?, rolePermissions? }`
 - `method`: `"firebase" | "google" | "otp"`. `otp` (ADR-071 §4;
   formerly `otp_internal`) is the partner OTP login (see §X), gated
   server-side by `realms.config.otp_login_enabled`. When `method == "otp"`,
@@ -379,6 +379,25 @@ Request: `{ method, providerToken, origin?, deviceName? }`
   label. All three SDKs send it (Go `LoginRequest.DeviceName`, TS `deviceName`,
   Java `LoginRequest.withDeviceName(...)`).
 
+- `rolePermissions` (wire `role_permissions`, ADR-100 D16): the permissions the
+  holder's ROLE confers, in **your** vocabulary, used to narrow a
+  user-API-key-derived token's `permissions_cap` claim **per org**. Supply it
+  from your own role→permission map; RealmID stores no partner catalog and will
+  not resolve it for you (D17).
+
+  **Optional.** Omitted means unnarrowed — the stored cap travels as-is, which is
+  exactly the pre-ADR-100 behaviour, so every existing caller keeps working. The
+  claim minted is `stored_cap ∩ role_permissions`, and `A ∩ B ⊆ A` for every
+  `B`, so a wrong or hostile list can only NARROW, never widen past the stored
+  cap. That is what makes a caller-asserted value acceptable at all; it is
+  audited as ASSERTED and unverified, the convention `source_org_id` already
+  uses.
+
+  Ignored for a token that is not key-derived, and ignored for an **uncapped**
+  key, whose claim stays absent whatever you send (D7). **An empty intersection
+  is `403`, never an empty claim** (D8) — and because the narrowing is per-org,
+  a multi-org key can mint in one org and be refused in another, so the error
+  names the org.
   **Sanitizing is split, and the split is deliberate.** The server strips
   control characters and caps the value at **120 characters**
   (`sanitizeDeviceName`); no SDK duplicates the CAP, because that is policy and
@@ -447,7 +466,7 @@ the minted access token**. Wire: `POST /auth/token` with the refresh
 token presented as `Authorization: Bearer ...` (or in the body as
 `refresh_token`).
 
-Request: `{ refreshToken, tenantId, customClaims? }`
+Request: `{ refreshToken, tenantId, customClaims?, rolePermissions? }`
 - `tenantId`: required for multi-tenant user picks; ignored on service
   refresh tokens (ADR-051). There is no *platform* refresh token to ignore
   it on — ADR-089 withdrew it (§4.0). "Service" here means the ADR-071
@@ -457,6 +476,27 @@ Request: `{ refreshToken, tenantId, customClaims? }`
   **access token**, subject to a per-realm server-side allowlist. Use
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
   services need to authorize without a database lookup.
+- `rolePermissions` (wire `role_permissions`, ADR-100 D16): the permissions the
+  holder's ROLE confers, in **your** vocabulary, used to narrow a
+  user-API-key-derived token's `permissions_cap` claim **per org** — on REFRESH as well as login (D18). Supply it
+  from your own role→permission map; RealmID stores no partner catalog and will
+  not resolve it for you (D17).
+
+  **Supply it on every mint.** A user-API-key session IS refreshable, so a
+  refresh that omits the list comes back WIDER than the token it replaces —
+  silently. **Optional.** Omitted means unnarrowed — the stored cap travels as-is, which is
+  exactly the pre-ADR-100 behaviour, so every existing caller keeps working. The
+  claim minted is `stored_cap ∩ role_permissions`, and `A ∩ B ⊆ A` for every
+  `B`, so a wrong or hostile list can only NARROW, never widen past the stored
+  cap. That is what makes a caller-asserted value acceptable at all; it is
+  audited as ASSERTED and unverified, the convention `source_org_id` already
+  uses.
+
+  Ignored for a token that is not key-derived, and ignored for an **uncapped**
+  key, whose claim stays absent whatever you send (D7). **An empty intersection
+  is `403`, never an empty claim** (D8) — and because the narrowing is per-org,
+  a multi-org key can mint in one org and be refused in another, so the error
+  names the org.
 
 Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, tenantId,
 role, subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
@@ -1141,12 +1181,33 @@ platform-bot keys in every respect: separate table, separate route segment
 separate permission pair (`user_api_keys:read|manage`, so an org admin managing
 members' keys does not thereby gain platform-key power).
 
-- `create(tenantId, userId, { label, orgScope?, orgIds?, permissionsCap?, ttlSeconds? })`
-  → the row **plus** a one-time `value`. Wire:
+- `create(tenantId, userId, write)` → the row **plus** a one-time `value`. Wire:
   `POST /tenants/{tid}/users/{uid}/user-api-keys`.
+- `update(tenantId, userId, id, write)` → the row, **without** a `value` — the
+  secret is untouched. Wire:
+  `PUT /tenants/{tid}/users/{uid}/user-api-keys/{id}` (ADR-100 D12).
 - `list(tenantId, userId, opts?)` → paginated rows. Label + non-secret `prefix`
   only; the plaintext is never returned again.
 - `revoke(tenantId, userId, id)` — soft revoke.
+
+**`write` is ONE schema, shared by both verbs** (`{ label, orgScope?, orgIds?,
+uncapped, permissionsCap?, ttlSeconds? }`), and `update` is a **PUT**, not a
+PATCH: it **resets what it omits**. A caller changing only the cap must read the
+key first and send `label`, `orgScope` and `orgIds` back unchanged. That is the
+price of one schema instead of two, and it is deliberate — PATCH would make
+`permissionsCap` and `uncapped` an order-dependent pair that can arrive
+half-specified.
+
+`ttlSeconds` is mutable on `update` (D13) and recorded in the audit log.
+Widening on `update` — `uncapped` false→true, adding permissions, `orgScope`
+selected→all, extending the TTL — carries the same MFA step-up as the mint
+(`user_api_keys.require_mfa_at_mint`) and the same ADR-097 §E BFF escort. It has
+to: a key minted narrowly and then widened through an unguarded update would
+make the mint's gate decorative.
+
+A cap change takes effect at the **next token mint**. Access tokens already
+issued keep the bound they were minted with until they expire. Narrowing is not
+immediate; that is a property of the design, not a bug to fix.
 
 `userId` MUST be the caller — keys are self-service, with no override: an admin
 minting a credential that authenticates AS a member is impersonation by another
@@ -1157,8 +1218,8 @@ REMOVED. It is no longer a config key at all — PATCHing it answers
 `400 unknown_config_key` rather than being accepted and silently ignored.
 
 Row DTO (code wins — the issuer response is authoritative):
-`{ id, prefix, label?, orgScope, orgIds, permissionsCap, mintedMfaAt?, createdAt,
-lastUsedAt?, expiresAt?, revokedAt? }`. All `*At` are unix seconds and nullable
+`{ id, prefix, label?, orgScope, orgIds, uncapped, permissionsCap?, mintedMfaAt?,
+createdAt, lastUsedAt?, expiresAt?, revokedAt? }`. All `*At` are unix seconds and nullable
 except `createdAt`.
 
 - `orgScope` ∈ `"selected" | "all"`. `selected` is a FROZEN allowlist — orgs the
@@ -1168,8 +1229,49 @@ except `createdAt`.
   reachable: revocation on membership loss is an async sweep and live membership
   is re-intersected at every exchange, so a key can *list* an org it can no
   longer *mint into*.
+- `uncapped` and `permissionsCap` are mutually exclusive: exactly one of the two
+  describes the key. `uncapped: true` comes with an absent or empty
+  `permissionsCap`; otherwise `permissionsCap` is non-empty. The server cannot
+  store an empty cap at all (below).
 - `mintedMfaAt` is load-bearing, not informational: key exchange is exempt from
   the realm MFA floor if and only if it is set.
+
+#### 6.6.0 `uncapped` — authority is stated, never inferred (ADR-100)
+
+**`uncapped` is REQUIRED on create and on update.** There is no default and no
+third state:
+
+| `uncapped` | `permissionsCap` | result |
+|---|---|---|
+| `true` | empty / omitted | an unrestricted key — all **current and future** permissions of the holder |
+| `false` | non-empty | a key capped to exactly those entries |
+| `false` | empty / omitted | `400` |
+| `true` | non-empty | `400` — self-contradicting |
+
+`uncapped: true` additionally needs the realm's `user_api_keys.allow_uncapped`,
+which **defaults to false** — `403 uncapped_not_allowed` otherwise. Same shape
+and same argument as `allow_non_expiring`: an unrestricted user credential
+should be a conscious realm-level decision, not what you get by omitting a
+field.
+
+**Why the field exists.** Before ADR-100 a body of `{"label": "x"}` — the shape
+every client produced when nothing was ticked — minted a key carrying the
+holder's **full** authority, and on a `realmid`-audience key that is RealmID
+admin authority. The direction was backwards from the intuition: *"I selected no
+permissions"* granted everything. Worse, the same shape was the only way to ask
+for an unrestricted key on purpose, so the server could not refuse the accident
+without refusing the intent. Naming the state separates them.
+
+**`uncapped` is forward-inclusive, and is NOT a shorthand for "everything I can
+do today".** An operator who wants today's set frozen names today's permissions
+explicitly. A console must not render an all-current selection as "All
+permissions" either — that makes it visually indistinguishable from uncapped and
+rebuilds the confusion in the display layer.
+
+**Storage has three states and one of them is illegal.** The column is nullable:
+`NULL` is uncapped, a non-empty array is exactly those entries, and `{}` is
+refused by a CHECK constraint. The wire table above is that constraint mirrored,
+so there is one validation path rather than two that can drift.
 
 #### 6.6.1 Exchange — `auth.userApiKeyLogin`
 
@@ -1220,6 +1322,18 @@ operand. That is the whole point: the insecure one-operand form — "does the ca
 list this permission?" — is not expressible in our own API, so a partner cannot
 implement the semantics we rejected by accident. `liveResolver` returns the
 permissions the principal holds *right now*, from the partner's own store.
+
+An **absent** `permissions_cap` claim means the token is not capped — it is not
+key-derived, or it is derived from an uncapped key, which is still delivered by
+omission. A **present-but-empty** claim means capped to nothing and denies
+everything.
+
+⚠️ **The issuer never emits `[]`** (ADR-100): `{}` is not a storable cap, and an
+empty intersection at mint is a `403` rather than an empty claim. Every SDK
+nevertheless keeps denying on a present-but-empty claim, and that branch must not
+be tidied away — it is what a garbled or hostile claim arriving off the wire
+lands on, and the only safe reading of *"I am capped, to something unreadable"*
+is *"to nothing"*. We no longer produce the state; we still deny on it.
 
 Returns false when the cap omits the permission, when the live set omits it, or
 when the resolver errors. Failing closed on a resolver error is deliberate: an
@@ -2333,37 +2447,25 @@ catalog. `realm_roles.permissions` is not renamed for the same reason: it is
 validated against that catalog on every write, in every realm, so it cannot hold
 your vocabulary.
 
-### 11.8 Removing a scope
+### 11.8 Retiring a scope — no endpoint, and none needed
 
-`POST /platforms/{id}/scopes/remove` (realm owner) deletes one of your scope
-strings from every cap in the realm. Same gate, same transaction discipline,
-same `realmid`-audience refusal.
+ADR-097 §G's `POST /platforms/{id}/scopes/remove` **is deleted** (ADR-100 D10),
+along with its `on_empty` enum, its `scope_removal_would_uncap` / `409` branch
+and its `invalid_on_empty` error. There is nothing to call.
 
-**It is a separate endpoint, not a flag on the rename, because removal is not
-reliably a narrowing operation.** An empty `permissions_cap` means **NO
-RESTRICTION** (§6.6.2) — so a key holding this scope and nothing else does not
-become powerless when you remove it, it becomes *unrestricted*: unconstrained at
-RealmID's permission gates, and passing every scope it requests through
-unfiltered.
+**Retiring a scope is self-healing.** Stop emitting the string in the
+`role_permissions` list you supply at every token mint (§4.1 / §4.2), map no
+route to it, and a stale entry in a stored cap never survives an intersection
+again. It is inert the moment you stop naming it. The endpoint was doing work
+that the narrowing rule now does for free.
 
-So such a key is treated as a **precondition failure**:
+**§11.7 rename is untouched** — that is the operation you genuinely cannot do by
+hand, because renaming a value stored as a plain array element has to happen
+everywhere at once.
 
-| `on_empty` | behaviour |
-|---|---|
-| `refuse` (default) | Writes NOTHING — not even the keys that were not at risk — and answers `409 scope_removal_would_uncap`. |
-| `revoke` | Removes the scope AND revokes those keys, in the same transaction. Destructive and irreversible, so it must be named; an unrecognised value is rejected (`400 invalid_on_empty`), never defaulted. |
-
-**`?dry_run=true` always answers `200`, even when the write would answer 409**,
-and carries an `emptied` array naming the affected keys. That asymmetry is
-deliberate: the error envelope carries no structured payload, so the preview is
-the only surface that can hand you the list. It still reports the true outcome
-in `outcome` (`applied` · `would_apply` · `refused`), and a refusing preview
-still reports the full `keys` count so you can judge whether `revoke` is
-proportionate.
-
-Revoked and expired keys are never counted as blockers — they cannot mint — but
-their caps are still rewritten, so the vocabulary stays consistent everywhere it
-is stored.
+If you want a key gone rather than a string retired, revoke the key
+(`realm.userApiKeys.revoke`). Removal never revoked anything you had not named,
+and now nothing does.
 
 ## 12. Roadmap (deferred)
 

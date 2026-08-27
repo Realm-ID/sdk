@@ -2,7 +2,10 @@ package realmid
 
 import (
 	ctxpkg "context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"testing"
 )
 
@@ -86,6 +89,14 @@ func TestCapAllows_AbsentVsEmptyCap(t *testing.T) {
 	// PRESENT but EMPTY = capped to nothing = deny everything. Conflating this
 	// with "absent" would turn every empty-cap key into a full-authority one,
 	// which is the worst direction for the bug to go.
+	//
+	// ⚠️ ADR-100 made this a state the SERVER CAN NO LONGER PRODUCE: {} is not a
+	// storable cap, and an empty intersection at mint is a 403 rather than an
+	// empty claim. This assertion is deliberately kept anyway. It is not dead
+	// coverage — it pins the behaviour for a claim that arrives GARBLED or
+	// hostile off the wire, where "I am capped, to something unreadable" must
+	// still read as "to nothing". We no longer emit the state; we still deny on
+	// it. Do not delete it on the grounds that the issuer cannot reach it.
 	empty := &Claims{Extra: map[string]any{"permissions_cap": []any{}}}
 	if CapAllows(ctx, empty, "users:manage", liveOf("users:manage")) {
 		t.Error("a PRESENT but empty cap means capped to nothing and must deny everything")
@@ -159,5 +170,112 @@ func TestUserAPIKey_RevokedAndListDecoding(t *testing.T) {
 	// fact.
 	if _, err = decodeUserAPIKeyList([]byte(`"nope"`)); err == nil {
 		t.Error("an unexpected shape must error, not read as an empty list")
+	}
+}
+
+// --- ADR-100: the write body -------------------------------------------------
+
+func newUserKeysRealm(t *testing.T, url string) *Realm {
+	t.Helper()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: url})
+	return r
+}
+
+const userKeysRoute = "/tenants/t1/users/u1/user-api-keys"
+
+// TestUserAPIKeys_CreateAlwaysStatesUncapped is the Go expression of ADR-100's
+// central rule. `false` is exactly the value an omitempty-shaped tag would drop,
+// and dropping it would put the pre-ADR-100 wire shape — a body with no
+// authority statement — back on the wire from inside the SDK that exists to
+// prevent it.
+func TestUserAPIKeys_CreateAlwaysStatesUncapped(t *testing.T) {
+	var gotBody map[string]any
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		userKeysRoute: func(w http.ResponseWriter, r *http.Request) {
+			buf, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(buf, &gotBody)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "k1"})
+		},
+	})
+	defer srv.Close()
+
+	_, err := newUserKeysRealm(t, srv.URL).UserAPIKeys.Create(ctxpkg.Background(), "t1", "u1",
+		UserAPIKeyWrite{Label: "ci", Uncapped: Uncapped(false), PermissionsCap: []string{"a"}})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	raw, present := gotBody["uncapped"]
+	if !present {
+		t.Fatal("uncapped absent from the create body — that IS the shape ADR-100 makes illegal")
+	}
+	if raw != false {
+		t.Errorf("uncapped = %v, want false", raw)
+	}
+}
+
+// TestUserAPIKeys_NilUncappedTravelsAsNull pins the reason the field is a
+// POINTER and carries no omitempty: "I did not say" has to be transmissible, so
+// the server can answer 400 instead of the SDK quietly choosing false. A caller
+// who forgets fails LOUDLY at the issuer, not silently at the wire.
+func TestUserAPIKeys_NilUncappedTravelsAsNull(t *testing.T) {
+	var raw []byte
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		userKeysRoute: func(w http.ResponseWriter, r *http.Request) {
+			raw, _ = io.ReadAll(r.Body)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "k1"})
+		},
+	})
+	defer srv.Close()
+
+	_, _ = newUserKeysRealm(t, srv.URL).UserAPIKeys.Create(ctxpkg.Background(), "t1", "u1",
+		UserAPIKeyWrite{Label: "forgot"})
+
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	v, present := decoded["uncapped"]
+	if !present {
+		t.Fatal("uncapped must be PRESENT and null, not omitted")
+	}
+	if v != nil {
+		t.Errorf("uncapped = %v, want null", v)
+	}
+}
+
+// TestUserAPIKeys_UpdateIsAPutOfTheSameShape pins D12's one-write-schema rule:
+// Update's body is byte-identical to what Create would send for the same input,
+// so the pair cannot drift into a PATCH.
+func TestUserAPIKeys_UpdateIsAPutOfTheSameShape(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		userKeysRoute + "/k9": func(w http.ResponseWriter, r *http.Request) {
+			gotMethod, gotPath = r.Method, r.URL.Path
+			buf, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(buf, &gotBody)
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "k9", "label": "ci"})
+		},
+	})
+	defer srv.Close()
+
+	body := UserAPIKeyWrite{Label: "ci", Uncapped: Uncapped(false), PermissionsCap: []string{"a"}}
+	out, err := newUserKeysRealm(t, srv.URL).UserAPIKeys.Update(ctxpkg.Background(), "t1", "u1", "k9", body)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if gotMethod != "PUT" {
+		t.Errorf("method = %q, want PUT", gotMethod)
+	}
+	if gotPath != userKeysRoute+"/k9" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["uncapped"] != false || gotBody["label"] != "ci" {
+		t.Errorf("body = %#v", gotBody)
+	}
+	if out.ID != "k9" {
+		t.Errorf("ID = %q", out.ID)
 	}
 }

@@ -54,10 +54,19 @@ public record UserAPIKey(
          */
         @JsonProperty("org_ids") @JsonAlias("orgIds") List<String> orgIds,
         /**
+         * True when the key carries the holder's FULL authority — all current
+         * and future permissions. Mutually exclusive with a non-empty
+         * {@code permissionsCap}: exactly one of the two describes the key
+         * (ADR-100 D2).
+         */
+        Boolean uncapped,
+        /**
          * A CAP, NEVER A GRANT. Effective authority is {@code permissionsCap ∩}
          * the principal's LIVE permissions, re-resolved per request, so it can
          * only ever UNDER-grant. Use {@link CapCheck#capAllows} — do NOT test
-         * membership of this list on its own.
+         * membership of this list on its own. Null or empty when
+         * {@code uncapped}; otherwise non-empty — the server cannot store an
+         * empty cap (ADR-100 D1).
          */
         @JsonProperty("permissions_cap") @JsonAlias("permissionsCap") List<String> permissionsCap,
         /**

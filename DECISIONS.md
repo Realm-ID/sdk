@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-63 entries total — 8 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+64 entries total — 9 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-27 (latest) — ADR-100 in four SDKs: making the illegal state unrepresentable in four different type systems](#2026-08-27--adr-100-in-four-sdks-making-the-illegal-state-unrepresentable-in-four-different-type-systems)
 - [2026-08-25 (latest) — a changelog can be present and unreachable: the order gate, and the entry that never got its number](#2026-08-25-latest--a-changelog-can-be-present-and-unreachable-the-order-gate-and-the-entry-that-never-got-its-number)
 - [2026-08-25 — changelog backfill + the DECISIONS.md index/archive split, re-pointed at the real problem file](#2026-08-25--changelog-backfill--the-decisionsmd-indexarchive-split-re-pointed-at-the-real-problem-file)
 - [2026-08-25 (later) — the web-admin suite tested a build artifact, and three mutations proved it](#2026-08-25-later--the-web-admin-suite-tested-a-build-artifact-and-three-mutations-proved-it)
@@ -75,6 +76,59 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-27 (latest) — ADR-100 in four SDKs: making the illegal state unrepresentable in four different type systems
+
+**Problem.** A user API key's authority was expressed by the ABSENCE of a
+field. `{ "label": "x" }` — the body every one of these SDKs produced when the
+caller named no permissions — minted a key carrying the holder's FULL authority.
+That shape was ALSO the only way to ask for an unrestricted key deliberately, so
+no server-side check could refuse the accident without refusing the intent. The
+fix has to be on the wire, and therefore in every client at once.
+
+**Decision.** `uncapped` is required, and — the part that actually matters —
+each SDK expresses "the caller did not say" in its own idiom rather than
+defaulting.
+
+- **TS**: `uncapped: boolean`, no `?`, spread UNCONDITIONALLY through a single
+  `writeBody()`. A conditional spread is the file's own idiom for every
+  neighbouring field, and `false` is exactly what it drops.
+- **Go**: `Uncapped *bool` with **no `omitempty`**. Pointer so nil is
+  distinguishable; no `omitempty` so nil marshals to JSON `null` and reaches the
+  server, which answers `400`. Either half alone would have re-hidden the state.
+- **Java**: `UserAPIKeyCreate.of(label)` **deleted**, not adapted. It passed four
+  nulls and produced the illegal body; the compile error is the deliverable.
+  `capped(label, perms)` and `uncapped(label)` replace it — two factories for two
+  states, and no third.
+- **web-admin**: nothing, by design. It re-exports and owns no types, and the
+  one existing create-body assertion was the right place to pin the new field.
+
+**Options weighed.** A server-side default of `uncapped: false` was rejected:
+every existing caller would silently start minting keys that mint nothing, and
+the failure would surface at token-exchange time in a different repo. A separate
+boolean COLUMN alongside the array was rejected in the ADR for the same family
+of reason — two encodings for one idea drift.
+
+**Tradeoff accepted.** Four breaking SDK releases at once, plus a Java
+positional record widening that breaks direct `new UserAPIKey(...)` calls. It is
+affordable exactly once: prod holds zero user API keys and always has, so no
+partner is minting today. That window closes the first time someone does.
+
+**Also deleted: `scopes.remove`** (TS and web-admin; go and java never wrapped
+it). Not reduced to one mode — deleted. Retiring a scope is self-healing once
+the partner supplies `role_permissions` at every mint: stop emitting the string,
+map no route to it, and a stale cap entry never survives an intersection again.
+Removing the endpoint also settles the storage CHECK, because nothing is left
+that can write an empty cap. Its five tests went with it, and the realm-id-default
+test that happened to drive `remove` was re-pointed at `rename` rather than
+dropped — it was never about removal.
+
+**What is deliberately NOT cleaned up.** Every SDK still denies on a
+PRESENT-but-empty `permissions_cap` claim, a state the issuer can no longer
+produce. Each of those assertions now carries a comment saying so, at both ends,
+because the next reader will otherwise correctly identify it as dead code and
+tidy it away — and it is not dead: it is what a garbled or hostile claim off the
+wire lands on, where the only safe reading is "capped to nothing".
 
 ## 2026-08-25 (latest) — a changelog can be present and unreachable: the order gate, and the entry that never got its number
 

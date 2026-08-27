@@ -39,6 +39,12 @@ public final class AuthClient {
         body.put("grant_type", "provider_token");
         body.put("provider", req.method());
         body.put("token", req.providerToken());
+        // ADR-100 D16. Null-guarded, not empty-guarded: an EMPTY supplied list is
+        // a real instruction ("this role confers nothing here") that the issuer
+        // answers with a 403 naming the org. Folding it into "not supplied" would
+        // mint the unnarrowed cap instead — the widest reading of the narrowest
+        // input.
+        if (req.rolePermissions() != null) body.put("role_permissions", req.rolePermissions());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
         // ADR-062: the device label rides as a header on the USER grant only.
@@ -59,6 +65,10 @@ public final class AuthClient {
         body.put("refresh_token", req.refreshToken());
         body.put("tenant_id", req.tenantId());
         if (req.customClaims() != null) body.put("custom_claims", req.customClaims());
+        // ADR-100 D18 — supplied on refresh too, or a refreshed token comes back
+        // WIDER than the one it replaces. See the note on the login body above
+        // for why this is null-guarded rather than empty-guarded.
+        if (req.rolePermissions() != null) body.put("role_permissions", req.rolePermissions());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/token").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);

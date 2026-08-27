@@ -37,10 +37,15 @@ type UserAPIKey struct {
 	// membership is re-intersected at every exchange, so a key can LIST an org it
 	// can no longer MINT into. Showing the stored value is the honest answer.
 	OrgIDs []string `json:"org_ids,omitempty"`
+	// Uncapped reports that the key carries the holder's FULL authority — all
+	// current and future permissions. Mutually exclusive with a non-empty
+	// PermissionsCap: exactly one of the two describes the key (ADR-100 D2).
+	Uncapped bool `json:"uncapped,omitempty"`
 	// PermissionsCap is a CAP, NEVER A GRANT. Effective authority is
 	// PermissionsCap ∩ the principal's LIVE permissions, re-resolved per request,
 	// so it can only ever UNDER-grant. Use CapAllows — do NOT test membership of
-	// this slice on its own.
+	// this slice on its own. Absent or empty when Uncapped; otherwise non-empty
+	// — the server cannot store an empty cap (ADR-100 D1).
 	PermissionsCap []string `json:"permissions_cap,omitempty"`
 	// MintedMFAAt is load-bearing, not informational: key exchange is exempt from
 	// the realm MFA floor if and only if it is set.
@@ -68,25 +73,68 @@ const (
 // Revoked reports whether the key has been soft-revoked.
 func (k UserAPIKey) Revoked() bool { return k.RevokedAt != nil }
 
-// UserAPIKeyCreate is the mint payload. Label is required — it is the only
-// human-readable handle on a key that never shows its plaintext again.
-type UserAPIKeyCreate struct {
+// UserAPIKeyWrite is the write payload, shared by Create and Update
+// (ADR-100 D12). Label is required — it is the only human-readable handle on a
+// key that never shows its plaintext again.
+//
+// ⚠️ UPDATE RESETS WHAT IT OMITS. Update is a PUT, not a PATCH: it replaces the
+// whole key, so a caller changing only the cap must READ THE KEY FIRST and send
+// Label, OrgScope and OrgIDs back unchanged. Send just the cap and the label is
+// blanked and the org scope reset to the realm default. That is the price of
+// one write schema instead of two, and it is deliberate — PATCH would make
+// PermissionsCap and Uncapped an order-dependent pair that can arrive
+// half-specified.
+type UserAPIKeyWrite struct {
 	Label string `json:"label"`
 	// OrgScope defaults to the realm's user_api_keys.org_scope_default.
 	OrgScope string `json:"org_scope,omitempty"`
 	// OrgIDs defaults to just the user's current org. Every entry must be a live
 	// membership of the target user, else 400 org_not_a_membership.
 	OrgIDs []string `json:"org_ids,omitempty"`
+	// Uncapped is REQUIRED — a key's authority is stated, never inferred
+	// (ADR-100).
+	//
+	// True means ALL CURRENT AND FUTURE permissions of the holder, and needs the
+	// realm's user_api_keys.allow_uncapped (403 uncapped_not_allowed otherwise).
+	// False requires a non-empty PermissionsCap.
+	//
+	// A POINTER, and deliberately NOT omitempty: those two together are what make
+	// "I did not say" a distinct, transmissible state rather than a silent false.
+	// A nil Uncapped marshals to JSON null and the server answers 400 — which is
+	// the entire point of the field. Before ADR-100 an absent permissions_cap
+	// produced a key carrying the holder's FULL authority, so a console that
+	// ticked nothing granted everything, and the wire could not tell that mistake
+	// from the deliberate case.
+	//
+	// An operator who wants TODAY's permission set frozen names today's
+	// permissions explicitly. Uncapped is not a shorthand for it: it is
+	// forward-inclusive.
+	Uncapped *bool `json:"uncapped"`
 	// PermissionsCap narrows the key. For the realmid audience these are
 	// validated against RealmID's ADR-074 catalog at mint (400
 	// unknown_permission); for a partner audience they are opaque to RealmID and
 	// shape-validated only.
+	//
+	// Must be non-empty when Uncapped is false, and empty when Uncapped is true —
+	// the two together are self-contradicting and are refused (400).
 	PermissionsCap []string `json:"permissions_cap,omitempty"`
 	// TTLSeconds omitted = the realm default. Above the realm ceiling returns
 	// 400 ttl_exceeds_max. Zero requests a non-expiring key, which needs
-	// user_api_keys.allow_non_expiring.
+	// user_api_keys.allow_non_expiring. Mutable on Update (ADR-100 D13).
 	TTLSeconds *int `json:"ttl_seconds,omitempty"`
 }
+
+// UserAPIKeyCreate is the create half of UserAPIKeyWrite. Same schema; one
+// shape.
+type UserAPIKeyCreate = UserAPIKeyWrite
+
+// Uncapped returns a pointer to v, for UserAPIKeyWrite.Uncapped.
+//
+// It exists because that field must be a pointer (see the doc there) and Go has
+// no address-of for a literal, so without this every call site would need a
+// throwaway variable — friction on the field the design most wants people to
+// state.
+func Uncapped(v bool) *bool { return &v }
 
 // UserAPIKeysClient is realm.UserAPIKeys.
 type UserAPIKeysClient struct {
@@ -108,7 +156,7 @@ func userAPIKeysPath(tenantID, userID string) string {
 //
 // Value on the returned key is shown ONCE. Persist it at the call site or it is
 // gone.
-func (c *UserAPIKeysClient) Create(ctx ctxpkg.Context, tenantID, userID string, body UserAPIKeyCreate) (*UserAPIKey, error) {
+func (c *UserAPIKeysClient) Create(ctx ctxpkg.Context, tenantID, userID string, body UserAPIKeyWrite) (*UserAPIKey, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -141,6 +189,38 @@ func (c *UserAPIKeysClient) List(ctx ctxpkg.Context, tenantID, userID string) ([
 		return nil, err
 	}
 	return decodeUserAPIKeyList(raw)
+}
+
+// Update replaces a key in place (ADR-100 D12) — cap, label, org scope and TTL.
+// The key's SECRET is untouched: Update never re-issues plaintext and the
+// returned key carries no Value.
+//
+// ⚠️ This is a PUT: IT RESETS WHAT IT OMITS. Read the key, change the one field,
+// send the whole shape back. See UserAPIKeyWrite.
+//
+// Widening — Uncapped false→true, adding permissions, OrgScope
+// "selected"→"all", extending the TTL — is gated by the same MFA step-up as the
+// mint (user_api_keys.require_mfa_at_mint). It has to be: a key minted narrowly
+// and then widened through an unguarded update would make the mint's gate
+// decorative.
+//
+// A cap change takes effect at the NEXT token mint. Access tokens already issued
+// keep the bound they were minted with until they expire.
+func (c *UserAPIKeysClient) Update(ctx ctxpkg.Context, tenantID, userID, id string, body UserAPIKeyWrite) (*UserAPIKey, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var k UserAPIKey
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "PUT",
+		Path:   userAPIKeysPath(tenantID, userID) + "/" + url.PathEscape(id),
+		Bearer: tok,
+		Body:   body,
+	}, &k); err != nil {
+		return nil, err
+	}
+	return &k, nil
 }
 
 // Revoke soft-revokes a key. Idempotent.
