@@ -4,6 +4,38 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.42.0 — ADR-097 mint half: `scope` on the token request (2026-08-28)
+
+**The enforcement half of ADR-097 shipped here in `0.40.0`. The mint half did
+not ship at all** — `scopesFrom` / `scopeAllows` / `scopePolicy` /
+`createScopeMiddleware` have been evaluating a `scope` claim that this SDK had
+no way to put on the wire. The issuer accepted `scope` on `POST /auth/token` the
+whole time, so the feature was reachable only by hand-rolling the mint call.
+Reported by an integrator.
+
+- **`TokenRequest.scope?: string[]`** — joined into the wire's space-delimited
+  string (RFC 6749 §3.3) and sent as `scope` on `POST /auth/token`.
+- **An array, not the wire string, on purpose.** A space inside one entry is not
+  a parse error on the wire — it SPLITS one scope into two and mints authority
+  you did not ask for. An entry outside the RFC 6749 §3.3 scope-token charset is
+  refused with `RealmError { code: "bad_request" }` **before the request
+  leaves**, so a bad entry never spends and rotates the refresh token.
+- **The per-realm bounds are not checked here.** `max_permission_strings` /
+  `max_permission_string_len` are realm configuration; a client-side copy would
+  drift into refusing what the server accepts. The charset is fixed by RFC and
+  cannot.
+- **Empty and absent are the same request** — the inverse of `rolePermissions`,
+  because the issuer trims and treats `""` as absent, while an empty
+  `rolePermissions` is a real instruction answered with a `403`.
+- New export: `scopeWireValue`.
+
+Accepted on `/auth/token` only, never `/auth/login`, and it cannot ride in
+`customClaims` (`scope` is a reserved claim key). Refused on a service-class
+refresh (`400 scope_not_supported`).
+
+Also: the `test` script was a hand-maintained list of 30 filenames, so a new test
+file was silently never run. It is a filesystem glob now.
+
 ## 0.41.0 — ADR-100: a key's authority is stated, never inferred (2026-08-27)
 
 **BREAKING.** `uncapped` is now required on the user-API-key write schema, and

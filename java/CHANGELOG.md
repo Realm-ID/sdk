@@ -4,6 +4,39 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.39.0 — ADR-097 mint half: `scope` on the token request (2026-08-28)
+
+**The enforcement half of ADR-097 shipped here in `java-v0.37.0`. The mint half
+did not ship at all** — `Scopes` / `ScopePolicy` / `ScopeFilter` have been
+evaluating a `scope` claim that this SDK had no way to put on the wire. The
+issuer accepted `scope` on `POST /auth/token` the whole time, so the feature was
+reachable only by hand-rolling the mint call. Reported by an integrator.
+
+- **`TokenRequest.withScope(List<String>)`** — a sixth record component, joined
+  into the wire's space-delimited string (RFC 6749 §3.3) and sent as `scope` on
+  `POST /auth/token`. The previous 5-arg constructor is retained, so existing
+  callers compile unchanged.
+- **A list, not the wire string, on purpose.** A space inside one entry is not a
+  parse error on the wire — it SPLITS one scope into two and mints authority you
+  did not ask for. An entry outside the RFC 6749 §3.3 scope-token charset is
+  refused with `RealmException(BAD_REQUEST)` **before the request leaves**, so a
+  bad entry never spends and rotates the refresh token.
+- **The per-realm bounds are not checked here.** `max_permission_strings` /
+  `max_permission_string_len` are realm configuration; a client-side copy would
+  drift into refusing what the server accepts. The charset is fixed by RFC and
+  cannot.
+- **Empty and absent are the same request** — the inverse of `rolePermissions`,
+  because the issuer trims and treats `""` as absent, while an empty
+  `rolePermissions` is a real instruction answered with a `403`.
+- New API: `Scopes.wireValue(List<String>)`.
+- `TokenRequest.withRolePermissions` now calls the canonical 6-arg constructor.
+  The 5-arg compat form compiles there just as well and would have silently
+  dropped `scope`.
+
+Accepted on `/auth/token` only, never `/auth/login`, and it cannot ride in
+`customClaims` (`scope` is a reserved claim key). Refused on a service-class
+refresh (`400 scope_not_supported`).
+
 ## java-v0.38.0 — ADR-100: a key's authority is stated, never inferred (2026-08-27)
 
 **BREAKING.** Unreleased — no `java-v*` tag is cut by this work.
