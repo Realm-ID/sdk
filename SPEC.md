@@ -1,7 +1,13 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-08-24 — go `go/v0.46.0` · ts `ts-v0.38.0` · java
-`java-v0.36.0`** (see §12 for the tag matrix).
+**Current as of 2026-08-28 — go `go/v0.49.0` · ts `ts-v0.42.0` · java
+`java-v0.39.0`** (see §12 for the tag matrix).
+
+> **Every tag named here is a tag that exists.** The previous header pinned
+> `go/v0.46.0` · `ts-v0.38.0` · `java-v0.36.0`, and **none of those three were
+> ever published** — they were the versions a release train intended to cut, not
+> the ones it cut. A partner planning against this line got three 404s. If you
+> are updating this header, read it off `git tag`, not off the changelog.
 
 > **Revision history.** This body is kept **current** — it always
 > describes the shipped surface, not an amendment trail. The
@@ -114,7 +120,7 @@ SDK failure. It carries:
 > `mfa_required`: the realm or tenant requires MFA and the user has no
 > confirmed factor yet, so the remedy is an enrollment screen, not a code
 > prompt. It carries `mfa_challenge_token` + `tenant_id` in the same 412
-> envelope. **Registered in ts and Java as of `ts-v0.38.0` / `java-v0.36.0`** —
+> envelope. **Registered in ts and Java as of `ts-v0.40.0` / `java-v0.37.0`** —
 > Go has had it since ADR-061, and the two languages that lacked it collapsed
 > it into the generic 412 mapping, losing the distinction for exactly the
 > clients that must render the other screen.
@@ -158,7 +164,7 @@ SDK failure. It carries:
 `handle_taken`, `invalid_role`, `method_violates_kind`,
 `service_account_not_found`, `source_not_found`, `user_not_found`.
 
-> **Registered in Go as of `go/v0.46.0`.** ts and Java had carried all six
+> **Registered in Go as of `go/v0.47.0`.** ts and Java had carried all six
 > since those ADRs shipped; Go had not, so for Go callers alone every one of
 > them collapsed into the generic status code. `sdk/TODO.md` had recorded the
 > taxonomy as "consistent across the three SDKs" — measured on 2026-08-24 it
@@ -175,8 +181,8 @@ SDK failure. It carries:
 
 `platform_not_found`.
 
-> **Registered in all three languages as of `ts-v0.38.0` / `go/v0.46.0` /
-> `java-v0.36.0`.** The issuer answers it on every by-id platform route (16
+> **Registered in all three languages as of `ts-v0.40.0` / `go/v0.47.0` /
+> `java-v0.37.0`.** The issuer answers it on every by-id platform route (16
 > call sites); before registration it fell back to the 404 mapping and callers
 > saw a generic `not_found`.
 >
@@ -466,7 +472,7 @@ the minted access token**. Wire: `POST /auth/token` with the refresh
 token presented as `Authorization: Bearer ...` (or in the body as
 `refresh_token`).
 
-Request: `{ refreshToken, tenantId, customClaims?, rolePermissions? }`
+Request: `{ refreshToken, tenantId, customClaims?, scope?, rolePermissions? }`
 - `tenantId`: required for multi-tenant user picks; ignored on service
   refresh tokens (ADR-051). There is no *platform* refresh token to ignore
   it on — ADR-089 withdrew it (§4.0). "Service" here means the ADR-071
@@ -476,6 +482,39 @@ Request: `{ refreshToken, tenantId, customClaims?, rolePermissions? }`
   **access token**, subject to a per-realm server-side allowlist. Use
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
   services need to authorize without a database lookup.
+- `scope` (wire `scope`, ADR-097): **granted authority** — your OWN scope
+  strings, minted into the access token's `scope` claim and read back by the
+  SDK's enforcement layer (`scopesFrom` / `scopeAllows` / `ScopePolicy`).
+
+  **This is the operand that layer evaluates.** RealmID stores no partner
+  catalog and a scope string is opaque to it: shape is validated, meaning never
+  is. Supply it from your own role→scope map.
+
+  **A list in every SDK, a single space-delimited string on the wire** (RFC 6749
+  §3.3, by reference from RFC 9068 §2.2.3). The SDK joins with `" "` and
+  **refuses an entry that could not survive the join** — a space inside one
+  entry is not a parse error on the wire, it SPLITS one scope into two and mints
+  authority the caller never asked for. The charset is
+  `1*( %x21 / %x23-5B / %x5D-7E )`: printable ASCII minus SPACE, `"` and `\`.
+  Comparison is case-sensitive and there is no normalization — `Read` and `read`
+  are two scopes.
+
+  **Accepted on `/auth/token` only, never on `/auth/login` (§4.1).** The ADR-041
+  escort runs on this route for every refresh class, so a confidential backend is
+  structurally always in the path and a user cannot reach it to self-assert a
+  scope. It also cannot ride in `customClaims`: `scope` is a reserved claim key
+  and a collision is refused with `400 reserved_claim_key`.
+
+  **Optional; empty and absent are the same request** — unlike
+  `rolePermissions`, an empty scope carries no instruction, because the issuer
+  trims and treats `""` as absent. The list is bounded by the realm's
+  `user_api_keys.max_permission_strings` / `max_permission_string_len`
+  (`400 too_many_scopes`, `400 scope_too_long`, `400 invalid_scope`), and it is
+  refused outright on a service-class refresh (`400 scope_not_supported`).
+
+  Where the token is ALSO user-API-key-derived, the claim minted is the
+  intersection with `permissions_cap`; see `rolePermissions` below.
+
 - `rolePermissions` (wire `role_permissions`, ADR-100 D16): the permissions the
   holder's ROLE confers, in **your** vocabulary, used to narrow a
   user-API-key-derived token's `permissions_cap` claim **per org** — on REFRESH as well as login (D18). Supply it
@@ -636,18 +675,18 @@ caller's bearer token; this is a user-token operation, not API-key).
 The response is the issuer's locked paged envelope
 `{ items, next_cursor, total }` (`httpapi.pagedSlice`) — **not** a bare
 `{sessions: [...]}`, a shape no issuer emits and which the TS client decoded
-until `0.37.0`, returning an empty list against every real server. Go and TS
+until `0.40.0`, returning an empty list against every real server. Go and TS
 accept the flat shape as a legacy/mock fallback; Java reads the envelope
 through `Paginated`.
 
-**All three languages follow `next_cursor`** as of go `0.45.0` / ts `0.37.0` /
-java `0.35.0`, each in its own idiom: Go returns
+**All three languages follow `next_cursor`** as of go `0.47.0` / ts `0.40.0` /
+java `0.37.0`, each in its own idiom: Go returns
 `iter.Seq2[*SessionInfo, error]`, Java returns `Paginated<Session>`, TS returns
 `Paginated<SessionInfo>` (an `AsyncIterable` that also exposes `.page(opts)`).
-TS returned a bare first-page array through `0.36.0`; past the server default of
+TS returned a bare first-page array through `0.36.0` (the last tag before the change); past the server default of
 50 that silently truncated, which is sharper here than on most list surfaces —
 a session missing from the list is one the user cannot revoke, and this is the
-surface someone uses when they believe they are compromised. The `0.37.0` change
+surface someone uses when they believe they are compromised. The `0.40.0` change
 is BREAKING and deliberately so: a compile error with an obvious fix beats the
 same call quietly returning a different number of rows.
 
@@ -2514,9 +2553,9 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.44.0`        | slash form; resolved by `go get`. ADR-095 D5 `me.AcceptInvitation`. |
-| TS       | `ts-v0.35.0`        | `@realm-id/sdk@0.35.0` on npm. Same ADR-095 surface. |
-| Java     | `java-v0.34.0`      | `dev.realmid:sdk:0.34.0` on Maven Central. Same ADR-095 surface. |
+| Go       | `go/v0.49.0`        | slash form; resolved by `go get`. ADR-097 mint half (`TokenRequest.Scope`). |
+| TS       | `ts-v0.42.0`        | `@realm-id/sdk@0.42.0` on npm. Same ADR-097 mint surface. |
+| Java     | `java-v0.39.0`      | `dev.realmid:sdk:0.39.0` on Maven Central. Same ADR-097 mint surface. |
 
 > The three languages ship in lockstep per SPEC change (matching
 > CHANGELOG entries); this matrix drifts between releases — `git tag`

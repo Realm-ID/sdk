@@ -13,6 +13,68 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-097 mint half — `scope` on the token request — go `0.49.0` · ts `0.42.0` · java `0.39.0` (2026-08-28)
+
+**The enforcement half of ADR-097 shipped in all three SDKs. The mint half
+shipped in none of them.** `scopesFrom` / `scopeAllows` / `ScopePolicy` /
+`ScopeFilter` have been evaluating a `scope` claim since go `0.47.0` — and no
+SDK could put that claim on the wire. The issuer accepted `scope` on
+`POST /auth/token` the whole time and it is documented in swagger, so
+`ScopePolicy` was reachable only by a partner who bypassed the SDK and
+hand-rolled the mint call. Reported by an integrator, not caught by us.
+
+- **`TokenRequest.scope`** — go `Scope []string`, ts `scope?: string[]`, java
+  `TokenRequest.withScope(List<String>)`. Joined into the wire's single
+  space-delimited string (RFC 6749 §3.3) and sent as `scope` on
+  `POST /auth/token`.
+- **A LIST, not the wire string, in every language, on purpose.** A space
+  inside one entry is not a parse error on the wire — it SPLITS one scope into
+  two and mints authority the caller never asked for. So an entry outside the
+  RFC 6749 §3.3 scope-token charset (printable ASCII minus SPACE, `"` and `\`)
+  is refused CLIENT-SIDE, before the request leaves: go `ErrInvalidScope`, ts
+  and java a `bad_request`. Refusing early also matters because a mint that
+  fails partway would still have spent and rotated the refresh token.
+- **Empty and absent are the same request**, which is the INVERSE of
+  `rolePermissions` and deliberate: the issuer trims and treats `""` as absent,
+  so `"scope": ""` could not mean anything. An empty `rolePermissions` IS a real
+  instruction, which is why that one is null-keyed and this one is not.
+- **The per-realm bounds are NOT checked client-side.**
+  `max_permission_strings` / `max_permission_string_len` are realm
+  configuration, and a local copy would drift into refusing what the server
+  accepts. The charset is fixed by RFC and cannot.
+- Accepted on `/auth/token` only, never `/auth/login`, and it cannot ride in
+  `customClaims` (`scope` is a reserved claim key). Refused outright on a
+  service-class refresh (`400 scope_not_supported`).
+- **`SPEC.md` §4.2 now documents the field**, which it never did.
+
+Also in this release, both found while answering the same report:
+
+- **Four changelog headings named versions that were never tagged** — go
+  `0.45.0`/`0.46.0`, ts `0.37.0`–`0.39.0`, java `0.35.0`/`0.36.0`. See the note
+  below; the entries themselves are corrected in place.
+- **`SPEC.md`'s header was pinned to the same phantom train** (`go/v0.46.0` ·
+  `ts-v0.38.0` · `java-v0.36.0`) and now names tags that exist.
+- **The ts test script was a hand-maintained list of 30 filenames**, so a new
+  test file was silently never run. It is a filesystem glob now.
+
+### On the phantom versions
+
+A version number in this changelog is a **promise a partner plans against**, and
+four entries here named tags that do not exist — an integrator hit three 404s
+following them. The content was never withdrawn or renamed; it rolled into the
+next tag that actually shipped, because the release train wrote the entry with
+the version it INTENDED to cut and then cut a different one.
+
+Corrected mapping, each verified against the tags rather than inferred:
+
+```
+go:   v0.44.0 [0.45.0, 0.46.0 NEVER TAGGED] v0.47.0 v0.47.1 v0.48.0
+ts:   v0.36.0 [0.37.0, 0.38.0, 0.39.0 NEVER TAGGED] v0.40.0 v0.41.0
+java: v0.34.0 [0.35.0, 0.36.0 NEVER TAGGED] v0.37.0 v0.38.0
+```
+
+**Write the heading from `git tag`, not from the version you meant to cut.**
+
 ## ADR-100: a key's authority is stated, never inferred — ts `0.41.0` · go `0.48.0` · java `0.38.0` · web-admin `0.9.0` (2026-08-27)
 
 **BREAKING in all four, and unreleased — no tag is cut by this work.** Issuer
@@ -51,7 +113,11 @@ pick it up breaks every consumer holding the old hash in `go.sum` with
 `checksum mismatch` — the 2026-07-05 incident. So the fix ships forward as a
 patch rather than by moving a published tag.
 
-## ADR-097 — SDK-enforced route authorization — go `0.47.0` · ts `0.39.0` · java `0.37.0` (2026-08-24)
+## ADR-097 — SDK-enforced route authorization — go `0.47.0` · ts `0.40.0` · java `0.37.0` (2026-08-24)
+
+> **Heading corrected 2026-08-28.** This read ts `0.39.0`, a version that was
+> never tagged. The TypeScript work shipped in `ts-v0.40.0`. See the phantom-
+> version note below.
 
 **A partner adding an endpoint to their own product no longer has to update
 configuration inside RealmID.** RealmID stores identity and attestation; YOUR
@@ -113,7 +179,13 @@ validator's branch stops being belt-and-braces and the test says so.
 Every guard mutation-verified in all three languages: default-allow and
 vacuous-true-on-empty-requirement each go red on the case that names them.
 
-## BREAKING — the error taxonomy was eight codes out of sync — go `0.46.0` · ts `0.38.0` · java `0.36.0` (2026-08-24)
+## BREAKING — the error taxonomy was eight codes out of sync — go `0.47.0` · ts `0.40.0` · java `0.37.0` (2026-08-24)
+
+> **Heading corrected 2026-08-28.** This read go `0.46.0` · ts `0.38.0` · java
+> `0.36.0`. **None of those three tags exist.** The work shipped in `go/v0.47.0`
+> / `ts-v0.40.0` / `java-v0.37.0` — verified: `platform_not_found` is absent at
+> `go/v0.44.0`, `ts-v0.36.0` and `java-v0.34.0` and present at each of the three
+> corrected tags.
 
 **`platform_not_found` is registered in all three languages.** The issuer
 answers it on every by-id platform route (16 call sites); until now it fell
@@ -194,7 +266,10 @@ the derivation returning nothing, `set -u` aborted on the empty array before the
 case the check exists for. Moved above the loop; both empty cases now exit 2.
 Seven mutations run in total, each caught by the check aimed at it.
 
-## BFF mode refuses a tokenless on-behalf-of id — go `0.45.0` · java `0.35.0` (2026-08-21)
+## BFF mode refuses a tokenless on-behalf-of id — go `0.47.0` · java `0.37.0` (2026-08-21)
+
+> **Heading corrected 2026-08-28.** This read go `0.45.0` · java `0.35.0`,
+> neither of which was tagged. Rolled into `go/v0.47.0` / `java-v0.37.0`.
 
 An `X-On-Behalf-Of-User` id with no `X-User-Token` beside it has been refused by
 the issuer since v0.66.0 (`401 x_user_token_required`): the id was an
@@ -213,7 +288,11 @@ TS needed no change: `realm.withUserToken(jwt)` (ts `0.33.0`) already sends the
 shape the issuer accepts. The long-standing "TS lacks BFF mode" TODO is closed
 by measurement — it asked for the mode that does not work.
 
-## A device label the transport cannot carry — go `0.45.0` · ts `0.37.0` · java `0.35.0` (2026-08-21)
+## A device label the transport cannot carry — go `0.47.0` · ts `0.40.0` · java `0.37.0` (2026-08-21)
+
+> **Heading corrected 2026-08-28.** This read go `0.45.0` · ts `0.37.0` · java
+> `0.35.0`, none of which was tagged. Rolled into `go/v0.47.0` / `ts-v0.40.0` /
+> `java-v0.37.0`.
 
 Cross-cutting fix to the ADR-062 device label, in all three SDKs at once.
 

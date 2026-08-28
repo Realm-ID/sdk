@@ -1,6 +1,8 @@
 package realmid
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -407,3 +409,69 @@ func isRFC6749ScopeToken(s string) bool {
 }
 
 func quoteScope(s string) string { return `"` + s + `"` }
+
+// ---- ADR-097 mint half: turning a scope list into the wire value ----
+//
+// Everything above this line READS a `scope` claim. This section WRITES one:
+// it is the operand `ScopePolicy` evaluates, and until go 0.49.0 / ts 0.42.0 /
+// java 0.39.0 no SDK could put it on the wire at all, so the enforcement layer
+// above was reachable only by a partner who bypassed the SDK and hand-rolled
+// POST /auth/token.
+
+// ErrInvalidScope reports a scope entry that cannot be represented on the wire.
+//
+// The wire format is a single space-delimited string (RFC 6749 §3.3), so an
+// entry containing SPACE — or any other byte outside the scope-token charset —
+// has no faithful encoding. Joining it anyway would not fail: it would SUCCEED
+// and mint a different set of scopes than the caller asked for.
+var ErrInvalidScope = errors.New("realmid: scope entry is not an RFC 6749 §3.3 scope-token")
+
+// scopeWireValue joins a scope list into the wire's space-delimited string,
+// refusing any entry that would not survive the round trip.
+//
+// Returns "" for an empty or nil list, which the caller omits from the body
+// entirely: the issuer's parseScope trims and returns nil for "", so an empty
+// scope and an absent one are the same request. (RolePermissions differs — an
+// empty list there is a real instruction — which is why the two fields are
+// keyed differently at the call site.)
+//
+// The per-realm bounds (max_permission_strings, max_permission_string_len) are
+// NOT checked here. Those are realm configuration and a client-side copy would
+// drift into refusing what the server accepts; the charset is fixed by RFC and
+// cannot.
+func scopeWireValue(scopes []string) (string, error) {
+	if len(scopes) == 0 {
+		return "", nil
+	}
+	for _, s := range scopes {
+		if !isSendableScopeToken(s) {
+			return "", fmt.Errorf("%w: %q", ErrInvalidScope, s)
+		}
+	}
+	return strings.Join(scopes, " "), nil
+}
+
+// isSendableScopeToken implements RFC 6749 §3.3:
+//
+//	scope-token = 1*( %x21 / %x23-5B / %x5D-7E )
+//
+// i.e. printable ASCII minus SPACE (0x20), DQUOTE (0x22) and BACKSLASH (0x5C).
+// This mirrors isValidScopeToken in the issuer's internal/httpapi/scope.go
+// byte for byte, deliberately: it is the RFC's rule, not RealmID's, so the two
+// cannot drift without the RFC changing.
+func isSendableScopeToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == 0x21:
+		case c >= 0x23 && c <= 0x5B:
+		case c >= 0x5D && c <= 0x7E:
+		default:
+			return false
+		}
+	}
+	return true
+}

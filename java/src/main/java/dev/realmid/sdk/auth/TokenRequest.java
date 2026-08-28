@@ -36,25 +36,75 @@ public record TokenRequest(
          * narrowing is per-org — so a multi-org key can mint in one org and be refused
          * in another. The error names the org.
          */
-        java.util.List<String> rolePermissions) {
+        java.util.List<String> rolePermissions,
+        /**
+         * ADR-097 GRANTED AUTHORITY — the partner's OWN scope strings, minted
+         * into the token's {@code scope} claim and read back by
+         * {@link dev.realmid.sdk.scope.Scopes} / {@code ScopePolicy} /
+         * {@code ScopeFilter}.
+         *
+         * <p>This is the operand the enforcement layer evaluates. Supply it from
+         * YOUR role&rarr;scope map: RealmID stores no partner catalog (ADR-097
+         * D17) and a scope string is opaque there — shape is validated, meaning
+         * never is.
+         *
+         * <p>A LIST, not the wire's space-delimited string, on purpose. The SDK
+         * joins with {@code " "} and refuses an entry that could not survive it,
+         * because a space inside one entry is not a parse error on the wire — it
+         * SPLITS one scope into two and mints authority you did not ask for. An
+         * unsendable entry is a {@code RealmException(BAD_REQUEST)} raised before
+         * the request leaves.
+         *
+         * <p>Accepted on {@code /auth/token} ONLY, never on {@code /auth/login}:
+         * the ADR-041 escort runs on this route for every refresh class, so a
+         * confidential backend is structurally always in the path and a user
+         * cannot self-assert a scope.
+         *
+         * <p><b>Optional. Empty and absent are the same request</b> — unlike
+         * {@code rolePermissions}, an empty scope carries no instruction. The
+         * issuer bounds the list against the realm's
+         * {@code user_api_keys.max_permission_strings} /
+         * {@code max_permission_string_len} ({@code 400 too_many_scopes} /
+         * {@code scope_too_long}) and refuses it outright on a service-class
+         * refresh ({@code 400 scope_not_supported}).
+         *
+         * <p>Where the token is ALSO user-API-key-derived, the minted claim is
+         * the intersection with {@code permissions_cap}; see
+         * {@code rolePermissions} for that narrowing.
+         */
+        java.util.List<String> scope) {
+
+    /** Pre-ADR-097-mint constructor; supplies no scope. */
+    public TokenRequest(String refreshToken, String tenantId,
+                        Map<String, Object> customClaims, String origin,
+                        java.util.List<String> rolePermissions) {
+        this(refreshToken, tenantId, customClaims, origin, rolePermissions, null);
+    }
 
     /** Pre-ADR-100 constructor; supplies no role permission list. */
     public TokenRequest(String refreshToken, String tenantId,
                         Map<String, Object> customClaims, String origin) {
-        this(refreshToken, tenantId, customClaims, origin, null);
+        this(refreshToken, tenantId, customClaims, origin, null, null);
     }
 
     public static TokenRequest of(String refreshToken, String tenantId) {
-        return new TokenRequest(refreshToken, tenantId, null, null, null);
+        return new TokenRequest(refreshToken, tenantId, null, null, null, null);
     }
 
     public static TokenRequest withClaims(String refreshToken, String tenantId,
                                           Map<String, Object> customClaims) {
-        return new TokenRequest(refreshToken, tenantId, customClaims, null, null);
+        return new TokenRequest(refreshToken, tenantId, customClaims, null, null, null);
     }
 
     /** Returns a copy carrying the ADR-100 role permission list. */
     public TokenRequest withRolePermissions(java.util.List<String> rolePermissions) {
-        return new TokenRequest(refreshToken, tenantId, customClaims, origin, rolePermissions);
+        // The CANONICAL 6-arg constructor, deliberately — the 5-arg compat form
+        // below compiles here just as well and would silently drop `scope`.
+        return new TokenRequest(refreshToken, tenantId, customClaims, origin, rolePermissions, scope);
+    }
+
+    /** Returns a copy carrying the ADR-097 granted-authority scope list. */
+    public TokenRequest withScope(java.util.List<String> scope) {
+        return new TokenRequest(refreshToken, tenantId, customClaims, origin, rolePermissions, scope);
     }
 }

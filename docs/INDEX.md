@@ -13,7 +13,8 @@ cross-language contract; these docs explain how to use and operate it.
 | Use middleware | `middleware.md` |
 | Handle errors | `error-reference.md` |
 | Understand management operations | `operations.md` |
-| Plan a partner integration | `integration-guide.md` |
+| Plan a partner integration | `integration-guide.md` (SDK-shaped) |
+| Understand the platform model, claims, RBAC, `scope` | `partner-integration-guide.md` (platform-shaped) |
 
 ## Canonical Sources
 
@@ -38,10 +39,19 @@ cross-language contract; these docs explain how to use and operate it.
 
 | Group | Docs |
 |---|---|
-| Getting started | `quickstart.md`, `integration-guide.md` |
+| Getting started | `quickstart.md`, `integration-guide.md`, `partner-integration-guide.md` |
 | Auth and middleware | `dual-token.md`, `middleware.md` |
 | Operations | `operations.md` |
 | Errors | `error-reference.md` |
+
+## Two integration guides, and which is which
+
+`integration-guide.md` walks the SDK surface (bootstrap → backend → frontend →
+operations). `partner-integration-guide.md` — moved here from the PRIVATE
+`Realm-ID/issuer` repo on 2026-08-28, because partners could not read it there —
+covers the platform model: JWT claims, your own RBAC, `permissions_cap` vs
+`scope` (§4.1/§4.2), migration. **They overlap and are not yet reconciled**;
+where they disagree, `../SPEC.md` wins. Tracked in `../TODO.md`.
 
 ## Historical Notes
 

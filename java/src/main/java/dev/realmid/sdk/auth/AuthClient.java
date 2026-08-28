@@ -3,6 +3,7 @@ package dev.realmid.sdk.auth;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.realmid.sdk.ErrorCode;
 import dev.realmid.sdk.RealmException;
+import dev.realmid.sdk.scope.Scopes;
 import dev.realmid.sdk.http.HttpTransport;
 import dev.realmid.sdk.pagination.Page;
 import dev.realmid.sdk.pagination.PageReader;
@@ -69,6 +70,13 @@ public final class AuthClient {
         // WIDER than the one it replaces. See the note on the login body above
         // for why this is null-guarded rather than empty-guarded.
         if (req.rolePermissions() != null) body.put("role_permissions", req.rolePermissions());
+        // ADR-097 mint half. Keyed on emptiness, not null — the inverse of
+        // rolePermissions above, and for the stated reason: parseScope trims and
+        // returns nil for "", so an empty scope IS an absent one. Computed
+        // BEFORE the request is built, so an unsendable entry never spends (and
+        // rotates away) the refresh token.
+        String scopeWire = Scopes.wireValue(req.scope());
+        if (scopeWire != null) body.put("scope", scopeWire);
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/token").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);

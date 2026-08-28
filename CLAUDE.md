@@ -22,8 +22,16 @@ One locked spec, multiple language-idiomatic implementations.
 
 - **`SPEC.md`** — locked behavioral spec. All language SDKs must match.
 - **`docs/dual-token.md`** — API key → platform JWT exchange model.
-- **`docs/quickstart.md`, `integration-guide.md`, `middleware.md`,
-  `operations.md`, `error-reference.md`** — partner-facing.
+- **`docs/quickstart.md`, `integration-guide.md`,
+  `partner-integration-guide.md`, `middleware.md`, `operations.md`,
+  `error-reference.md`** — partner-facing.
+- **`docs/partner-integration-guide.md` moved here from the PRIVATE
+  `Realm-ID/issuer` repo on 2026-08-28.** This repo is public and that one is
+  not, so the page answering partners' most common question (where the `scope`
+  claim comes from, §4.2) was unreachable to every partner until an integrator
+  said so. `issuer/docs/` keeps a pointer stub — **never restore a second copy
+  there.** It overlaps `integration-guide.md` and the two are not yet
+  reconciled; `SPEC.md` wins where they disagree.
 
 ## Conventions
 

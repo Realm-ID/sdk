@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-64 entries total — 9 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+65 entries total — 10 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-28 (latest) — the enforcement half shipped in three languages and the mint half in none](#2026-08-28-latest--the-enforcement-half-shipped-in-three-languages-and-the-mint-half-in-none)
 - [2026-08-27 (latest) — ADR-100 in four SDKs: making the illegal state unrepresentable in four different type systems](#2026-08-27-latest--adr-100-in-four-sdks-making-the-illegal-state-unrepresentable-in-four-different-type-systems)
 - [2026-08-25 (latest) — a changelog can be present and unreachable: the order gate, and the entry that never got its number](#2026-08-25-latest--a-changelog-can-be-present-and-unreachable-the-order-gate-and-the-entry-that-never-got-its-number)
 - [2026-08-25 — changelog backfill + the DECISIONS.md index/archive split, re-pointed at the real problem file](#2026-08-25--changelog-backfill--the-decisionsmd-indexarchive-split-re-pointed-at-the-real-problem-file)
@@ -76,6 +77,98 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-28 (latest) — the enforcement half shipped in three languages and the mint half in none
+
+**Problem.** ADR-097 gave partners an SDK-enforced route-authorization layer —
+`ScopesFrom` / `ScopeAllows` / `ScopePolicy` / `ScopeFilter`, shipped in go, ts
+and java across `0.47.0` / `0.40.0` / `0.37.0`. That layer evaluates the token's
+`scope` claim. **No SDK could put a `scope` on the wire.** The issuer had
+accepted the field on `POST /auth/token` the whole time and swagger documented
+it, so the feature was reachable only by a partner who bypassed the SDK and
+hand-rolled the mint call.
+
+It was found by an integrator, not by us, and the shape of the miss is worth
+naming: **we shipped the half of a feature that has tests and skipped the half
+that has a caller.** The enforcement layer is pure predicate logic and trivially
+unit-testable; the mint half is one field on one request, and nothing in three
+suites noticed it was absent, because a body-builder test asserts what the body
+contains and never what it lacks.
+
+**Decision 1 — a list in every language, not the wire's string.** The wire is a
+single space-delimited string (RFC 6749 §3.3). We could have mirrored that
+exactly: `Scope string`. We took `[]string` / `string[]` / `List<String>` in all
+three instead.
+
+The reason is not ergonomics. **A space inside one entry is not a parse error on
+the wire — it is a silent authority change.** `"orders read"` reaches the issuer
+as TWO scopes, and `strings.Fields` splits it without complaint. Mirroring the
+string makes the SDK a faithful conduit for a bug the caller cannot see. Taking a
+list lets the SDK refuse the entry at the call site, which converts an invisible
+privilege change into an error with a stack trace. It also matches the sibling
+field `RolePermissions`, which is already a list in all three.
+
+**Decision 2 — validate the charset client-side, never the bounds.** These look
+like the same kind of check and are not.
+
+The RFC 6749 §3.3 scope-token charset is **fixed by specification**. A copy of it
+in the SDK cannot drift from the issuer's copy without the RFC changing, so
+checking it locally is safe forever. The per-realm bounds —
+`max_permission_strings`, `max_permission_string_len` — are **realm
+configuration**, readable and writable per realm. A client-side copy of those
+would drift the first time an operator raised a limit, and would then refuse
+requests the server would have accepted: an SDK that is wrong in the direction of
+denying legitimate work. So the charset is enforced here and the bounds are the
+server's alone.
+
+**Decision 3 — keyed on emptiness, which is the inverse of the field beside
+it.** `RolePermissions` is null-keyed: an empty supplied list is a real
+instruction there ("this role confers nothing in this org"), and the issuer
+answers it with a 403 naming the org, so folding empty into absent would silently
+mint the unnarrowed cap.
+
+`scope` is the opposite. `parseScope` trims and returns nil for `""`, so an empty
+scope and an absent one are the *same request* — a `"scope": ""` on the wire
+could not mean anything. Keying it on nil would put a field on the wire with no
+possible meaning. **Two adjacent optional list fields with opposite emptiness
+semantics is a genuine hazard**, so both are commented at the call site in all
+three languages with the reason, not just the rule.
+
+**Decision 4 — refuse before the request leaves.** The validation runs as the
+first statement of `token()`, before headers are resolved and before the platform
+bootstrap. A refusal partway through would still have spent the refresh token,
+and refresh tokens rotate — so a client-side validation error would have logged
+the caller out. That is a worse outcome than the bad scope.
+
+**Tradeoff accepted.** Callers who deliberately want to send a pre-joined string
+now cannot. That is the point; the raw `POST /auth/token` remains available and
+is documented in the partner guide for anyone who needs it.
+
+**Verification.** Each language got the same three test shapes — the field
+reaches the wire space-delimited and in order, empty and absent both omit the
+key, and each unsendable entry class is refused with the request never
+dispatched. **All three suites were mutation-checked with four mutations each
+(drop the field, never refuse, join with a comma, key on nil), and all twelve
+were caught.** The first ts mutation run reported blank counts because the dot
+reporter emits no summary line; a blank is not a zero.
+
+**Also in this change, same root cause of "documented, never checked":**
+
+- **Four changelog headings named versions that were never tagged** (go
+  `0.45.0`/`0.46.0`, ts `0.37.0`–`0.39.0`, java `0.35.0`/`0.36.0`). The partner
+  followed them and got 404s. A version number in a changelog is a promise
+  someone plans against; ours were written from the version the release train
+  *intended* to cut. Corrected against `git tag`, each mapping verified by symbol
+  presence and absence at the surrounding tags rather than assumed.
+- **`SPEC.md`'s header was pinned to the same phantom train**, so the document
+  telling partners which SDK it described named three tags that do not exist.
+- **`SPEC.md` never documented `scope` at all**, which is part of why nobody
+  noticed no SDK sent it.
+- **The ts `test` script was a hand-maintained list of 30 filenames.** A new test
+  file is silently never run — the failure mode where a green tick means "did not
+  look". It is a filesystem glob now. The list was accurate on the day; that is
+  luck, not a design.
+
 
 ## 2026-08-27 (latest) — ADR-100 in four SDKs: making the illegal state unrepresentable in four different type systems
 

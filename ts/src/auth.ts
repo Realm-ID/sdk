@@ -16,6 +16,7 @@
 
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
+import { scopeWireValue } from "./scope.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
 import { paginate, readPage, type Paginated, type Page, type PageOpts } from "./pagination.js";
 
@@ -145,6 +146,35 @@ export interface TokenRequest {
    * enforcement is the server's responsibility.
    */
   customClaims?: Record<string, unknown>;
+  /**
+   * ADR-097 GRANTED AUTHORITY — the partner's OWN scope strings, minted into
+   * the token's `scope` claim and read back by {@link scopesFrom} /
+   * {@link scopeAllows} / {@link ScopePolicy}.
+   *
+   * This is the operand the enforcement layer in `scope.ts` evaluates. Supply
+   * it from YOUR role→scope map: RealmID stores no partner catalog (ADR-097
+   * D17) and a scope string is opaque there — shape is validated, meaning
+   * never is.
+   *
+   * An ARRAY, not the wire's space-delimited string, on purpose. The SDK joins
+   * with `" "` and refuses an entry that could not survive it, because a space
+   * inside one entry is not a parse error on the wire — it SPLITS one scope
+   * into two and mints authority you did not ask for.
+   *
+   * Accepted on `/auth/token` ONLY, never on `/auth/login`: the ADR-041 escort
+   * runs on this route for every refresh class, so a confidential backend is
+   * structurally always in the path and a user cannot self-assert a scope.
+   *
+   * **Optional. Empty and absent are the same request** — unlike
+   * `rolePermissions`, an empty scope carries no instruction. The issuer bounds
+   * the list against the realm's `user_api_keys.max_permission_strings` /
+   * `max_permission_string_len` (`400 too_many_scopes` / `scope_too_long`) and
+   * refuses it outright on a service-class refresh (`400 scope_not_supported`).
+   *
+   * Where the token is ALSO user-API-key-derived, the minted claim is the
+   * intersection with `permissions_cap`; see `rolePermissions` for that.
+   */
+  scope?: string[];
   /**
    * ADR-100 D16/D5 — the permissions the holder's ROLE confers, in YOUR
    * vocabulary, used to narrow a user-API-key token's `permissions_cap` claim
@@ -461,6 +491,9 @@ export class AuthClient {
    * feature; the server enforces a per-realm allowlist.
    */
   async token(req: TokenRequest): Promise<TokenResponse> {
+    // Refused before anything leaves: a mint that fails partway would still
+    // have spent (and rotated away) the refresh token, logging the caller out.
+    const scopeWire = scopeWireValue(req.scope);
     const headers = await this.originHeaders(req.origin);
     const raw = await this.http.request<RawTokenResponse>({
       method: "POST",
@@ -472,6 +505,10 @@ export class AuthClient {
         tenant_id: req.tenantId,
         custom_claims: req.customClaims,
         ...(req.rolePermissions !== undefined ? { role_permissions: req.rolePermissions } : {}),
+        // Keyed on emptiness, not on `undefined` — the inverse of
+        // rolePermissions above, and for the stated reason: parseScope trims
+        // and returns nil for "", so an empty scope IS an absent one.
+        ...(scopeWire !== "" ? { scope: scopeWire } : {}),
       },
     });
     return {

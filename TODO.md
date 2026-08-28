@@ -488,3 +488,17 @@ this is the SDK-side work.
       never arrives — but it is a SPEC change across two languages and belongs
       in its own release, not smuggled into one about something else.
       *(Filed 2026-08-24 while registering `platform_not_found`.)*
+
+- [ ] `docs/partner-integration-guide.md` + `docs/integration-guide.md` — TWO
+      partner integration guides now sit side by side (~1600 and ~1700 lines) and
+      overlap substantially. The first arrived 2026-08-28 from the private
+      `Realm-ID/issuer` repo, where partners could not read it. They are not
+      reconciled; `docs/INDEX.md` currently tells the reader which is which and
+      that `SPEC.md` wins on conflict, which is a signpost, not a fix. Decide:
+      merge, or split cleanly by audience (SDK-shaped vs platform-shaped).
+- [ ] `docs/partner-integration-guide.md` — the published copy is REDACTED
+      (customer names removed) and the private issuer original is not. There is
+      no check that a future edit does not reintroduce a customer name into the
+      public copy. A CI grep over the public repo for the partner-name list would
+      be cheap, but the list itself is then hand-maintained — see the failure
+      class in the global notes before writing one.

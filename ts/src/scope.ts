@@ -41,6 +41,7 @@
 
 import type { Claims } from "./claims.js";
 import { globMatch } from "./middleware.js";
+import { RealmError } from "./errors.js";
 
 /**
  * Returns the scopes a verified token carries, in the order the issuer wrote
@@ -408,4 +409,47 @@ export function fastifyScopeHook(
     opts.onScopeDenied?.(req, decision);
     reply.code(403).send(JSON.parse(FORBIDDEN_BODY));
   };
+}
+
+// ---- ADR-097 mint half: turning a scope list into the wire value ----
+//
+// Everything above READS a `scope` claim. This WRITES one. It is the operand
+// the enforcement layer evaluates, and until ts 0.42.0 / go 0.49.0 /
+// java 0.39.0 no SDK could put it on the wire at all — so `scopePolicy` was
+// reachable only by a partner who bypassed the SDK and hand-rolled
+// POST /auth/token.
+
+/**
+ * Join a scope list into the wire's space-delimited string (RFC 6749 §3.3),
+ * refusing any entry that would not survive the round trip.
+ *
+ * Returns `""` for an empty or absent list, which the caller omits from the
+ * body entirely: the issuer's `parseScope` trims and returns nil for `""`, so
+ * an empty scope and an absent one are the same request.
+ *
+ * Throws `RealmError { code: "bad_request" }` for an unsendable entry. Joining
+ * it anyway would not fail — it would SUCCEED and mint a different set of
+ * scopes than the caller asked for, which is the whole reason this SDK takes a
+ * list rather than the raw wire string.
+ *
+ * The per-realm bounds (`max_permission_strings`, `max_permission_string_len`)
+ * are NOT checked here: those are realm configuration and a client-side copy
+ * would drift into refusing what the server accepts. The charset is fixed by
+ * RFC and cannot.
+ */
+export function scopeWireValue(scopes: string[] | undefined | null): string {
+  if (!scopes || scopes.length === 0) return "";
+  for (const s of scopes) {
+    if (!isRfc6749ScopeToken(s)) {
+      throw new RealmError({
+        code: "bad_request",
+        message:
+          `scope entry is not an RFC 6749 §3.3 scope-token: ${JSON.stringify(s)} — ` +
+          "entries are joined with a space, so one containing a space, a quote, " +
+          "a backslash or a non-printable byte would silently become a different " +
+          "set of scopes than you asked for",
+      });
+    }
+  }
+  return scopes.join(" ");
 }

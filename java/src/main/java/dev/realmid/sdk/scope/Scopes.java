@@ -1,6 +1,8 @@
 package dev.realmid.sdk.scope;
 
 import dev.realmid.sdk.Claims;
+import dev.realmid.sdk.ErrorCode;
+import dev.realmid.sdk.RealmException;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -142,5 +144,46 @@ public final class Scopes {
             return false;
         }
         return true;
+    }
+
+    // ---- ADR-097 mint half: turning a scope list into the wire value ----
+    //
+    // Everything else here READS a `scope` claim. This WRITES one. It is the
+    // operand the enforcement layer evaluates, and until java 0.39.0 /
+    // go 0.49.0 / ts 0.42.0 no SDK could put it on the wire at all — so
+    // ScopePolicy was reachable only by a partner who bypassed the SDK and
+    // hand-rolled POST /auth/token.
+
+    /**
+     * Joins a scope list into the wire's space-delimited string (RFC 6749 §3.3),
+     * refusing any entry that would not survive the round trip.
+     *
+     * <p>Returns {@code null} for a null or empty list, which the caller omits
+     * from the body entirely: the issuer's {@code parseScope} trims and returns
+     * nil for {@code ""}, so an empty scope and an absent one are the same
+     * request.
+     *
+     * <p>Throws {@link RealmException} with {@link ErrorCode#BAD_REQUEST} for an
+     * unsendable entry. Joining it anyway would not fail — it would SUCCEED and
+     * mint a different set of scopes than the caller asked for, which is the
+     * whole reason the SDK takes a list rather than the raw wire string.
+     *
+     * <p>The per-realm bounds ({@code max_permission_strings},
+     * {@code max_permission_string_len}) are NOT checked here: those are realm
+     * configuration and a client-side copy would drift into refusing what the
+     * server accepts. The charset is fixed by RFC and cannot.
+     */
+    public static String wireValue(List<String> scopes) {
+        if (scopes == null || scopes.isEmpty()) return null;
+        for (String s : scopes) {
+            if (!isRfc6749ScopeToken(s)) {
+                throw new RealmException(ErrorCode.BAD_REQUEST,
+                        "realmid: scope entry is not an RFC 6749 §3.3 scope-token: \"" + s
+                        + "\" — entries are joined with a space, so one containing a space, "
+                        + "a quote, a backslash or a non-printable byte would silently become "
+                        + "a different set of scopes than you asked for");
+            }
+        }
+        return String.join(" ", scopes);
     }
 }

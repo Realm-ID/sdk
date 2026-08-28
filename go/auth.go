@@ -213,6 +213,35 @@ type TokenRequest struct {
 	TenantID     string
 	CustomClaims map[string]any
 
+	// Scope is ADR-097 GRANTED AUTHORITY: the partner's OWN scope strings,
+	// minted into the token's `scope` claim and read back by ScopesFrom /
+	// ScopeAllows / ScopePolicy.
+	//
+	// This is the operand the enforcement layer in scope.go evaluates. Supply
+	// it from YOUR role->scope map: RealmID stores no partner catalog (ADR-097
+	// D17) and a scope string is opaque here — shape is validated, meaning
+	// never is.
+	//
+	// A LIST, not the wire's space-delimited string, on purpose. The SDK joins
+	// with " " and refuses an entry that could not survive it, because a space
+	// inside one entry is not a parse error on the wire — it SPLITS one scope
+	// into two and mints authority you did not ask for. An unsendable entry is
+	// ErrInvalidScope, raised before the request leaves.
+	//
+	// Accepted on /auth/token ONLY, never on /auth/login: the ADR-041 escort
+	// runs on this route for every refresh class, so a confidential backend is
+	// structurally always in the path and a user cannot self-assert a scope.
+	//
+	// OPTIONAL. Empty and absent are the same request — unlike RolePermissions,
+	// an empty scope carries no instruction. The issuer bounds the list against
+	// the realm's user_api_keys.max_permission_strings /
+	// max_permission_string_len (400 too_many_scopes / scope_too_long) and
+	// refuses it outright on a service-class refresh (400 scope_not_supported).
+	//
+	// Where the token is ALSO user-API-key-derived, the minted claim is the
+	// intersection with permissions_cap; see RolePermissions for that narrowing.
+	Scope []string
+
 	// RolePermissions is the permission list the holder's ROLE confers, in YOUR
 	// vocabulary, used to narrow a user-API-key token's permissions_cap claim to
 	// this org — on REFRESH as well as login (ADR-100 D16/D18).
@@ -458,6 +487,18 @@ func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 	// input.
 	if req.RolePermissions != nil {
 		body["role_permissions"] = req.RolePermissions
+	}
+	// Keyed on emptiness, not nil — the inverse of RolePermissions above, and
+	// for the stated reason: parseScope trims and returns nil for "", so an
+	// empty scope IS an absent one and a "scope": "" on the wire could not mean
+	// anything. Refused before the request leaves, so a bad entry never spends
+	// (and rotates away) the refresh token.
+	scopeWire, err := scopeWireValue(req.Scope)
+	if err != nil {
+		return nil, err
+	}
+	if scopeWire != "" {
+		body["scope"] = scopeWire
 	}
 	var resp MintResult
 	if err := a.realm.http.do(ctx, requestOptions{
