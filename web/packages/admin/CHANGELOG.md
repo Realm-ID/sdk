@@ -1,5 +1,19 @@
 # @realm-id/web-admin — changelog
 
+## 0.9.1 — `MeMembership.realm_id` (issuer spec 0.34.0)
+
+Type-only, additive.
+
+- **`MeMembership.realm_id?: string`** — the realm the membership's TENANT
+  LIVES IN. `platform_id` cannot answer that: on an admin tenant it names the
+  realm being ADMINISTERED while the tenant lives in the base realm (ADR-015).
+- Use it to decide whether a platform bearer you hold can act on a tenant
+  (ADR-097 §E refuses a mint across realms) instead of inferring from
+  `is_admin_tenant` — that inference is safe in one direction only and hides a
+  working control from base-realm sub-tenant members.
+- Optional because `/me` reaches a browser through a BFF that re-encodes it: a
+  BFF that has not declared the field drops it. Absent means unknown.
+
 ## 0.9.0 — ADR-100 passthrough (2026-08-27)
 
 **BREAKING**, and entirely inherited — this package owns no types of its own

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-65 entries total — 10 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+66 entries total — 11 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-28 (`realm_id`) — a type-only field, and the pin for it was checked by nothing until it was](#2026-08-28-realm_id--a-type-only-field-and-the-pin-for-it-was-checked-by-nothing-until-it-was)
 - [2026-08-28 (latest) — the enforcement half shipped in three languages and the mint half in none](#2026-08-28-latest--the-enforcement-half-shipped-in-three-languages-and-the-mint-half-in-none)
 - [2026-08-27 (latest) — ADR-100 in four SDKs: making the illegal state unrepresentable in four different type systems](#2026-08-27-latest--adr-100-in-four-sdks-making-the-illegal-state-unrepresentable-in-four-different-type-systems)
 - [2026-08-25 (latest) — a changelog can be present and unreachable: the order gate, and the entry that never got its number](#2026-08-25-latest--a-changelog-can-be-present-and-unreachable-the-order-gate-and-the-entry-that-never-got-its-number)
@@ -77,6 +78,43 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-28 (`realm_id`) — a type-only field, and the pin for it was checked by nothing until it was
+
+`@realm-id/web-admin` `0.9.1` adds `MeMembership.realm_id?: string`, mirroring
+issuer spec `0.34.0`: the realm a membership's TENANT LIVES IN, which
+`platform_id` does not name on an admin tenant (that one is the realm being
+ADMINISTERED; the tenant lives in the base realm, ADR-015).
+
+**Why only this package.** SPEC §13 forces all three language SDKs to move
+together for a change that breaks the wire. This one is additive, and more to
+the point `go/`, `java/` and `ts/` do not model `GET /me`'s profile shape at
+all — grep finds `MeMembership` in exactly one file in this repo. `SPEC.md`
+itself specifies the `/me/*` ACTION endpoints and not the profile response, so
+the spec is unchanged and there is nothing for the other three to mirror.
+Bumping them would publish three no-op releases and make the next reader think
+the profile shape lives there.
+
+**Optional, and not for tidiness.** The browser reaches `/me` through a BFF that
+DECODES and RE-ENCODES it. A BFF that has not declared the field drops it even
+when the issuer sent it, so a client can hold a current SDK and still see
+`undefined`. `?` states that honestly; absent means unknown, never "no realm".
+
+**The finding worth more than the field.** The obvious way to pin a type-only
+addition is an object literal in a test file. In this package that literal was
+checked by NOTHING: `tsconfig.json` excludes `src/**/*.test.ts`, and the runner
+is `node --test --import tsx`, which strips types without checking them — the
+exact hazard `ci.yml` warns about three lines above the typecheck step, still
+open for the test files themselves. A mutation proved it: renaming `realm_id` in
+`types.ts` left both `tsc --noEmit` and the suite green.
+
+So `typecheck` now runs a second pass over `tsconfig.test.json`, which includes
+the tests. Re-mutated afterwards: three `TS2561`/`TS2551` errors, gate live.
+
+**What that does NOT fix, and it is bigger than this change.** `ci.yml` has jobs
+for `go`, `ts` and `java` and NONE for `web/packages/*`. Neither the typecheck
+nor the suite of this package runs in CI at all, so the gate above is only as
+good as someone running it locally. Filed in `TODO.md`.
 
 ## 2026-08-28 (latest) — the enforcement half shipped in three languages and the mint half in none
 

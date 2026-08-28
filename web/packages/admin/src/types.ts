@@ -573,6 +573,30 @@ export interface MeMembership {
    * consent flow at all, so nothing is awaiting an answer.
    */
   invitation_pending?: boolean;
+  /**
+   * The realm this membership's TENANT LIVES IN (`tenants.realm_id`), stated by
+   * the issuer since spec `0.34.0`.
+   *
+   * **Not a synonym for `platform_id`.** On an ordinary org the two coincide,
+   * but on an ADMIN tenant `platform_id` is the realm that tenant ADMINISTERS
+   * while the tenant itself lives in the base realm (ADR-015). Reading one as
+   * the other is how a BFF once flagged every base-realm sub-tenant as the
+   * RealmID ops workspace.
+   *
+   * **What it is for.** A client holding a platform bearer can only act on a
+   * tenant in the realm that bearer was issued in — ADR-097 §E refuses a
+   * user-API-key mint across realms. Compare this against your own realm id;
+   * do NOT infer it from `is_admin_tenant`, which proves base-realm hosting
+   * but whose converse is false (a base-realm SUB-tenant is neither an admin
+   * tenant nor a partner org, and that inference hid a working control from
+   * its members).
+   *
+   * Optional here for one concrete reason, not for tidiness: this shape
+   * arrives through a BFF that decodes and re-encodes `/me`, so a BFF that has
+   * not declared the field DROPS it even when the issuer sent it. Absent means
+   * "unknown" — fall through to your other checks; it never means "no realm".
+   */
+  realm_id?: string;
 }
 
 export interface ProfileResponse {

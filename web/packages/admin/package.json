@@ -1,6 +1,6 @@
 {
   "name": "@realm-id/web-admin",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Admin-UI SDK for RealmID \u2014 wraps @realm-id/sdk resource classes on top of an @realm-id/web transport.",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,7 @@
     "build": "tsc",
     "pretest": "npm --prefix ../../../ts run build",
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json"
   },
   "keywords": [
     "realmid",

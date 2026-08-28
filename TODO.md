@@ -24,6 +24,24 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
+- [ ] **CI runs no job for `web/packages/*` at all.** `.github/workflows/ci.yml`
+  has `go`, `ts` and `java` jobs and nothing for the browser packages, so
+  `@realm-id/web-admin`'s `npm run typecheck` and `npm test` never run on a
+  push — including the tsconfig.test.json pass added on 2026-08-28, which is
+  therefore only as good as someone running it locally. These packages are what
+  the admin console actually vendors. *(Found 2026-08-28 while pinning
+  `MeMembership.realm_id`; the pin was mutation-verified locally.)*
+  `.github/workflows/ci.yml`, `web/packages/*/package.json`.
+
+- [ ] **`@realm-id/web-admin` `0.9.1` is committed but NOT published or
+  vendored.** It adds `MeMembership.realm_id` (issuer spec `0.34.0`). Until it
+  is published and re-vendored into `ui/web/vendor/`, the console cannot read
+  the field — and it would see nothing anyway until the BFF (`Realm-ID/api`)
+  declares it, since that BFF re-encodes `/me` through its own struct and drops
+  what it does not declare. Order: `api/` → publish `0.9.1` → re-vendor →
+  `ui/`. Verify the packed tarball's bundled dep, not the version string
+  (`tar xzOf vendor/realm-id-web-admin-0.9.1.tgz package/node_modules/@realm-id/sdk/package.json`).
+
 - [ ] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`.**
   `@realm-id/web-admin` types starter roles as `"admin" | "viewer"` because the
   menu is closed server-side and an unknown name is a hard 400. But the issuer
