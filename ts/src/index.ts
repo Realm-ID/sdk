@@ -126,6 +126,18 @@ export type {
   RolePatch,
 } from "./roles.js";
 
+// ADR-101 D1 write side — RealmID's role VOCABULARY, base-realm-gated.
+export { RoleTemplatesClient, ROLE_TEMPLATE_LEVELS } from "./role-templates.js";
+export type {
+  RoleTemplate,
+  RoleTemplateLevel,
+  RoleTemplateCreate,
+  RoleTemplatePatch,
+  RoleTemplateCreated,
+  RoleTemplatePatched,
+  RoleTemplateDeleted,
+} from "./role-templates.js";
+
 export { ConfigClient } from "./config.js";
 export type { RealmConfigValues, RealmConfigResponse } from "./config.js";
 

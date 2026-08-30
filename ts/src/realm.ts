@@ -17,6 +17,7 @@ import { UserApiKeysClient } from "./user-api-keys.js";
 import { ConfigClient } from "./config.js";
 import { StatsClient } from "./stats.js";
 import { RolesClient } from "./roles.js";
+import { RoleTemplatesClient } from "./role-templates.js";
 import { ScopesClient } from "./scopes.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
@@ -108,6 +109,12 @@ export interface Realm {
   /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
   readonly stats: StatsClient;
   readonly roles: RolesClient;
+  /**
+   * RealmID's role VOCABULARY (ADR-101 D1), not one realm's roles.
+   * Base-realm-gated — a partner realm gets `role_authoring_retired` on every
+   * verb, and the remedy is ADR-097 scopes, not a retry.
+   */
+  readonly roleTemplates: RoleTemplatesClient;
   /**
    * ADR-097 §F — the realm-wide bulk scope rename. Realm-owner only.
    *
@@ -267,6 +274,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       config: new ConfigClient(client, cfg.realmId),
       stats: new StatsClient(client, cfg.realmId),
       roles: new RolesClient(client, cfg.realmId),
+      roleTemplates: new RoleTemplatesClient(client, cfg.realmId),
       scopes: new ScopesClient(client, cfg.realmId),
       signingKeys: new SigningKeysClient(client, cfg.realmId),
       identityProviderConfig: new IdentityProviderConfigClient(client, cfg.realmId),

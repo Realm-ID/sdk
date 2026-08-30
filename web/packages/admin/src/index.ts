@@ -20,6 +20,7 @@ import type { Realm } from "@realm-id/web";
 import {
   TenantsClient,
   RolesClient,
+  RoleTemplatesClient,
   ScopesClient,
   DomainsClient,
   AdminClient,
@@ -51,6 +52,15 @@ export interface Admin {
    *  hard-reject ops (see {@link AdminTenantsClient}). */
   tenants: AdminTenantsClient;
   roles: RolesClient;
+  /**
+   * ADR-101 D1 — RealmID's role VOCABULARY, not one realm's roles.
+   *
+   * Distinct from {@link roles}: a ROLE belongs to a realm and has holders, a
+   * TEMPLATE is the recipe a role is stamped from. Base-realm-gated (D4), so in
+   * a partner console every verb here answers `role_authoring_retired` — do not
+   * render its affordances outside the base realm.
+   */
+  roleTemplates: RoleTemplatesClient;
   /**
    * ADR-097 §F — the realm-wide bulk scope rename (realm-owner only).
    *
@@ -142,6 +152,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
   return {
     tenants: new AdminTenantsClient(httpAsClient, rid),
     roles: new RolesClient(httpAsClient, rid),
+    roleTemplates: new RoleTemplatesClient(httpAsClient, rid),
     scopes: new ScopesClient(httpAsClient, rid),
     apiKeys: new ApiKeysClient(http),
     identityProviders: new IdentityProvidersClient(http),
@@ -195,6 +206,7 @@ export { CONTACT_ADMIN_REQUIRED, isContactAdminRequired } from "./errors.js";
 export {
   TenantsClient,
   RolesClient,
+  RoleTemplatesClient,
   DomainsClient,
   AdminClient,
   ServiceAccountsClient,
@@ -231,6 +243,13 @@ export type {
   RoleListOpts,
   RoleCreate,
   RolePatch,
+  RoleTemplate,
+  RoleTemplateLevel,
+  RoleTemplateCreate,
+  RoleTemplatePatch,
+  RoleTemplateCreated,
+  RoleTemplatePatched,
+  RoleTemplateDeleted,
   Permission,
   SigningKey,
   SigningKeyRotation,

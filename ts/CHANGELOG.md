@@ -4,7 +4,21 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased
+## 0.44.0 — the role vocabulary (ADR-101 D1 write side)
+
+- **`realm.roleTemplates`** — RealmID's role VOCABULARY: `list`, `create`,
+  `update`, `delete` on `/platforms/{id}/role-templates`. Distinct from
+  `realm.roles`: a ROLE belongs to one realm and has holders, a TEMPLATE is the
+  recipe a role is stamped from. Base-realm-gated — a partner realm gets
+  `role_authoring_retired` on every verb.
+- `realms_stamped` on create (a floor template FANS OUT to realms that already
+  exist) and `drifted_realms` on update (an edit does NOT propagate, so it
+  creates drift by design). **`-1` means the count could not be taken, never
+  "none".**
+- An unset patch field is OMITTED from the body, never sent as null: absent
+  preserves the stored value.
+- Exported from `./internal` as well as the root, so `@realm-id/web-admin` can
+  build against it.
 
 ## 0.43.0 — the SDK carries the shared rules, and the envelope tells the truth (2026-08-30)
 

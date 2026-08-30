@@ -1,5 +1,13 @@
 # @realm-id/web-admin — changelog
 
+## 0.11.0 — the role vocabulary (ADR-101 D1 write side) (2026-08-30)
+
+- **`admin.roleTemplates`** — RealmID's role VOCABULARY, not one realm's roles.
+  Base-realm-gated (ADR-101 D4), so in a partner console every verb answers
+  `role_authoring_retired`: do not render its affordances outside the base
+  realm.
+- Bundles `@realm-id/sdk` `0.44.0`.
+
 ## 0.10.0 — SSO domains, federation bindings, transfer-by-email; notes move behind `/internal` (2026-08-30)
 
 **BREAKING (one item):** `admin.notes` and the `PlatformNotesClient` export are

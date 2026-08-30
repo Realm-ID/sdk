@@ -19,6 +19,7 @@ import dev.realmid.sdk.platformtoken.PlatformTokenManager;
 import dev.realmid.sdk.idp.IdentityProviderConfigClient;
 import dev.realmid.sdk.idp.IdentityProvidersClient;
 import dev.realmid.sdk.roles.RolesClient;
+import dev.realmid.sdk.roles.RoleTemplatesClient;
 import dev.realmid.sdk.serviceaccounts.ServiceAccountsClient;
 import dev.realmid.sdk.integrations.IntegrationsClient;
 import dev.realmid.sdk.sessions.SessionsClient;
@@ -57,6 +58,11 @@ public final class Realm {
     private final APIKeysClient apiKeys;
     private final UserAPIKeysClient userApiKeys;
     private final RolesClient roles;
+    /**
+     * RealmID's role VOCABULARY (ADR-101 D1), not one realm's roles.
+     * Base-realm-gated: a partner realm gets {@code role_authoring_retired}.
+     */
+    private final RoleTemplatesClient roleTemplates;
     private final ServiceAccountsClient serviceAccounts;
     private final IntegrationsClient integrations;
     private final SourcesClient sources;
@@ -124,6 +130,7 @@ public final class Realm {
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.userApiKeys = new UserAPIKeysClient(this.http);
         this.roles = new RolesClient(this.http, this.realmId);
+        this.roleTemplates = new RoleTemplatesClient(this.http, this.realmId);
         this.serviceAccounts = new ServiceAccountsClient(this.http);
         this.sources = new SourcesClient(this.http, this.realmId);
         this.integrations = new IntegrationsClient(this.http, this.realmId);
@@ -168,6 +175,7 @@ public final class Realm {
         this.apiKeys = new APIKeysClient(this.http, this.realmId);
         this.userApiKeys = new UserAPIKeysClient(this.http);
         this.roles = new RolesClient(this.http, this.realmId);
+        this.roleTemplates = new RoleTemplatesClient(this.http, this.realmId);
         this.serviceAccounts = new ServiceAccountsClient(this.http);
         this.sources = new SourcesClient(this.http, this.realmId);
         this.integrations = new IntegrationsClient(this.http, this.realmId);
@@ -236,6 +244,9 @@ public final class Realm {
      */
     public UserAPIKeysClient userApiKeys() { return userApiKeys; }
     public RolesClient roles() { return roles; }
+
+    /** RealmID's role vocabulary (ADR-101 D1). Base-realm-gated. */
+    public RoleTemplatesClient roleTemplates() { return roleTemplates; }
     /** Owner/admin service-account surface (ADR-071). */
     public ServiceAccountsClient serviceAccounts() { return serviceAccounts; }
     /** Owner/admin app/source registry (ADR-072). */

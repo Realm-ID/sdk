@@ -157,6 +157,15 @@ var (
 	ErrRoleExists          = errors.New("realmid: role already exists")
 	ErrRoleInUse           = errors.New("realmid: role still attached to users/invitations")
 	ErrSystemRoleImmutable = errors.New("realmid: system role is immutable")
+	// ErrRoleAuthoringRetired is ADR-101 D4: RealmID defines the role set, so a
+	// partner realm cannot create, edit, rename or delete a role. The remedy is
+	// not a retry — product roles belong in the partner's own system and reach
+	// RealmID as ADR-097 opaque scopes.
+	//
+	// This shipped server-side in issuer v0.113.0 and had NO SDK sentinel until
+	// the D1 write side landed, so every caller of Create/Update/Delete/Rename
+	// on a partner realm received an unmapped 403 and had to string-match.
+	ErrRoleAuthoringRetired = errors.New("realmid: role authoring is retired; use ADR-097 scopes for product roles")
 )
 
 // RolesClient is realm.Roles.
@@ -348,7 +357,13 @@ func mapRoleErr(err error) error {
 	if !errors.As(err, &re) {
 		return err
 	}
-	switch detailCode(re) {
+	// specificCode, not detailCode: it reads BOTH envelope levels. A code that
+	// is registered lands in RealmError.Code and is not copied into the
+	// siblings, so a mapper reading only the siblings stops matching the day its
+	// code is registered.
+	switch specificCode(re) {
+	case "role_authoring_retired":
+		return errors.Join(ErrRoleAuthoringRetired, re)
 	case "role_in_use":
 		return errors.Join(ErrRoleInUse, re)
 	case "role_exists", "role_already_exists":

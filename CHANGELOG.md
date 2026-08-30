@@ -13,6 +13,45 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — ADR-101 D1's write side: the role VOCABULARY — ts `0.44.0` · `web-admin` `0.11.0` · go + java pending tags
+
+Spec `0.36.0` → `0.37.0`.
+
+### Added — all three languages
+
+- **`roleTemplates` / `RoleTemplates` / `roleTemplates()`** — RealmID's role
+  VOCABULARY. Distinct from the roles client, and the distinction is the whole
+  ADR: a ROLE belongs to one realm and has holders, a TEMPLATE is the recipe a
+  role is stamped from. Base-realm-gated, so a partner realm gets
+  `role_authoring_retired` on every verb; it is in the SDK because RealmID's own
+  console is an SDK consumer like any other.
+- `list` / `create` / `update` / `delete`, with the two counts the surface
+  exists to carry: `realms_stamped` (a floor template FANS OUT to realms that
+  already exist — the difference between "exists for future realms" and
+  "reached the estate") and `drifted_realms` (an edit does NOT propagate, so it
+  creates drift by design).
+  **`-1` on either means the count could not be TAKEN and must not be read as
+  "none".** Java exposes `driftUnknown()` / `orphanCountUnknown()` so that
+  distinction survives into a boolean.
+
+### Fixed — go
+
+- **`role_authoring_retired` had NO sentinel in any SDK**, though the issuer has
+  returned it from the four role-authoring routes since `v0.113.0`. Every caller
+  hitting it on a partner realm got an unmapped 403 and had to string-match.
+  Now `ErrRoleAuthoringRetired`, mapped on the roles surface as well as the
+  templates one — that is where a partner actually meets it.
+- `mapRoleErr` now reads the code with `specificCode` (BOTH envelope levels)
+  rather than `detailCode` (siblings only). A registered code lands in
+  `RealmError.Code` and is NOT copied into the siblings, so the old reader would
+  have stopped matching the day any of these codes was registered.
+
+### Note
+
+An unset field in a patch is OMITTED from the request body in all three
+languages, never sent as null: absent preserves the stored value, whereas a null
+would be a decision the caller never made. Asserted per language.
+
 ## ADR-101 + the SDK dogfooding wave — go `0.50.0` · ts `0.43.0` · java `0.40.0` · `@realm-id/web` `0.5.0` · `web-admin` `0.10.0` (2026-08-30)
 
 ### docs — partner-facing writeup of the dogfooding wave (2026-08-30)

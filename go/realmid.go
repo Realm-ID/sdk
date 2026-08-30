@@ -110,6 +110,10 @@ type Realm struct {
 	// coverage) served by GET /platforms/{pid}/stats.
 	Stats *StatsClient
 	Roles *RolesClient
+	// RoleTemplates is ADR-101 D1's write side: RealmID's role VOCABULARY, not
+	// one realm's roles. Base-realm-gated (D4) — a partner realm gets
+	// ErrRoleAuthoringRetired on every verb.
+	RoleTemplates *RoleTemplatesClient
 	// SigningKeys is the owner-facing signing-key read + self-serve rotate
 	// surface (roles/signing-keys overhaul).
 	SigningKeys *SigningKeysClient
@@ -212,6 +216,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Config = &ConfigClient{realm: r}
 	r.Stats = &StatsClient{realm: r}
 	r.Roles = &RolesClient{realm: r}
+	r.RoleTemplates = &RoleTemplatesClient{realm: r}
 	r.SigningKeys = &SigningKeysClient{realm: r}
 	r.IdentityProviderConfig = &IdentityProviderConfigClient{realm: r}
 	r.Origins = newOriginsClient(r)
