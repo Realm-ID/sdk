@@ -1,5 +1,55 @@
 # @realm-id/web-admin — changelog
 
+## 0.10.0 — SSO domains, federation bindings, transfer-by-email; notes move behind `/internal` (2026-08-30)
+
+**BREAKING (one item):** `admin.notes` and the `PlatformNotesClient` export are
+gone from the package root. See the last bullet.
+
+- **`admin.ssoDomains`** (ADR-094) — the nine per-org SSO domain-grant calls:
+  `list` / `claim` / `verify` / `request` / `revoke` on the org-scoped path, and
+  `listForPlatform` / `approve` / `reject` on the platform owner's queue, which
+  addresses a grant by **id**, not domain. Partners MUST surface this flow — an
+  org cannot self-serve from an RI-hosted console — which is why it is SDK
+  surface. A failed `verify` is a `200` with `verified: false`, not an error:
+  "the record is not published yet" is the normal state while a customer sets
+  DNS up. NOT `admin.domains`, which is ADR-049 ROUTING; a routing domain must
+  never confer SSO.
+- **`admin.federationBindings`** (ADR-057) — wired onto `@realm-id/sdk`'s
+  existing `FederationBindingsClient`, bound to the admin's `realmId` like every
+  other `/platforms/{id}/…` resource. Bindings are IMMUTABLE server-side, so a
+  "rotate" composes create-then-revoke; there is no update route to add.
+- **`AdminTenantsClient.transferOwner(id, recipient, opts)`** — widened to take
+  either a resolved user id or `{ email }`, the **ADR-087 parent path**: a
+  platform owner acting on one of their realm's orgs cannot read the target's
+  roster at all (ADR-067 keeps roster reads own-tenant only), so they must name
+  the recipient by address and the server resolves or PROVISIONS it. Adds
+  `suspendOutgoingOwner`. Exactly ONE recipient key is ever sent, and two
+  refusals happen locally rather than costing a round trip: an empty recipient,
+  and `leaveEntirely` together with `suspendOutgoingOwner` (the issuer's
+  `conflicting_outgoing_disposition`).
+- **Role predicates re-exported** — `isRoleAssignableTo`, `isRoleSeatable`,
+  `rolesAssignableTo`, `confersAuthority`, `NON_ASSIGNABLE_ROLES`,
+  `HUMAN_ONLY_PERMISSIONS`. ⚠️ The first two are **not interchangeable**:
+  `isRoleAssignableTo` is the exact server mirror with no name or disabled
+  guards, so an `owner` row with an empty `assignable_to` passes it;
+  `isRoleSeatable` adds the guards a PICKER needs. Anything offering a choice to
+  a human must use `isRoleSeatable` / `rolesAssignableTo` or it will offer
+  `owner`. A test asserts the split survives the re-export.
+- **`unwrapData` / `parseErrorEnvelope` re-exported**, and this package's own
+  copy of `unwrapData` is DELETED — the transport now parses the envelope with
+  `@realm-id/sdk`'s implementation, and a test walks the source directory to
+  fail if a local copy comes back. `ActiveSession` is now a re-export of
+  `@realm-id/web`'s `RevocableSession` rather than a second declaration.
+- **BREAKING — `PlatformNotesClient` moved to `@realm-id/web-admin/internal`.**
+  It targets the issuer's `/admin/platforms/{id}/notes`, a **base-realm
+  staff-only** surface: a partner platform owner, who is this package's
+  audience, can only ever receive `403` from it. It is not deleted (RealmID's
+  own console needs it) but it no longer advertises an API nobody outside
+  RealmID can call. Migration: `import { createOpsAdmin } from
+  "@realm-id/web-admin/internal"` and use that in place of `createAdmin` — it
+  returns the whole partner surface plus `notes`. The subpath carries no
+  stability promise.
+
 ## 0.9.1 — `MeMembership.realm_id` (issuer spec 0.34.0)
 
 Type-only, additive.

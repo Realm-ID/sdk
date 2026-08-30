@@ -1,7 +1,7 @@
 {
   "name": "@realm-id/web",
-  "version": "0.4.5",
-  "description": "Browser SDK for RealmID — token management, login-config discovery, framework-agnostic.",
+  "version": "0.5.0",
+  "description": "Browser SDK for RealmID \u2014 token management, login-config discovery, framework-agnostic.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -34,6 +34,7 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@realm-id/sdk": "file:../../../ts",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   },

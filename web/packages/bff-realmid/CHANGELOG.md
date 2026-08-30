@@ -16,6 +16,16 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.4.0 — discovery maps `tenant_id` and `nickname` (2026-08-30)
+
+Additive. The reference BFF's `GET /identity-providers` was already returning
+both and the adapter was dropping them, so every console re-fetched the same
+anonymous route by hand just to read `tenant_id` — the login page needs it to
+carry the tenant into the subsequent `login`, and a realm-root origin
+legitimately has none (absent means "the server did not say", never "no
+tenant"). Now surfaced as `ProvidersResponse.tenantId` and
+`IdentityProvider.nickname` (`@realm-id/web` `0.5.0`).
+
 ## 0.3.6 — revert: login sends `method` again (2026-07-05)
 
 `0.3.5` migrated this package's `/login` body from `method` to `grant_type` and

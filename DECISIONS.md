@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-71 entries total — 16 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+72 entries total — 17 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-30 (web) — the console's step-up wrapper was always partner code, and the notes client never was](#2026-08-30-web--the-consoles-step-up-wrapper-was-always-partner-code-and-the-notes-client-never-was)
 - [2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle](#2026-08-30-go--a-proxy-is-not-a-client-and-the-four-things-it-re-implemented-were-all-subtle)
 - [2026-08-30 (ts, later) — a drift gate that is green while the set it guards is wrong](#2026-08-30-ts-later--a-drift-gate-that-is-green-while-the-set-it-guards-is-wrong)
 - [2026-08-30 (ts) — the picker predicate and the server predicate are not the same predicate](#2026-08-30-ts--the-picker-predicate-and-the-server-predicate-are-not-the-same-predicate)
@@ -83,6 +84,76 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-30 (web) — the console's step-up wrapper was always partner code, and the notes client never was
+
+**Problem.** Two opposite boundary errors in the browser packages. Going out:
+`ui/web/src/api.ts` carried ~340 lines of self-declared "SDK gap shims" — the
+ADR-094 SSO domain flow, ADR-057 federation bindings, ADR-092 D5 membership
+self-service, the pre-session revocation flow — each of which any partner
+integrating RealmID has to re-write, and `ui/web/src/stepup.ts`, whose own
+header says "that is the pattern partners will copy" while living in a file no
+partner can import. Coming in: `@realm-id/web-admin` shipped
+`PlatformNotesClient` against the issuer's `/admin/platforms/{id}/notes`, a
+base-realm staff-only route that returns `403` to every partner who is this
+package's entire audience.
+
+**Decisions.**
+
+1. **The step-up wrapper moves to `@realm-id/web` with the prompt as a
+   CALLBACK, not module state.** The console's version registers one prompt in
+   a module-level variable; two realms on one page would fight over it, and a
+   library cannot own that global. The four behaviours it has to reproduce are
+   each silent when broken — misclassifying the session-limit `412` swallows a
+   gate that has its own flow; reusing the presented bearer logs the user out on
+   a SUCCESSFUL verify; dropping the bearer from the verify writes the proof on
+   the wrong tenant and re-prompts forever; replaying through the wrapper rather
+   than the raw fetch turns one refusal into a loop. So each got its own test
+   AND its own mutation: six mutations, six different tests red. A suite where
+   one assertion covers four behaviours would have passed three of them.
+
+2. **`isRoleAssignableTo` and `isRoleSeatable` are re-exported SEPARATELY, and a
+   test asserts the split survives.** Wave 1 split them for a reason — the first
+   mirrors the server exactly (no name guards), the second adds what a picker
+   needs. Re-exporting them through one name, or aliasing one onto the other,
+   silently starts offering `owner` in every role picker. The test that catches
+   it is the `owner` case itself, asserted in both directions.
+
+3. **`PlatformNotesClient` moves to a `/internal` subpath, not to the bin.**
+   Deleting it would break RealmID's own console for no gain; leaving it on the
+   root entry point advertises an API the audience cannot call. A subpath export
+   with no stability promise says both true things at once. `createOpsAdmin` is
+   a superset of `createAdmin` so the console changes one import, not thirty.
+   This is a BREAKING change for `@realm-id/web-admin` consumers and is the
+   reason this is `0.10.0` rather than `0.9.2`. The ADR-048 aggregates
+   (`admin.admin.*`) stay on the root surface deliberately — they are in SPEC
+   §7.5 — but the partner docs must say staff-only (W5, C2).
+
+4. **`@realm-id/web` keeps ZERO runtime dependencies, and pays for it with
+   parity TESTS.** `@realm-id/sdk` owns `unwrapData`/`parseErrorEnvelope` and
+   the membership code taxonomy, and it is itself dep-free and browser-safe, so
+   a dependency was genuinely available. It was declined because `ui/web` pins
+   these packages as vendored tarballs BY FILENAME, and adding a runtime dep to
+   core changes that chain in the middle of a five-wave refactor. The
+   alternative to a dependency is not a silent copy: the sdk is a devDependency,
+   and both implementations are run over the same fixture table (23 bodies × 7
+   statuses for the envelope, set equality for the taxonomy) with the parity
+   assertion refusing to pass on an empty table. Two mutations confirmed it —
+   drifting `unwrapData`'s sole-key rule and dropping one membership code each
+   turned the gate red. Filed in `TODO.md` as a decision to revisit once the
+   vendoring chain is settled, because a parity test is a gate, not a fix.
+
+5. **`ActiveSession` stopped being declared twice.** `@realm-id/web` owns the
+   row as `RevocableSession` and `@realm-id/web-admin` re-exports it under the
+   old name. The two declarations had already drifted by one field
+   (`device_name`), which is the whole argument in miniature.
+
+**Tradeoff accepted.** `admin.ssoDomains` and `admin.federationBindings` are
+bound to the admin's `realmId` like every other `/platforms/{id}/…` resource
+rather than taking a platform id per call, so a console targeting another
+platform constructs a second admin (`useAdminForRealm`, which already exists).
+Consistency with the eight resources already shaped that way beat matching the
+shim's signature.
 
 ## 2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle
 

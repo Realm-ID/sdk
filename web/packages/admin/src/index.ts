@@ -30,19 +30,20 @@ import {
   OtpClient,
   UserApiKeysClient,
 } from "@realm-id/sdk/internal";
+import { FederationBindingsClient } from "@realm-id/sdk";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
 import { ApiKeysClient } from "./api-keys.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
 import { PlatformsClient } from "./platforms.js";
 import { OriginsClient } from "./origins.js";
-import { PlatformNotesClient } from "./notes.js";
 import { SigningKeysClient } from "./signing-keys.js";
 import { BffClient } from "./bff.js";
 import { SessionsClient } from "./sessions.js";
 import { MeClient } from "./me.js";
 import { MfaClient } from "./mfa.js";
 import { AdminTenantsClient } from "./tenants.js";
+import { SSODomainsClient } from "./sso-domains.js";
 
 export interface Admin {
   /** Tenants + nested users/invitations/driftReviews. The `users` and
@@ -66,7 +67,22 @@ export interface Admin {
   /** Realm SPA origins / custom domains (ADR-049) — attach a custom apex
    *  to an existing platform via the claim → verify → bind flow. */
   origins: OriginsClient;
-  notes: PlatformNotesClient;
+  /**
+   * Per-org SSO domain GRANTS (ADR-094) — which org a verified `@acme.com`
+   * address may be provisioned into. NOT {@link domains}, which is ADR-049
+   * ROUTING (which hostname serves an org); the two read different tables and
+   * a routing domain must never confer SSO.
+   *
+   * Partners MUST surface this flow: an org cannot self-serve from an
+   * RI-hosted console.
+   */
+  ssoDomains: SSODomainsClient;
+  /**
+   * Workload-identity federation trust bindings (ADR-057) — CRUD over
+   * `/platforms/{id}/federation-bindings`. Bindings are IMMUTABLE server-side,
+   * so a "rotate" is create-then-revoke, not an update.
+   */
+  federationBindings: FederationBindingsClient;
   signingKeys: SigningKeysClient;
   /** Owner-facing signing-key read + self-serve rotate (/platforms/{id}/signing-keys). */
   keys: OwnerSigningKeysClient;
@@ -133,7 +149,8 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     admin: new AdminClient(httpAsClient),
     platforms: new PlatformsClient(http),
     origins: new OriginsClient(http),
-    notes: new PlatformNotesClient(http),
+    ssoDomains: new SSODomainsClient(http, rid),
+    federationBindings: new FederationBindingsClient(httpAsClient, rid),
     signingKeys: new SigningKeysClient(http),
     keys: new OwnerSigningKeysClient(httpAsClient, rid),
     serviceAccounts: new ServiceAccountsClient(httpAsClient),
@@ -161,13 +178,15 @@ export type {
   StarterRole,
 } from "./platforms.js";
 export { OriginsClient } from "./origins.js";
-export { PlatformNotesClient } from "./notes.js";
 export { SigningKeysClient } from "./signing-keys.js";
 export { BffClient } from "./bff.js";
 export { SessionsClient } from "./sessions.js";
 export { MeClient } from "./me.js";
 export { MfaClient } from "./mfa.js";
 export { AdminTenantsClient } from "./tenants.js";
+export type { OwnerRecipient, AdminTransferOwnerOptions } from "./tenants.js";
+export { SSODomainsClient } from "./sso-domains.js";
+export type { ListPlatformSSODomainsOpts } from "./sso-domains.js";
 export { AdminUsersClient, AdminDriftReviewsClient } from "./user-binding.js";
 export { CONTACT_ADMIN_REQUIRED, isContactAdminRequired } from "./errors.js";
 
@@ -253,3 +272,53 @@ export type {
 
 export { RealmError } from "@realm-id/sdk";
 export type { ErrorCode } from "@realm-id/sdk";
+
+/**
+ * ADR-081 / ADR-101 role predicates, re-exported from `@realm-id/sdk` so a
+ * console never re-derives them. Every partner console rendering a role picker
+ * needs BOTH, or every save 403s.
+ *
+ * ⚠️ **`isRoleAssignableTo` and `isRoleSeatable` are NOT interchangeable.**
+ * `isRoleAssignableTo` is the exact mirror of the server's
+ * `requireRoleAssignableToKind` — no name guards, no disabled check — so an
+ * `owner` row with an empty `assignable_to` passes it. `isRoleSeatable` adds
+ * the guards a PICKER needs (`NON_ASSIGNABLE_ROLES`, `disabled`). Anything
+ * offering a choice to a human must use `isRoleSeatable` / `rolesAssignableTo`,
+ * or it will offer `owner`.
+ */
+export {
+  isRoleAssignableTo,
+  isRoleSeatable,
+  rolesAssignableTo,
+  confersAuthority,
+  NON_ASSIGNABLE_ROLES,
+  HUMAN_ONLY_PERMISSIONS,
+} from "@realm-id/sdk";
+export type { AssignableRole, ConfersAuthorityOptions, CatalogPermission } from "@realm-id/sdk";
+
+/**
+ * The GoFr wire envelope, re-exported so a console parsing a raw response uses
+ * the SAME implementation this package's transport does. Four hand-rolled
+ * copies of these two functions is what motivated the export.
+ */
+export { unwrapData, parseErrorEnvelope } from "@realm-id/sdk";
+export type { ErrorEnvelope } from "@realm-id/sdk";
+
+/** ADR-094 SSO-domain wire shapes + the two closed vocabularies. */
+export { SSO_DOMAIN_METHODS, SSO_DOMAIN_PROOF_METHODS, SSO_DOMAIN_STATUSES } from "@realm-id/sdk";
+export type {
+  SSODomainGrant,
+  SSODomainMethod,
+  SSODomainStatus,
+  SSODomainInstructions,
+  SSODomainClaimResult,
+  SSODomainVerifyResult,
+} from "@realm-id/sdk";
+
+/** ADR-057 federation-binding transport + wire shapes. */
+export { FederationBindingsClient } from "@realm-id/sdk";
+export type {
+  FederationBinding,
+  FederationBindingCreate,
+  FederationBindingRevokeResult,
+} from "@realm-id/sdk";

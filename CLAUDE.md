@@ -66,12 +66,23 @@ One locked spec, multiple language-idiomatic implementations.
   PREVENTS — the tag-time ones can only report, because by then the tag is
   immutable.
 - **Two-SDK browser split** — `@realm-id/web` is the tenant-app SDK
-  (auth, storage, multi-tab); `@realm-id/web-admin` is the admin-UI SDK
-  (tenants, users, roles, platforms, notes, signing keys, BFF
-  aggregates). `web-admin` declares `@realm-id/web` as a peer
-  dependency and bundles `@realm-id/sdk` (via `bundledDependencies`)
-  so its resource classes are pinned to the version it was packed
-  against.
+  (auth, storage, multi-tab, operation step-up, membership self-service);
+  `@realm-id/web-admin` is the admin-UI SDK (tenants, users, roles, platforms,
+  SSO domains, federation bindings, signing keys, BFF aggregates). `web-admin`
+  declares `@realm-id/web` as a peer dependency and bundles `@realm-id/sdk`
+  (via `bundledDependencies`) so its resource classes are pinned to the version
+  it was packed against.
+- **`@realm-id/web` takes ZERO runtime dependencies.** Policy, like `sdk/go`'s.
+  Where it must share a contract `@realm-id/sdk` owns (the GoFr envelope, the
+  ADR-092 membership codes) it carries an identical implementation held in place
+  by a PARITY TEST — `@realm-id/sdk` is a devDependency for exactly that. Never
+  add a plain copy; either dogfood the sdk or add the parity test.
+- **`@realm-id/web-admin/internal` is the staff-only subpath.** A surface gated
+  on base-realm staff (`/admin/…`) can only ever `403` for the partners this
+  package is published for, so it does not belong on the root entry point. Put
+  it behind `internal.ts` / `createOpsAdmin` and give it no stability promise.
+  The ADR-048 aggregates are the deliberate exception — SPEC §7.5 names them —
+  and the partner docs must say staff-only.
 - **Repack gotcha (`web-admin`)** — workspace-root `npm install`
   hoists `@realm-id/sdk` out of
   `sdk/web/packages/admin/node_modules/@realm-id/sdk/`. Before

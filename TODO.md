@@ -633,3 +633,38 @@ this is the SDK-side work.
       ABSENCE of a per-role MFA floor are asserted by unit tests, so they would
       not go red if the ISSUER changed its mind. `sdk/java`'s gate does parse
       those from the Go source; ts should match. *(Filed 2026-08-30 from W1b.)*
+- [ ] `web/packages/core/src/envelope.ts` + `memberships.ts` — `@realm-id/web`
+      takes ZERO runtime dependencies, so it cannot import `@realm-id/sdk`,
+      which OWNS `unwrapData` / `parseErrorEnvelope` / `MEMBERSHIP_ACTION_CODES`.
+      They are held identical by parity TESTS (a devDependency + a shared
+      fixture table) rather than by a single source. That is a real gate, not a
+      silent copy — but it is still two implementations. Decide deliberately
+      whether core should take `@realm-id/sdk` as a runtime dep (it is itself
+      dep-free and browser-safe); the cost is the `ui/web` tarball-vendoring
+      chain, which pins by filename. *(Filed 2026-08-30 from W2.)*
+- [ ] `web/packages/core/src/transport.ts` — the package now has TWO envelope
+      unwrappers with DIFFERENT rules: `unwrapEnvelope` (unwraps only when
+      `data` is the SOLE key, used by `Transport`) and `unwrapData` (unwraps
+      whenever `data` holds something, the sdk contract). Both are deliberate
+      and both are documented, but one call site picking the wrong one is a
+      silent data loss. Reconcile, or make the choice explicit at each call.
+      *(Filed 2026-08-30 from W2.)*
+- [ ] `web/packages/core/src/types.ts` — `ProvidersResponse.tenantId` and
+      `IdentityProvider.nickname` are populated ONLY by the
+      `@realm-id/web-bff-realmid` adapter. A partner BFF following BFF-SPEC
+      literally returns neither, so a partner login page reading `tenantId`
+      silently gets `undefined`. BFF-SPEC should name both fields on the
+      discovery response. *(Filed 2026-08-30 from W2.)*
+- [ ] `web/packages/admin/` — three `ui/web/src/api.ts` shims were NOT in the
+      W2 move list and still have no SDK resource: `fetchPlatformAuditEvents`
+      (`GET /platforms/{id}/audit-events`, ADR-055 — distinct from the
+      staff-gated `admin.admin.listEvents`), `listTenantUsers` +
+      `TenantUserSummary` (`GET /tenants/{id}/users`, the first page only), and
+      `selfEnrollMfa` / `verifyMfa` (`/auth/mfa/{enroll,verify}`, which the new
+      `withStepUpRetry` drives internally but does not expose). Wave 4 cannot
+      empty `api.ts` without them. *(Filed 2026-08-30 from W2.)*
+- [ ] `web/packages/admin/src/types.ts` — still hand-declares wire shapes the
+      issuer serves (`PlatformNote`, `ApiKeyListItem`, …) with no drift test of
+      any kind, which is the same class of defect W2 just removed for
+      `ActiveSession`. Audit the file against `issuer/docs/swagger.yaml`.
+      *(Filed 2026-08-30 from W2.)*

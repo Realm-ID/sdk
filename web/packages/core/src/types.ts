@@ -79,6 +79,9 @@ export interface IdentityProvider {
   clientId?: string;
   allowedOrigins?: string[];
   enabled: boolean;
+  /** Operator-chosen label for this provider, when one is configured. Render
+   *  it in place of the raw provider name where present (ADR-047). */
+  nickname?: string;
   /**
    * Provider-specific PUBLIC config served by RI for providers that need more
    * than a client_id to drive sign-in. For `firebase` this is the Firebase
@@ -91,6 +94,13 @@ export interface IdentityProvider {
 
 export interface ProvidersResponse {
   providers: IdentityProvider[];
+  /**
+   * The tenant the BFF resolved this discovery call to, when it resolved one.
+   * Origin-bound and anonymous: a login page needs it to carry the tenant into
+   * the subsequent `login`, and a realm-root origin legitimately has none
+   * (ADR-047). ABSENT means "the server did not say", never "no tenant".
+   */
+  tenantId?: string | null;
   signupMode?: "closed" | "allowlist" | "open" | (string & {});
   allowedSignupDomains?: string[];
 }

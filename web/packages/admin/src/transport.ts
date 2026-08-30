@@ -32,7 +32,7 @@
  */
 
 import type { Realm } from "@realm-id/web";
-import { RealmError } from "@realm-id/sdk";
+import { RealmError, unwrapData, parseErrorEnvelope } from "@realm-id/sdk";
 import type { ErrorCode } from "@realm-id/sdk";
 import type { RequestOptions } from "@realm-id/sdk/internal";
 
@@ -189,55 +189,27 @@ export function realmFetchAsHttpClient(
   };
 }
 
-/** Strip a single `{ data: T }` envelope, if present. */
-function unwrapData<T>(raw: unknown): T {
-  if (raw && typeof raw === "object" && "data" in (raw as Record<string, unknown>)) {
-    const d = (raw as { data?: unknown }).data;
-    if (d !== undefined) return d as T;
-  }
-  return raw as T;
-}
-
+/**
+ * Map a non-2xx body onto a `RealmError`.
+ *
+ * The ENVELOPE parsing itself belongs to `@realm-id/sdk` (`parseErrorEnvelope`)
+ * — three wire shapes, one of them the code-less GoFr middleware 401 — and this
+ * function does only the part that is local: choosing an `ErrorCode` and
+ * preserving a server code the closed union does not name.
+ */
 function mapErrorResponse(status: number, body: unknown, method: string, path: string): RealmError {
+  const env = parseErrorEnvelope(body, status);
+  const message = env.message === `HTTP ${status}`
+    ? `${method} ${path} failed with HTTP ${status}`
+    : env.message;
+  let details = env.details;
   let code: ErrorCode = statusToCode(status);
-  let serverCodeRaw: string | undefined;
-  let message = `${method} ${path} failed with HTTP ${status}`;
-  let details: Record<string, unknown> | undefined;
 
-  if (body && typeof body === "object") {
-    const obj = body as Record<string, unknown>;
-    const env = obj["error"];
-    if (env && typeof env === "object") {
-      const envObj = env as Record<string, unknown>;
-      const sc = envObj["code"];
-      if (typeof sc === "string") serverCodeRaw = sc;
-      const serverMsg = envObj["message"];
-      if (typeof serverMsg === "string" && serverMsg.length > 0) message = serverMsg;
-      const siblings: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (k !== "error") siblings[k] = v;
-      }
-      if (Object.keys(siblings).length > 0) details = siblings;
-    } else if (typeof env === "string") {
-      // Flat: { error: "message", code?: "..." }
-      message = env;
-      if (typeof obj["code"] === "string") serverCodeRaw = obj["code"] as string;
-    } else if (typeof obj["code"] === "string") {
-      serverCodeRaw = obj["code"] as string;
-      if (typeof obj["message"] === "string") message = obj["message"] as string;
-      const siblings: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (k !== "code" && k !== "message") siblings[k] = v;
-      }
-      if (Object.keys(siblings).length > 0) details = siblings;
-    }
-  }
-
-  if (serverCodeRaw && isErrorCode(serverCodeRaw)) {
-    code = serverCodeRaw;
-  } else if (serverCodeRaw) {
+  if (env.code && isErrorCode(env.code)) {
+    code = env.code;
+  } else if (env.code) {
     // Stash the original server code so callers can branch on it.
-    details = { ...(details ?? {}), server_code: serverCodeRaw };
+    details = { ...(details ?? {}), server_code: env.code };
   }
 
   return new RealmError({ code, message, httpStatus: status, details });

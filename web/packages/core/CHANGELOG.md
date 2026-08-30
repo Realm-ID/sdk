@@ -14,6 +14,53 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.0 — step-up retry, membership self-service, the pre-session revocation flow (2026-08-30)
+
+Additive; nothing existing changed shape. The package stays **dependency-free at
+runtime** — `@realm-id/sdk` is a devDependency, used only by the parity tests
+described below.
+
+- **`withStepUpRetry(fetch, deps)`** (ADR-096 D8) — wrap the `fetch` you hand to
+  `createRealm` and every gated operation answers its own `412`: classify →
+  prompt → verify → replay. The prompt is a CALLBACK on `deps`, so two realms on
+  one page cannot share a dialog. Four behaviours it exists to get right, each
+  silent when broken and each separately mutation-tested: `mfa_required` vs
+  `mfa_registration_required` (ADR-096 D4 — an enroll challenge has no code to
+  collect) vs **the session-limit 412, which must FALL THROUGH untouched**;
+  ADOPT the session `/auth/mfa/verify` newly mints (the presented one is
+  deleted, so reusing it logs the user out on a SUCCESSFUL verify); carry the
+  current bearer on the verify so the proof lands on the tenant the user is
+  acting in (ADR-059); replay through the RAW fetch EXACTLY once, so a gate the
+  user cannot satisfy costs one prompt and not a loop.
+- **`createMemberships(realm, {baseUrl})`** (ADR-092 D5) — `chooseTenant`,
+  `acceptInvitation`, `rejectInvitation`, `leave` against the BFF's typed
+  `/me/*` routes, with the SESSION bearer (marking them anonymous gets
+  `401 session_missing`). Plus `MEMBERSHIP_ACTION_CODES` /
+  `MembershipActionCode` / `membershipActionCode(err)` /
+  `isMembershipActionCode(err)`. **The codes are contract; the sentences are
+  not** — the wording is product voice and stays in the application.
+  `membershipActionCode` reads the code from all three places a transport may
+  park it (`.code`, `.details.server_code`, `.body`), because a browser app
+  commonly holds two different `RealmError` classes at once.
+- **`createRevocationSessions(realm, {baseUrl})`** — `list` / `revoke` bearing
+  the one-shot `revocation_token` off a `session_limit_reached` envelope
+  (BFF-SPEC item 6). Anonymous with an explicit bearer: there is no session yet.
+  The row type `RevocableSession` is now the single owner of that shape;
+  `@realm-id/web-admin` re-exports it as `ActiveSession` instead of declaring a
+  second copy.
+- **`unwrapData` / `parseErrorEnvelope` + `ErrorEnvelope`** — the GoFr wire
+  envelope, including the CODE-LESS framework `401` that every hand-rolled copy
+  forgets. `@realm-id/sdk` OWNS this contract; the implementation here exists
+  only because this package takes no runtime dependencies, and
+  `envelope.test.ts` runs both over the same fixture table (23 bodies × 7
+  statuses) and fails on any divergence. NOT the same function as
+  `unwrapEnvelope` in `transport.ts`, which unwraps only when `data` is the sole
+  key — both rules are deliberate.
+- **`ProvidersResponse.tenantId`** and **`IdentityProvider.nickname`** — the two
+  fields a login page needed that discovery was already returning and the SDK
+  was dropping, which is why every console re-fetched `/identity-providers` by
+  hand. Mapped by `@realm-id/web-bff-realmid` `0.4.0`.
+
 ## 0.4.5 — `resolveTenant()` completes a tenant-picker gate without a second provider redirect (2026-07-05)
 
 Provider-driven logins (`signIn` / `completeSignIn`) retain the exchanged

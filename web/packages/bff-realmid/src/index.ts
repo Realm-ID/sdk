@@ -98,6 +98,7 @@ interface RealmidProviderBody {
   client_id?: string;
   allowed_origins?: string[];
   enabled?: boolean;
+  nickname?: string;
   config?: Record<string, string>;
 }
 
@@ -106,6 +107,7 @@ interface RealmidProvidersBody {
   identity_providers?: RealmidProviderBody[];
   signup_mode?: string;
   allowed_signup_domains?: string[];
+  tenant_id?: string | null;
 }
 
 function mapTenant(t: RealmidLoginTenant): TenantRef {
@@ -196,10 +198,15 @@ const adaptProviders: NonNullable<ResponseAdapters["providers"]> = (raw, _ctx): 
       clientId: p.client_id,
       allowedOrigins: p.allowed_origins,
       enabled: p.enabled ?? true,
+      nickname: p.nickname,
       config: p.config,
     })),
     signupMode: body.signup_mode as ProvidersResponse["signupMode"],
     allowedSignupDomains: body.allowed_signup_domains,
+    // Origin-bound discovery states the tenant it resolved to, or nothing at a
+    // realm-root origin. Dropping it forced every console to re-fetch the same
+    // route by hand just to read this one field.
+    tenantId: body.tenant_id,
   };
 };
 

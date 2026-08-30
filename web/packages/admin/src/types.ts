@@ -185,15 +185,15 @@ export interface ApiKeyListPage {
   total?: number;
 }
 
-export interface ActiveSession {
-  id: string;
-  origin?: string;
-  /** Human-readable device label recorded at login (e.g. a CLI hostname),
-   *  surfaced so a user can tell sessions apart for revocation (ADR-062). */
-  device_name?: string;
-  created_at: number;
-  last_seen_at?: number;
-}
+/**
+ * A live session row.
+ *
+ * OWNED BY `@realm-id/web` as `RevocableSession` — the pre-session
+ * revocation-token list and this authenticated list return the same rows, and
+ * two declarations of one wire shape is the drift this package is removing.
+ * Re-exported under the historical name so existing imports keep working.
+ */
+export type { RevocableSession as ActiveSession } from "@realm-id/web";
 
 /**
  * Result of a member-scoped or realm-wide session revocation
