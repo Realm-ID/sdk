@@ -97,6 +97,54 @@ func ConfersAuthority(perms []string) bool {
 	return false
 }
 
+// ConfersAuthorityWithCatalog is ConfersAuthority resolved against the SERVED
+// ADR-074 permission catalog (RolesClient.ListPermissions), which makes the
+// answer identical to the issuer's, key for key.
+//
+// Prefer it when you already hold the catalog. The difference from the parse
+// form is one case, and it is the case that matters: a key ABSENT FROM THE
+// CATALOG CONFERS, whatever its action reads as. `widgets:read` parses as
+// read-only but is not a grant RealmID knows about, and the issuer's
+// IsMutatingPermission returns true for anything outside the catalog —
+// an unrecognised grant must never be treated as harmless just because it is
+// unrecognised. Legacy free-form strings stored on old roles (ADR-074
+// § Storage) land here too.
+//
+// The catalog's Action field WINS over the key's parsed suffix: the catalog is
+// the served contract, and a key whose two halves ever disagree is exactly the
+// case where guessing is wrong.
+//
+// An EMPTY or nil catalog falls back to the parse form. A caller that could not
+// fetch the catalog must not have every read-only role reclassified as
+// authority-conferring, which would make a picker refuse everything; degrading
+// to the rule the SDK can evaluate unaided is the useful failure. Malformed
+// entries still fail CLOSED on both paths.
+//
+// The ts (`opts.catalog`) and java (`confersAuthority(permissions, catalog)`)
+// SDKs carry the same two forms — keep the three answering identically.
+func ConfersAuthorityWithCatalog(perms []string, catalog []Permission) bool {
+	if len(catalog) == 0 {
+		return ConfersAuthority(perms)
+	}
+	byKey := make(map[string]string, len(catalog))
+	for _, p := range catalog {
+		byKey[p.Key] = p.Action
+	}
+	for _, p := range perms {
+		if p == "" {
+			continue
+		}
+		action, known := byKey[p]
+		if !known {
+			return true
+		}
+		if action != "read" {
+			return true
+		}
+	}
+	return false
+}
+
 // ConfersAuthority reports whether this role confers administrative authority
 // (ADR-101 D6). See the package-level ConfersAuthority for the rule. A nil role
 // confers nothing — a caller that could not resolve the role has a different

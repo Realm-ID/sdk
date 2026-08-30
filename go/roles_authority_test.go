@@ -211,3 +211,96 @@ func namesOf(rs []RoleObject) []string {
 	}
 	return out
 }
+
+// ---- catalog-aware form (three-language parity with ts/java) ----
+
+func adr074TestCatalog() []Permission {
+	return []Permission{
+		{Key: "users:read", Resource: "users", Action: "read", Label: "View users"},
+		{Key: "users:manage", Resource: "users", Action: "manage", Label: "Manage users"},
+		{Key: "sessions:revoke", Resource: "sessions", Action: "revoke", Label: "Revoke sessions"},
+		{Key: "platform:config", Resource: "platform", Action: "config", Label: "Change platform configuration"},
+	}
+}
+
+func TestConfersAuthorityWithCatalog_AgreesWithTheParseFormOnCatalogEntries(t *testing.T) {
+	cat := adr074TestCatalog()
+	for _, tc := range []struct {
+		perms []string
+		want  bool
+	}{
+		{[]string{"users:read"}, false},
+		{[]string{"users:read", "users:manage"}, true},
+		{[]string{"sessions:revoke"}, true},
+		{[]string{"platform:config"}, true},
+		{nil, false},
+	} {
+		if got := ConfersAuthorityWithCatalog(tc.perms, cat); got != tc.want {
+			t.Errorf("ConfersAuthorityWithCatalog(%v) = %v, want %v", tc.perms, got, tc.want)
+		}
+		if got := ConfersAuthority(tc.perms); got != tc.want {
+			t.Errorf("parse form disagrees on %v: %v, want %v", tc.perms, got, tc.want)
+		}
+	}
+}
+
+func TestConfersAuthorityWithCatalog_UnknownKeyConfers(t *testing.T) {
+	// This is where the two forms DIVERGE, and it is the reason the catalog
+	// form exists: `widgets:read` parses as read-only, but the issuer's
+	// IsMutatingPermission returns true for anything not in the catalog —
+	// an unrecognised grant must never be treated as harmless.
+	cat := adr074TestCatalog()
+	if !ConfersAuthorityWithCatalog([]string{"widgets:read"}, cat) {
+		t.Errorf("a permission absent from the served catalog must confer (fail closed)")
+	}
+	if ConfersAuthority([]string{"widgets:read"}) {
+		t.Errorf("the parse form is deliberately the looser one; it reads the action")
+	}
+	// A legacy free-form grant (ADR-074 § Storage) is not in the catalog either.
+	if !ConfersAuthorityWithCatalog([]string{"can_do_everything"}, cat) {
+		t.Errorf("a legacy free-form grant must confer under the catalog form")
+	}
+}
+
+func TestConfersAuthorityWithCatalog_MalformedEntryFailsClosed(t *testing.T) {
+	cat := adr074TestCatalog()
+	for _, p := range []string{"garbage", "users:"} {
+		if !ConfersAuthorityWithCatalog([]string{p}, cat) {
+			t.Errorf("%q must fail CLOSED under the catalog form too", p)
+		}
+	}
+	if ConfersAuthorityWithCatalog([]string{""}, cat) {
+		t.Errorf("an empty permission string is not a grant and must not confer")
+	}
+}
+
+func TestConfersAuthorityWithCatalog_EmptyCatalogFallsBackToParseMode(t *testing.T) {
+	// A caller that could not fetch the catalog must not have every read-only
+	// role reclassified as authority-conferring — that would make the picker
+	// refuse everything. Degrade to the parse rule, which is what the SDK
+	// answers when it has nothing served to compare against.
+	for _, cat := range [][]Permission{nil, {}} {
+		if ConfersAuthorityWithCatalog([]string{"users:read"}, cat) {
+			t.Errorf("empty catalog must fall back to parse mode, not fail everything closed")
+		}
+		if !ConfersAuthorityWithCatalog([]string{"users:manage"}, cat) {
+			t.Errorf("empty catalog fallback still classifies a non-read action as conferring")
+		}
+		if !ConfersAuthorityWithCatalog([]string{"garbage"}, cat) {
+			t.Errorf("empty catalog fallback still fails closed on a malformed entry")
+		}
+	}
+}
+
+func TestConfersAuthorityWithCatalog_CatalogActionWinsOverTheParsedSuffix(t *testing.T) {
+	// The catalog is the served contract. If RealmID ever ships a key whose
+	// suffix and Action differ, the ACTION is the truth.
+	cat := []Permission{{Key: "reports:read", Resource: "reports", Action: "manage", Label: "x"}}
+	if !ConfersAuthorityWithCatalog([]string{"reports:read"}, cat) {
+		t.Errorf("the catalog's Action must win over the key's parsed suffix")
+	}
+	cat = []Permission{{Key: "reports:manage", Resource: "reports", Action: "read", Label: "x"}}
+	if ConfersAuthorityWithCatalog([]string{"reports:manage"}, cat) {
+		t.Errorf("the catalog's Action must win over the key's parsed suffix")
+	}
+}

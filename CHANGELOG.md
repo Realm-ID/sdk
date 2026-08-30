@@ -27,6 +27,12 @@ least once.
   Derived from the grants, never from the name "admin"; a malformed permission
   string fails CLOSED. Use it to keep a role picker from offering a choice whose
   every save answers `403 role_owner_only`.
+- **`ConfersAuthorityWithCatalog(perms []string, catalog []Permission) bool`** —
+  the same question resolved against the SERVED ADR-074 catalog
+  (`RolesClient.ListPermissions`), so the answer is identical to the issuer's
+  key for key: a permission ABSENT from the catalog confers, whatever its action
+  reads as. An empty catalog falls back to the parse form. Parity with ts
+  (`opts.catalog`) and java (`confersAuthority(permissions, catalog)`).
 - **`IsRoleAssignableTo(role *RoleObject, kind string) bool` +
   `RolesAssignableTo([]RoleObject, kind) []RoleObject`** — ADR-081, with
   `PrincipalHuman` / `PrincipalService`. System-unassignable names, disabled
