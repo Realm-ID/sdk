@@ -13,6 +13,51 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased
+
+### `go/` — SDK dogfooding, wave 1a (2026-08-30)
+
+Additive; nothing existing changes shape. These are the surfaces a partner BFF
+had to hand-roll because the SDK exposed only the typed-client path — lifted
+from the reference BFF (`Realm-ID/api`), which had written each of them at
+least once.
+
+- **`ConfersAuthority(perms []string) bool` + `(*RoleObject).ConfersAuthority()`**
+  — ADR-101 D6. Does this role grant anything whose ACTION is not `read`?
+  Derived from the grants, never from the name "admin"; a malformed permission
+  string fails CLOSED. Use it to keep a role picker from offering a choice whose
+  every save answers `403 role_owner_only`.
+- **`IsRoleAssignableTo(role *RoleObject, kind string) bool` +
+  `RolesAssignableTo([]RoleObject, kind) []RoleObject`** — ADR-081, with
+  `PrincipalHuman` / `PrincipalService`. System-unassignable names, disabled
+  roles, the declared `assignable_to` (empty means ANY on read), and the §2.3
+  human-only floor for service principals (which `is_system` roles are exempt
+  from, per ADR-091). **No per-role MFA check** — ADR-101 retired
+  `required_mfa_methods`. Both predicates are compared against
+  `issuer/internal/realmrole/` by a drift test; the issuer wins.
+- **`ParseClaimsUnverified(token string) (*Claims, error)`** — a
+  provenance-safe, UNVERIFIED read of an issuer-minted token's payload, for a
+  BFF holding sealed tokens (ADR-060). Fails to a nil result on any malformed
+  input. Read the doc comment before using it: it is not a verifier.
+- **`ParseErrorEnvelope(body []byte, status int) *RealmError`** — reads either
+  issuer error-envelope shape (coded, and the code-less GoFr-middleware 401) off
+  a raw response body, preserving envelope siblings and never leaking the raw
+  bytes into the message.
+- **`ProxyStatus(err) (status int, code string, details map[string]any)`** —
+  classifies an SDK error for relay by a BFF. Preserves `Details` so gate
+  payloads (`revocation_token`, `mfa_challenge_token`) survive the proxy;
+  timeout → `504 upstream_timeout`; unclassifiable → `502`. Framework wrapping
+  stays the caller's job.
+- **`MFARule` grows `Method`, `WhenJSONField` and `WhenJSONValues`**, plus
+  `MFARequireFreshWindow`, `MFARule.EffectiveMaxAge(default)` and
+  `ValidateMFARules([]MFARule) error`. Rule paths now accept `{placeholder}`
+  segments (exactly one non-empty segment) alongside the existing `*` / `**`
+  globs, method matching is case-insensitive, and the first matching rule wins.
+  JSON narrowing lets one policy cover the irreversible variant of an endpoint
+  that is two operations without gating the other. The middleware buffers the
+  request body ONLY when some rule declares a condition, and restores it. The
+  route list stays partner-owned data (ADR-096 D2).
+
 ## ADR-101: RealmID owns the role set — go `0.50.0` · ts `0.43.0` · java `0.40.0` (2026-08-30)
 
 **BREAKING.** A partner can no longer author a role, and three per-role fields

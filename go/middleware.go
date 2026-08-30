@@ -16,21 +16,6 @@ import (
 	"time"
 )
 
-// MFARule is one entry in MiddlewareOptions.MFAProtectedPaths.
-//
-// Per-route MFA freshness policy (SPEC §10.4):
-//   - MaxAge — accept any token whose mfa_at claim is at most that old.
-//     Zero means "use the realm-default freshness window"
-//     (MiddlewareOptions.MFADefaultMaxAge). Negative is treated as zero.
-//   - RequireFresh — require mfa_at within ~30s. Use for irreversible
-//     operations. Strict: a legacy amr/acr-only token (no mfa_at)
-//     cannot satisfy this — the gate has no way to prove freshness.
-type MFARule struct {
-	Path         string
-	MaxAge       time.Duration
-	RequireFresh bool
-}
-
 // MFAGateReason mirrors the wire `reason` field on the 412 envelope.
 type MFAGateReason string
 
@@ -39,10 +24,6 @@ const (
 	MFAReasonStaleMFA      MFAGateReason = "stale_mfa"
 	MFAReasonFreshRequired MFAGateReason = "fresh_required"
 )
-
-// requireFreshWindow is the grace window on RequireFresh routes — gives
-// the client time to retry the original op after /auth/mfa/verify.
-const requireFreshWindow = 30 * time.Second
 
 // AuthFlow identifies which middleware auth route produced an event.
 type AuthFlow int
@@ -262,28 +243,6 @@ func ClaimsFrom(ctx context.Context) (*Claims, bool) {
 	return c, ok
 }
 
-// compiledMFARule is an MFARule paired with its compiled glob matcher.
-type compiledMFARule struct {
-	re           *regexp.Regexp
-	maxAge       time.Duration
-	requireFresh bool
-}
-
-func compileMFARules(rules []MFARule) []compiledMFARule {
-	out := make([]compiledMFARule, 0, len(rules))
-	for _, r := range rules {
-		if r.Path == "" {
-			continue
-		}
-		out = append(out, compiledMFARule{
-			re:           globToRegex(r.Path),
-			maxAge:       r.MaxAge,
-			requireFresh: r.RequireFresh,
-		})
-	}
-	return out
-}
-
 // mfaProofSource describes how an MFA proof was sourced — explicit
 // mfa_at claim, legacy amr/acr marker, or absent entirely. Only the
 // explicit timestamp can satisfy a RequireFresh policy; the legacy
@@ -377,21 +336,22 @@ func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (st
 	return ct, methods
 }
 
-func findMFARule(rules []compiledMFARule, path string) *compiledMFARule {
-	for i := range rules {
-		if rules[i].re.MatchString(path) {
-			return &rules[i]
-		}
-	}
-	return nil
-}
-
 // Middleware returns an http.Handler middleware implementing SPEC §10.
 func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handler {
 	opts.applyDefaults()
 	exempt := compileGlobs(opts.ExemptPaths)
 	mfaRules := compileMFARules(opts.MFAProtectedPaths)
+	mfaNeedBody := mfaRulesNeedBody(mfaRules)
 	defaultMaxAge := opts.MFADefaultMaxAge
+	// A rule that cannot fire looks exactly like a rule that protects
+	// something. Say so LOUDLY at wiring time rather than at the audit that
+	// discovers the gate was never enforced. Partners should call
+	// ValidateMFARules themselves and refuse to boot; this is the backstop for
+	// those who don't.
+	if err := ValidateMFARules(opts.MFAProtectedPaths); err != nil {
+		r.logger.Error("realmid mfa rule configuration is invalid",
+			slog.String("error", err.Error()))
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -450,7 +410,17 @@ func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handl
 			}
 
 			// MFA-protected path check (SPEC §10.4).
-			if rule := findMFARule(mfaRules, path); rule != nil {
+			//
+			// The body is read ONLY when some rule declares a WhenJSONField
+			// condition, and is put straight back so the wrapped handler still
+			// sees it. A partner who configured no condition pays nothing.
+			var mfaBody []byte
+			if mfaNeedBody && req.Body != nil {
+				mfaBody, _ = io.ReadAll(io.LimitReader(req.Body, mfaBodyLimit))
+				_ = req.Body.Close()
+				req.Body = io.NopCloser(bytes.NewReader(mfaBody))
+			}
+			if rule := findMFARule(mfaRules, req.Method, path, mfaBody); rule != nil {
 				if verdict := evaluateMFAFreshness(claims, rule, defaultMaxAge); verdict != nil {
 					r.logger.Warn("realmid mfa required",
 						slog.String("path", path),

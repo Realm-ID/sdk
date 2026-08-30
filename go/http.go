@@ -158,8 +158,16 @@ func (c *httpClient) buildURL(path string, query map[string]string) string {
 }
 
 func mapErrorResponse(status int, raw []byte, method, path string) *RealmError {
+	return errorFromEnvelope(status, raw, fmt.Sprintf("%s %s failed with HTTP %d", method, path, status))
+}
+
+// errorFromEnvelope is the shared envelope reader behind both the typed client
+// path (mapErrorResponse, which knows the method + path it called) and the
+// exported ParseErrorEnvelope (which does not, and passes a status-derived
+// message instead). defaultMessage is used when the body carries none.
+func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmError {
 	code := statusToCode(status)
-	message := fmt.Sprintf("%s %s failed with HTTP %d", method, path, status)
+	message := defaultMessage
 	var details map[string]any
 
 	var generic map[string]any

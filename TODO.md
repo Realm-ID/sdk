@@ -593,3 +593,30 @@ this is the SDK-side work.
       monorepo `CHANGELOG.md` recorded it. Same gap as the `java` `0.40.0` item
       above. The `## Unreleased` section added 2026-08-30 sits above it and does
       not cover it. *(Filed 2026-08-30.)*
+- [ ] `go/roles_drift_test.go` — the cross-repo drift check
+      (`TestRolePredicatesMatchTheIssuer` and its two siblings) can only run
+      where an `issuer/` checkout is a sibling of `sdk/`. In `Realm-ID/sdk`'s
+      own CI it finds none, logs `DRIFT CHECK DID NOT RUN` and returns — so the
+      only CI that runs the Go suite is the one place the check is inert.
+      Either give `.github/workflows/ci.yml` a read-only checkout of
+      `Realm-ID/issuer` (see the `cross-repo-deploy-key` pattern) or move the
+      comparison to the umbrella repo's cross-repo CI, which already has both
+      trees. Until then the guard is a local-session guard. *(Filed 2026-08-30
+      from W1a.)*
+- [ ] `go/http.go` — an UNCANONICAL error code nested INSIDE the `error` object
+      (`{"error":{"code":"role_owner_only",…}}` with nothing at the top level)
+      is dropped: `errorFromEnvelope` skips `code` when collecting the nested
+      object's siblings, so `detailCode`/`specificCode` cannot see it and
+      `mapRoleErr` et al. fall back to the status. It works today only because
+      the issuer also emits the specific code at the TOP level beside the
+      nested object. A handler that stops doing that silently loses every
+      sentinel mapping. Three-language check — `ts/src/errors.ts` and the java
+      equivalent should be read for the same shape. *(Filed 2026-08-30 from
+      W1a.)*
+- [ ] `go/middleware.go` — `MiddlewareOptions.MFAProtectedPaths` is now
+      validated by `ValidateMFARules` at wiring time, but an invalid rule only
+      LOGS at error level; the middleware still builds. Refusing to construct
+      would be the honest behaviour (a rule that cannot fire reads as
+      protection and is none), but `Middleware()` has no error return and
+      changing that is a breaking signature change for every existing partner.
+      Decide it deliberately at the next major. *(Filed 2026-08-30 from W1a.)*
