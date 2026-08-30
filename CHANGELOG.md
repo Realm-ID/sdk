@@ -13,6 +13,23 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.51.1` — `const Version` catches up with the tag (2026-08-30)
+
+No behaviour change. `go/v0.51.0` shipped with `const Version = "0.50.0"` still
+in `go/realmid.go`: the code was right, the self-reported version was a release
+behind.
+
+**Do not use `0.51.0`** if you read `realmid.Version` — partners report their pin
+from that const, and a wrong value there becomes a wrong row in the register used
+to decide whether a breaking issuer change is safe to ship. `0.51.0` is not
+withdrawn (a published module version is immutable and the proxy has it), it just
+under-reports itself by one release.
+
+**Caught by two separate guards, both of which fired before any damage:** CI's
+"go/ has not changed under a released version" on the main push, and
+"Verify the Go SDK release tag" on the tag. The tag was cut without reading the
+first one — the guards worked, the human step between them did not.
+
 ## ADR-101 D1's write side: the role VOCABULARY — go `0.51.0` · ts `0.44.0` · java `0.41.0` · `web-admin` `0.11.0` (2026-08-30)
 
 Spec `0.36.0` → `0.37.0`.
