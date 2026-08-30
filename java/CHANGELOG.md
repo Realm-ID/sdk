@@ -4,6 +4,21 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.41.0 — the role vocabulary (ADR-101 D1 write side) (2026-08-30)
+
+- **`realm.roleTemplates()`** — RealmID's role VOCABULARY: `list`, `create`,
+  `update`, `delete`. Distinct from `realm.roles()`: a ROLE belongs to one realm
+  and has holders, a TEMPLATE is the recipe a role is stamped from.
+  Base-realm-gated — a partner realm gets `role_authoring_retired` on every verb.
+- `RoleTemplateCreated.realmsStamped()` (a floor template FANS OUT to realms
+  that already exist) and `RoleTemplatePatched.driftedRealms()` (an edit does
+  NOT propagate, so it creates drift by design).
+  **`driftUnknown()` / `orphanCountUnknown()`** exist so that `-1` — "the count
+  could not be taken" — survives as a boolean instead of being re-derived, and
+  is never read as "none".
+- A null field in `RoleTemplatePatch` is OMITTED from the request body, never
+  sent as null: absent preserves the stored value.
+
 ## java-v0.40.0 — the two role predicates every console re-derives (2026-08-30)
 
 Unreleased — no `java-v*` tag is cut by this work.

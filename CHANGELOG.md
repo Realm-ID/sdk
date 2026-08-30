@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased — ADR-101 D1's write side: the role VOCABULARY — ts `0.44.0` · `web-admin` `0.11.0` · go + java pending tags
+## ADR-101 D1's write side: the role VOCABULARY — go `0.51.0` · ts `0.44.0` · java `0.41.0` · `web-admin` `0.11.0` (2026-08-30)
 
 Spec `0.36.0` → `0.37.0`.
 
