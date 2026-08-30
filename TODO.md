@@ -686,12 +686,13 @@ this is the SDK-side work.
 > reference BFF's own envelope puts it beside `error`, which is why the console
 > never saw it.
 
-- [ ] `web/BFF-SPEC.md` says nothing about what a PARTNER's BFF must do when it
-      relays an issuer error envelope. Both gate-payload levels have to survive
-      the relay (SDK `SPEC.md` §3.2), and a BFF that re-encodes the error
-      through its own struct drops whatever it does not declare — the same trap
-      `/me` hit. Name the requirement there.
-      *(Filed 2026-08-30 while settling the error contract.)*
+- [x] ~~`web/BFF-SPEC.md` says nothing about what a PARTNER's BFF must do when it
+      relays an issuer error envelope.~~ **DONE 2026-08-30 (W5).** BFF-SPEC
+      § Conventions now carries "Relaying an upstream error: preserve BOTH
+      envelope levels" — both shapes shown, the flatten-is-silent failure named,
+      and the existing readers (`parseErrorEnvelope`, `ParseErrorEnvelope`,
+      `ProxyStatus`) pointed at so nobody re-derives one. The code-less GoFr
+      401 is called out in the same place.
 - [ ] **The `@realm-id/web` ↔ `@realm-id/sdk` parity gate is a LOCAL-SESSION
       guard that reports nothing in CI.** `web/packages/core/src/envelope.test.ts`
       really does run both implementations over a shared fixture table — but
@@ -711,3 +712,31 @@ this is the SDK-side work.
       deps) but it OWNS `parseErrorEnvelope` in the same package — route
       `parseStepUp` through it so there is one reader of that envelope, not two.
       *(Filed 2026-08-30 while settling the error contract.)*
+
+## Known contract debt
+
+- [ ] **The reference BFF does not follow RealmID's own `BFF-SPEC.md` — ADR
+      needed.** `api.realmid.dev` deviates in SIX places (snake_case bodies, a
+      status discriminator on `/login`, tokenless `/token`, a flat `/me`, and
+      two 412-gated flows: MFA and session-limit), which is why
+      `web/packages/bff-realmid` exists at all. The package is a correct
+      quarantine of the symptom; the deviation itself is the boundary defect.
+      Consequence, and this is the part that matters: the CANONICAL code path in
+      `@realm-id/web` — the one every spec-following partner BFF takes — is the
+      path RealmID itself never exercises. So the better-tested path is the
+      non-canonical one, and a regression in the canonical one gets found by a
+      partner, not by us.
+      Two ways to close it, and choosing between them IS the ADR: converge the
+      reference BFF onto the canonical shape (breaking `ui/`, the CLI's expected
+      shapes, and any partner already on the `bff-realmid` preset), or amend
+      BFF-SPEC to bless a shape it currently documents as a deviation (which
+      makes the adapters permanent and the snake_case/`data`-envelope wire the
+      contract). Either way the ADR must say what the canonical path's test
+      coverage becomes, because "the reference impl exercises it" stops being
+      available under both options.
+      **Explicitly OUT OF SCOPE** of the 2026-08-30 SDK dogfooding refactor —
+      recorded, not attempted. Numbering note: `issuer/docs/adr/` runs through
+      101, so this would be 102+; the ADR belongs in that (private) directory,
+      while the partner-visible statement of the problem lives in
+      `web/BFF-SPEC.md` § Reference implementation.
+      *(Filed 2026-08-30, W5 docs — REVIEW.md item C3.)*

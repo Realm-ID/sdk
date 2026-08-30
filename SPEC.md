@@ -1750,6 +1750,13 @@ surfaces the API's `403 forbidden` envelope as the standard
 `RealmError(forbidden)`. Cursor pagination follows §7 (opaque base64
 offset cursor; `next_cursor: null` signals the last page).
 
+> **Not a partner surface.** A partner realm can only ever receive
+> `403 forbidden` here, however the call is authenticated — the gate is on
+> base-realm staff, not on a scope a partner can be granted. It is specified
+> (and shipped in every runtime) because the RealmID console consumes the same
+> packages partners do. The partner-facing warning lives in
+> `docs/partner-integration-guide.md` §6.6.
+
 Surface — symmetric across runtimes:
 
 - `admin.listPlatforms(opts?)` → `AdminPlatformsResponse`

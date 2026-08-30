@@ -1446,6 +1446,277 @@ Only GCP and GitHub Actions are RI-pinned in v1. Bring-your-own issuer
 the nullable `jwks_uri` slot on the binding schema reserves the place
 for that future tier but is unused today.
 
+## 6.6 Shared logic the SDKs now carry — do not hand-roll it
+
+Everything in this subsection used to live in RealmID's *own* console and BFF,
+where a partner could not see it. It has been moved into the published SDKs so
+that you get it by upgrading rather than by re-deriving it. Each item is here
+because hand-rolling it has produced a real, silent defect at least once.
+
+**All of it is CLIENT-SIDE convenience. None of it is a security control.**
+Every rule below is enforced server-side as well; the SDK copies exist so your
+console never *offers* a choice whose every save 4xxs, and so your BFF relays a
+refusal your SPA can still branch on.
+
+### Role predicates (`go`, `ts`, `java`)
+
+| Runtime | Surface |
+| --- | --- |
+| Go | `realmid.ConfersAuthority(perms []string)`, `realmid.ConfersAuthorityWithCatalog(perms, catalog)`, `realmid.IsRoleAssignableTo(role *RoleObject, kind string)` |
+| TypeScript | `confersAuthority`, `isRoleAssignableTo`, `isRoleSeatable` (from `@realm-id/sdk`, re-exported by `@realm-id/web-admin`) |
+| Java | `RolePredicates.confersAuthority(...)`, `RolePredicates.isRoleAssignableTo(...)`, `RolePredicates.isRoleSeatable(...)` |
+
+- **`confersAuthority`** answers ADR-101 D6: does this role grant anything whose
+  ACTION is not `read`? It is derived from the permission strings, **never from
+  the role's NAME** — a role called `viewer` that can revoke sessions confers
+  authority, and a role called `admin` that can only read does not. A malformed
+  permission (no colon, or an empty action) is treated as **conferring**: that is
+  the fail-closed direction. An empty string is not a grant and confers nothing.
+  The `WithCatalog` / options form resolves against the SERVED ADR-074 catalog
+  (`GET` the catalog, pass it in) instead of parsing the strings.
+- **`isRoleAssignableTo`** answers ADR-081: may a principal of this `users.kind`
+  (`human` | `service`) hold this role? It mirrors the issuer's
+  `NonAssignableRoles` (`owner`, `platform_api`, `platform_mgmt_api` are never
+  assignable — `owner` moves via the ADR-076 ownership pointer), the `disabled`
+  flag, the role's own `assignable_to`, and ADR-081 §2.3's human-only permissions
+  for service principals. **There is deliberately no per-role MFA check** —
+  ADR-101 retired `required_mfa_methods` from the role wire; realm- and
+  tenant-level MFA policy is untouched.
+- **`isRoleSeatable`** (TS/Java) is `isRoleAssignableTo` plus the two extra guards
+  the issuer applies on the seating paths. Use it to populate a **picker**; use
+  `isRoleAssignableTo` when you only need the assignability question.
+
+> **The issuer wins.** These are mirrors of
+> `internal/realmrole/{permissions,assignable,store}.go`, and each SDK carries a
+> drift test that compares its lists against the issuer's own source. If your
+> read of a predicate and the server's answer ever disagree, the server is right
+> and the SDK is the bug — tell us.
+
+### The error envelope — one reader, three shapes
+
+A RealmID/GoFr failure body arrives in one of **three** shapes, and a retry guard
+keyed on `error.code` silently never fires on the third:
+
+1. coded + nested — `{"error": {"code": "...", "message": "..."}}`, with the gate
+   payload (`mfa_challenge_token`, `revocation_token`, `active_sessions`) **inside
+   that same object**;
+2. flat — `{"error": "message", "code": "..."}`;
+3. **code-less** — `{"error": "Unauthenticated"}`, GoFr's own middleware rejecting
+   a bad `Authorization` bearer before any handler runs. There is no code to
+   branch on, ever. Branch on the HTTP status there.
+
+| Runtime | Surface |
+| --- | --- |
+| Go | `realmid.ParseErrorEnvelope(body []byte, status int) *RealmError`, `realmid.StatedErrorCode(body []byte) string` |
+| TypeScript | `unwrapData<T>(raw)`, `parseErrorEnvelope(body, status)` — from `@realm-id/sdk` and from `@realm-id/web` |
+
+- `unwrapData` strips **exactly one** `{data: …}` success envelope, and only when
+  `data` holds something — a payload whose own `data` key is `undefined` is
+  returned untouched rather than silently emptied.
+- `parseErrorEnvelope` / `ParseErrorEnvelope` **narrow**: a code the SDK's
+  canonical union names lands on `code`, and one it does not name is preserved at
+  `details.server_code` (the contract key in all three SDKs) rather than being
+  discarded. Gate payloads are collected from **both** levels — beside `error` and
+  inside it — with the nested level winning a name collision.
+- `StatedErrorCode` (Go) is the **proxy's** question, not the client's: did the
+  upstream state a code *at all*? `Code` cannot answer that, because a stated
+  `forbidden` and a code derived from a bare 403 are the same value.
+- Neither ever throws, and neither ever puts raw body bytes into a message — an
+  HTML error page from a load balancer degrades to a truthful `HTTP 502`.
+
+### `realmid.ProxyStatus` (Go) — for a BFF relaying issuer errors
+
+```go
+status, code, details := realmid.ProxyStatus(err)
+if code == "" {
+    code = "your_per_operation_default" // ProxyStatus returns "" when the error carries none
+}
+// wrap in YOUR framework's error type and relay `details` VERBATIM
+```
+
+Three non-obvious rules it encodes, each of which breaks a SPA gate silently when
+you get it wrong:
+
+1. **Details are preserved.** A BFF that flattens the envelope to `{code,message}`
+   leaves the session-limit modal and the MFA prompt with nothing to act on.
+2. **A timeout is `504 upstream_timeout`, classified FIRST.** The SDK wraps a cut
+   context as a `*RealmError` with no HTTP status, so classifying it after the
+   `RealmError` branch yields `500` — a lie, because nothing upstream answered.
+3. **An unrecognised error is `502`, not `500`.** You are a proxy.
+
+Wrapping the result in a framework error type stays yours; only the
+classification is the SDK's.
+
+### `realmid.ParseClaimsUnverified` (Go)
+
+⚠️ **UNVERIFIED — never trust the result for authorization.** For an
+authorization decision use `Realm.Verifier().Verify`, which checks the RS256
+signature against the realm's JWKS and enforces `iss`/`aud`/`exp`/`nbf`.
+
+It exists for the one case where the check is redundant because of **provenance**:
+a BFF reading `sub` or `mfa_at` off a token it holds sealed server-side (the
+ADR-060 pattern) — minted by the issuer, delivered over TLS, never
+client-supplied. It **fails to a zero value**: malformed input returns
+`(nil, *RealmError{malformed})`, so a caller keeps what it already had instead of
+clobbering it, and a step-up gate reading a zero `mfa_at` sees "no proof".
+
+### The MFA rule model (Go middleware)
+
+`realmid.MFARule` + `realmid.ValidateMFARules` express the §5.1 freshness policy
+as data rather than as hand-written comparisons:
+
+- `RequireFresh` pins the window to `realmid.MFARequireFreshWindow` (30s) for
+  "prove it again right now" operations; `MaxAge` sets your own. Setting **both**
+  is a configuration error and `ValidateMFARules` refuses it, rather than one
+  silently winning.
+- `WhenJSONField` / `WhenJSONValues` narrow a rule to requests whose JSON body
+  sets a named field to one of a set of values — so "step up only when the caller
+  is changing `role` to `owner`" is a rule, not a branch in your handler. One
+  without the other is refused: a condition that matches nothing is a policy that
+  silently never fires.
+
+**The route list stays yours** (ADR-096 D2). RealmID stores no list of which of
+*your* operations need a step-up, and cannot.
+
+### Browser: `@realm-id/web`
+
+- **`withStepUpRetry(innerFetch, deps)`** — wrap the one `fetch` every
+  authenticated call funnels through and the operation step-up gate stops being a
+  dead end (prompt → verify → replay). It reproduces four behaviours that are each
+  silent when broken: it **classifies** `mfa_required` (verify) vs
+  `mfa_registration_required` (enroll) and **falls through untouched on any other
+  412** — most importantly the session-limit 412, which shares the status;
+  it **adopts** the freshly minted session bearer and rewrites `Authorization` on
+  the replay (reusing the old one gets `session_expired` — the user watches a
+  successful MFA verify log them out); it **preserves the acting tenant**, because
+  MFA proof is per `(session, tenant)` (ADR-059) and landing on another one
+  re-fails the same gate forever; and it **replays exactly once**, calling the raw
+  inner fetch so a gate the user cannot satisfy costs one prompt, not a loop.
+  The prompt is a callback on `deps`, so two realms on one page cannot share or
+  steal each other's dialog.
+- **`createMemberships(realm, opts)`** — membership self-service (ADR-092 D5),
+  with `MEMBERSHIP_ACTION_CODES` / `membershipActionCode(err)` /
+  `isMembershipActionCode(err)`. The codes are contract, so they are exported as
+  VALUES, not just as a type.
+- **`createRevocationSessions(realm, opts)`** — the **pre-session** flow behind the
+  session-limit 412: the `revocation_token` in that envelope is scoped
+  `session:list session:revoke` and is the only credential you have before a
+  session exists.
+- **`realm.providers({ tenantId, clientType })`** — public, pre-auth
+  identity-provider discovery. This is the same route the login page needs before
+  anyone is signed in.
+
+### Admin console: `@realm-id/web-admin`
+
+`admin.ssoDomains` (per-org domain SSO, ADR-094), `admin.federationBindings`
+(ADR-082/083 cross-realm installs) and `admin.tenants.transferOwner(...)`
+(ADR-076, by user id **or** by recipient email) are transport-complete resources
+now, not shapes you re-declare. `AdminTransferOwnerOptions`'
+`leaveEntirely`/`suspendOutgoingOwner` are mutually exclusive and the client
+refuses the pair locally rather than sending a request the issuer will reject.
+
+### ⚠️ Staff-only surfaces — do NOT build against these
+
+Two surfaces ship in the published packages but are gated **server-side on
+base-realm staff**. A partner realm can only ever receive `403 forbidden` from
+them, however the call is authenticated:
+
+| Surface | What it is |
+| --- | --- |
+| `realm.Admin` (Go) / `realm.admin` (TS) — SPEC §7.5, ADR-048 | Read-only cross-platform aggregates: `listPlatforms`, `stats`, `listEvents`, `search`. Backs the RealmID console's ops view. |
+| `PlatformNotesClient` — `@realm-id/web-admin/internal` | Append-only ops notes on `/admin/platforms/{id}/notes`. Behind the `internal` subpath export for exactly this reason. |
+
+They are documented (rather than removed) because the SDKs are symmetric across
+runtimes and the RealmID console consumes them through the same packages. If you
+are a partner: **these are not part of your integration surface.** Nothing you
+need is behind them.
+
+
+## 6.7 Running your own BFF: refresh-token rotation
+
+If you front RealmID with your own BFF (the ADR-050/ADR-060 pattern — the browser
+holds an opaque session id, your server holds the tokens), you will hit this. It
+is documented rather than shipped as SDK code deliberately: the storage is yours
+(ours is Redis), and the concurrency is subtle enough that a wrong port is worse
+than no port. RealmID's reference BFF implements exactly what follows, in
+`api/internal/middleware/refresh.go`.
+
+**The trap: RealmID refresh tokens are ONE-TIME-USE, and reuse REVOKES THE CHAIN**
+(ADR-031). A refresh token is consumed by the issuer *the instant it rotates*.
+Present a spent one and the issuer's reuse detection does not merely refuse the
+call — it revokes the whole session. The user-visible symptom is
+**"I reloaded twice and it signed me out"** (RCA 2026-07-01). Every naive BFF
+reproduces it, because two ordinary things make it happen:
+
+- two tabs (or a `/me` and a `/token` in the same page load) refresh **in
+  parallel**, both presenting the same stored token; and
+- one client **cancels** its in-flight refresh — a page reload aborts the XHR —
+  *after* the issuer consumed the old token but *before* the BFF persisted the
+  new one. The session is now holding a spent token and the next request kills it.
+
+Five rules answer both. The reference implementation is ~90 lines.
+
+**1. Single-flight the rotation, per session, across replicas.** Take a lock
+keyed on the session id before minting. Redis `SET <key> 1 EX 5 NX` is one
+command and one round-trip; the **5s TTL is the crash guard** — a replica that
+dies holding the lock must not wedge the session forever. Note the return shape:
+in `go-redis`, `NX`-not-taken comes back as the sentinel `redis.Nil` **error**,
+not as a `nil` error, so a three-way `taken / not-taken / genuine-outage` switch
+is required. Reading every error as "not taken" swallows a Redis outage as
+contention; reading it as a failure turns every lost race into a 5xx.
+
+**2. The lock LOSER polls; it must not mint.** Store a `last_refreshed_at`
+nanosecond stamp on the session record and poll it until it advances past the
+value the loser started with. The reference uses **60 tries at 50 ms — a 3 s
+ceiling**, comfortably above a mint round-trip and below any client timeout. On
+exhaustion, return the latest snapshot anyway rather than erroring: the SPA only
+needs the new `expires_at`. If the session row **disappears** mid-poll, that is a
+revocation — answer `401`, not `503`.
+
+**3. Debounce inside the lock.** After acquiring the lock, re-read the session and
+**skip the mint entirely** if `last_refreshed_at` is within a short window — the
+reference uses **5 s**, well above the single-digit-millisecond SETNX race window
+and far below any real JWT lifetime, so a client genuinely rotating a
+near-expiry token is never wrongly debounced. This is what stops a burst of
+concurrent calls from becoming a burst of rotations. Bump `last_refreshed_at` on
+the **debounced** path too, or the pollers in rule 2 never see it advance.
+
+**4. Detach the mint+persist from the request context — this is the reload fix.**
+Once you hold the lock and are about to mint, run on a context that is **not**
+cancelled when the client disconnects (Go: `context.WithoutCancel(parent)` plus
+your own timeout — the reference bounds it at **10 s**, generous enough for an
+issuer round-trip plus a store write, short enough that a wedged upstream cannot
+leak the goroutine). Without this, a reload that aborts the XHR aborts your
+persist *after* the issuer already consumed the old token, and the session keeps
+the spent one. Detaching makes rotate+persist atomic from the client's
+perspective: once started, it always completes.
+
+**5. Persist EVERYTHING the mint returns, not just the access token.** The
+rotated `refresh_token` obviously; also the new `refresh_exp` when non-zero (the
+issuer recomputes the ADR-054 scheduled cutoff on every rotation, while the
+ADR-058 absolute cap stays anchored to first login — a zero means an older issuer
+and should leave your existing ceiling alone), and the returned `tenant_id` /
+`role` when present.
+
+**A tenant switch is the same rotation and is MORE exposed.** Minting for a
+different tenant also rotates the one-time refresh token, so it must take the
+same lock and the same detached context — but it has **no debounce**, because a
+switch must always mint for the new tenant even if a refresh just landed. If the
+lock is already held, poll for the winner's rotation *first* (so you mint against
+the rotated token), then take the lock. One more trap, and it is not obvious:
+**each tenant membership is a distinct user row with its own id**, so the switched
+JWT carries a **new `sub`**. If your session record caches the user id, re-read it
+from the freshly minted access token or every subsequent on-behalf call resolves
+the wrong actor. `ParseClaimsUnverified` (§6.6) is the sanctioned read here — the
+token is the issuer's own answer to the mint you just made.
+
+**Two failures to map deliberately.** An `unauthorized` from the mint means the
+issuer revoked the session: **delete your session record** and answer `401` with
+your own code, rather than leaving a dead row that 401s forever. Everything else
+goes through `ProxyStatus` (§6.6) so a `412` gate reaches the SPA with its payload
+intact.
+
+
 ## 7. Migration checklist
 
 If you are replacing an existing self-hosted auth stack, this section is the

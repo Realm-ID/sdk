@@ -35,6 +35,43 @@ config (ADR-052 §2).
 - Error bodies SHOULD follow `{ "error": { "message": "..." } }`. The
   SDK also tolerates `{ "message": "..." }`.
 
+### Relaying an upstream error: preserve BOTH envelope levels
+
+**Normative, and easy to miss.** When your BFF relays a refusal that came from
+`auth.realmid.dev`, the gate payload the browser SDK needs is not always where
+you would put it. GoFr merges every key the issuer's `Response()` map adds into
+ONE object and renders it **under `error`**, so an issuer `412` arrives as:
+
+```json
+{ "error": { "code": "mfa_required", "mfa_challenge_token": "…", "tenant_id": "…" } }
+```
+
+whereas a BFF emitting its own gate naturally writes the payload **beside**
+`error` (this is what the reference BFF's `writeStepUpChallenge` does):
+
+```json
+{ "error": { "code": "mfa_required" }, "mfa_challenge_token": "…" }
+```
+
+Both shapes are legal on this contract. A BFF MUST NOT flatten the upstream
+envelope to `{code, message}` when relaying: dropping `mfa_challenge_token`,
+`revocation_token` or `active_sessions` leaves the SPA's step-up prompt and
+session-limit modal with nothing to act on, and the failure is **silent** — the
+call fails, the modal never opens, the user sees a dead button.
+
+Readers on both sides already handle both levels, with the **nested** level
+winning a name collision: `parseErrorEnvelope` in `@realm-id/web` and
+`@realm-id/sdk`, and `ParseErrorEnvelope` / `ProxyStatus` in the Go SDK
+(`ProxyStatus` returns the collected `details` for you to relay verbatim). A
+`gates[].extract` on the SDK side receives the parsed body, so it can read
+either level too. Use them rather than re-deriving; a hand-rolled reader that
+looks at one level only is the recurring defect this note exists to prevent.
+
+Note also the **code-less** rejection: GoFr's own middleware refusing a bad
+`Authorization` bearer answers `{"error": "Unauthenticated"}` with no `code` at
+all. A relay or a retry guard keyed on `code` never fires on it — branch on the
+status.
+
 ## Routes
 
 ### `GET /providers` — identity-provider discovery
@@ -267,6 +304,17 @@ whatever `extract` returns plus `{ raw }` for debugging. Built-in gate
 codes: `mfa_required`, `mfa_registration_required`, `session_limit_reached`,
 `tenants_required`.
 
+## Refresh-token rotation inside the BFF
+
+RealmID refresh tokens are **one-time-use, and reuse revokes the whole session
+chain** (ADR-031). A BFF that holds the tokens therefore needs single-flight
+rotation, a debounce, and a mint+persist that survives client cancellation —
+otherwise two parallel `/token` calls, or a page reload that aborts an in-flight
+one, signs the user out. This contract does not mandate a mechanism, but the
+failure mode is universal: the algorithm the reference BFF uses is written up as
+a documented pattern in
+[`sdk/docs/partner-integration-guide.md` §6.7](../docs/partner-integration-guide.md).
+
 ## Tokenless `/token` rotation
 
 Some BFFs rotate the underlying user JWT server-side (e.g. inside Redis)
@@ -285,6 +333,24 @@ session-limit) — the published `@realm-id/web-bff-realmid` preset bundles
 the adapters/gates/refresh flags needed to wire the SDK to it in one
 import. Partners can fork the preset, or implement the
 canonical contract from scratch.
+
+**This is a known boundary defect, not a design.** RealmID's own BFF not
+following RealmID's own BFF-SPEC means the code path a *spec-following* partner
+BFF exercises in `@realm-id/web` is the one RealmID itself never runs — so the
+canonical path is the LESS exercised of the two, and a regression in it would be
+found by a partner rather than by us. The adapters quarantine the symptom; they
+do not remove it.
+
+Converging the two (either the reference BFF moves onto the canonical shape, or
+the SPEC is amended to bless a shape it already describes as a deviation) is
+**ADR-worthy and deliberately out of scope** of the 2026-08-30 SDK dogfooding
+work. Filed in `sdk/TODO.md` § Known contract debt. Until it is closed, treat
+the canonical path as the one needing explicit test coverage — do not infer it
+is exercised because `api.realmid.dev` is healthy.
+
+**A partner BFF should implement the canonical contract**, not imitate the
+reference one. `@realm-id/web-bff-realmid` exists for talking to
+`api.realmid.dev`; it is not a template.
 
 ## Versioning
 

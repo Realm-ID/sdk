@@ -15,6 +15,38 @@ that affect every SDK at once are recorded under a shared heading.
 
 ## Unreleased
 
+### docs — partner-facing writeup of the dogfooding wave (2026-08-30)
+
+No code change; no version bump in any package.
+
+- `docs/partner-integration-guide.md` **§6.6 "Shared logic the SDKs now carry"** —
+  the surfaces waves 1–2 added, as a partner sees them: the role predicates in
+  all three runtimes (`confersAuthority`, `isRoleAssignableTo`, `isRoleSeatable`)
+  with the "issuer wins / not a security control" framing; the three error-body
+  shapes and the readers for them (`ParseErrorEnvelope`, `StatedErrorCode`,
+  `unwrapData`, `parseErrorEnvelope`); `ProxyStatus` and its three non-obvious
+  rules; `ParseClaimsUnverified` with its unverified warning; the `MFARule`
+  model (`RequireFresh` / `MaxAge` / `WhenJSONField` / `WhenJSONValues`);
+  `withStepUpRetry`, `createMemberships`, `createRevocationSessions`,
+  `realm.providers`; and `admin.ssoDomains` / `admin.federationBindings` /
+  `admin.tenants.transferOwner`.
+- `docs/partner-integration-guide.md` **§6.7 "Running your own BFF:
+  refresh-token rotation"** — the one-time-refresh-token reuse-revocation trap
+  and the five rules that answer it (SETNX single-flight, poll-don't-mint,
+  in-lock debounce, detach the mint+persist from the request context, persist
+  everything the mint returns), plus the tenant-switch variant. Documented
+  pattern, not shipped code — see `DECISIONS.md`.
+- **Staff-only surfaces are now labelled as such** in §6.6 and beside
+  `SPEC.md` §7.5: the ADR-048 aggregates and `PlatformNotesClient` can only
+  return `403` to a partner realm.
+- `web/BFF-SPEC.md` — new **"Relaying an upstream error: preserve BOTH envelope
+  levels"** under § Conventions (normative); a new **"Refresh-token rotation
+  inside the BFF"** pointer at §6.7; and § Reference implementation now states
+  that the six deviations are a known boundary defect with an ADR pending,
+  rather than a design.
+- `TODO.md` — new **§ Known contract debt** carrying the reference-BFF
+  convergence item; the BFF-SPEC error-relay item is marked done.
+
 ### `go/` — SDK dogfooding, wave 1a (2026-08-30)
 
 Additive; nothing existing changes shape. These are the surfaces a partner BFF

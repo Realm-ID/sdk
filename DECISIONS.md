@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-74 entries total — 19 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+75 entries total — 20 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-30 (docs) — the two things the SDK can only hand a partner as prose](#2026-08-30-docs--the-two-things-the-sdk-can-only-hand-a-partner-as-prose)
 - [2026-08-30 (contract) — one key, two levels: settling the SDK error contract before publish](#2026-08-30-contract--one-key-two-levels-settling-the-sdk-error-contract-before-publish)
 - [2026-08-30 (envelope) — a code the union does not name is still contract](#2026-08-30-envelope--a-code-the-union-does-not-name-is-still-contract)
 - [2026-08-30 (web) — the console's step-up wrapper was always partner code, and the notes client never was](#2026-08-30-web--the-consoles-step-up-wrapper-was-always-partner-code-and-the-notes-client-never-was)
@@ -86,6 +87,63 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-30 (docs) — the two things the SDK can only hand a partner as prose
+
+**Problem.** The dogfooding refactor moved a pile of shared logic out of
+RealmID's own console and BFF and into the published SDKs. A partner does not
+benefit from a surface they cannot find: nothing in `docs/` named the role
+predicates, `ProxyStatus`, `ParseClaimsUnverified`, the envelope readers,
+`withStepUpRetry`, or the new web/web-admin resources. And two items could NOT
+be shipped as code at all, which is a different problem from "not done yet".
+
+**Decided (1): refresh-token rotation is DOCUMENTED, not shipped (REVIEW B2).**
+`api/internal/middleware/refresh.go` holds an algorithm every partner BFF needs
+identically — one-time refresh tokens whose reuse revokes the chain (ADR-031),
+so: SETNX single-flight per session with a 5s crash-guard TTL, a 5s in-lock
+debounce, a 60×50ms poll for the lock loser, and — the part nobody derives —
+`context.WithoutCancel` around the mint+persist so a page reload aborting the
+XHR cannot leave the session holding a spent token ("reload twice and it signs
+me out", RCA 2026-07-01). Shipping it as an interface-based helper in `sdk/go`
+was rejected, not deferred: the storage is the partner's, the concurrency is
+subtle, and this exact code is on a live prod path where a refactor's blast
+radius is every session. A wrong port is worse than no port. It is now
+`partner-integration-guide.md` §6.7, written from the implementation rather than
+from an idealised version of it, with the tenant-switch variant (no debounce,
+poll-then-lock, and the new `sub` on the switched JWT) called out separately
+because it is the more exposed path.
+
+**Decided (2): staff-only surfaces get a partner-facing WARNING, not a
+removal (REVIEW C2).** The ADR-048 aggregates (`realm.Admin` / `realm.admin`,
+SPEC §7.5) and `PlatformNotesClient` are gated server-side on base-realm staff:
+a partner can only ever get `403`. They stay in the published packages — the
+SDKs are symmetric across runtimes and the RealmID console consumes the same
+artifacts partners do — so the fix is that the docs say so out loud, in
+`partner-integration-guide.md` §6.6 and beside SPEC §7.5's own text. `notes` had
+already moved behind the `@realm-id/web-admin/internal` subpath (W2); this is
+the half that reaches a reader.
+
+**Decided (3): the reference BFF's six deviations are FILED as ADR-worthy, not
+converged (REVIEW C3).** `api.realmid.dev` not following `BFF-SPEC.md` means the
+canonical code path in `@realm-id/web` — the one every spec-following partner
+takes — is the path RealmID itself never exercises, so the better-tested path is
+the non-canonical one. Converging it breaks `ui/`, the CLI and any partner on
+the `bff-realmid` preset; amending the SPEC makes the adapters permanent. That
+choice is an ADR, and making it inside a release about something else would
+bury it. Recorded in `sdk/TODO.md` § Known contract debt and stated in
+partner-visible terms in `web/BFF-SPEC.md` § Reference implementation.
+
+**Also settled while here.** `BFF-SPEC.md` never told a PARTNER's BFF that a
+relayed error must preserve BOTH envelope levels — the issuer nests the gate
+payload inside `error` (GoFr merges the `Response()` map), while a BFF emitting
+its own gate puts it beside `error`. Now normative, in § Conventions, with the
+code-less GoFr 401 named in the same place. That TODO item is closed.
+
+**Not done, deliberately.** The two other findings from the review pass —
+`web/packages/*` having no CI runner, and `parseStepUp` re-reading the 412
+instead of routing through `parseErrorEnvelope` — were already filed in
+`TODO.md` earlier the same day. They are left as-is rather than re-filed; a
+second copy of an open item is how a list stops being trusted.
 
 ## 2026-08-30 (contract) — one key, two levels: settling the SDK error contract before publish
 
