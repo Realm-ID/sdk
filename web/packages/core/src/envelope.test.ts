@@ -39,6 +39,37 @@ const BODIES: unknown[] = [
   { error: "Unauthenticated" },
   { error: "boom", code: "flat_code" },
   { code: "top_level", message: "with siblings", extra: 1 },
+  // The shapes the ISSUER actually emits. GoFr merges every key an error's
+  // `Response()` map adds into ONE object and renders it under `error`
+  // (`gofr.dev/pkg/gofr/http/responder.go`), so a gate payload is NESTED, not
+  // beside it. The table carried only the beside-it form until 2026-08-30,
+  // which is why the parity gate stayed green through two real divergences: a
+  // fixture table is a hand-maintained subject list, and this one was a
+  // release behind.
+  {
+    error: {
+      code: "mfa_required",
+      message: "this operation requires a fresh MFA proof",
+      mfa_challenge_token: "chal-xyz",
+      methods: ["totp"],
+      reason: "stale_mfa",
+      max_age_seconds: 300,
+    },
+  },
+  {
+    error: {
+      code: "session_limit_reached",
+      message: "concurrent session limit reached",
+      revocation_token: "REV",
+      active_sessions: [{ id: "j1" }],
+    },
+  },
+  // Both levels populated, same key on each: pins WHICH one wins.
+  { error: { code: "mfa_required", message: "m", mfa_challenge_token: "inner" }, mfa_challenge_token: "outer" },
+  // The legacy nested form with no `message` key at all.
+  { error: { code: "forbidden", error: "not the tenant owner" } },
+  // Flat, with siblings beside the code.
+  { error: "concurrent session limit reached", code: "session_limit_reached", revocation_token: "REV" },
   { error: {} },
   { error: [] },
   { error: { code: 7, message: 9 } },

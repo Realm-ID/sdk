@@ -89,11 +89,24 @@ export function parseErrorEnvelope(body: unknown, status: number): ErrorEnvelope
     if ((message === undefined || message.length === 0) && typeof envObj["error"] === "string") {
       message = envObj["error"] as string;
     }
-    details = siblings(obj, (k) => k === "error");
+    // Gate payloads are nested INSIDE the error object, not beside it: GoFr
+    // merges every key the issuer's `Response()` map adds into ONE object and
+    // renders it under `error`, so `mfa_challenge_token`, `revocation_token`
+    // and `active_sessions` all arrive in there. Collecting only the TOP-level
+    // siblings handed a caller an empty details map and a step-up prompt with
+    // no token to answer it. The BFF's own `writeStepUpChallenge` puts the
+    // challenge BESIDE `error`, so both levels are read and a client that
+    // handles one envelope handles the other. Nested wins a name collision,
+    // matching sdk/go's collection order.
+    details = merge(
+      siblings(obj, (k) => k === "error"),
+      siblings(envObj, (k) => k === "code" || k === "message" || k === "error"),
+    );
   } else if (typeof env === "string") {
     // Shapes 2 and 3: flat, with or without a code beside it.
     message = env;
     if (typeof obj["code"] === "string") code = obj["code"];
+    details = siblings(obj, (k) => k === "code" || k === "message" || k === "error");
   } else if (typeof obj["code"] === "string") {
     // Top-level `{code, message, ...siblings}`.
     code = obj["code"];
@@ -116,6 +129,21 @@ function siblings(
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (!isEnvelopeKey(k)) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Combine two sibling sweeps, later argument winning a name collision. Returns
+ * `undefined` when nothing was collected, so `details` stays absent rather than
+ * becoming an empty object a caller has to distinguish from a populated one.
+ */
+function merge(
+  ...parts: (Record<string, unknown> | undefined)[]
+): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  for (const p of parts) {
+    if (p) Object.assign(out, p);
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }

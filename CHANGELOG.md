@@ -95,6 +95,51 @@ its own body re-reader for exactly this until now.
 No wire shape changes and nothing existing is renamed. `Details`/`details` gains
 a key it previously lacked on refusals whose code the union does not name.
 
+### `go/` + `ts/` + `java/` + `@realm-id/web` — one error contract across the three SDKs (2026-08-30)
+
+Settles the two cross-language divergences the envelope fix above left open, both
+before publication, because both are breaking to change once a partner consumes
+them. **SPEC.md gains §3.3 and an amendment to §3.2** so this is written down
+rather than re-derived.
+
+- **The preserved error code's key is `details.server_code` in ALL THREE SDKs.**
+  It was `Details["code"]` in go and `server_code` in ts/java, so a branch ported
+  between SDKs read an absent key and silently fell back to the generic status
+  code. **go moved**: `SPEC.md` named neither key, `server_code` is already read
+  by shipped consumers (`@realm-id/web-admin`'s `isCode`, `@realm-id/web`'s
+  `membershipActionCode`, two console screens), and the go write had never been
+  released — it is the entry directly above this one. `detailCode` reads
+  `server_code` first and still falls back to a verbatim `code` sibling.
+  **Supersedes the "preserved in `Details["code"]`" line in the entry above.**
+- **Nested gate payloads no longer vanish in ts and java.** On
+  `{"error":{…}}` both collected only the siblings BESIDE `error`, while the
+  ISSUER nests them inside it: GoFr's `createErrorResponse` merges every key an
+  error's `Response()` map adds into ONE object rendered under `error`, so
+  `mfa_challenge_token`, `methods`, `reason`, `max_age_seconds`,
+  `revocation_token` and `active_sessions` all arrive nested. A ts or java
+  partner driving a step-up or session-limit gate against the issuer got an
+  **empty `details` map** — a challenge with no token to answer it. go always
+  collected both levels. Both levels are now swept into one flat `details`, a
+  nested key wins a name collision, and the envelope's own `code`/`message`/
+  `error` are never copied in. **This was live, not theoretical.**
+- **`@realm-id/web` — `withStepUpRetry` reads the nested form too.** Its
+  `parseStepUp` hand-reads the 412 rather than going through
+  `parseErrorEnvelope`, and read only the top level: against the issuer's own
+  gate it classified the challenge correctly and then handed the prompt an
+  EMPTY `challengeToken`. Same precedence as everywhere else.
+- **`@realm-id/web` — `parseErrorEnvelope` catches up with `@realm-id/sdk`**: the
+  nested-sibling sweep AND the nested legacy-`{"error":{"error":"<msg>"}}`
+  message fallback it did not receive on 2026-08-30. Its parity gate stayed
+  green through both because the FIXTURE TABLE is hand-maintained and carried no
+  nested-payload or legacy-message body; five fixtures were added and the gate
+  goes red on either regression.
+- **ts flat branch collects its siblings.** `{"error":"<msg>","code":…, …}` threw
+  the rest away; go's flat branch never did.
+
+Behaviour-affecting for `go` callers reading `Details["code"]` for a
+non-canonical code — that read was never released. Otherwise additive: `details`
+gains keys on refusals that previously dropped them.
+
 ## ADR-101: RealmID owns the role set — go `0.50.0` · ts `0.43.0` · java `0.40.0` (2026-08-30)
 
 **BREAKING.** A partner can no longer author a role, and three per-role fields

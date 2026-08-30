@@ -239,6 +239,26 @@ public final class HttpTransport {
                     Map.Entry<String, JsonNode> e = it.next();
                     if (!"error".equals(e.getKey())) sib.put(e.getKey(), unwrap(e.getValue()));
                 }
+                // Gate payloads are nested INSIDE the error object, not beside
+                // it. GoFr's createErrorResponse merges every key an error's
+                // Response() map adds into ONE object and renders it under the
+                // top-level `error` field, so mfa_challenge_token, methods,
+                // revocation_token and active_sessions all arrive in there.
+                // Sweeping only the siblings BESIDE `error` handed a caller an
+                // empty details map — a step-up challenge with no token to
+                // answer it. The RealmID BFF's own step-up envelope puts the
+                // challenge beside `error` instead, so BOTH levels are read and
+                // a client that handles one handles the other. Runs second, so
+                // a nested key wins a name collision: the same precedence
+                // sdk/go and sdk/ts apply.
+                Iterator<Map.Entry<String, JsonNode>> ni = env.fields();
+                while (ni.hasNext()) {
+                    Map.Entry<String, JsonNode> e = ni.next();
+                    String k = e.getKey();
+                    if (!"code".equals(k) && !"message".equals(k) && !"error".equals(k)) {
+                        sib.put(k, unwrap(e.getValue()));
+                    }
+                }
             } else {
                 // Flat envelope { "error": "<msg>", "code": "<code>", ...siblings }
                 // — the issuer's apiErr.Response() shape, where `error` is a

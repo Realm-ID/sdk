@@ -603,9 +603,11 @@ this is the SDK-side work.
       comparison to the umbrella repo's cross-repo CI, which already has both
       trees. Until then the guard is a local-session guard. *(Filed 2026-08-30
       from W1a.)*
-- [ ] `go/http.go` — an UNCANONICAL error code nested INSIDE the `error` object
+- [x] ~~`go/http.go` — an UNCANONICAL error code nested INSIDE the `error` object
       (`{"error":{"code":"role_owner_only",…}}` with nothing at the top level)
-      is dropped: `errorFromEnvelope` skips `code` when collecting the nested
+      is dropped~~ **DONE 2026-08-30** (`938483b` for go, and the three-language
+      check this item asked for landed with the contract settle — the key is
+      `details.server_code` everywhere, `SPEC.md` §3.3).: `errorFromEnvelope` skips `code` when collecting the nested
       object's siblings, so `detailCode`/`specificCode` cannot see it and
       `mapRoleErr` et al. fall back to the status. It works today only because
       the issuer also emits the specific code at the TOP level beside the
@@ -668,18 +670,44 @@ this is the SDK-side work.
       any kind, which is the same class of defect W2 just removed for
       `ActiveSession`. Audit the file against `issuer/docs/swagger.yaml`.
       *(Filed 2026-08-30 from W2.)*
-- [ ] Cross-language KEY divergence for a preserved unrecognised error code:
-      `go/http.go` writes `Details["code"]` (verbatim-sibling semantics, and
-      what `detailCode` reads), while `ts/src/http.ts` and
-      `java/.../http/HttpTransport.java` write `details["server_code"]`. Both
-      are correct in their own language and moving either breaks a published
-      SDK; pick ONE for the wave-5 contract pass and write it into `SPEC.md`
-      with a parity test like `scripts/taxonomy-parity.py`.
-      *(Filed 2026-08-30 with the envelope fix.)*
-- [ ] `ts/src/envelope.ts` + `java/.../http/HttpTransport.java` — on the NESTED
-      envelope shape, only the TOP-level siblings of `error` are collected into
-      `details`; the keys INSIDE the error object are not. Go collects both, on
-      purpose (the issuer nests gate payloads there — `mfa_challenge_token`,
-      `revocation_token`, `active_sessions`), so a TS or Java caller driving a
-      session-limit or step-up gate gets an empty details map where Go does not.
-      *(Filed 2026-08-30 with the envelope fix.)*
+> **BOTH SETTLED 2026-08-30, before publish — see `DECISIONS.md` "one key, two
+> levels".** ~~Cross-language KEY divergence for a preserved unrecognised error
+> code~~ → **`details.server_code` in all three languages**, written into
+> `SPEC.md` §3.3. `go` moved, because `SPEC.md` named neither key and its
+> `Details["code"]` write had never been released, while `server_code` is read
+> by four shipped consumers. The item's premise that "moving either breaks a
+> published SDK" was half wrong, and the half that was wrong is what decided it.
+> ~~Nested siblings not collected in ts/java~~ → **both levels are collected in
+> all three, nested wins a collision.** The item called this a parity gap; it was
+> a LIVE defect. GoFr's `createErrorResponse` renders the issuer's merged
+> `Response()` map under the top-level `error` field, so EVERY issuer gate
+> payload is nested and a ts/java partner driving a step-up against
+> `auth.realmid.dev` got an empty `details` — a challenge with no token. Only the
+> reference BFF's own envelope puts it beside `error`, which is why the console
+> never saw it.
+
+- [ ] `web/BFF-SPEC.md` says nothing about what a PARTNER's BFF must do when it
+      relays an issuer error envelope. Both gate-payload levels have to survive
+      the relay (SDK `SPEC.md` §3.2), and a BFF that re-encodes the error
+      through its own struct drops whatever it does not declare — the same trap
+      `/me` hit. Name the requirement there.
+      *(Filed 2026-08-30 while settling the error contract.)*
+- [ ] **The `@realm-id/web` ↔ `@realm-id/sdk` parity gate is a LOCAL-SESSION
+      guard that reports nothing in CI.** `web/packages/core/src/envelope.test.ts`
+      really does run both implementations over a shared fixture table — but
+      `.github/workflows/ci.yml` has no job for `web/packages/*` at all, so it
+      never runs on a push. It also stayed GREEN through two real divergences on
+      2026-08-30 (the nested-sibling sweep and the legacy-message fallback)
+      because its FIXTURE TABLE is hand-maintained and carried neither shape;
+      five fixtures were added, which fixes those two cases and not the
+      mechanism. Two separate gaps, one item: give it a runner, and derive or
+      widen the table. (The missing CI job is also the first item in this file,
+      filed 2026-08-28 for the same package — this is the second time it has
+      cost something.) *(Filed 2026-08-30 while settling the error contract.)*
+- [ ] `web/packages/core/src/stepup.ts` — `parseStepUp` hand-reads the 412
+      instead of using `parseErrorEnvelope`, which is why it needed its own
+      fix for the nested gate payload on 2026-08-30 after the parser already
+      had one. `@realm-id/web` cannot import `@realm-id/sdk` (zero runtime
+      deps) but it OWNS `parseErrorEnvelope` in the same package — route
+      `parseStepUp` through it so there is one reader of that envelope, not two.
+      *(Filed 2026-08-30 while settling the error contract.)*

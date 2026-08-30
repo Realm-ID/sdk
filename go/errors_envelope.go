@@ -26,7 +26,8 @@ import (
 //     (A bad `X-User-Token`, by contrast, IS coded: `x_user_token_invalid`.)
 //
 // A code that is not in the SDK's canonical ErrorCode union does not vanish: it
-// stays in Details["code"], which is where the role/service-account mappers
+// stays in Details["server_code"] — the contract key in all three SDKs — which
+// is where the role/service-account mappers
 // already look. An unparseable body — HTML from a load balancer, an empty
 // response — yields the status-derived code and a generic message, NEVER the
 // raw bytes: leaking the body into a message is how JSON ended up rendered in
@@ -47,7 +48,7 @@ func ParseErrorEnvelope(body []byte, status int) *RealmError {
 //
 // This is the companion to ParseErrorEnvelope, not a substitute for it.
 // ParseErrorEnvelope NARROWS: a stated code the canonical ErrorCode union
-// names lands on Code, and a code it does not name lands in Details["code"].
+// names lands on Code, and a code it does not name lands in Details["server_code"].
 // That is what a CLIENT wants. A PROXY wants something else — whether the
 // upstream said anything at all — and cannot get it from Code, because a
 // stated `forbidden` and a code derived from a bare 403 are the same value.

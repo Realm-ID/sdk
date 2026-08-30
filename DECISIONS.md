@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-73 entries total — 18 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+74 entries total — 19 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-30 (contract) — one key, two levels: settling the SDK error contract before publish](#2026-08-30-contract--one-key-two-levels-settling-the-sdk-error-contract-before-publish)
 - [2026-08-30 (envelope) — a code the union does not name is still contract](#2026-08-30-envelope--a-code-the-union-does-not-name-is-still-contract)
 - [2026-08-30 (web) — the console's step-up wrapper was always partner code, and the notes client never was](#2026-08-30-web--the-consoles-step-up-wrapper-was-always-partner-code-and-the-notes-client-never-was)
 - [2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle](#2026-08-30-go--a-proxy-is-not-a-client-and-the-four-things-it-re-implemented-were-all-subtle)
@@ -85,6 +86,83 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-30 (contract) — one key, two levels: settling the SDK error contract before publish
+
+**Problem.** The envelope fix earlier today (`938483b`) left two divergences
+standing, both filed rather than settled. Both are BREAKING to change once a
+partner consumes them, and every SDK here is unpublished, so "later" meant
+"never, at a cost".
+
+1. The preserved non-canonical error code landed under a DIFFERENT key per
+   language: go `Details["code"]`, ts + java `details["server_code"]`.
+2. On the nested envelope shape ts and java collected only the siblings BESIDE
+   `error`; go collected the ones INSIDE it too.
+
+**Decided (1): `server_code`, everywhere; go moves.** Not taste — three checks,
+in order. `SPEC.md` and `web/BFF-SPEC.md` name NEITHER key, so the spec could
+not settle it and had to be written afterwards (it now has, §3.3). Then: which
+name is load-bearing for a consumer that already shipped? `server_code` is read
+by `@realm-id/web-admin`'s `isCode()`, `@realm-id/web`'s `membershipActionCode()`
+and two console screens (`Sources.tsx`, `ServiceAccounts.tsx`), and is recorded
+as the contract in `ui/DECISIONS-ARCHIVE.md`. The go write, by contrast, was
+added hours earlier and sits under `## Unreleased` — no partner has ever seen
+it, and its only readers are this repo's own `detailCode`/`specificCode`. So one
+side of the divergence had four shipped consumers and the other had none.
+Renaming the one with none is the whole decision.
+
+The secondary reason is that the two names are not synonyms. `details` carries
+envelope siblings VERBATIM, so `details.code` already means "the body literally
+stated a top-level `code`". Overloading it to ALSO mean "the SDK preserved
+something" made one key answer two questions; `server_code` keeps the synthetic
+value distinguishable from the transcribed one. `detailCode` reads `server_code`
+first and still falls back to `code`, so a `RealmError` assembled by something
+other than `ParseErrorEnvelope` keeps working.
+
+**Decided (2): all three SDKs collect BOTH levels — and this one was LIVE.**
+The tempting reading is that nesting is a legacy shape nothing emits. It is the
+opposite. GoFr's `createErrorResponse`
+(`gofr.dev/pkg/gofr/http/responder.go`) merges every key an error's `Response()`
+map adds into ONE object and renders it under the top-level `error` field. The
+issuer's `sessionLimitErr.Response()` and `mfaGateError.Response()` merge their
+payloads into exactly that map. So **every issuer gate payload is nested**:
+`mfa_challenge_token`, `methods`, `reason`, `max_age_seconds`,
+`revocation_token`, `active_sessions`. `issuer/test/CODE_GAPS.md` UI-002 records
+the observed body verbatim. A ts or java partner talking to
+`auth.realmid.dev` — directly, or through a BFF that relays the upstream body —
+got an EMPTY details map on a step-up, i.e. a challenge with no token to answer
+it. The reference BFF's own `writeStepUpChallenge` emits the beside-`error`
+form (ADR-096 D9), which is why the console never saw this and why the defect
+could sit behind a green suite.
+
+Collision rule: **nested wins**, matching go's existing collection order, so a
+body carrying both never resolves differently depending on which language read
+it. The envelope's own `code`/`message`/`error` are never copied into `details`.
+
+**Two findings the fix surfaced, both fixed here.**
+
+`@realm-id/web`'s `withStepUpRetry` — the named consumer of this payload — does
+NOT go through `parseErrorEnvelope`. `parseStepUp` hand-reads the 412 and read
+only the top level, so fixing the parser alone would have left the actual
+step-up wrapper broken against the issuer while every envelope test went green.
+It now reads both levels with the same precedence.
+
+And `@realm-id/web`'s parity gate against `@realm-id/sdk` stayed GREEN through
+both divergences. The gate is real — it runs both implementations over a shared
+fixture table — but the TABLE is hand-maintained, and it contained no
+nested-payload body and no legacy-message body. A drift gate is only ever as
+wide as its subject list; this is the same failure shape as every other
+hand-maintained check list in this workspace. Five fixtures added, and the gate
+now goes red on either regression. The deeper problem is filed, not fixed: that
+gate has no CI job at all (`sdk/TODO.md`), so it is a local-session guard.
+
+**Tradeoff accepted.** `details` gains keys on refusals that previously dropped
+them, so a caller iterating `details` sees more than before. That is strictly
+more truthful and no key changes meaning; the alternative — an opt-in — would
+mean shipping the empty-details bug as the default.
+
+**Not done.** `BFF-SPEC.md` still does not tell a PARTNER's BFF that relaying an
+issuer error must preserve both levels. Filed in `sdk/TODO.md`.
 
 ## 2026-08-30 (envelope) — a code the union does not name is still contract
 

@@ -28,7 +28,7 @@ func TestParseErrorEnvelope_NestedCodedEnvelope(t *testing.T) {
 	if re.Message != "only the organisation owner may grant that role" {
 		t.Errorf("Message = %q", re.Message)
 	}
-	if got, _ := re.Details["code"].(string); got != "role_owner_only" {
+	if got, _ := re.Details["server_code"].(string); got != "role_owner_only" {
 		t.Errorf("specific code lost: Details = %v", re.Details)
 	}
 	if got := detailCode(re); got != "role_owner_only" {
@@ -149,7 +149,7 @@ func TestParseErrorEnvelope_NestedUncanonicalCodeSurvives(t *testing.T) {
 	if re.Message != "only the owner may seat this role" {
 		t.Errorf("Message = %q", re.Message)
 	}
-	if got, _ := re.Details["code"].(string); got != "role_owner_only" {
+	if got, _ := re.Details["server_code"].(string); got != "role_owner_only" {
 		t.Errorf("nested uncanonical code lost: Details = %v", re.Details)
 	}
 	if got := detailCode(re); got != "role_owner_only" {
@@ -165,7 +165,7 @@ func TestParseErrorEnvelope_FlatUncanonicalCodeSurvives(t *testing.T) {
 	if re.Code != ErrCodeForbidden {
 		t.Errorf("Code = %q, want forbidden", re.Code)
 	}
-	if got, _ := re.Details["code"].(string); got != "role_owner_only" {
+	if got, _ := re.Details["server_code"].(string); got != "role_owner_only" {
 		t.Errorf("flat uncanonical code lost: Details = %v", re.Details)
 	}
 }
@@ -187,8 +187,8 @@ func TestParseErrorEnvelope_TopLevelCodeOutranksTheNestedOne(t *testing.T) {
 	// nested one must not overwrite it.
 	body := []byte(`{"error":{"code":"role_owner_only","message":"m"},"code":"role_seating_denied"}`)
 	re := ParseErrorEnvelope(body, http.StatusForbidden)
-	if got, _ := re.Details["code"].(string); got != "role_seating_denied" {
-		t.Errorf("Details[code] = %q, want the top-level code to win", got)
+	if got, _ := re.Details["server_code"].(string); got != "role_seating_denied" {
+		t.Errorf("Details[server_code] = %q, want the top-level code to win", got)
 	}
 }
 
@@ -203,8 +203,8 @@ func TestParseErrorEnvelope_CanonicalCodeIsNotAlsoCopiedIntoDetails(t *testing.T
 	if re.Code != ErrCodeMFARequired {
 		t.Errorf("Code = %q, want mfa_required", re.Code)
 	}
-	if got, ok := re.Details["code"]; ok {
-		t.Errorf("Details[code] = %v — a canonical code must not be duplicated into Details", got)
+	if got, ok := re.Details["server_code"]; ok {
+		t.Errorf("Details[server_code] = %v — a canonical code must not be duplicated into Details", got)
 	}
 	if got := detailCode(re); got != "" {
 		t.Errorf("detailCode(re) = %q, want empty", got)
@@ -236,5 +236,63 @@ func TestStatedErrorCode(t *testing.T) {
 		if got := StatedErrorCode([]byte(c.body)); got != c.want {
 			t.Errorf("%s: StatedErrorCode = %q, want %q", name, got, c.want)
 		}
+	}
+}
+
+// The KEY the preserved code lands under is CONTRACT, and it is `server_code`
+// in all three SDKs (SPEC.md §3.3). It was `code` here and `server_code` in
+// ts/java until 2026-08-30, so a partner porting a branch from the TypeScript
+// SDK to Go read an absent key and silently fell back to the generic status
+// code. `server_code` won on evidence, not taste: SPEC.md named neither, and
+// `server_code` is the only one of the two already read by SHIPPED consumers
+// (`web/packages/admin/src/errors.ts`, `web/packages/core/src/memberships.ts`,
+// `ui/web/src/{Sources,ServiceAccounts}.tsx`), while this Go write had never
+// been released — it sat under `## Unreleased` when the divergence was settled.
+func TestParseErrorEnvelope_PreservedCodeKeyIsServerCode(t *testing.T) {
+	// Nested-only: nothing states `code` at the top level, so `code` must not
+	// appear in Details at all. Anything reading Details["code"] here is
+	// reading a key this SDK no longer writes.
+	body := []byte(`{"error":{"code":"role_owner_only","message":"only the owner may seat this role"}}`)
+	re := ParseErrorEnvelope(body, http.StatusForbidden)
+	if got, _ := re.Details["server_code"].(string); got != "role_owner_only" {
+		t.Errorf(`Details["server_code"] = %q, want role_owner_only — Details = %v`, got, re.Details)
+	}
+	if got, ok := re.Details["code"]; ok {
+		t.Errorf(`Details["code"] = %v — the preserved code moved to server_code; nothing states a top-level code here`, got)
+	}
+}
+
+// A body that LITERALLY states a `server_code` sibling keeps it: preservation
+// is putIfAbsent, never an overwrite. Same rule java's transport applies.
+func TestParseErrorEnvelope_VerbatimServerCodeSiblingWins(t *testing.T) {
+	body := []byte(`{"error":{"code":"role_owner_only","message":"m"},"server_code":"from_the_wire"}`)
+	re := ParseErrorEnvelope(body, http.StatusForbidden)
+	if got, _ := re.Details["server_code"].(string); got != "from_the_wire" {
+		t.Errorf(`Details["server_code"] = %q, want the verbatim sibling`, got)
+	}
+}
+
+// ITEM 2 parity anchor: the REAL step-up gate body. GoFr renders the issuer's
+// apiErr merged map UNDER `error` (`createErrorResponse` +
+// `response{Error: …}`), so every sibling mfaGateError.Response() adds —
+// mfa_challenge_token, methods, reason, max_age_seconds — arrives INSIDE the
+// error object, not beside it. A parser collecting only top-level siblings
+// hands the caller an empty details map and a step-up prompt with no token to
+// answer. ts + java both did exactly that until 2026-08-30.
+func TestParseErrorEnvelope_NestedGatePayloadIsTheIssuerShape(t *testing.T) {
+	body := []byte(`{"error":{"code":"mfa_required","message":"this operation requires a fresh MFA proof",` +
+		`"mfa_challenge_token":"chal-xyz","methods":["totp"],"reason":"stale_mfa","max_age_seconds":300}}`)
+	re := ParseErrorEnvelope(body, http.StatusPreconditionFailed)
+	if re.Code != ErrCodeMFARequired {
+		t.Errorf("Code = %q, want mfa_required", re.Code)
+	}
+	if got, _ := re.Details["mfa_challenge_token"].(string); got != "chal-xyz" {
+		t.Errorf("mfa_challenge_token dropped: Details = %v", re.Details)
+	}
+	if got, _ := re.Details["reason"].(string); got != "stale_mfa" {
+		t.Errorf("reason dropped: Details = %v", re.Details)
+	}
+	if got, _ := re.Details["max_age_seconds"].(float64); got != 300 {
+		t.Errorf("max_age_seconds dropped: Details = %v", re.Details)
 	}
 }

@@ -851,6 +851,15 @@ second factor. Both are realm-config gated.
 issues an OTP after the SA's first-factor login fails open with
 `mfa_required`:
 
+> **`details` is flat, and the wire is not.** The issuer nests the gate payload
+> INSIDE the error object (`{"error": {"code": …, "mfa_challenge_token": …}}`);
+> a BFF-minted step-up envelope puts the same keys beside it. Every SDK sweeps
+> **both** levels into one `details` map, so `details.mfa_challenge_token` is
+> the read in either case and you never branch on which service answered. If you
+> parse the body yourself instead of using an SDK, read both — a reader that
+> checks only the top level gets a challenge with no token on the issuer's own
+> 412. See SDK SPEC §3.2. (Fixed in ts/java 2026-08-30; Go always did this.)
+
 ```go
 // Go SDK
 sess, err := client.Auth.Login(ctx, realmid.LoginRequest{

@@ -108,3 +108,96 @@ test("parseErrorEnvelope: an explicit nested `message` still outranks the legacy
   );
   assert.equal(got.message, "explicit");
 });
+
+// ---- nested gate payloads (2026-08-30) ----
+//
+// This is the shape the ISSUER actually emits, and it is why this is a defect
+// and not a hypothetical. GoFr's `createErrorResponse` merges every key an
+// error's `Response()` map adds into ONE object and renders it under the
+// top-level `error` field (`gofr.dev/pkg/gofr/http/responder.go`), so
+// `mfaGateError.Response()`'s `mfa_challenge_token` / `methods` /
+// `max_age_seconds` and `sessionLimitErr.Response()`'s `revocation_token` /
+// `active_sessions` all arrive INSIDE the error object. `siblings(obj, …)`
+// walks only the TOP level, so a TS caller driving a step-up gate got an empty
+// details map — a challenge with no token to answer it. Go collected both.
+
+test("parseErrorEnvelope: nested gate payload survives (the issuer's real 412)", () => {
+  const got = parseErrorEnvelope(
+    {
+      error: {
+        code: "mfa_required",
+        message: "this operation requires a fresh MFA proof",
+        mfa_challenge_token: "chal-xyz",
+        methods: ["totp"],
+        reason: "stale_mfa",
+        max_age_seconds: 300,
+      },
+    },
+    412,
+  );
+  assert.equal(got.code, "mfa_required");
+  assert.deepEqual(got.details, {
+    mfa_challenge_token: "chal-xyz",
+    methods: ["totp"],
+    reason: "stale_mfa",
+    max_age_seconds: 300,
+  });
+});
+
+test("parseErrorEnvelope: nested revocation_token + active_sessions survive", () => {
+  const got = parseErrorEnvelope(
+    {
+      error: {
+        code: "session_limit_reached",
+        message: "concurrent session limit reached",
+        revocation_token: "tok-abc",
+        active_sessions: [{ id: "j1" }],
+      },
+    },
+    412,
+  );
+  assert.equal(got.details?.["revocation_token"], "tok-abc");
+  assert.deepEqual(got.details?.["active_sessions"], [{ id: "j1" }]);
+});
+
+test("parseErrorEnvelope: nested and top-level siblings are both collected", () => {
+  // The BFF's own step-up envelope (`writeStepUpChallenge`) puts the challenge
+  // BESIDE `error`; the issuer puts it inside. One parser reads both, so a
+  // client that handles one handles the other.
+  const got = parseErrorEnvelope(
+    { error: { code: "mfa_required", message: "m", reason: "stale_mfa" }, mfa_challenge_token: "beside" },
+    412,
+  );
+  assert.equal(got.details?.["mfa_challenge_token"], "beside");
+  assert.equal(got.details?.["reason"], "stale_mfa");
+});
+
+test("parseErrorEnvelope: a nested sibling outranks a top-level one of the same name", () => {
+  // Matches the Go collection order (top level first, nested overwrites), so a
+  // body carrying both does not resolve differently per language.
+  const got = parseErrorEnvelope(
+    { error: { code: "mfa_required", message: "m", mfa_challenge_token: "inner" }, mfa_challenge_token: "outer" },
+    412,
+  );
+  assert.equal(got.details?.["mfa_challenge_token"], "inner");
+});
+
+test("parseErrorEnvelope: the nested envelope's own code/message/error are not details", () => {
+  const got = parseErrorEnvelope(
+    { error: { code: "forbidden", message: "m", error: "legacy" } },
+    403,
+  );
+  assert.equal(got.details, undefined);
+});
+
+test("parseErrorEnvelope: the flat shape collects its siblings too", () => {
+  // `{"error":"<msg>","code":"…", …}` — Go's flat branch has always collected
+  // the siblings beside it; TS dropped them, so the two SDKs disagreed on a
+  // second shape as well as the nested one.
+  const got = parseErrorEnvelope(
+    { error: "concurrent session limit reached", code: "session_limit_reached", revocation_token: "tok-abc" },
+    412,
+  );
+  assert.equal(got.code, "session_limit_reached");
+  assert.equal(got.details?.["revocation_token"], "tok-abc");
+});

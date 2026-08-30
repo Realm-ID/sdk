@@ -84,11 +84,29 @@ export function parseErrorEnvelope(body: unknown, status: number): ErrorEnvelope
     const envObj = env as Record<string, unknown>;
     if (typeof envObj["code"] === "string") code = envObj["code"];
     if (typeof envObj["message"] === "string") message = envObj["message"];
-    details = siblings(obj, (k) => k === "error");
+    // Legacy nested form `{"error":{"code":…,"error":"<msg>"}}`: some refusals
+    // carry no `message` key at all, and reading only `message` lost the text
+    // entirely. The flat branch has always had this fallback.
+    if ((message === undefined || message.length === 0) && typeof envObj["error"] === "string") {
+      message = envObj["error"] as string;
+    }
+    // Gate payloads are nested INSIDE the error object, not beside it: GoFr
+    // merges every key the issuer's `Response()` map adds into ONE object and
+    // renders it under `error`, so `mfa_challenge_token`, `revocation_token`
+    // and `active_sessions` all arrive in there. Collecting only the TOP-level
+    // siblings is what left `withStepUpRetry` holding a challenge with no token
+    // to answer it. The RealmID BFF's own step-up envelope puts the challenge
+    // BESIDE `error`, so both levels are read. Nested wins a name collision,
+    // matching `@realm-id/sdk` and sdk/go.
+    details = merge(
+      siblings(obj, (k) => k === "error"),
+      siblings(envObj, (k) => k === "code" || k === "message" || k === "error"),
+    );
   } else if (typeof env === "string") {
     // Shapes 2 and 3: flat, with or without a code beside it.
     message = env;
     if (typeof obj["code"] === "string") code = obj["code"];
+    details = siblings(obj, (k) => k === "code" || k === "message" || k === "error");
   } else if (typeof obj["code"] === "string") {
     // Top-level `{code, message, ...siblings}`.
     code = obj["code"];
@@ -111,6 +129,21 @@ function siblings(
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (!isEnvelopeKey(k)) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Combine two sibling sweeps, later argument winning a name collision. Returns
+ * `undefined` when nothing was collected, so `details` stays absent rather than
+ * becoming an empty object a caller has to distinguish from a populated one.
+ */
+function merge(
+  ...parts: (Record<string, unknown> | undefined)[]
+): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  for (const p of parts) {
+    if (p) Object.assign(out, p);
   }
   return Object.keys(out).length > 0 ? out : undefined;
 }

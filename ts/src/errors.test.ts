@@ -130,3 +130,46 @@ test("errors: an UNregistered code still falls back to the status", async () => 
     "not_found",
   );
 });
+
+// ---- the cross-language contract key (2026-08-30) ----
+
+test("HttpClient: an uncanonical code is preserved under details.server_code", async () => {
+  // `server_code` is the key ALL THREE SDKs use for a code the ErrorCode union
+  // cannot carry (SPEC.md 3.3). It is named here so a rename cannot pass
+  // silently: `@realm-id/web-admin`'s `isCode()`, `@realm-id/web`'s
+  // `membershipActionCode()` and two console screens branch on this exact key.
+  const c = new HttpClient({
+    baseUrl: "https://x.example",
+    fetch: fixedFetch(403, { error: { code: "role_owner_only", message: "only the owner may seat this role" } }),
+  });
+  await assert.rejects(() => c.request({ path: "/tenants/t1/users/u1/role", method: "PATCH" }), (e: Error) => {
+    if (!(e instanceof RealmError)) return false;
+    if (e.code !== "forbidden") return false; // narrowed to the union
+    if (e.details?.["server_code"] !== "role_owner_only") return false;
+    return e.message === "only the owner may seat this role";
+  });
+});
+
+test("HttpClient: the issuer's real step-up 412 reaches the caller with its token", async () => {
+  // The gate payload is NESTED inside `error` — GoFr merges the issuer's
+  // `Response()` map into one object and renders it under that key. A caller
+  // that cannot read it is holding a challenge it has no token to answer.
+  const c = new HttpClient({
+    baseUrl: "https://x.example",
+    fetch: fixedFetch(412, {
+      error: {
+        code: "mfa_required",
+        message: "this operation requires a fresh MFA proof",
+        mfa_challenge_token: "chal-xyz",
+        methods: ["totp"],
+        reason: "stale_mfa",
+      },
+    }),
+  });
+  await assert.rejects(() => c.request({ path: "/platforms/p1/keys", method: "POST" }), (e: Error) => {
+    if (!(e instanceof RealmError)) return false;
+    return e.code === "mfa_required"
+      && e.details?.["mfa_challenge_token"] === "chal-xyz"
+      && e.details?.["reason"] === "stale_mfa";
+  });
+});

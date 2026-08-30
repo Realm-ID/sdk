@@ -125,16 +125,30 @@ async function parseStepUp(res: Response): Promise<StepUpChallenge | null> {
     return null;
   }
   if (!body || typeof body !== "object") return null;
-  const err = (body.error ?? {}) as { code?: unknown };
+  const err = (
+    body.error && typeof body.error === "object" && !Array.isArray(body.error) ? body.error : {}
+  ) as Record<string, unknown>;
   const code = typeof err.code === "string" ? err.code : "";
   const kind = STEP_UP_CODES[code];
   if (!kind) return null;
+  // The payload sits at ONE of TWO levels and the wrapper must not care which.
+  // The RealmID BFF's `writeStepUpChallenge` puts it BESIDE `error` (ADR-096
+  // D9); the ISSUER nests it, because GoFr merges every key an error's
+  // `Response()` map adds into one object rendered under `error`. Reading only
+  // the top level handed the prompt an EMPTY challengeToken on the issuer's own
+  // 412 — a step-up the user has no token to complete. Nested wins a collision,
+  // the precedence `parseErrorEnvelope` and sdk/go already use.
+  const at = (key: string): unknown => (key in err ? err[key] : body[key]);
+  const token = at("mfa_challenge_token");
+  const methods = at("methods");
+  const reason = at("reason");
+  const maxAge = at("max_age_seconds");
   return {
     kind,
-    challengeToken: typeof body.mfa_challenge_token === "string" ? body.mfa_challenge_token : "",
-    methods: Array.isArray(body.methods) ? (body.methods as string[]) : ["totp"],
-    reason: typeof body.reason === "string" ? body.reason : "",
-    maxAgeSeconds: typeof body.max_age_seconds === "number" ? body.max_age_seconds : 0,
+    challengeToken: typeof token === "string" ? token : "",
+    methods: Array.isArray(methods) ? (methods as string[]) : ["totp"],
+    reason: typeof reason === "string" ? reason : "",
+    maxAgeSeconds: typeof maxAge === "number" ? maxAge : 0,
   };
 }
 

@@ -208,6 +208,45 @@ When the server returns a 412 error envelope with siblings (e.g.
 `error.code` and read `error.details.mfa_challenge_token` directly — no
 second round trip to fetch context.
 
+**Siblings live at TWO levels and every SDK collects BOTH.** The issuer is a
+GoFr service, and GoFr's `createErrorResponse` merges every key an error's
+`Response()` map adds into ONE object which it renders under the top-level
+`error` field. So an issuer gate payload is **nested inside** `error`:
+
+```json
+{"error": {"code": "mfa_required", "message": "…",
+           "mfa_challenge_token": "chal-xyz", "methods": ["totp"],
+           "reason": "stale_mfa", "max_age_seconds": 300}}
+```
+
+while the reference BFF's own step-up envelope (ADR-096 D9) puts the same keys
+**beside** `error`. An SDK that reads only one level hands a caller an empty
+`details` and a step-up challenge with no token to answer it, so both are swept
+into one flat `details` map. **A nested key wins a name collision** — on the
+shape carrying both, the inner one belongs to the refusal itself. The envelope's
+own three keys (`code`, `message`, `error`) are never copied into `details`.
+
+### 3.3 `details.server_code` — a code the taxonomy does not name
+
+The `code` on `RealmError` is narrowed to the §3.1 taxonomy. A code the server
+states that the taxonomy does not name is **preserved, never dropped**: `code`
+falls back to the status-derived value and the stated code is written to
+
+```
+error.details.server_code
+```
+
+**`server_code` is the key in all three SDKs.** It is not `code`: `details`
+carries envelope siblings VERBATIM, so `details.code` means "the body literally
+stated a top-level `code`" and `details.server_code` means "the SDK preserved a
+code its taxonomy does not name". Preservation is put-if-absent — a body that
+literally states `server_code` keeps what it sent — and a code the taxonomy DOES
+name lands on `code` alone and is never duplicated into `details`.
+
+This is what lets a console branch on a specific remedy the union has not yet
+absorbed: ADR-101's `role_owner_only` is a 403 whose `code` is `forbidden` and
+whose `details.server_code` is `role_owner_only`.
+
 ## 4. Authentication surface (`realm.auth.*`)
 
 ### 4.0 Two-endpoint auth surface (ADR-051)

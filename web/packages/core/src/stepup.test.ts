@@ -251,3 +251,59 @@ test("the verify response is read through the GoFr {data:…} envelope AND unwra
     assert.equal(new Headers(calls[2].init?.headers).get("authorization"), "Bearer NEW_BEARER");
   }
 });
+
+// ---- the issuer's OWN gate shape (2026-08-30) ----
+//
+// `writeStepUpChallenge` in the RealmID BFF puts the challenge BESIDE `error`
+// (ADR-096 D9: "this envelope is the BFF's, not the issuer's"), which is the
+// shape every test above uses. The ISSUER nests it: GoFr's
+// `createErrorResponse` merges every key `mfaGateError.Response()` adds into
+// ONE object and renders it under the top-level `error` field, so a partner
+// whose BFF proxies the issuer's 412 through, or who points this wrapper at
+// `auth.realmid.dev` directly, sends the nested form. Reading only the top
+// level classified the challenge correctly and then handed the prompt an EMPTY
+// challengeToken — a step-up the user cannot complete.
+
+function nestedGate(code: string) {
+  return res(412, {
+    error: {
+      code,
+      message: "this operation requires a fresh MFA proof",
+      mfa_challenge_token: "CHAL",
+      methods: ["totp"],
+      reason: "stale_mfa",
+      max_age_seconds: 300,
+    },
+  });
+}
+
+test("a gate payload NESTED inside `error` is read (the issuer's own 412)", async () => {
+  const { fetchLike } = stub([
+    () => nestedGate("mfa_required"),
+    () => res(200, { data: VERIFIED }),
+    () => res(200, { data: { ok: true } }),
+  ]);
+  const { d, seen } = deps();
+  const out = await withStepUpRetry(fetchLike, d)("https://bff.example/op", { method: "POST" });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].kind, "verify");
+  assert.equal(seen[0].challengeToken, "CHAL", "the nested challenge token must reach the prompt");
+  assert.deepEqual(seen[0].methods, ["totp"]);
+  assert.equal(seen[0].reason, "stale_mfa");
+  assert.equal(seen[0].maxAgeSeconds, 300);
+  assert.equal(out.status, 200);
+});
+
+test("a nested field outranks a top-level one of the same name", async () => {
+  // Same precedence `parseErrorEnvelope` and sdk/go apply, so a body carrying
+  // both does not resolve differently depending on which reader saw it.
+  const both = () => res(412, {
+    error: { code: "mfa_required", message: "m", mfa_challenge_token: "INNER" },
+    mfa_challenge_token: "OUTER",
+  });
+  const { fetchLike } = stub([both, () => res(200, { data: VERIFIED }), () => res(200, {})]);
+  const { d, seen } = deps();
+  await withStepUpRetry(fetchLike, d)("https://bff.example/op", { method: "POST" });
+  assert.equal(seen[0].challengeToken, "INNER");
+});

@@ -184,17 +184,25 @@ func statedCodeIn(generic map[string]any) string {
 // preserveStatedCode keeps a body's literal `code` reachable when the canonical
 // ErrorCode union could not carry it. Codes outside the union are contract too
 // — `role_owner_only` (ADR-101 D6) is a 403 a console branches on — and Code
-// would otherwise report only the status-derived `forbidden`. A code already
-// collected as a sibling wins: on the nested shape that is the top-level one,
-// which is the more specific refusal.
+// would otherwise report only the status-derived `forbidden`.
+//
+// THE KEY IS `server_code`, IN ALL THREE SDKS (SPEC.md 3.3). It is not `code`:
+// `code` is reserved for the VERBATIM sibling copy, so `Details["code"]` means
+// "the body literally stated a top-level code" and `Details["server_code"]`
+// means "the SDK preserved a code its union does not name". Go wrote the
+// preserved code under `code` until 2026-08-30, while ts and java wrote
+// `server_code` -- a partner porting a branch between SDKs read an absent key.
+//
+// putIfAbsent, never an overwrite: a body that literally states `server_code`
+// keeps what it sent.
 func preserveStatedCode(siblings map[string]any, stated string) {
 	if stated == "" || isKnownCode(stated) {
 		return
 	}
-	if _, taken := siblings["code"]; taken {
+	if _, taken := siblings["server_code"]; taken {
 		return
 	}
-	siblings["code"] = stated
+	siblings["server_code"] = stated
 }
 
 func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmError {
@@ -237,7 +245,7 @@ func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmErro
 				siblings[k] = v
 			}
 			// A stated code the canonical union cannot carry does NOT vanish:
-			// it is preserved verbatim in Details["code"], which is where
+			// it is preserved verbatim in Details["server_code"], which is where
 			// detailCode and the sentinel mappers look. ADR-101's own 403,
 			// `role_owner_only`, collapsed to a plain `forbidden` for every
 			// consumer while this line was missing. A top-level `code` is the

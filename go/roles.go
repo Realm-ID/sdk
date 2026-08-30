@@ -390,17 +390,29 @@ func specificCode(re *RealmError) string {
 	return string(re.Code)
 }
 
-// detailCode pulls a non-canonical `code` out of an error envelope's
-// siblings.
+// detailCode pulls a non-canonical code out of an error envelope's siblings.
+//
+// `server_code` is the CONTRACT key (SPEC.md 3.3) and is checked first: it is
+// what all three SDKs write for a code their ErrorCode union cannot carry.
+// `code` is checked after it because Details also carries siblings VERBATIM, so
+// a body stating a top-level `code` lands there under its own name — and a
+// caller handed a RealmError built by something other than ParseErrorEnvelope
+// (a hand-assembled Details, an older BFF relay) may still only have that.
 func detailCode(re *RealmError) string {
 	if re == nil || re.Details == nil {
 		return ""
 	}
-	if v, ok := re.Details["code"].(string); ok {
+	if v, ok := re.Details["server_code"].(string); ok && v != "" {
+		return v
+	}
+	if v, ok := re.Details["code"].(string); ok && v != "" {
 		return v
 	}
 	if env, ok := re.Details["error"].(map[string]any); ok {
-		if v, ok := env["code"].(string); ok {
+		if v, ok := env["server_code"].(string); ok && v != "" {
+			return v
+		}
+		if v, ok := env["code"].(string); ok && v != "" {
 			return v
 		}
 	}

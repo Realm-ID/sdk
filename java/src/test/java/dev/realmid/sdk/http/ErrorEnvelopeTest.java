@@ -107,4 +107,69 @@ class ErrorEnvelopeTest {
         assertEquals("invalid Authorization header", e.getMessage());
         assertFalse(e.getDetails().containsKey("server_code"));
     }
+
+    @Test
+    void nestedGatePayloadSurvives() {
+        // The shape the ISSUER actually emits, which is why this is a defect
+        // and not a hypothetical: GoFr's createErrorResponse merges every key
+        // mfaGateError.Response() adds into ONE object and renders it under the
+        // top-level `error` field, so mfa_challenge_token / methods / reason /
+        // max_age_seconds all arrive INSIDE it. This transport collected only
+        // the siblings BESIDE `error`, so a Java caller driving a step-up got an
+        // empty details map — a challenge with no token to answer it. sdk/go
+        // collected both levels; ts and java did not, until 2026-08-30.
+        RealmException e = refusalOn(412, Map.of("error", Map.of(
+                "code", "mfa_required",
+                "message", "this operation requires a fresh MFA proof",
+                "mfa_challenge_token", "chal-xyz",
+                "methods", java.util.List.of("totp"),
+                "reason", "stale_mfa",
+                "max_age_seconds", 300)));
+        assertEquals(ErrorCode.MFA_REQUIRED, e.getCode());
+        assertEquals("chal-xyz", e.getDetails().get("mfa_challenge_token"),
+                "the nested gate payload was dropped: " + e.getDetails());
+        assertEquals("stale_mfa", e.getDetails().get("reason"));
+        assertEquals(java.util.List.of("totp"), e.getDetails().get("methods"));
+        assertEquals(300L, e.getDetails().get("max_age_seconds"));
+    }
+
+    @Test
+    void nestedSessionLimitPayloadSurvives() {
+        RealmException e = refusalOn(412, Map.of("error", Map.of(
+                "code", "session_limit_reached",
+                "message", "concurrent session limit reached",
+                "revocation_token", "tok-abc",
+                "active_sessions", java.util.List.of(Map.of("id", "j1")))));
+        assertEquals("tok-abc", e.getDetails().get("revocation_token"),
+                "the nested gate payload was dropped: " + e.getDetails());
+        assertEquals(java.util.List.of(Map.of("id", "j1")), e.getDetails().get("active_sessions"));
+    }
+
+    @Test
+    void bothLevelsAreCollectedAndNestedWinsACollision() {
+        // The RealmID BFF's own step-up envelope puts the challenge BESIDE
+        // `error` (ADR-096 D9) while the issuer nests it, so one parser reads
+        // both. Nested wins a name collision — the same precedence sdk/go and
+        // sdk/ts apply, so a body carrying both never resolves differently
+        // depending on which language read it.
+        RealmException e = refusalOn(412, Map.of(
+                "error", Map.of("code", "mfa_required", "message", "m", "mfa_challenge_token", "inner"),
+                "mfa_challenge_token", "outer",
+                "tenant_id", "t-1"));
+        assertEquals("inner", e.getDetails().get("mfa_challenge_token"));
+        assertEquals("t-1", e.getDetails().get("tenant_id"), "the top-level sibling was dropped");
+    }
+
+    @Test
+    void theNestedEnvelopesOwnCodeMessageAndErrorAreNotDetails() {
+        // Collecting the nested siblings must not also spill the envelope's own
+        // three keys into details: `code` is narrowed onto getCode() or
+        // preserved as server_code, and duplicating it would make a caller's
+        // branch on details.get("code") start answering for canonical refusals.
+        RealmException e = refusalOn(403, Map.of("error", Map.of(
+                "code", "forbidden", "message", "m", "error", "legacy")));
+        assertFalse(e.getDetails().containsKey("code"), "details: " + e.getDetails());
+        assertFalse(e.getDetails().containsKey("message"), "details: " + e.getDetails());
+        assertFalse(e.getDetails().containsKey("error"), "details: " + e.getDetails());
+    }
 }
