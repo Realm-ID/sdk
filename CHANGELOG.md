@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased
+## ADR-101 + the SDK dogfooding wave — go `0.50.0` · ts `0.43.0` · java `0.40.0` · `@realm-id/web` `0.5.0` · `web-admin` `0.10.0` (2026-08-30)
 
 ### docs — partner-facing writeup of the dogfooding wave (2026-08-30)
 
@@ -172,7 +172,6 @@ Behaviour-affecting for `go` callers reading `Details["code"]` for a
 non-canonical code — that read was never released. Otherwise additive: `details`
 gains keys on refusals that previously dropped them.
 
-## ADR-101: RealmID owns the role set — go `0.50.0` · ts `0.43.0` · java `0.40.0` (2026-08-30)
 
 **BREAKING.** A partner can no longer author a role, and three per-role fields
 are gone from the wire.
