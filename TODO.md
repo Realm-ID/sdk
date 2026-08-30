@@ -603,18 +603,19 @@ this is the SDK-side work.
       comparison to the umbrella repo's cross-repo CI, which already has both
       trees. Until then the guard is a local-session guard. *(Filed 2026-08-30
       from W1a.)*
-- [x] ~~`go/http.go` — an UNCANONICAL error code nested INSIDE the `error` object
-      (`{"error":{"code":"role_owner_only",…}}` with nothing at the top level)
-      is dropped~~ **DONE 2026-08-30** (`938483b` for go, and the three-language
-      check this item asked for landed with the contract settle — the key is
-      `details.server_code` everywhere, `SPEC.md` §3.3).: `errorFromEnvelope` skips `code` when collecting the nested
-      object's siblings, so `detailCode`/`specificCode` cannot see it and
-      `mapRoleErr` et al. fall back to the status. It works today only because
-      the issuer also emits the specific code at the TOP level beside the
-      nested object. A handler that stops doing that silently loses every
-      sentinel mapping. Three-language check — `ts/src/errors.ts` and the java
-      equivalent should be read for the same shape. *(Filed 2026-08-30 from
-      W1a.)*
+> ~~**`go/http.go` — an UNCANONICAL error code nested INSIDE the `error` object**
+> (`{"error":{"code":"role_owner_only",…}}` with nothing at the top level) is
+> dropped.~~ **CLOSED 2026-08-30** (`938483b` for go; the three-language check
+> this item asked for landed with the contract settle — the key is
+> `details.server_code` everywhere, `SPEC.md` §3.3).
+>
+> **What it was:** `errorFromEnvelope` skipped `code` when collecting the nested
+> object's siblings, so `detailCode`/`specificCode` could not see it and
+> `mapRoleErr` et al. fell back to the status. It worked only because the issuer
+> ALSO emitted the specific code at the TOP level beside the nested object — a
+> handler that stopped doing that would have silently lost every sentinel
+> mapping. `ts/src/errors.ts` and the java equivalent were read for the same
+> shape. *(Filed 2026-08-30 from W1a.)*
 - [ ] `go/middleware.go` — `MiddlewareOptions.MFAProtectedPaths` is now
       validated by `ValidateMFARules` at wiring time, but an invalid rule only
       LOGS at error level; the middleware still builds. Refusing to construct
@@ -686,13 +687,13 @@ this is the SDK-side work.
 > reference BFF's own envelope puts it beside `error`, which is why the console
 > never saw it.
 
-- [x] ~~`web/BFF-SPEC.md` says nothing about what a PARTNER's BFF must do when it
-      relays an issuer error envelope.~~ **DONE 2026-08-30 (W5).** BFF-SPEC
-      § Conventions now carries "Relaying an upstream error: preserve BOTH
-      envelope levels" — both shapes shown, the flatten-is-silent failure named,
-      and the existing readers (`parseErrorEnvelope`, `ParseErrorEnvelope`,
-      `ProxyStatus`) pointed at so nobody re-derives one. The code-less GoFr
-      401 is called out in the same place.
+> ~~**`web/BFF-SPEC.md` says nothing about what a PARTNER's BFF must do when it
+> relays an issuer error envelope.**~~ **CLOSED 2026-08-30 (W5).** BFF-SPEC
+> § Conventions now carries "Relaying an upstream error: preserve BOTH envelope
+> levels" — both shapes shown, the flatten-is-silent failure named, and the
+> existing readers (`parseErrorEnvelope`, `ParseErrorEnvelope`, `ProxyStatus`)
+> pointed at so nobody re-derives one. The code-less GoFr 401 is called out in
+> the same place.
 - [ ] **The `@realm-id/web` ↔ `@realm-id/sdk` parity gate is a LOCAL-SESSION
       guard that reports nothing in CI.** `web/packages/core/src/envelope.test.ts`
       really does run both implementations over a shared fixture table — but
