@@ -11,6 +11,7 @@
  */
 
 import { RealmError, statusToCode, isKnownCode, type ErrorCode } from "./errors.js";
+import { parseErrorEnvelope } from "./envelope.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER, redactCredential } from "./logger.js";
 import type { PlatformTokenManager } from "./platform-token-manager.js";
@@ -181,38 +182,19 @@ export class HttpClient {
 }
 
 function mapErrorResponse(status: number, body: unknown, method: string, path: string): RealmError {
-  let code: ErrorCode = statusToCode(status);
-  let message = `${method} ${path} failed with HTTP ${status}`;
-  let details: Record<string, unknown> | undefined;
-
-  if (body && typeof body === "object") {
-    const obj = body as Record<string, unknown>;
-    const env = obj["error"];
-    if (env && typeof env === "object") {
-      const envObj = env as Record<string, unknown>;
-      const serverCode = envObj["code"];
-      if (typeof serverCode === "string" && isKnownCode(serverCode)) code = serverCode;
-      const serverMsg = envObj["message"];
-      if (typeof serverMsg === "string" && serverMsg.length > 0) {
-        message = serverMsg;
-      }
-      // Siblings of `error` on the envelope (e.g. mfa_challenge_token).
-      const siblings: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (k !== "error") siblings[k] = v;
-      }
-      if (Object.keys(siblings).length > 0) details = siblings;
-    } else if (typeof obj["code"] === "string" && isKnownCode(obj["code"] as string)) {
-      // flat envelope { code, message, ... }
-      code = obj["code"] as ErrorCode;
-      if (typeof obj["message"] === "string") message = obj["message"];
-      const siblings: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        if (k !== "code" && k !== "message") siblings[k] = v;
-      }
-      if (Object.keys(siblings).length > 0) details = siblings;
-    }
+  // The three envelope shapes are parsed in ONE place (envelope.ts) and mapped
+  // into the SDK taxonomy here. An unrecognised server code is preserved under
+  // `details.server_code` rather than dropped: a code the union does not yet
+  // name is still the only thing that tells a caller which remedy applies.
+  const env = parseErrorEnvelope(body, status);
+  const code: ErrorCode = isKnownCode(env.code) ? env.code : statusToCode(status);
+  const message =
+    env.message === `HTTP ${status}`
+      ? `${method} ${path} failed with HTTP ${status}`
+      : env.message;
+  let details = env.details;
+  if (env.code !== undefined && !isKnownCode(env.code)) {
+    details = { ...(details ?? {}), server_code: env.code };
   }
-
   return new RealmError({ code, message, httpStatus: status, details });
 }

@@ -75,16 +75,24 @@ export interface RoleListPage {
 }
 
 /**
- * A grantable permission from the fixed ADR-074 catalog
- * (`GET /platforms/{id}/permissions`). These gate RI *admin-console*
- * operations for the platform — not the partner's own product RBAC.
+ * One entry in the fixed ADR-074 permission catalog, as served by
+ * `GET /platforms/{id}/permissions`. These gate RI *admin-console* operations
+ * for the platform — not the partner's own product RBAC.
+ *
+ * The catalog is a SERVED contract, which is why its type lives here and the
+ * list does not: fetch it with `roles.listPermissions()` rather than pinning a
+ * copy. `action` is the half `confersAuthority` turns on — anything but `read`
+ * changes something.
  */
-export interface Permission {
+export interface CatalogPermission {
   key: string;
   resource: string;
   action: string;
   label: string;
 }
+
+/** @deprecated Use {@link CatalogPermission}; same shape, clearer name. */
+export type Permission = CatalogPermission;
 
 export interface RoleListOpts {
   cursor?: string;
@@ -247,4 +255,185 @@ function normalizePage(raw: unknown): RoleListPage {
   const out: RoleListPage = { items, next_cursor: next };
   if (typeof obj["total"] === "number") out.total = obj["total"] as number;
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Role predicates — ADR-081 assignability and ADR-101 D6 authority.
+//
+// ⚠️ THE ISSUER WINS. These are client-side MIRRORS of rules the server owns:
+//
+//   issuer/internal/realmrole/assignable.go    AssignableToKind,
+//                                              HumanOnlyPermissions
+//   issuer/internal/httpapi/role_assignable.go requireRoleAssignableToKind
+//   issuer/internal/realmrole/permissions.go   Catalog, IsMutatingPermission,
+//                                              ConfersAuthority
+//
+// Nothing here is a security control — every assignment path is validated
+// server-side and answers `400 role_not_assignable_to_kind` or
+// `403 role_owner_only`. They exist so a console never OFFERS a choice whose
+// every save will 403. If these and the issuer ever disagree, the issuer is
+// right and this file is what changes. `roles-drift.test.ts` is the gate that
+// says so out loud.
+// ---------------------------------------------------------------------------
+
+/**
+ * The shape these predicates read off a role.
+ *
+ * DERIVED from {@link RoleObject} rather than declared as a parallel interface,
+ * deliberately. A hand-written structural mirror is what let ADR-101's removal
+ * of `required_mfa_methods` sit undetected in a console for a release: the
+ * compiler had nothing to compare against. Deriving means the next wire change
+ * shows up here as a type error.
+ */
+export type AssignableRole = Pick<RoleObject, "name"> &
+  Partial<Pick<RoleObject, "permissions" | "assignable_to" | "is_system" | "disabled">>;
+
+/**
+ * ADR-081 §2.3 — the grants that require a human in the loop, because each is
+ * a path by which a leaked machine credential escalates to realm-wide control.
+ * Mirrors `realmrole.HumanOnlyPermissions`; drift-tested.
+ *
+ * `roles:manage` is absent because ADR-091 D3 RETIRED it from the catalog
+ * outright — role administration is the ADR-076 owner pointer now, so there is
+ * no permission string left to withhold from a service principal.
+ */
+export const HUMAN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set([
+  "signing_keys:rotate", // realm-wide credential operation
+  "domains:manage", // changes the realm's identity surface
+  "platform:config", // realm-wide policy
+  "federation:manage", // establishes cross-realm trust
+]);
+
+/**
+ * Role names no assignment path accepts, because they are SYSTEM rows moved by
+ * something other than a role write: `owner` travels through the ADR-076
+ * ownership pointer, and `platform_api` backs the API-key bot (ADR-041).
+ *
+ * A CONSOLE-side rule, not part of {@link isRoleAssignableTo}'s server mirror —
+ * the issuer refuses these on the specific endpoints rather than in the
+ * assignability predicate. Applied by {@link isRoleSeatable}.
+ */
+const SYSTEM_UNASSIGNABLE: ReadonlySet<string> = new Set(["owner", "platform_api"]);
+
+/**
+ * Whether a principal of `kind` may hold `role` — the exact mirror of the
+ * issuer's `requireRoleAssignableToKind`.
+ *
+ * EMPTY or ABSENT `assignable_to` means ANY. Since ADR-081 § Amendment 2 the
+ * issuer no longer STORES an empty set, so this branch fires only for a
+ * response from an older server that omits the field — and degrading to "any"
+ * there is exactly right: it reproduces pre-ADR-081 behaviour instead of
+ * emptying every picker. Read-time fails open; write-time enforces.
+ *
+ * Two floors then apply to a `service` principal regardless of what the
+ * partner declared:
+ *
+ *  - {@link HUMAN_ONLY_PERMISSIONS} — a machine credential must not be able to
+ *    become a realm-control credential;
+ *  - ADR-091's exemption for `is_system` roles, which are RI-managed and hold
+ *    realm-control permissions BY CONSTRUCTION (`platform_api` is the realm's
+ *    machine identity). Without it the bot role is unassignable to the bot.
+ *
+ * There is NO per-role MFA floor. ADR-101 retired `required_mfa_methods`
+ * (no realm ever configured one); a server still emitting the field must not
+ * change the answer here.
+ *
+ * This is the SERVER's predicate, so it says nothing about `owner`,
+ * `platform_api` or disabled roles. For a picker use {@link isRoleSeatable} or
+ * {@link rolesAssignableTo}.
+ */
+export function isRoleAssignableTo(role: AssignableRole, kind: PrincipalKind): boolean {
+  const declared = role.assignable_to ?? [];
+  if (declared.length > 0 && !declared.includes(kind)) return false;
+  if (kind !== "service") return true;
+  if (role.is_system) return true;
+  return !(role.permissions ?? []).some((p) => HUMAN_ONLY_PERMISSIONS.has(p));
+}
+
+/**
+ * Whether a console should OFFER `role` for a principal of `kind`.
+ *
+ * {@link isRoleAssignableTo} plus the two guards the issuer enforces on the
+ * endpoints rather than in its assignability predicate: a system-unassignable
+ * name (`owner`, `platform_api`) and a soft-disabled role, which stays in the
+ * catalog but is rejected as an assignment target.
+ *
+ * This is the predicate a role picker wants. Reaching for
+ * {@link isRoleAssignableTo} instead will offer `owner`.
+ */
+export function isRoleSeatable(role: AssignableRole, kind: PrincipalKind): boolean {
+  if (SYSTEM_UNASSIGNABLE.has(role.name)) return false;
+  if (role.disabled) return false;
+  return isRoleAssignableTo(role, kind);
+}
+
+/**
+ * Filter a role catalog down to what `kind` may actually be seated at, in
+ * catalog order. Uses {@link isRoleSeatable}.
+ */
+export function rolesAssignableTo<T extends AssignableRole>(
+  roles: readonly T[],
+  kind: PrincipalKind,
+): T[] {
+  return roles.filter((r) => isRoleSeatable(r, kind));
+}
+
+/** Options for {@link confersAuthority}. */
+export interface ConfersAuthorityOptions {
+  /**
+   * The realm's served ADR-074 catalog (`roles.listPermissions()`).
+   *
+   * Supply it and classification matches the issuer EXACTLY, including its
+   * fail-closed answer for a grant string the catalog does not name. Omit it
+   * and the action is derived from the `resource:action` string itself, which
+   * agrees with the issuer for every catalog entry (drift-tested) and differs
+   * only for strings outside the catalog — which the server refuses at write
+   * time anyway.
+   */
+  catalog?: readonly CatalogPermission[];
+}
+
+/**
+ * ADR-101 D6 — does this role CONFER AUTHORITY?
+ *
+ * Nobody but the tenant OWNER may seat a principal at such a role, on any of
+ * the four paths that write `users.role` (invite, role change, bulk import,
+ * service-account create). The server enforces it and answers
+ * `403 role_owner_only`; this is the client-side mirror, so a picker does not
+ * offer a choice whose every save 403s.
+ *
+ * **Derived from the permission set, NEVER from the name.** That is the whole
+ * point of D6: "admin" is a string. A realm may hold a role called `admin`
+ * with no permissions and one called `reporting` that can revoke sessions. The
+ * predicate is "grants anything whose ACTION is not `read`" — exactly how the
+ * issuer derives it from the ADR-074 catalog, and why a role RI adds later is
+ * classified correctly the moment it exists, with no list to forget.
+ *
+ * FAIL-CLOSED on anything unparseable: a permission is `resource:action`, and
+ * an entry with no colon is treated as CONFERRING, because a grant we cannot
+ * read must not be assumed harmless. An empty string is a blank rather than an
+ * unknown grant and confers nothing — the same answer the issuer's
+ * `IsMutatingPermission("")` gives.
+ */
+export function confersAuthority(
+  role: { permissions?: readonly string[] | null },
+  opts?: ConfersAuthorityOptions,
+): boolean {
+  const known = opts?.catalog
+    ? new Map(opts.catalog.map((p) => [p.key, p.action]))
+    : undefined;
+  for (const p of role.permissions ?? []) {
+    if (p === "") continue;
+    if (known) {
+      const action = known.get(p);
+      // Unknown to the catalog: fail closed, as realmrole.IsMutatingPermission
+      // does. An unrecognised grant is not harmless just because it is absent.
+      if (action === undefined || action !== "read") return true;
+      continue;
+    }
+    const colon = p.indexOf(":");
+    if (colon < 0) return true;
+    if (p.slice(colon + 1) !== "read") return true;
+  }
+  return false;
 }

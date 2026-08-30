@@ -170,3 +170,35 @@ export {
   type OtpVerifyRequest,
   type OtpVerifyResponse,
 } from "./otp.js";
+
+// The GoFr envelope primitives, for a sibling transport that parses responses
+// itself instead of going through HttpClient.
+export { unwrapData, parseErrorEnvelope, type ErrorEnvelope } from "./envelope.js";
+
+// Role predicates + the ADR-074 catalog entry type, re-exported so
+// @realm-id/web-admin can surface them without a second copy.
+export {
+  isRoleAssignableTo,
+  isRoleSeatable,
+  rolesAssignableTo,
+  confersAuthority,
+  HUMAN_ONLY_PERMISSIONS,
+  type AssignableRole,
+  type ConfersAuthorityOptions,
+  type CatalogPermission,
+} from "./roles.js";
+
+export type {
+  SSODomainGrant,
+  SSODomainMethod,
+  SSODomainStatus,
+  SSODomainInstructions,
+  SSODomainClaimResult,
+  SSODomainVerifyResult,
+} from "./sso-domains.js";
+
+export {
+  MEMBERSHIP_ACTION_CODES,
+  isMembershipActionCode,
+  type MembershipActionCode,
+} from "./memberships.js";

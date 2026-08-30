@@ -4,6 +4,55 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased
+
+SDK dogfooding refactor, wave 1b. No tag is cut by this work.
+
+### Added
+
+- **`isRoleAssignableTo` / `isRoleSeatable` / `rolesAssignableTo` /
+  `confersAuthority`** (`roles.ts`) — the ADR-081 assignability and ADR-101 D6
+  authority predicates, previously only in the issuer and in RealmID's own
+  console. Any partner rendering a role picker had to re-derive both or watch
+  every save come back `400 role_not_assignable_to_kind` / `403 role_owner_only`.
+  - `isRoleAssignableTo` is the EXACT mirror of the issuer's
+    `requireRoleAssignableToKind`, ADR-091's `is_system` exemption included.
+  - `isRoleSeatable` adds the two console-side guards the issuer enforces on
+    other endpoints (`owner` / `platform_api`, and a disabled role). **Use this
+    one in a picker** — the server predicate alone will offer `owner`.
+  - `confersAuthority(role, { catalog })` takes the served ADR-074 catalog and
+    then classifies identically to the issuer, unknown keys included. Without
+    it, the action is derived from the `resource:action` string; the two agree
+    on all 31 catalog entries and a drift test proves it.
+  - **No per-role MFA floor** — ADR-101 removed `required_mfa_methods` from the
+    role wire, and a server still emitting it does not change the answer.
+  - `HUMAN_ONLY_PERMISSIONS` (ADR-081 §2.3) is exported and drift-tested.
+  - `AssignableRole` is DERIVED from `RoleObject` via `Pick`, not declared as a
+    parallel shape.
+- **`unwrapData` / `parseErrorEnvelope` / `ErrorEnvelope`** (new
+  `envelope.ts`, exported from both entry points) — the GoFr wire envelope as a
+  shared primitive. Handles all THREE error shapes, including the code-less 401
+  GoFr's own middleware returns for a bad bearer, which a guard keyed on a code
+  never fires on. `HttpClient` now uses them instead of a private copy.
+- **`CatalogPermission`** — the ADR-074 catalog entry type
+  (`GET /platforms/{id}/permissions`). `Permission` remains as a deprecated
+  alias.
+- **`SSODomainGrant` + `SSODomainMethod` / `SSODomainStatus` /
+  `SSODomainInstructions` / `SSODomainClaimResult` / `SSODomainVerifyResult`**
+  (new `sso-domains.ts`) — ADR-094 per-org SSO domain grants. Types only; the
+  transport lands in `@realm-id/web-admin`.
+- **`MembershipActionCode` / `MEMBERSHIP_ACTION_CODES` /
+  `isMembershipActionCode`** (new `memberships.ts`) — the ADR-092 D5
+  membership-self-service refusal taxonomy. The codes are contract; the
+  user-facing sentences stay in the application.
+
+### Changed
+
+- `HttpClient` now preserves an unrecognised server code under
+  `details.server_code` instead of discarding it, matching what
+  `@realm-id/web-admin`'s transport already did. A code the `ErrorCode` union
+  does not name is still the only thing that says which remedy applies.
+
 ## 0.42.0 — ADR-097 mint half: `scope` on the token request (2026-08-28)
 
 **The enforcement half of ADR-097 shipped here in `0.40.0`. The mint half did

@@ -261,3 +261,38 @@ export type {
   ConnectRes,
   NextFn,
 } from "./middleware.js";
+
+// ---------------------------------------------------------------------------
+// The GoFr wire envelope (SPEC §3.1). Exported as VALUES, not just types: a
+// partner BFF, a browser client and this SDK were all parsing the same three
+// error shapes by hand, and the code-less framework 401 is the one every
+// hand-rolled copy forgets.
+export { unwrapData, parseErrorEnvelope } from "./envelope.js";
+export type { ErrorEnvelope } from "./envelope.js";
+
+// Role predicates. ADR-081 assignability + ADR-101 D6 authority, mirrored from
+// the issuer (which wins) so a console never offers a choice that will 403.
+export {
+  isRoleAssignableTo,
+  isRoleSeatable,
+  rolesAssignableTo,
+  confersAuthority,
+  HUMAN_ONLY_PERMISSIONS,
+} from "./roles.js";
+export type { AssignableRole, ConfersAuthorityOptions, CatalogPermission } from "./roles.js";
+
+// ADR-094 per-org SSO domain grants — wire shapes; the `admin.ssoDomains`
+// transport lives in @realm-id/web-admin.
+export type {
+  SSODomainGrant,
+  SSODomainMethod,
+  SSODomainStatus,
+  SSODomainInstructions,
+  SSODomainClaimResult,
+  SSODomainVerifyResult,
+} from "./sso-domains.js";
+
+// ADR-092 D5 membership self-service — the error CODE taxonomy. The codes are
+// contract; the user-facing sentences stay in the application.
+export { MEMBERSHIP_ACTION_CODES, isMembershipActionCode } from "./memberships.js";
+export type { MembershipActionCode } from "./memberships.js";
