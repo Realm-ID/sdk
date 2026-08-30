@@ -20,20 +20,12 @@ public final class RoleObject {
     @JsonProperty("display_name") @JsonAlias("displayName")
     private String displayName;
     private List<String> permissions = new ArrayList<>();
-    /**
-     * ADR-075 per-role MFA method set — every holder must satisfy MFA via one
-     * of these methods at login. Only {@code "totp"}/{@code "otp"} are accepted
-     * server-side; empty means the role imposes no MFA requirement of its own.
+    /*
+     * `required_mfa_methods` (ADR-075) and `can_invite_roles` (ADR-076 WP4)
+     * were REMOVED from this shape by ADR-101, along with the columns behind
+     * them. Zero realms ever configured an MFA floor, and the invitation scope
+     * bounded one of four seating paths while ADR-101 D6 now bounds all four.
      */
-    @JsonProperty("required_mfa_methods") @JsonAlias("requiredMfaMethods")
-    private List<String> requiredMfaMethods = new ArrayList<>();
-    /**
-     * ADR-076 WP4 invitation scope — the role names a holder of this role may
-     * invite new members at. Inert unless the role also holds the
-     * {@code invitations:manage} permission: the invite gate requires both.
-     */
-    @JsonProperty("can_invite_roles") @JsonAlias("canInviteRoles")
-    private List<String> canInviteRoles = new ArrayList<>();
     /**
      * ADR-081 principal typing — the {@code users.kind} values
      * ({@code "human"} / {@code "service"}) that may hold this role. Since
@@ -79,8 +71,6 @@ public final class RoleObject {
     public String name() { return name; }
     public String displayName() { return displayName; }
     public List<String> permissions() { return permissions; }
-    public List<String> requiredMfaMethods() { return requiredMfaMethods; }
-    public List<String> canInviteRoles() { return canInviteRoles; }
     public List<String> assignableTo() { return assignableTo; }
     public Integer migratedHolders() { return migratedHolders; }
     public String migratedHoldersTo() { return migratedHoldersTo; }
@@ -96,8 +86,6 @@ public final class RoleObject {
     public void setName(String v) { this.name = v; }
     public void setDisplayName(String v) { this.displayName = v; }
     public void setPermissions(List<String> v) { this.permissions = v; }
-    public void setRequiredMfaMethods(List<String> v) { this.requiredMfaMethods = v; }
-    public void setCanInviteRoles(List<String> v) { this.canInviteRoles = v; }
     public void setAssignableTo(List<String> v) { this.assignableTo = v; }
     public void setMigratedHolders(Integer v) { this.migratedHolders = v; }
     public void setMigratedHoldersTo(String v) { this.migratedHoldersTo = v; }

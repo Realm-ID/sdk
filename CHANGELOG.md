@@ -13,6 +13,48 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ADR-101: RealmID owns the role set — go `0.50.0` · ts `0.43.0` · java `0.40.0` (2026-08-30)
+
+**BREAKING.** A partner can no longer author a role, and three per-role fields
+are gone from the wire.
+
+- **The role→scope map ships** — the half of ADR-100 D9 that had been described
+  but not built. `ScopePolicy` was already the route→scope half; this is the
+  other one: given the roles a user holds in YOUR product, what scopes should
+  their token carry. Go `RoleScopes.ScopesFor`, ts `scopesForRoles`, java
+  `RoleScopes.scopesForRoles`, each with a `Validate` for startup and a sorted,
+  de-duplicated result because the output is compared, logged and sent on the
+  wire.
+
+  Both maps live in the PARTNER'S repo. That is what makes "adding a product
+  role never touches RealmID" the paved path rather than merely possible.
+
+  ⚠️ "Role" here means YOUR role, not `realm_roles`. The two are unrelated:
+  `realm_roles` is RealmID's own administrative vocabulary (what a user may do
+  TO REALMID); a scope governs what a user may do inside your product.
+
+- **`required_mfa_methods` and `can_invite_roles` are REMOVED** from the role
+  object and from the create/patch bodies in all three languages. The columns
+  behind them are gone: zero realms ever configured an MFA floor, and the
+  invitation scope bounded one of four seating paths while ADR-101 D6 now bounds
+  all four. Dropped rather than kept as permanently-empty arrays — a field that
+  is always `[]` reads as a capability that exists and is unused.
+
+- **Role authoring is base-realm-only.** `roles.create` / `update` / `delete` /
+  `rename` answer `403 role_authoring_retired` for every realm but RealmID's
+  own. `roles.list` and `disable`/`enable` are unchanged and still open to every
+  realm owner — disabling is not authoring, and within the new set `admin` is
+  the only disable-able role.
+
+- **`RoleAdmin` joins the Go system-role constants** and `viewer` is gone. A
+  realm may DISABLE `admin`, so these constants are not a promise that every
+  name resolves in every realm; `roles.list` remains the honest way to learn
+  what a realm offers.
+
+- **java:** `RoleCreate` and `RolePatch` lose two record components each, so
+  their positional constructors change arity. `RolePatch.onlyRequiredMfaMethods`
+  and `onlyCanInviteRoles` are deleted.
+
 ## ADR-097 mint half — `scope` on the token request — go `0.49.0` · ts `0.42.0` · java `0.39.0` (2026-08-28)
 
 **The enforcement half of ADR-097 shipped in all three SDKs. The mint half

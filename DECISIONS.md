@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-66 entries total — 11 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+67 entries total — 12 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-30 (ADR-101) — the role→scope map is the half that makes the other half worth having](#2026-08-30-adr-101--the-rolescope-map-is-the-half-that-makes-the-other-half-worth-having)
 - [2026-08-28 (`realm_id`) — a type-only field, and the pin for it was checked by nothing until it was](#2026-08-28-realm_id--a-type-only-field-and-the-pin-for-it-was-checked-by-nothing-until-it-was)
 - [2026-08-28 (latest) — the enforcement half shipped in three languages and the mint half in none](#2026-08-28-latest--the-enforcement-half-shipped-in-three-languages-and-the-mint-half-in-none)
 - [2026-08-27 (latest) — ADR-100 in four SDKs: making the illegal state unrepresentable in four different type systems](#2026-08-27-latest--adr-100-in-four-sdks-making-the-illegal-state-unrepresentable-in-four-different-type-systems)
@@ -78,6 +79,45 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-30 (ADR-101) — the role→scope map is the half that makes the other half worth having
+
+**Problem.** ADR-097 shipped the route→scope half of SDK-side authorization in
+three languages: given a token, may this request proceed. The role→scope half —
+given the roles a user holds in the partner's product, what scopes should their
+token carry — was described in ADR-100 D9 and never built. ADR-101 then removed
+the fallback: a partner can no longer author a `realm_roles` row, so "put your
+product roles in RealmID" stopped being an option at all.
+
+**Decision.** Ship `RoleScopes` in all three languages, deliberately as a plain
+map/record rather than a class or a builder. It is configuration; it should be
+readable in a diff; and the entire design intent is that it lives in the
+partner's repo as data, next to the roles it describes.
+
+**Fail-closed, and silent — the one judgement call.** A role the map does not
+know contributes NOTHING rather than raising. The alternative locks users out of
+the partner's product because of a config gap: a role added to their database
+before their deploy would fail every login by that user. Refusing a login is a
+much worse failure than issuing a token with fewer scopes, which is refused at
+the gate with a comprehensible error. `Validate` exists precisely so the gap is
+caught at startup instead — and its messages name the map ("role scopes: …"),
+because a boot log reader needs to know which of the two scope maps to open.
+
+**Sorted and de-duplicated, not incidentally.** The result is compared, logged
+and sent on the wire. An order that depends on map iteration makes two identical
+grants look different in a diff, and two roles commonly confer the same scope.
+
+**Three fields left the wire, and the shape is smaller rather than emptier.**
+`required_mfa_methods` and `can_invite_roles` are gone from the role object and
+both bodies. Keeping them as permanently-empty arrays was rejected: a field that
+is always `[]` reads as a capability that exists and nobody uses, which is worse
+documentation than its absence. In Java this changes two record arities, which is
+a compile error for callers — deliberately, because the alternative is a silently
+ignored argument.
+
+**Tradeoff accepted.** A breaking release in all three languages, in the same
+cut as the issuer. The SDKs ship FIRST (the ADR-100 D19 order), so a partner can
+adopt the new shape before the server stops accepting the old one.
 
 ## 2026-08-28 (`realm_id`) — a type-only field, and the pin for it was checked by nothing until it was
 

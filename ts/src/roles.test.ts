@@ -92,23 +92,10 @@ test("roles.create: maps displayName + permissions to wire shape", async () => {
   assert.equal(r.is_system, false);
 });
 
-test("roles.create: forwards requiredMfaMethods (ADR-075)", async () => {
-  const fetch = mkFetch((req) => {
-    assert.deepEqual(req.body, {
-      name: "cashier",
-      display_name: "Cashier",
-      required_mfa_methods: ["otp"],
-    });
-    return new Response(JSON.stringify({
-      id: "role-cashier", name: "cashier", display_name: "Cashier",
-      permissions: [], required_mfa_methods: ["otp"],
-      is_system: false, created_at: 1, updated_at: 1,
-    }), { status: 201, headers: { "content-type": "application/json" } });
-  });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  const r = await realm.roles.create({ name: "cashier", displayName: "Cashier", requiredMfaMethods: ["otp"] });
-  assert.deepEqual(r.required_mfa_methods, ["otp"]);
-});
+// The `requiredMfaMethods` round-trip test is REMOVED (ADR-101): the field no
+// longer exists on either side of the wire. Zero realms ever configured a
+// per-role MFA floor.
+
 
 test("roles.update: sends only provided fields", async () => {
   const fetch = mkFetch((req) => {
@@ -232,30 +219,30 @@ test("roles.listPermissions: returns the ADR-074 catalog", async () => {
   assert.equal(perms[1]!.resource, "users");
 });
 
-// ADR-081 principal typing + ADR-076 WP4 invitation scope: both are role
-// fields the server has shipped for releases without an SDK type, so this
-// pins the round trip in both directions.
-test("roles.create: forwards assignableTo + canInviteRoles (ADR-081 / ADR-076 WP4)", async () => {
+// ADR-081 principal typing: a role field the server shipped for releases
+// without an SDK type, so this pins the round trip in both directions.
+//
+// It used to cover the ADR-076 WP4 invitation scope alongside it; ADR-101
+// retired that field, and the assertion below now checks it is NOT sent — a
+// client still emitting it would have the key silently discarded.
+test("roles.create: forwards assignableTo (ADR-081) and no retired fields", async () => {
   const fetch = mkFetch((req) => {
     assert.deepEqual(req.body, {
       name: "bot",
       display_name: "Bot",
-      can_invite_roles: ["member"],
       assignable_to: ["service"],
     });
     return new Response(JSON.stringify({
       id: "role-bot", name: "bot", display_name: "Bot",
-      permissions: [], required_mfa_methods: [],
-      can_invite_roles: ["member"], assignable_to: ["service"],
+      permissions: [], assignable_to: ["service"],
       is_system: false, created_at: 1, updated_at: 1,
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.create({
-    name: "bot", displayName: "Bot", assignableTo: ["service"], canInviteRoles: ["member"],
+    name: "bot", displayName: "Bot", assignableTo: ["service"],
   });
   assert.deepEqual(r.assignable_to, ["service"]);
-  assert.deepEqual(r.can_invite_roles, ["member"]);
   assert.equal(r.migrated_holders, undefined);
 });
 

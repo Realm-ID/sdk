@@ -85,38 +85,31 @@ class RolesClientTest {
         assertFalse(r.isSystem());
     }
 
-    @Test
-    void createForwardsRequiredMfaMethods() {
-        fs.onJson("POST /platforms/01HREALM/roles", (body, rec) -> {
-            assertEquals(List.of("otp"), body.get("required_mfa_methods"));
-            return FakeServer.Reply.json(201, Map.of(
-                    "name", "cashier", "display_name", "Cashier", "id", "role-cashier",
-                    "permissions", List.of(), "required_mfa_methods", List.of("otp"),
-                    "is_system", false, "created_at", 1, "updated_at", 1));
-        });
-        RoleObject r = realm.roles().create(new RoleCreate(
-                "cashier", "Cashier", List.of(), List.of("otp")));
-        assertEquals(List.of("otp"), r.requiredMfaMethods());
-    }
+    // createForwardsRequiredMfaMethods is REMOVED (ADR-101): the field no longer
+    // exists on either side of the wire. Zero realms ever configured a per-role
+    // MFA floor.
 
-    // ADR-081 principal typing + ADR-076 WP4 invitation scope: both are role
-    // fields the server has shipped for releases without an SDK type, so this
-    // pins the round trip in both directions.
+
+    // ADR-081 principal typing: a role field the server shipped for releases
+    // without an SDK type, so this pins the round trip in both directions.
+    //
+    // It used to cover the ADR-076 WP4 invitation scope alongside it; ADR-101
+    // retired that field, and the assertion below now checks it is NOT sent — a
+    // client still emitting it would have the key silently discarded.
     @Test
-    void createForwardsAssignableToAndInviteScope() {
+    void createForwardsAssignableTo() {
         fs.onJson("POST /platforms/01HREALM/roles", (body, rec) -> {
             assertEquals(List.of("service"), body.get("assignable_to"));
-            assertEquals(List.of("member"), body.get("can_invite_roles"));
+            assertNull(body.get("can_invite_roles"), "ADR-101 retired can_invite_roles");
+            assertNull(body.get("required_mfa_methods"), "ADR-101 retired required_mfa_methods");
             return FakeServer.Reply.json(201, Map.of(
                     "name", "bot", "display_name", "Bot", "id", "role-bot",
-                    "permissions", List.of(), "required_mfa_methods", List.of(),
-                    "can_invite_roles", List.of("member"), "assignable_to", List.of("service"),
+                    "permissions", List.of(), "assignable_to", List.of("service"),
                     "is_system", false, "created_at", 1, "updated_at", 1));
         });
         RoleObject r = realm.roles().create(new RoleCreate(
-                "bot", "Bot", List.of(), null, List.of("member"), List.of("service")));
+                "bot", "Bot", List.of(), List.of("service")));
         assertEquals(List.of("service"), r.assignableTo());
-        assertEquals(List.of("member"), r.canInviteRoles());
         assertNull(r.migratedHolders(), "migrated_holders is absent unless a narrowing moved holders");
     }
 

@@ -250,6 +250,10 @@ export type {
   ScopeReqLike,
   ScopeResLike,
 } from "./scope.js";
+// ADR-100 D9's other half: the ROLE -> scope map, to the route -> scope map
+// above. Both live in the partner's repo; the SDK only evaluates them.
+export { scopesForRoles, roleScopeNames, validateRoleScopes } from "./rolescope.js";
+export type { RoleScopes, RoleScopeConfigError } from "./rolescope.js";
 export type {
   MiddlewareConfig,
   ConnectMiddleware,

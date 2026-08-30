@@ -18,11 +18,19 @@ import (
 // ADR-040 decision §3 (no fixed enum).
 type Role = string
 
-// System role names. Per ADR-040 §Decision, only `owner` and `member`
-// are genuine system roles; the previous `admin` and `viewer` are now
-// regular custom roles partners can edit/delete.
+// System role names.
+//
+// ADR-101 made the whole set RealmID's: a partner cannot author a role, and
+// every realm receives the set for its level. `admin` is part of it — it was an
+// opt-in template between v0.54.0 and ADR-101 — and `viewer` no longer exists.
+//
+// A realm may DISABLE `admin` (that is the one shaping decision a realm owner
+// still has), so these constants are not a promise that every name resolves in
+// every realm. `GET /platforms/{id}/roles` remains the honest way to learn what
+// a realm offers.
 const (
 	RoleOwner  Role = "owner"
+	RoleAdmin  Role = "admin"
 	RoleMember Role = "member"
 )
 
@@ -33,16 +41,10 @@ type RoleObject struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name,omitempty"`
 	Permissions []string `json:"permissions"`
-	// RequiredMFAMethods is the ADR-075 per-role MFA method set — every holder
-	// of this role must satisfy MFA via one of these methods at login. Always an
-	// array. Only "totp"/"otp" are accepted server-side. Empty means the role
-	// imposes no MFA requirement of its own.
-	RequiredMFAMethods []string `json:"required_mfa_methods"`
-	// CanInviteRoles is the ADR-076 WP4 invitation scope — the role names a
-	// holder of this role may invite new members at. Inert unless the role also
-	// holds the `invitations:manage` permission: the invite gate requires both.
-	// Always an array.
-	CanInviteRoles []string `json:"can_invite_roles"`
+	// `required_mfa_methods` (ADR-075) and `can_invite_roles` (ADR-076 WP4)
+	// were REMOVED from this shape by ADR-101, along with the columns behind
+	// them. Zero realms ever configured an MFA floor, and the invitation scope
+	// bounded one of four seating paths while ADR-101 D6 now bounds all four.
 	// AssignableTo is the ADR-081 principal-kind constraint — the `users.kind`
 	// values ("human" / "service") that may hold this role. Since § Amendment 2
 	// the server never stores it empty, so an empty array here means the
@@ -107,12 +109,6 @@ type RoleCreate struct {
 	Name        string   `json:"name"`
 	DisplayName string   `json:"display_name,omitempty"`
 	Permissions []string `json:"permissions,omitempty"`
-	// RequiredMFAMethods sets the ADR-075 per-role MFA requirement
-	// (subset of {"totp","otp"}). Omit/empty for none.
-	RequiredMFAMethods []string `json:"required_mfa_methods,omitempty"`
-	// CanInviteRoles sets the ADR-076 WP4 invitation scope. Each entry must be
-	// a known non-owner role name in the realm. Omit/empty for none.
-	CanInviteRoles []string `json:"can_invite_roles,omitempty"`
 	// AssignableTo declares which principal kinds may hold the role — any
 	// non-empty subset of {"human","service"} (ADR-081). Leaving it nil omits
 	// the key, and the server then defaults to BOTH kinds; it is not an error.
@@ -128,13 +124,6 @@ type RoleCreate struct {
 type RolePatch struct {
 	DisplayName *string   `json:"display_name,omitempty"`
 	Permissions *[]string `json:"permissions,omitempty"`
-	// RequiredMFAMethods overwrites the ADR-075 per-role MFA method set when
-	// non-nil. Send a pointer to an empty slice to clear it; nil leaves it
-	// untouched (PATCH semantics).
-	RequiredMFAMethods *[]string `json:"required_mfa_methods,omitempty"`
-	// CanInviteRoles overwrites the ADR-076 WP4 invitation scope when non-nil.
-	// A pointer to an empty slice clears it; nil leaves it untouched.
-	CanInviteRoles *[]string `json:"can_invite_roles,omitempty"`
 	// AssignableTo overwrites the ADR-081 principal-kind constraint when
 	// non-nil; nil leaves it untouched. Unlike its siblings there is NO clear:
 	// a pointer to an empty slice is a 400 `assignable_to_required`, since

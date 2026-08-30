@@ -32,18 +32,12 @@ export interface RoleObject {
   name: string;
   display_name?: string;
   permissions: string[];
-  /**
-   * ADR-075 per-role MFA method set — every holder must satisfy MFA via one
-   * of these methods at login. Always an array; only `"totp"`/`"otp"` are
-   * accepted server-side. Empty means the role imposes no MFA requirement.
+  /*
+   * `required_mfa_methods` (ADR-075) and `can_invite_roles` (ADR-076 WP4) were
+   * REMOVED from this shape by ADR-101, along with the columns behind them.
+   * Zero realms ever configured an MFA floor, and the invitation scope bounded
+   * one of four seating paths while ADR-101 D6 now bounds all four.
    */
-  required_mfa_methods: string[];
-  /**
-   * ADR-076 WP4 invitation scope — the role names a holder of this role may
-   * invite new members at. Inert unless the role also holds the
-   * `invitations:manage` permission: the invite gate requires both.
-   */
-  can_invite_roles: string[];
   /**
    * ADR-081 principal typing — the `users.kind` values that may hold this
    * role. Since § Amendment 2 the server never stores this empty, so an empty
@@ -108,16 +102,6 @@ export interface RoleCreate {
   displayName?: string;
   permissions?: string[];
   /**
-   * ADR-075 per-role MFA requirement (subset of `["totp","otp"]`).
-   * Omit/empty for none.
-   */
-  requiredMfaMethods?: string[];
-  /**
-   * ADR-076 WP4 invitation scope. Each entry must be a known non-owner role
-   * name in the realm. Omit for none.
-   */
-  canInviteRoles?: string[];
-  /**
    * ADR-081 — which principal kinds may hold the role. Omit the key and the
    * server defaults to BOTH kinds (that is not an error; the field is younger
    * than its clients). An explicit `[]` is a 400 `assignable_to_required` —
@@ -129,16 +113,6 @@ export interface RoleCreate {
 export interface RolePatch {
   displayName?: string;
   permissions?: string[];
-  /**
-   * Overwrites the ADR-075 per-role MFA method set when provided. Send `[]`
-   * to clear it; omit to leave it untouched (PATCH semantics).
-   */
-  requiredMfaMethods?: string[];
-  /**
-   * Overwrites the ADR-076 WP4 invitation scope when provided. Send `[]` to
-   * clear it; omit to leave it untouched.
-   */
-  canInviteRoles?: string[];
   /**
    * Overwrites the ADR-081 principal-kind constraint when provided; omit to
    * leave it untouched. Unlike its siblings there is NO clear — `[]` is a 400
@@ -181,9 +155,6 @@ export class RolesClient {
     const wire: Record<string, unknown> = { name: body.name };
     if (body.displayName !== undefined) wire["display_name"] = body.displayName;
     if (body.permissions !== undefined) wire["permissions"] = body.permissions;
-    if (body.requiredMfaMethods !== undefined)
-      wire["required_mfa_methods"] = body.requiredMfaMethods;
-    if (body.canInviteRoles !== undefined) wire["can_invite_roles"] = body.canInviteRoles;
     if (body.assignableTo !== undefined) wire["assignable_to"] = body.assignableTo;
     return this.http.request<RoleObject>({
       method: "POST",
@@ -196,9 +167,6 @@ export class RolesClient {
     const wire: Record<string, unknown> = {};
     if (patch.displayName !== undefined) wire["display_name"] = patch.displayName;
     if (patch.permissions !== undefined) wire["permissions"] = patch.permissions;
-    if (patch.requiredMfaMethods !== undefined)
-      wire["required_mfa_methods"] = patch.requiredMfaMethods;
-    if (patch.canInviteRoles !== undefined) wire["can_invite_roles"] = patch.canInviteRoles;
     if (patch.assignableTo !== undefined) wire["assignable_to"] = patch.assignableTo;
     return this.http.request<RoleObject>({
       method: "PATCH",
