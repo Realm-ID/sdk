@@ -1,3 +1,5 @@
+import type { AuditEvent } from "@realm-id/sdk/internal";
+
 /**
  * Shared wire types for the admin SDK. Shapes mirror `ui/web/src/api.ts`
  * and the BFF's response envelopes — see `api/README.md` (formerly `bff-api/`) for the
@@ -450,10 +452,18 @@ export interface AdminPlatformsResponse {
   total?: number;
 }
 
-export interface AuditEvent {
-  [k: string]: unknown;
-}
-
+/**
+ * The BFF's audit-event section — the SAME rows `admin.admin.listEvents`
+ * returns, so it carries the SAME type.
+ *
+ * This file used to declare its own `AuditEvent` as `{ [k: string]: unknown }`,
+ * a placeholder that ALSO collided with the typed `AuditEvent` this package
+ * re-exports from `@realm-id/sdk` on the very next lines of `index.ts`. A
+ * consumer importing `AuditEvent` got one of the two and could not tell which,
+ * and the fan-out section was opaque either way — which is precisely why the
+ * RealmID console had an `as unknown as AuditEvent[]` double cast on it.
+ * One name, one type, and it is the SDK's.
+ */
 export interface AdminEventsResponse {
   items: AuditEvent[];
   next_cursor?: string | null;
@@ -606,6 +616,21 @@ export interface ProfileResponse {
   is_realm_staff: boolean;
   owned_platforms_count: number;
   memberships: MeMembership[];
+  /**
+   * The realm the BFF's OWN platform bearer comes from — injected by the BFF,
+   * not by the issuer, which cannot know it.
+   *
+   * The second operand of ADR-097 §E's question: "can the bearer this app holds
+   * act on that tenant?", whose first operand is the per-membership
+   * {@link MeMembership.realm_id}. COMPARE the two. Do not infer either from
+   * `is_admin_tenant` (that proves base-realm hosting and its converse is
+   * false) or from `is_base` (which answers a different question and has
+   * already shipped one wrong-persona render).
+   *
+   * Optional because a BFF too old to send it exists: ABSENT means UNKNOWN,
+   * never "a different realm" — fall back to the conservative check.
+   */
+  bearer_realm_id?: string;
 }
 
 export interface PublicIdentityProvider {

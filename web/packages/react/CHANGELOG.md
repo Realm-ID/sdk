@@ -13,6 +13,14 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.4.1 — peer range accepts `@realm-id/web@^0.5.0` (2026-08-30)
+
+Metadata only; no code change. `@realm-id/web` 0.5.0 is additive, but the
+`^0.4.0` peer range refused it outright, so `npm install @realm-id/web@0.5.0`
+alongside these bindings failed with `ERESOLVE` for every consumer — the
+RealmID console included, which is how it was found. The range is now
+`^0.4.0 || ^0.5.0`.
+
 ## 0.4.0 — peer-dep bump to `@realm-id/web@^0.4.0` (2026-05-15)
 
 Released as part of the `web-v0.4.0` roll (pluggable storage adapters +
