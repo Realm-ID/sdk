@@ -25,7 +25,8 @@ export type Role = string;
  * 400 `unknown_principal_kind`, so a union beats `string[]` here — a typo
  * fails at compile time rather than at request time.
  */
-export type PrincipalKind = "human" | "service";
+export const PRINCIPAL_KINDS = ["human", "service"] as const;
+export type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
 
 export interface RoleObject {
   id: string;
@@ -305,15 +306,30 @@ export const HUMAN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Role names no assignment path accepts, because they are SYSTEM rows moved by
- * something other than a role write: `owner` travels through the ADR-076
- * ownership pointer, and `platform_api` backs the API-key bot (ADR-041).
+ * Role names no assignment path accepts, because each is held by something
+ * other than a role write. Mirrors `realmrole.NonAssignableRoles`
+ * (`internal/realmrole/store.go`); drift-tested for SET EQUALITY, so both a
+ * missing and an extra entry fail.
+ *
+ * DELIBERATELY NOT the issuer's `ProtectedRoles`, which lives beside it with an
+ * identical type and means something else — "cannot be disabled or deleted".
+ * The two overlap, but `member` is protected AND the most assignable role there
+ * is, so reading one for the other empties every picker.
  *
  * A CONSOLE-side rule, not part of {@link isRoleAssignableTo}'s server mirror —
- * the issuer refuses these on the specific endpoints rather than in the
- * assignability predicate. Applied by {@link isRoleSeatable}.
+ * the issuer refuses these on the specific endpoints rather than inside
+ * `requireRoleAssignableToKind`. Applied by {@link isRoleSeatable}.
  */
-const SYSTEM_UNASSIGNABLE: ReadonlySet<string> = new Set(["owner", "platform_api"]);
+export const NON_ASSIGNABLE_ROLES: ReadonlySet<string> = new Set([
+  // Ownership moves through the ADR-076 `tenants.owner_user_id` pointer.
+  "owner",
+  // Backs the API-key bot (ADR-041).
+  "platform_api",
+  // The ONLY identity permitted to mint `platform_api`'s key (ADR-091 D3). A
+  // human holding it is a credential-issuance path outside the owner pointer,
+  // which is exactly what ADR-101 D6 closes.
+  "platform_mgmt_api",
+]);
 
 /**
  * Whether a principal of `kind` may hold `role` — the exact mirror of the
@@ -362,7 +378,7 @@ export function isRoleAssignableTo(role: AssignableRole, kind: PrincipalKind): b
  * {@link isRoleAssignableTo} instead will offer `owner`.
  */
 export function isRoleSeatable(role: AssignableRole, kind: PrincipalKind): boolean {
-  if (SYSTEM_UNASSIGNABLE.has(role.name)) return false;
+  if (NON_ASSIGNABLE_ROLES.has(role.name)) return false;
   if (role.disabled) return false;
   return isRoleAssignableTo(role, kind);
 }

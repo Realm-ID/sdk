@@ -19,6 +19,11 @@
  *
  * The transport (`admin.ssoDomains`) lands in `@realm-id/web-admin`; these are
  * the wire shapes it resolves to.
+ *
+ * The two closed vocabularies are declared as const ARRAYS with the union
+ * derived from them, so `roles-drift.test.ts` can compare them against
+ * `issuer/internal/tenantdomain/tenantdomain.go`. A union alone is invisible at
+ * runtime, which is another way of saying it cannot be drift-tested.
  */
 
 /**
@@ -29,12 +34,21 @@
  * platform owner attesting on the org's behalf, and `self_asserted` is the
  * org's own word — neither is proof, and neither sets `verified`.
  */
-export type SSODomainMethod =
-  | "dns_txt"
-  | "html_file"
-  | "meta_tag"
-  | "platform_approval"
-  | "self_asserted";
+export const SSO_DOMAIN_METHODS = [
+  "dns_txt",
+  "html_file",
+  "meta_tag",
+  "platform_approval",
+  "self_asserted",
+] as const;
+export type SSODomainMethod = (typeof SSO_DOMAIN_METHODS)[number];
+
+/** The three methods that are REAL proof, i.e. the only ones that set `verified`. */
+export const SSO_DOMAIN_PROOF_METHODS: readonly SSODomainMethod[] = [
+  "dns_txt",
+  "html_file",
+  "meta_tag",
+];
 
 /**
  * Grant lifecycle.
@@ -43,14 +57,16 @@ export type SSODomainMethod =
  * failing for 7 days (see `check_failing_since`) — it is decay, not a rejection.
  * `revoked` starts a 7-day cooldown before the domain can be re-claimed.
  */
-export type SSODomainStatus =
-  | "claimed"
-  | "pending"
-  | "active"
-  | "suspended"
-  | "rejected"
-  | "revoked"
-  | "failed";
+export const SSO_DOMAIN_STATUSES = [
+  "claimed",
+  "pending",
+  "active",
+  "suspended",
+  "rejected",
+  "revoked",
+  "failed",
+] as const;
+export type SSODomainStatus = (typeof SSO_DOMAIN_STATUSES)[number];
 
 /** One SSO domain grant. Timestamps are RFC 3339 strings, not unix seconds. */
 export interface SSODomainGrant {

@@ -3,7 +3,15 @@ import { strict as assert } from "node:assert";
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HUMAN_ONLY_PERMISSIONS, confersAuthority, isRoleAssignableTo } from "./roles.js";
+import {
+  HUMAN_ONLY_PERMISSIONS,
+  NON_ASSIGNABLE_ROLES,
+  confersAuthority,
+  isRoleAssignableTo,
+  isRoleSeatable,
+  PRINCIPAL_KINDS,
+} from "./roles.js";
+import { SSO_DOMAIN_METHODS, SSO_DOMAIN_STATUSES } from "./sso-domains.js";
 
 /**
  * DRIFT GATE for the two rules `roles.ts` copies out of the issuer.
@@ -11,7 +19,15 @@ import { HUMAN_ONLY_PERMISSIONS, confersAuthority, isRoleAssignableTo } from "./
  * THE ISSUER WINS. `issuer/internal/realmrole/permissions.go` (the ADR-074
  * catalog + `IsMutatingPermission`/`ConfersAuthority`) and
  * `issuer/internal/realmrole/assignable.go` (`HumanOnlyPermissions`,
- * `AssignableToKind`) are authoritative. If this file goes red, the SDK is
+ * `AssignableToKind`) and `issuer/internal/realmrole/store.go`
+ * (`NonAssignableRoles`), and `issuer/internal/tenantdomain/tenantdomain.go`
+ * (`IsValidMethod` / `IsValidStatus`) are authoritative.
+ *
+ * EVERY set this SDK mirrors is compared here, by SET EQUALITY rather than
+ * membership, so an extra entry fails as loudly as a missing one. That rule was
+ * added after `NON_ASSIGNABLE_ROLES` shipped a member short while this gate was
+ * green: the gate covered two of the mirrored sets and said nothing about the
+ * third, which is indistinguishable from having no gate for that set at all. If this file goes red, the SDK is
  * wrong and the SDK is what changes.
  *
  * It binds in two independent ways, on purpose:
@@ -74,6 +90,40 @@ const ISSUER_CATALOG: CatalogEntry[] = [
   { key: "user_api_keys:manage", resource: "user_api_keys", action: "manage" },
 ];
 
+/**
+ * `realmrole.NonAssignableRoles` (store.go), sorted — the roles nobody is
+ * granted through the invite/assignment surface.
+ *
+ * DELIBERATELY NOT `ProtectedRoles`, which the issuer keeps as a separate map
+ * meaning "cannot be disabled or deleted". The two overlap but `member` is
+ * protected AND the most assignable role there is, so reading one for the other
+ * empties every picker.
+ */
+const ISSUER_NON_ASSIGNABLE = ["owner", "platform_api", "platform_mgmt_api"];
+
+/** `realmrole.AssignableKinds` (ADR-071 `users.kind`), sorted. */
+const ISSUER_ASSIGNABLE_KINDS = ["human", "service"];
+
+/** `tenantdomain.IsValidMethod`'s five cases (ADR-094), sorted. */
+const ISSUER_SSO_METHODS = [
+  "dns_txt",
+  "html_file",
+  "meta_tag",
+  "platform_approval",
+  "self_asserted",
+];
+
+/** `tenantdomain.IsValidStatus`'s seven cases (ADR-094), sorted. */
+const ISSUER_SSO_STATUSES = [
+  "active",
+  "claimed",
+  "failed",
+  "pending",
+  "rejected",
+  "revoked",
+  "suspended",
+];
+
 /** `realmrole.HumanOnlyPermissions` (ADR-081 §2.3), sorted. */
 const ISSUER_HUMAN_ONLY = [
   "domains:manage",
@@ -119,6 +169,24 @@ test("drift: HUMAN_ONLY_PERMISSIONS matches the pinned issuer set", () => {
   for (const p of ISSUER_HUMAN_ONLY) assert.ok(keys.has(p), `${p} is not in the catalog`);
 });
 
+test("drift: NON_ASSIGNABLE_ROLES matches the pinned issuer set", () => {
+  assert.deepEqual([...NON_ASSIGNABLE_ROLES].sort(), ISSUER_NON_ASSIGNABLE);
+  // and the picker predicate actually applies it, for both kinds
+  for (const name of ISSUER_NON_ASSIGNABLE) {
+    assert.equal(isRoleSeatable({ name }, "human"), false, name);
+    assert.equal(isRoleSeatable({ name }, "service"), false, name);
+  }
+});
+
+test("drift: PRINCIPAL_KINDS matches the pinned issuer set", () => {
+  assert.deepEqual([...PRINCIPAL_KINDS].sort(), ISSUER_ASSIGNABLE_KINDS);
+});
+
+test("drift: the SSO domain vocabularies match the pinned issuer sets", () => {
+  assert.deepEqual([...SSO_DOMAIN_METHODS].sort(), ISSUER_SSO_METHODS);
+  assert.deepEqual([...SSO_DOMAIN_STATUSES].sort(), ISSUER_SSO_STATUSES);
+});
+
 test("drift: every human-only permission is one a service principal is refused", () => {
   for (const p of ISSUER_HUMAN_ONLY) {
     assert.equal(
@@ -130,21 +198,69 @@ test("drift: every human-only permission is one a service principal is refused",
 
 // ---- Half 2: the pinned fixture still matches the live issuer source ----
 
-function findIssuerRealmRoleDir(): string | null {
+function findIssuerDir(): string | null {
   const explicit = process.env["REALMID_ISSUER_DIR"];
-  if (explicit) {
-    const p = resolve(explicit, "internal/realmrole");
-    return existsSync(p) ? p : null;
-  }
+  if (explicit) return existsSync(resolve(explicit, "internal")) ? resolve(explicit) : null;
   // sdk/ts/src -> sdk/ts -> sdk -> <workspace>
   const here = dirname(fileURLToPath(import.meta.url));
-  const p = resolve(here, "../../../issuer/internal/realmrole");
-  return existsSync(p) ? p : null;
+  const p = resolve(here, "../../../issuer");
+  return existsSync(resolve(p, "internal/realmrole")) ? p : null;
 }
 
-function parseIssuer(dir: string): { catalog: CatalogEntry[]; humanOnly: string[] } {
+/**
+ * Keys of a Go map literal, addressed by its VARIABLE NAME.
+ *
+ * Anchored on the name and never on `map[string]bool{` alone: `store.go`
+ * declares `ProtectedRoles` beside `NonAssignableRoles` with an identical type
+ * and a different meaning, and it contains `member`. A loose match would swap
+ * "cannot be deleted" for "cannot be held" and silently empty every picker.
+ */
+function issuerMapKeys(src: string, varName: string, where: string): string[] {
+  const block = src.match(
+    new RegExp(`var ${varName} = map\\[string\\](?:bool|struct\\{\\})\\{([\\s\\S]*?)\\n\\}`),
+  );
+  assert.ok(block, `could not locate \`var ${varName}\` in ${where}`);
+  const keys = [...(block[1] as string).matchAll(/"([a-z0-9_:]+)":/g)].map((m) => m[1] as string);
+  assert.ok(keys.length > 0, `parsed zero keys from ${varName} — the regex has stopped matching`);
+  return keys.sort();
+}
+
+/** The string cases of a Go `switch` inside the named func — a closed vocabulary. */
+function issuerSwitchCases(src: string, funcName: string, where: string): string[] {
+  const fn = src.match(new RegExp(`func ${funcName}\\([^)]*\\) bool \\{([\\s\\S]*?)\\n\\}`));
+  assert.ok(fn, `could not locate \`func ${funcName}\` in ${where}`);
+  const caseLine = (fn[1] as string).match(/\n\tcase ([\s\S]*?):/);
+  assert.ok(caseLine, `\`${funcName}\` has no case clause`);
+  // The cases name Go consts (MethodDNSTXT, StatusClaimed); resolve each to its
+  // declared string literal rather than guessing from the identifier.
+  const idents = (caseLine[1] as string).split(",").map((x) => x.trim()).filter(Boolean);
+  assert.ok(idents.length > 0, `parsed zero cases from ${funcName} — the regex has stopped matching`);
+  const consts = new Map<string, string>();
+  for (const m of src.matchAll(/^\s*([A-Z][A-Za-z0-9_]*)\s+(?:Method|Status)\s*=\s*"([^"]+)"/gm)) {
+    consts.set(m[1] as string, m[2] as string);
+  }
+  return idents
+    .map((id) => {
+      const v = consts.get(id);
+      assert.ok(v, `${funcName} names ${id}, which is not a declared const in ${where}`);
+      return v;
+    })
+    .sort();
+}
+
+function parseIssuer(root: string): {
+  catalog: CatalogEntry[];
+  humanOnly: string[];
+  nonAssignable: string[];
+  assignableKinds: string[];
+  ssoMethods: string[];
+  ssoStatuses: string[];
+} {
+  const dir = resolve(root, "internal/realmrole");
   const perms = readFileSync(resolve(dir, "permissions.go"), "utf8");
   const assignable = readFileSync(resolve(dir, "assignable.go"), "utf8");
+  const store = readFileSync(resolve(dir, "store.go"), "utf8");
+  const td = readFileSync(resolve(root, "internal/tenantdomain/tenantdomain.go"), "utf8");
 
   const consts = new Map<string, string>();
   for (const m of perms.matchAll(/^\s*(Perm[A-Za-z0-9_]+)\s*=\s*"([^"]+)"/gm)) {
@@ -171,11 +287,43 @@ function parseIssuer(dir: string): { catalog: CatalogEntry[]; humanOnly: string[
     humanOnly.push(key);
   }
   assert.ok(humanOnly.length > 0, "parsed zero human-only permissions — the regex has stopped matching");
-  return { catalog, humanOnly: humanOnly.sort() };
+
+  const nonAssignable = issuerMapKeys(store, "NonAssignableRoles", "store.go");
+  assert.ok(
+    !nonAssignable.includes("member"),
+    "parsed `member` as non-assignable — the reader matched ProtectedRoles, not NonAssignableRoles",
+  );
+
+  const kindsBlock = assignable.match(/var AssignableKinds = \[\]string\{([^}]*)\}/);
+  assert.ok(kindsBlock, "could not locate `var AssignableKinds` in assignable.go");
+  const kindConsts = new Map<string, string>();
+  for (const m of assignable.matchAll(/^\s*(Assignable[A-Za-z]+)\s*=\s*"([^"]+)"/gm)) {
+    kindConsts.set(m[1] as string, m[2] as string);
+  }
+  const assignableKinds = (kindsBlock[1] as string)
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((id) => {
+      const v = kindConsts.get(id);
+      assert.ok(v, `AssignableKinds names ${id}, which is not a declared const`);
+      return v;
+    })
+    .sort();
+  assert.ok(assignableKinds.length > 0, "parsed zero assignable kinds — the regex has stopped matching");
+
+  return {
+    catalog,
+    humanOnly: humanOnly.sort(),
+    nonAssignable,
+    assignableKinds,
+    ssoMethods: issuerSwitchCases(td, "IsValidMethod", "tenantdomain.go"),
+    ssoStatuses: issuerSwitchCases(td, "IsValidStatus", "tenantdomain.go"),
+  };
 }
 
 test("drift: the pinned fixture equals the LIVE issuer source", (t) => {
-  const dir = findIssuerRealmRoleDir();
+  const dir = findIssuerDir();
   if (!dir) {
     // Not a pass on the merits and not silent about it. Half 1 above still
     // bound; only the fixture-staleness check did not.
@@ -189,4 +337,24 @@ test("drift: the pinned fixture equals the LIVE issuer source", (t) => {
   const live = parseIssuer(dir);
   assert.deepEqual(live.catalog, ISSUER_CATALOG, "the ADR-074 catalog moved; regenerate ISSUER_CATALOG");
   assert.deepEqual(live.humanOnly, ISSUER_HUMAN_ONLY, "HumanOnlyPermissions moved; update roles.ts AND this fixture");
+  assert.deepEqual(
+    live.nonAssignable,
+    ISSUER_NON_ASSIGNABLE,
+    "NonAssignableRoles moved; update NON_ASSIGNABLE_ROLES in roles.ts AND this fixture",
+  );
+  assert.deepEqual(
+    live.assignableKinds,
+    ISSUER_ASSIGNABLE_KINDS,
+    "AssignableKinds moved; update PRINCIPAL_KINDS in roles.ts AND this fixture",
+  );
+  assert.deepEqual(
+    live.ssoMethods,
+    ISSUER_SSO_METHODS,
+    "tenantdomain methods moved; update SSO_DOMAIN_METHODS AND this fixture",
+  );
+  assert.deepEqual(
+    live.ssoStatuses,
+    ISSUER_SSO_STATUSES,
+    "tenantdomain statuses moved; update SSO_DOMAIN_STATUSES AND this fixture",
+  );
 });

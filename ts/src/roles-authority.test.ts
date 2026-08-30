@@ -5,6 +5,7 @@ import {
   isRoleAssignableTo,
   isRoleSeatable,
   rolesAssignableTo,
+  NON_ASSIGNABLE_ROLES,
   type AssignableRole,
 } from "./roles.js";
 
@@ -108,9 +109,32 @@ test("isRoleAssignableTo does NOT filter owner/platform_api/disabled — that is
 
 // ---- isRoleSeatable (the picker predicate) ----
 
-test("isRoleSeatable: excludes the system-unassignable names on BOTH kinds", () => {
-  assert.equal(isRoleSeatable(role({ name: "owner", assignable_to: ["human"] }), "human"), false);
-  assert.equal(isRoleSeatable(role({ name: "platform_api", assignable_to: ["service"], is_system: true }), "service"), false);
+test("isRoleSeatable: excludes the non-assignable names on BOTH kinds", () => {
+  // realmrole.NonAssignableRoles. All three are held by something other than a
+  // role write: `owner` moves via the ADR-076 ownership pointer, `platform_api`
+  // backs the API-key bot (ADR-041), and `platform_mgmt_api` is the ONLY
+  // identity permitted to mint platform_api's key (ADR-091 D3) — a human
+  // holding it is a credential-issuance path outside the owner pointer, which
+  // is exactly what ADR-101 D6 closes.
+  for (const name of ["owner", "platform_api", "platform_mgmt_api"]) {
+    assert.equal(isRoleSeatable(role({ name, assignable_to: ["human"] }), "human"), false, name);
+    assert.equal(
+      isRoleSeatable(role({ name, assignable_to: ["service"], is_system: true }), "service"),
+      false,
+      name,
+    );
+  }
+});
+
+test("NON_ASSIGNABLE_ROLES is exported and is exactly the issuer's set", () => {
+  assert.deepEqual([...NON_ASSIGNABLE_ROLES].sort(), ["owner", "platform_api", "platform_mgmt_api"]);
+});
+
+test("isRoleAssignableTo does NOT apply the non-assignable set — that is the server predicate", () => {
+  // The issuer refuses these on the specific endpoints, not inside
+  // requireRoleAssignableToKind. Keeping the mirror faithful is what lets the
+  // drift gate compare it against anything.
+  assert.equal(isRoleAssignableTo(role({ name: "platform_mgmt_api", assignable_to: ["human"] }), "human"), true);
 });
 
 test("isRoleSeatable: excludes a disabled role", () => {
@@ -129,6 +153,7 @@ test("rolesAssignableTo filters a catalog with isRoleSeatable and preserves orde
     role({ name: "admin", permissions: ["users:manage"] }),
     role({ name: "member" }),
     role({ name: "platform_api", assignable_to: ["service"], is_system: true }),
+    role({ name: "platform_mgmt_api", assignable_to: ["service"], is_system: true }),
     role({ name: "gone", disabled: true }),
   ];
   assert.deepEqual(rolesAssignableTo(roles, "human").map((r) => r.name), ["admin", "member"]);

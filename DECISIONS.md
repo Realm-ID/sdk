@@ -10,9 +10,10 @@ Newest first.
 
 ## Index
 
-70 entries total — 15 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+71 entries total — 16 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
 - [2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle](#2026-08-30-go--a-proxy-is-not-a-client-and-the-four-things-it-re-implemented-were-all-subtle)
+- [2026-08-30 (ts, later) — a drift gate that is green while the set it guards is wrong](#2026-08-30-ts-later--a-drift-gate-that-is-green-while-the-set-it-guards-is-wrong)
 - [2026-08-30 (ts) — the picker predicate and the server predicate are not the same predicate](#2026-08-30-ts--the-picker-predicate-and-the-server-predicate-are-not-the-same-predicate)
 - [2026-08-30 (later) — the predicates were written in the console; the issuer is where they are true](#2026-08-30-later--the-predicates-were-written-in-the-console-the-issuer-is-where-they-are-true)
 - [2026-08-30 (ADR-101) — the role→scope map is the half that makes the other half worth having](#2026-08-30-adr-101--the-rolescope-map-is-the-half-that-makes-the-other-half-worth-having)
@@ -159,6 +160,61 @@ which would be worse than one that is honest about when it abstained.
 exists and is still what runs in production — wave 3 does that swap, and it must
 reproduce the D4 *refuse* what it cannot challenge behaviour, which lives in
 `passthrough.go` and is not part of the policy model moved here.
+
+## 2026-08-30 (ts, later) — a drift gate that is green while the set it guards is wrong
+
+**The defect.** `NON_ASSIGNABLE_ROLES` (the private `SYSTEM_UNASSIGNABLE` as
+shipped hours earlier) held `owner` and `platform_api`. The issuer's
+`realmrole.NonAssignableRoles` holds a third: `platform_mgmt_api`, the ONLY
+identity permitted to mint `platform_api`'s key (ADR-091 D3). A human holding it
+is a credential-issuance path outside the ADR-076 owner pointer — precisely what
+ADR-101 D6 exists to close — and `isRoleSeatable` was offering it. The set was
+ported from `ui/web/src/roleAssignability.ts`, which has the same gap, so the
+console has been offering it too.
+
+**Why this matters more than the fix.** The entry above ships a drift gate and
+argues, at length, that a hand-maintained copy without one is the failure mode
+the whole refactor exists to remove. That gate was GREEN across this defect. It
+compared two of the mirrored sets — the ADR-074 catalog and
+`HumanOnlyPermissions` — and said nothing at all about the third. It was also
+mutation-tested, and the mutations only ever touched the two sets it covered.
+"I wrote a drift test" is not "the set is covered", and a gate that is green
+while the thing it guards is wrong is worse than no gate, because it is quoted
+as evidence. `sdk/java`'s gate found this; ours could not have.
+
+**Decision: compare EVERY set, and by set EQUALITY.** Not membership — an EXTRA
+entry has to fail as loudly as a missing one, because a set that has grown a
+name the issuer never had silently removes a legitimate choice from every
+picker. Now compared against the live issuer source: `NonAssignableRoles`,
+`AssignableKinds`, and the ADR-094 `tenantdomain.IsValidMethod` /
+`IsValidStatus` vocabularies, alongside the two already there.
+
+**`PrincipalKind`, `SSODomainMethod` and `SSODomainStatus` became const arrays
+with the union derived from them.** A bare TypeScript union is invisible at
+runtime, which is another way of saying it cannot be drift-tested at all — the
+type system erases exactly the thing the gate needs to read. Deriving keeps the
+type identical and makes the vocabulary a value.
+
+**The Go map reader is anchored on the VARIABLE NAME.** `store.go` declares
+`ProtectedRoles` beside `NonAssignableRoles` with an identical
+`map[string]bool` type and a different meaning — "cannot be disabled or
+deleted" versus "a person can hold it" — and `member` is in the first. A reader
+matching on the type would swap them and empty every picker, so there is an
+explicit assertion that `member` never appears in the parsed result.
+
+**Still uncovered, and said out loud rather than left implied.**
+`MembershipActionCode`'s nine codes are all really emitted (verified against
+`internal/httpapi/`) but the issuer declares them inline at ~20 call sites, so
+there is no vocabulary to parse. And the gate compares the SETS the predicates
+read, not the predicate LOGIC: the ADR-091 `is_system` exemption and the
+ADR-101 absence of an MFA floor are unit-tested, so they would not go red if the
+ISSUER changed its mind. Both filed in `TODO.md`.
+
+**Verification.** Red first on both halves. Then three mutations, each caught:
+removing `platform_mgmt_api` from the SDK set (red), adding a bogus extra entry
+(red — the equality half, which a membership check would have passed), and
+pointing the reader at `ProtectedRoles` (red, on the `member` guard). 270 pass /
+0 fail / 0 skipped; typecheck, build, taxonomy-parity and changelog-order green.
 
 ## 2026-08-30 (ts) — the picker predicate and the server predicate are not the same predicate
 

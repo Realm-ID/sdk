@@ -278,11 +278,14 @@ export {
   rolesAssignableTo,
   confersAuthority,
   HUMAN_ONLY_PERMISSIONS,
+  NON_ASSIGNABLE_ROLES,
+  PRINCIPAL_KINDS,
 } from "./roles.js";
 export type { AssignableRole, ConfersAuthorityOptions, CatalogPermission } from "./roles.js";
 
 // ADR-094 per-org SSO domain grants — wire shapes; the `admin.ssoDomains`
 // transport lives in @realm-id/web-admin.
+export { SSO_DOMAIN_METHODS, SSO_DOMAIN_PROOF_METHODS, SSO_DOMAIN_STATUSES } from "./sso-domains.js";
 export type {
   SSODomainGrant,
   SSODomainMethod,

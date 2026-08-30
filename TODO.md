@@ -620,3 +620,16 @@ this is the SDK-side work.
       protection and is none), but `Middleware()` has no error return and
       changing that is a breaking signature change for every existing partner.
       Decide it deliberately at the next major. *(Filed 2026-08-30 from W1a.)*
+- [ ] `ts/src/memberships.ts` — `MembershipActionCode`'s nine codes are all
+      really emitted (verified 2026-08-30 against `internal/httpapi/`), but they
+      are the ONE set `ts/src/roles-drift.test.ts` still cannot compare: the
+      issuer declares them inline at ~20 call sites rather than in a single Go
+      map, so there is nothing to parse. Either give the issuer a declared
+      vocabulary for them or accept the gap knowingly — but it IS a gap, and the
+      `platform_mgmt_api` miss is the evidence that an uncovered mirror rots.
+      *(Filed 2026-08-30 from W1b.)*
+- [ ] `ts/src/roles.ts` — the drift gate compares the SETS the predicates read,
+      not the predicate LOGIC: the ADR-091 `is_system` exemption and the ADR-101
+      ABSENCE of a per-role MFA floor are asserted by unit tests, so they would
+      not go red if the ISSUER changed its mind. `sdk/java`'s gate does parse
+      those from the Go source; ts should match. *(Filed 2026-08-30 from W1b.)*

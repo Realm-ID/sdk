@@ -183,11 +183,14 @@ export {
   rolesAssignableTo,
   confersAuthority,
   HUMAN_ONLY_PERMISSIONS,
+  NON_ASSIGNABLE_ROLES,
+  PRINCIPAL_KINDS,
   type AssignableRole,
   type ConfersAuthorityOptions,
   type CatalogPermission,
 } from "./roles.js";
 
+export { SSO_DOMAIN_METHODS, SSO_DOMAIN_PROOF_METHODS, SSO_DOMAIN_STATUSES } from "./sso-domains.js";
 export type {
   SSODomainGrant,
   SSODomainMethod,

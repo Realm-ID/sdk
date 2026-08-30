@@ -26,7 +26,8 @@ SDK dogfooding refactor, wave 1b. No tag is cut by this work.
     on all 31 catalog entries and a drift test proves it.
   - **No per-role MFA floor** — ADR-101 removed `required_mfa_methods` from the
     role wire, and a server still emitting it does not change the answer.
-  - `HUMAN_ONLY_PERMISSIONS` (ADR-081 §2.3) is exported and drift-tested.
+  - `HUMAN_ONLY_PERMISSIONS` (ADR-081 §2.3) and `NON_ASSIGNABLE_ROLES`
+    (`realmrole.NonAssignableRoles`) are exported and drift-tested.
   - `AssignableRole` is DERIVED from `RoleObject` via `Pick`, not declared as a
     parallel shape.
 - **`unwrapData` / `parseErrorEnvelope` / `ErrorEnvelope`** (new
@@ -46,8 +47,33 @@ SDK dogfooding refactor, wave 1b. No tag is cut by this work.
   membership-self-service refusal taxonomy. The codes are contract; the
   user-facing sentences stay in the application.
 
+### Fixed
+
+- **`isRoleSeatable` offered `platform_mgmt_api`.** `NON_ASSIGNABLE_ROLES`
+  (formerly the private `SYSTEM_UNASSIGNABLE`) held only `owner` and
+  `platform_api`; the issuer's `realmrole.NonAssignableRoles` has a third entry.
+  `platform_mgmt_api` is the ONLY identity permitted to mint `platform_api`'s
+  key (ADR-091 D3), so a human holding it is a credential-issuance path outside
+  the owner pointer — exactly what ADR-101 D6 closes. Ported from
+  `ui/web/src/roleAssignability.ts`, which has the same gap. Found by the
+  `sdk/java` drift gate, not by this one.
+- **The drift gate was green while a set it "guarded" was wrong.** It compared
+  the ADR-074 catalog and `HumanOnlyPermissions` and said nothing about the
+  other mirrored sets. It now compares EVERY set, by SET EQUALITY rather than
+  membership, so an extra entry fails as loudly as a missing one:
+  `NonAssignableRoles`, `AssignableKinds`, and the ADR-094
+  `tenantdomain.IsValidMethod` / `IsValidStatus` vocabularies. The Go map reader
+  is anchored on the variable NAME — `ProtectedRoles` sits beside
+  `NonAssignableRoles` with an identical type, a different meaning and `member`
+  in it, and reading one for the other would empty every picker.
+
 ### Changed
 
+- `PrincipalKind`, `SSODomainMethod` and `SSODomainStatus` are now DERIVED from
+  exported const arrays (`PRINCIPAL_KINDS`, `SSO_DOMAIN_METHODS`,
+  `SSO_DOMAIN_STATUSES`, plus `SSO_DOMAIN_PROOF_METHODS`). Identical types; the
+  arrays exist because a bare union is invisible at runtime, which is another
+  way of saying it cannot be drift-tested.
 - `HttpClient` now preserves an unrecognised server code under
   `details.server_code` instead of discarding it, matching what
   `@realm-id/web-admin`'s transport already did. A code the `ErrorCode` union
