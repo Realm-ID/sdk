@@ -143,33 +143,103 @@ Partner API middleware must reject any token where `iss` prefix, `aud`, or signa
 
 ## 4. Adding your own RBAC
 
-RealmID gives you **one role per user per tenant** (ADR-025). The wire enum is fixed in v0.1.0: `owner`, `admin`, `member`, `viewer`. Use `PATCH /tenants/{id}/users/{uid}/role` to change a user's role (cannot set `owner` — use `PUT /tenants/{id}/owner` for the explicit handover; cannot demote the last owner). The full management surface — paginated list filters, invitation-role rules — is documented in the SDK SPEC (`sdk/SPEC.md` §6.1–§6.3); domain SSO is claimed and proven through the domains API (ADR-094), not patched onto the tenant. Two ways to attach partner-owned data:
+> **⚠️ Breaking, ADR-101 (2026-08-30): you can no longer author a role in
+> RealmID.** `POST /platforms/{id}/roles` and its `PATCH` / `DELETE` / `rename`
+> siblings now answer `403 role_authoring_retired` for every realm but
+> RealmID's own. `GET /roles` and `disable`/`enable` are unchanged.
+>
+> If you have product roles in RealmID today, they are being migrated to
+> `member` and you have been notified separately. This section tells you where
+> they go instead.
+
+**RealmID's roles are RealmID's own administrative vocabulary.** A role in
+`realm_roles` describes what a user in one of your tenants may do **to
+RealmID** — manage members, mint keys, claim domains, revoke sessions. It has
+never described your product, and after ADR-101 it is not permitted to pretend
+to.
+
+The set you get is fixed, and differs by level:
+
+| your tenants are… | the roles they can hold |
+|---|---|
+| **orgs** in your platform realm | `owner`, `admin`, `member` |
+| your own **admin tenant** (staff who run your realm) | `owner`, `admin`, `member`, `platform_api`, `platform_mgmt_api` |
+
+A realm may **disable** `admin` — that is the one shaping decision left, and it
+means "this realm has exactly one administrator, its owner". So do **not**
+hardcode the names: `GET /platforms/{id}/roles` remains the honest way to learn
+what a realm offers.
+
+### Your product's roles live in your system
+
+They reach RealmID as **ADR-097 scopes**, and the SDK ships the map:
+
+```ts
+import { scopesForRoles, validateRoleScopes } from "@realm-id/sdk";
+
+// In YOUR repo, next to the roles it describes. RealmID never sees this.
+const ROLE_SCOPES = {
+  dispatcher: ["orders:read", "orders:assign"],
+  accountant: ["invoices:read", "orders:read"],
+};
+
+// Once, at startup — a bad entry here costs a user their authority at request
+// time, far from the typo.
+for (const e of validateRoleScopes(ROLE_SCOPES)) console.error(e);
+
+// At login, per user.
+const scopes = scopesForRoles(ROLE_SCOPES, user.roles);
+await realm.auth.login({ ..., scope: scopes, rolePermissions: scopes });
+```
+
+Go: `realmid.RoleScopes{...}.ScopesFor(roles...)`. Java:
+`RoleScopes.scopesForRoles(MAP, roles)`. Both have the same `Validate`.
+
+A role the map does not know contributes **nothing** — no error. That is
+deliberate: raising would fail every login by a user holding a role you added
+before your deploy, and refusing a login is far worse than issuing a token with
+fewer scopes that your gate then refuses comprehensibly. `validate` at startup
+is how you catch the gap.
+
+The other half of the same idea — route → scope — is §4.2 below. Both maps live
+in your repo; the SDK only evaluates them.
+
+### Attaching partner-owned DATA (not authority)
+
+RealmID gives you **one role per user per tenant** (ADR-025). Use `PATCH
+/tenants/{id}/users/{uid}/role` to change it (cannot set `owner` — use `PUT
+/tenants/{id}/owner` for the explicit handover; cannot demote the last owner).
+Since ADR-101 D6, **only the tenant owner may seat a principal at a role that
+confers authority** — derived from the permission catalog, never from the name —
+so a non-owner holding `users:manage` gets `403 role_owner_only` rather than
+being able to promote themselves. The full management surface is in
+`sdk/SPEC.md` §6.1–§6.3; domain SSO is claimed through the domains API
+(ADR-094), not patched onto the tenant.
+
+Two ways to attach data:
 
 **(a) Inline custom claims on the JWT.** Any non-reserved keys you pass in `POST /auth/login`'s `custom_claims` field land on the token payload directly (e.g. `outlet_ids`, `feature_flags`, `region`). Reserved claim names are **refused**, not silently dropped: sending one in `custom_claims` on `POST /auth/token` returns `400 reserved_claim_key` (ADR-097 D3 — a dropped claim is indistinguishable, from your side, from an honoured one, and once `scope` carries granted authority that difference is a gate that never fires). The reserved set is `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `scope`, `token_class`. Claims are snapshotted on the session, so refresh re-emits the same set; tenant switch (`POST /auth/token { tenant_id }`, ADR-031/032) clears them because they're tenant-specific. Use this when the data is small, stable-for-the-session, and needs to be available without a DB hop (a per-user list of the outlets or branches they may see is the archetype).
 
 **(b) Partner-side lookup keyed on JWT subject.** Read `tenant_id` + `user_id` off the verified claim, consult your own DB per request. Use this when the data is mutable mid-session (tokens won't reflect changes until next refresh) or too big for a claim.
 
-Do **not** try to stuff extra roles into the RealmID JWT by overriding reserved keys — they'll be stripped.
+Do **not** try to stuff extra roles into the RealmID JWT by overriding reserved keys — they'll be stripped. Prefer `scope` over a role LABEL in `custom_claims`: `scope` is re-resolved on every `/auth/token` call and never stored, whereas custom claims are snapshotted onto the session and drift across a long one.
 
-**Role permissions on the RealmID admin surface (ADR-074).** Custom
-realm roles carry a `permissions` array drawn from a closed
-`resource:action` catalog (`GET /platforms/{id}/permissions`), and it
-is **enforced** on the RealmID admin surface: a non-owner may call an
-admin endpoint iff their realm role grants the matching permission.
-Permissions are resolved from the DB at request time (no JWT claim), so
-a grant/revoke applies on the holder's next request. A new custom role
-defaults to **empty** permissions — holders 403 on the admin surface
-until you grant boxes. Write-time validation rejects strings outside
-the catalog (`400 unknown_permission`). Note this governs the RealmID
-admin API only; your own application RBAC is still options (a)/(b)
-above.
+**Role permissions on the RealmID admin surface (ADR-074).** Realm roles carry
+a `permissions` array drawn from a closed `resource:action` catalog (`GET
+/platforms/{id}/permissions`), and it is **enforced** on the RealmID admin
+surface: a non-owner may call an admin endpoint iff their realm role grants the
+matching permission. Permissions are resolved from the DB at request time (no
+JWT claim), so a grant/revoke applies on the holder's next request. You can no
+longer edit these — the set and its grants are RealmID's (ADR-101) — but you can
+read them, and `GET /roles` is what tells you what a role in your realm actually
+confers.
 
-**Per-role required MFA (ADR-075).** Roles also accept
-`required_mfa_methods` ⊆ `{totp, otp}` on create/PATCH (unknown values
-→ `400 unknown_mfa_method`): a user holding the role must satisfy MFA
-with one of the listed methods at login. Precedence with the org/
-platform MFA policy is a **union/floor** (monotonic) — a role
-requirement can only tighten, never weaken, the realm's policy.
+**Two per-role knobs were retired by ADR-101** and no longer appear on the wire:
+`required_mfa_methods` (ADR-075) and `can_invite_roles` (ADR-076 WP4). Zero
+realms had ever configured an MFA floor. The invitation scope bounded one of
+four paths that seat a user at a role while the other three were unbounded;
+ADR-101 D6 now bounds all four with one rule. The **per-realm** and **per-org**
+MFA policies are untouched.
 
 ## 4.1 User API keys: `permissions_cap` is a cap, **never** a grant (ADR-084)
 
