@@ -215,33 +215,43 @@ public final class HttpTransport {
 
         if (body != null && body.isObject()) {
             JsonNode env = body.get("error");
+            String stated = null;
+            Map<String, Object> sib = new LinkedHashMap<>();
+
             if (env != null && env.isObject()) {
+                // Nested envelope { "error": { "code", "message" | "error" }, ...siblings }
+                // — what GoFr renders around the issuer's apiErr.
                 JsonNode sc = env.get("code");
-                if (sc != null && sc.isTextual()) {
-                    ErrorCode mapped = ErrorCode.fromWire(sc.asText());
-                    if (mapped != null) code = mapped;
-                }
+                if (sc != null && sc.isTextual()) stated = sc.asText();
                 JsonNode sm = env.get("message");
                 if (sm != null && sm.isTextual() && !sm.asText().isEmpty()) {
                     message = sm.asText();
+                } else {
+                    // Legacy nested form with no `message` key at all. Reading
+                    // only `message` left the caller with the synthetic
+                    // "GET <path> failed with HTTP 403"; the flat branch below
+                    // has always had this fallback and the asymmetry was a bug.
+                    JsonNode em = env.get("error");
+                    if (em != null && em.isTextual() && !em.asText().isEmpty()) message = em.asText();
                 }
-                Map<String, Object> sib = new LinkedHashMap<>();
                 Iterator<Map.Entry<String, JsonNode>> it = body.fields();
                 while (it.hasNext()) {
                     Map.Entry<String, JsonNode> e = it.next();
                     if (!"error".equals(e.getKey())) sib.put(e.getKey(), unwrap(e.getValue()));
                 }
-                if (!sib.isEmpty()) details = sib;
-            } else if (body.has("code") && body.get("code").isTextual()) {
+            } else {
                 // Flat envelope { "error": "<msg>", "code": "<code>", ...siblings }
                 // — the issuer's apiErr.Response() shape, where `error` is a
                 // STRING (not a nested object) and the specific code lives at
                 // the top level alongside it (most /auth error paths, incl. the
-                // ADR-080 contact_admin_required login 409). Read the code here
-                // and prefer an explicit `message`, falling back to the `error`
-                // string. Mirrors the Go SDK's flat branch (sdk/go/http.go).
-                ErrorCode mapped = ErrorCode.fromWire(body.get("code").asText());
-                if (mapped != null) code = mapped;
+                // ADR-080 contact_admin_required login 409). Runs even when
+                // there is NO code: GoFr's own middleware rejects a malformed
+                // Authorization bearer before any handler, and that 401 carries
+                // a message and nothing else. Gating this branch on `code`
+                // dropped that message. Mirrors the Go SDK's flat branch
+                // (sdk/go/http.go).
+                JsonNode c = body.get("code");
+                if (c != null && c.isTextual()) stated = c.asText();
                 JsonNode m = body.get("message");
                 if (m != null && m.isTextual() && !m.asText().isEmpty()) {
                     message = m.asText();
@@ -249,7 +259,6 @@ public final class HttpTransport {
                     JsonNode em = body.get("error");
                     if (em != null && em.isTextual() && !em.asText().isEmpty()) message = em.asText();
                 }
-                Map<String, Object> sib = new LinkedHashMap<>();
                 Iterator<Map.Entry<String, JsonNode>> it = body.fields();
                 while (it.hasNext()) {
                     Map.Entry<String, JsonNode> e = it.next();
@@ -258,8 +267,23 @@ public final class HttpTransport {
                         sib.put(k, unwrap(e.getValue()));
                     }
                 }
-                if (!sib.isEmpty()) details = sib;
             }
+
+            if (stated != null && !stated.isEmpty()) {
+                ErrorCode mapped = ErrorCode.fromWire(stated);
+                if (mapped != null) {
+                    // The union carries it; `code` alone is the caller's signal.
+                    code = mapped;
+                } else {
+                    // A code the union does not name is still contract —
+                    // role_owner_only (ADR-101 D6) is a 403 a console branches
+                    // on, and dropping it left the caller an undifferentiated
+                    // FORBIDDEN. Preserved under the same `server_code` key
+                    // sdk/ts uses. A verbatim sibling of that name wins.
+                    sib.putIfAbsent("server_code", stated);
+                }
+            }
+            if (!sib.isEmpty()) details = sib;
         }
 
         return new RealmException(code, message, status, details);

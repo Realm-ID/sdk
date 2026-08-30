@@ -64,6 +64,37 @@ least once.
   request body ONLY when some rule declares a condition, and restores it. The
   route list stays partner-owned data (ADR-096 D2).
 
+### `go/` + `ts/` + `java/` — an unrecognised error code no longer vanishes (2026-08-30)
+
+Bug fix, all three SDKs. A `code` outside each SDK's canonical error-code union
+was dropped on the NESTED envelope shape, so ADR-101's own 403 —
+`role_owner_only`, the code this release introduces — reached a caller as an
+undifferentiated `forbidden`.
+
+- **go**: `ParseErrorEnvelope` / the typed-client path now preserve a
+  non-canonical stated `code` in `Details["code"]`, on BOTH shapes, as the doc
+  comment already promised. A canonical code still lands on `Code` alone. A
+  top-level `code` keeps precedence over a nested one. The nested branch also
+  falls back to a legacy `{"error":{"error":"<msg>"}}` string for the message.
+- **ts**: `parseErrorEnvelope` gains the same nested legacy-`error`-string
+  message fallback. Unknown-code preservation (`details.server_code`) was
+  ALREADY correct here and is unchanged.
+- **java**: `HttpTransport.mapErrorResponse` preserves an unmapped code under
+  `details["server_code"]` (the key `ts` already ships) on both shapes, gains
+  the nested legacy-`error`-string message fallback, and its flat branch is no
+  longer gated on a present `code` — a code-less GoFr middleware 401 lost its
+  message entirely.
+
+Also new in `go/`: `StatedErrorCode(body []byte) string` — the code a body
+LITERALLY states, in either shape, narrowed by nothing. `ParseErrorEnvelope`
+narrows on purpose, which is what a client wants; a PROXY needs to know whether
+the upstream stated a code at all, and cannot get that from `Code` (a stated
+`forbidden` and a bare 403 are the same value there). The reference BFF carried
+its own body re-reader for exactly this until now.
+
+No wire shape changes and nothing existing is renamed. `Details`/`details` gains
+a key it previously lacked on refusals whose code the union does not name.
+
 ## ADR-101: RealmID owns the role set — go `0.50.0` · ts `0.43.0` · java `0.40.0` (2026-08-30)
 
 **BREAKING.** A partner can no longer author a role, and three per-role fields

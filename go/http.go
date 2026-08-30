@@ -165,6 +165,38 @@ func mapErrorResponse(status int, raw []byte, method, path string) *RealmError {
 // path (mapErrorResponse, which knows the method + path it called) and the
 // exported ParseErrorEnvelope (which does not, and passes a status-derived
 // message instead). defaultMessage is used when the body carries none.
+// statedCodeIn returns the code a decoded error body LITERALLY states, in
+// either envelope shape, narrowing nothing. A top-level `code` outranks one
+// nested inside `error`: on the shape that carries both, the outer one is the
+// specific refusal and the inner one is its canonical class.
+func statedCodeIn(generic map[string]any) string {
+	if c, ok := generic["code"].(string); ok && c != "" {
+		return c
+	}
+	if env, ok := generic["error"].(map[string]any); ok {
+		if c, ok := env["code"].(string); ok {
+			return c
+		}
+	}
+	return ""
+}
+
+// preserveStatedCode keeps a body's literal `code` reachable when the canonical
+// ErrorCode union could not carry it. Codes outside the union are contract too
+// — `role_owner_only` (ADR-101 D6) is a 403 a console branches on — and Code
+// would otherwise report only the status-derived `forbidden`. A code already
+// collected as a sibling wins: on the nested shape that is the top-level one,
+// which is the more specific refusal.
+func preserveStatedCode(siblings map[string]any, stated string) {
+	if stated == "" || isKnownCode(stated) {
+		return
+	}
+	if _, taken := siblings["code"]; taken {
+		return
+	}
+	siblings["code"] = stated
+}
+
 func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmError {
 	code := statusToCode(status)
 	message := defaultMessage
@@ -174,11 +206,18 @@ func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmErro
 	if len(raw) > 0 && json.Unmarshal(raw, &generic) == nil && generic != nil {
 		// Envelope: { error: { code, message }, ...siblings }
 		if env, ok := generic["error"].(map[string]any); ok {
-			if c, ok := env["code"].(string); ok && isKnownCode(c) {
-				code = ErrorCode(c)
+			stated := statedCodeIn(generic)
+			if isKnownCode(stated) {
+				code = ErrorCode(stated)
 			}
 			if m, ok := env["message"].(string); ok && m != "" {
 				message = m
+			} else if s, ok := env["error"].(string); ok && s != "" {
+				// Legacy nested form `{"error":{"code":…,"error":"<msg>"}}`:
+				// some refusals carry no `message` key at all, and reading only
+				// `message` there rendered the bare status text ("Forbidden")
+				// in the SPA's banner.
+				message = s
 			}
 			siblings := map[string]any{}
 			for k, v := range generic {
@@ -197,6 +236,13 @@ func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmErro
 				}
 				siblings[k] = v
 			}
+			// A stated code the canonical union cannot carry does NOT vanish:
+			// it is preserved verbatim in Details["code"], which is where
+			// detailCode and the sentinel mappers look. ADR-101's own 403,
+			// `role_owner_only`, collapsed to a plain `forbidden` for every
+			// consumer while this line was missing. A top-level `code` is the
+			// more specific refusal and keeps precedence.
+			preserveStatedCode(siblings, stated)
 			if len(siblings) > 0 {
 				details = siblings
 			}
@@ -207,8 +253,9 @@ func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmErro
 			// specific code lives at the top level alongside it. Read it here
 			// (this is the shape most /auth error paths take, incl.
 			// contact_admin_required, refresh_invalid, account_suspended).
-			if c, ok := generic["code"].(string); ok && isKnownCode(c) {
-				code = ErrorCode(c)
+			stated := statedCodeIn(generic)
+			if isKnownCode(stated) {
+				code = ErrorCode(stated)
 			}
 			if m, ok := generic["message"].(string); ok && m != "" {
 				message = m
@@ -222,6 +269,7 @@ func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmErro
 				}
 				siblings[k] = v
 			}
+			preserveStatedCode(siblings, stated)
 			if len(siblings) > 0 {
 				details = siblings
 			}

@@ -1,6 +1,9 @@
 package realmid
 
-import "net/http"
+import (
+	"encoding/json"
+	"net/http"
+)
 
 // ParseErrorEnvelope reads an issuer error RESPONSE BODY into a *RealmError.
 //
@@ -37,4 +40,28 @@ func ParseErrorEnvelope(body []byte, status int) *RealmError {
 		fallback = "upstream request failed"
 	}
 	return errorFromEnvelope(status, body, fallback)
+}
+
+// StatedErrorCode returns the error code an issuer response body LITERALLY
+// states — in either envelope shape — or "" when it states none.
+//
+// This is the companion to ParseErrorEnvelope, not a substitute for it.
+// ParseErrorEnvelope NARROWS: a stated code the canonical ErrorCode union
+// names lands on Code, and a code it does not name lands in Details["code"].
+// That is what a CLIENT wants. A PROXY wants something else — whether the
+// upstream said anything at all — and cannot get it from Code, because a
+// stated `forbidden` and a code derived from a bare 403 are the same value.
+// The reference BFF carried its own 15-line body re-reader for exactly this
+// until 2026-08-30; a consumer re-implementing what it imported is the SDK
+// saying its surface is incomplete.
+//
+// A top-level `code` outranks one nested inside `error`: on the shape that
+// carries both, the outer one is the specific refusal. Never narrowed, never
+// defaulted from the status — an unreadable body states nothing.
+func StatedErrorCode(body []byte) string {
+	var generic map[string]any
+	if len(body) == 0 || json.Unmarshal(body, &generic) != nil || generic == nil {
+		return ""
+	}
+	return statedCodeIn(generic)
 }

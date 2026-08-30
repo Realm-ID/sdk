@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-72 entries total — 17 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+73 entries total — 18 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-30 (envelope) — a code the union does not name is still contract](#2026-08-30-envelope--a-code-the-union-does-not-name-is-still-contract)
 - [2026-08-30 (web) — the console's step-up wrapper was always partner code, and the notes client never was](#2026-08-30-web--the-consoles-step-up-wrapper-was-always-partner-code-and-the-notes-client-never-was)
 - [2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle](#2026-08-30-go--a-proxy-is-not-a-client-and-the-four-things-it-re-implemented-were-all-subtle)
 - [2026-08-30 (ts, later) — a drift gate that is green while the set it guards is wrong](#2026-08-30-ts-later--a-drift-gate-that-is-green-while-the-set-it-guards-is-wrong)
@@ -84,6 +85,77 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-30 (envelope) — a code the union does not name is still contract
+
+**RCA (bug fix).**
+
+- **Symptom.** `role_owner_only` — the 403 ADR-101 D6 introduces, and the code
+  the release currently being prepared is FOR — reached an SDK caller as a plain
+  `forbidden`, with no way to tell an owner-only seating refusal from any other
+  403 on the request. Found independently by two agents in one day: the `sdk/go`
+  reviewer and the `api/` BFF consumer, which shipped a ~15-line `envelopeStated`
+  helper that re-read the body itself purely to work around it.
+- **Root cause.** Every SDK narrows a body's `code` to its own canonical union.
+  That narrowing is right — a caller should not have to match an open string set
+  — but the discarded original was then written NOWHERE on the nested envelope
+  shape. Go's sibling sweep skipped the key `code` unconditionally; Java's
+  `fromWire` returned null and the sweep excluded `code` too. The union is a
+  CONVENIENCE over the wire, not a replacement for it, and the code that made it
+  one was three lines of `continue`.
+- **Why it wasn't caught.** The existing Go test covered the case where the
+  specific code sits at the TOP level beside a canonical nested one — a shape
+  the sibling sweep preserved for free. The shape the issuer actually emits for
+  D6 puts the specific code INSIDE `error`, and no test named it. Go's doc
+  comment had promised `Details["code"]` since the function was extracted, so
+  prose and code disagreed for the entire life of the function and only the
+  prose was read. Java had no envelope test at all: its mapper is private and
+  every existing test drove it through a client that happened to use canonical
+  codes only.
+- **Fix.** All three SDKs, on BOTH envelope shapes. A stated code the union
+  cannot carry is preserved verbatim — Go `Details["code"]` (what its doc
+  promised and what `detailCode` reads), TS `details.server_code` (already
+  correct, unchanged), Java `details["server_code"]`, matching TS. A code the
+  union CAN carry still lands on `Code` alone and is deliberately NOT duplicated
+  — copying it would make `detailCode()` answer for every canonical refusal and
+  change what the existing sentinel mappers match on. Three adjacent defects in
+  the same seam were fixed with it, because leaving them would have meant the
+  BFF workaround could not be deleted: Go and TS and Java all ignored a nested
+  legacy `{"error":{"error":"<msg>"}}` string (message silently became the bare
+  status text — the exact regression RCA 2026-07-01 exists about), and Java's
+  flat branch was gated on a present `code`, so the CODE-LESS GoFr middleware
+  401 — the second of the two shapes this seam exists to handle — lost its
+  message entirely.
+- **Prevention.** The rule is now pinned from both sides in each language: a
+  test that the uncanonical code survives, AND a test that a canonical one is
+  not also copied. That second one is not ceremony — the mutation that preserves
+  every stated code SURVIVED the first Go test set, and adding it turned five
+  Go / two TS / four Java mutations into 11 caught out of 11. The
+  cross-language KEY divergence (`code` in Go vs `server_code` in TS and Java)
+  is real and deliberate — Go's is verbatim-sibling semantics that `detailCode`
+  already reads, and moving either is a breaking change to a published SDK —
+  and is filed in `TODO.md` for the wave-5 contract pass rather than papered
+  over here.
+
+**The second half: `StatedErrorCode`.** Preserving the uncanonical code was not
+enough to delete the BFF workaround, and finding out why is the more useful
+half of this entry. `ParseErrorEnvelope` NARROWS — that is its job, and a client
+wants it — so a stated `forbidden` and a code derived from a bare 403 are the
+same value on `Code`. The BFF does not want the narrowed code; it wants to know
+whether the upstream stated one AT ALL, because a body that states none gets the
+BFF's own `upstream_error`, which `ui/` branches on. No amount of fixing the
+narrowing surface answers that question. So the reading moved into the SDK as
+its own exported function rather than the BFF keeping a private copy: the
+alternative — copying a canonical code into `Details` as well — would have made
+`detailCode()` answer for every canonical refusal and changed what the existing
+sentinel mappers match on, which is a real behaviour change bought for tidiness.
+
+**Consequence for `api/`.** `envelopeStated` is deleted; the BFF's
+`upstreamError` is now `ParseErrorEnvelope(...).Message` plus
+`StatedErrorCode(body)`, and holds no envelope knowledge of its own. Its
+`upstream_error` fallback is unchanged, so nothing the SPA reads moves. That
+helper was the evidence: a consumer re-implementing the thing it imported is the
+SDK telling you its contract is incomplete.
 
 ## 2026-08-30 (web) — the console's step-up wrapper was always partner code, and the notes client never was
 

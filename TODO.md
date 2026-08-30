@@ -668,3 +668,18 @@ this is the SDK-side work.
       any kind, which is the same class of defect W2 just removed for
       `ActiveSession`. Audit the file against `issuer/docs/swagger.yaml`.
       *(Filed 2026-08-30 from W2.)*
+- [ ] Cross-language KEY divergence for a preserved unrecognised error code:
+      `go/http.go` writes `Details["code"]` (verbatim-sibling semantics, and
+      what `detailCode` reads), while `ts/src/http.ts` and
+      `java/.../http/HttpTransport.java` write `details["server_code"]`. Both
+      are correct in their own language and moving either breaks a published
+      SDK; pick ONE for the wave-5 contract pass and write it into `SPEC.md`
+      with a parity test like `scripts/taxonomy-parity.py`.
+      *(Filed 2026-08-30 with the envelope fix.)*
+- [ ] `ts/src/envelope.ts` + `java/.../http/HttpTransport.java` — on the NESTED
+      envelope shape, only the TOP-level siblings of `error` are collected into
+      `details`; the keys INSIDE the error object are not. Go collects both, on
+      purpose (the issuer nests gate payloads there — `mfa_challenge_token`,
+      `revocation_token`, `active_sessions`), so a TS or Java caller driving a
+      session-limit or step-up gate gets an empty details map where Go does not.
+      *(Filed 2026-08-30 with the envelope fix.)*

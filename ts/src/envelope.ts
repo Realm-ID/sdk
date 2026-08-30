@@ -81,6 +81,14 @@ export function parseErrorEnvelope(body: unknown, status: number): ErrorEnvelope
     const envObj = env as Record<string, unknown>;
     if (typeof envObj["code"] === "string") code = envObj["code"];
     if (typeof envObj["message"] === "string") message = envObj["message"];
+    // Legacy nested form `{"error":{"code":…,"error":"<msg>"}}`: some refusals
+    // carry no `message` key at all, and the nested object's own keys are never
+    // collected into `details` either — so reading only `message` LOST the text
+    // and the caller saw the bare `HTTP 403` fallback. The flat branch below has
+    // always done this; the asymmetry was the defect.
+    if ((message === undefined || message.length === 0) && typeof envObj["error"] === "string") {
+      message = envObj["error"] as string;
+    }
     details = siblings(obj, (k) => k === "error");
   } else if (typeof env === "string") {
     // Shapes 2 and 3: flat, with or without a code beside it.

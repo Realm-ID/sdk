@@ -89,3 +89,22 @@ test("parseErrorEnvelope: the raw server code is preserved even when unknown", (
   const got = parseErrorEnvelope({ error: { code: "role_owner_only", message: "owner only" } }, 403);
   assert.equal(got.code, "role_owner_only");
 });
+
+test("parseErrorEnvelope: a nested legacy `error` string is the message", () => {
+  // Some issuer refusals render `{"error":{"code":…,"error":"<msg>"}}` with no
+  // `message` key at all. The nested branch read only `message`, so the text was
+  // lost entirely — `siblings(obj, …)` walks the TOP level, never the nested
+  // object's keys — and the caller saw the bare status fallback. The flat branch
+  // has always done this fallback; the asymmetry was the bug.
+  const got = parseErrorEnvelope({ error: { code: "forbidden", error: "not the tenant owner" } }, 403);
+  assert.equal(got.message, "not the tenant owner");
+  assert.equal(got.code, "forbidden");
+});
+
+test("parseErrorEnvelope: an explicit nested `message` still outranks the legacy string", () => {
+  const got = parseErrorEnvelope(
+    { error: { code: "forbidden", error: "legacy", message: "explicit" } },
+    403,
+  );
+  assert.equal(got.message, "explicit");
+});

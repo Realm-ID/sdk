@@ -131,3 +131,110 @@ func TestMapErrorResponse_StillNamesMethodAndPath(t *testing.T) {
 		t.Errorf("Message = %q — the typed-client fallback message changed", re.Message)
 	}
 }
+
+// The DEFECT this test was written against (found independently by the W1a and
+// W3 agents, 2026-08-30): on the NESTED shape the sibling sweep skipped the key
+// `code` unconditionally, so a code outside the canonical ErrorCode union was
+// neither carried on Code nor preserved in Details — it vanished. ADR-101's own
+// 403, `role_owner_only`, collapsed to a plain `forbidden` for every SDK
+// consumer, and the reference BFF only survived it by re-reading the body
+// itself. The doc comment already promised Details["code"].
+func TestParseErrorEnvelope_NestedUncanonicalCodeSurvives(t *testing.T) {
+	// The shape GoFr renders around the issuer's apiErr for ADR-101 D6.
+	body := []byte(`{"error":{"code":"role_owner_only","message":"only the owner may seat this role"}}`)
+	re := ParseErrorEnvelope(body, http.StatusForbidden)
+	if re.Code != ErrCodeForbidden {
+		t.Errorf("Code = %q, want the status-derived forbidden", re.Code)
+	}
+	if re.Message != "only the owner may seat this role" {
+		t.Errorf("Message = %q", re.Message)
+	}
+	if got, _ := re.Details["code"].(string); got != "role_owner_only" {
+		t.Errorf("nested uncanonical code lost: Details = %v", re.Details)
+	}
+	if got := detailCode(re); got != "role_owner_only" {
+		t.Errorf("detailCode(re) = %q — the sentinel mappers cannot see the specific code", got)
+	}
+}
+
+func TestParseErrorEnvelope_FlatUncanonicalCodeSurvives(t *testing.T) {
+	// Same rule on the flat apiErr.Response() shape: the top-level `code` was
+	// skipped from the sibling sweep too.
+	body := []byte(`{"error":"only the owner may seat this role","code":"role_owner_only"}`)
+	re := ParseErrorEnvelope(body, http.StatusForbidden)
+	if re.Code != ErrCodeForbidden {
+		t.Errorf("Code = %q, want forbidden", re.Code)
+	}
+	if got, _ := re.Details["code"].(string); got != "role_owner_only" {
+		t.Errorf("flat uncanonical code lost: Details = %v", re.Details)
+	}
+}
+
+func TestParseErrorEnvelope_NestedLegacyErrorStringIsTheMessage(t *testing.T) {
+	// Some issuer refusals render `{"error":{"code":…,"error":"<msg>"}}` with no
+	// `message` key at all. Reading only `message` there produced the bare
+	// status text ("Forbidden") in the SPA's banner.
+	body := []byte(`{"error":{"code":"forbidden","error":"not the tenant owner"}}`)
+	re := ParseErrorEnvelope(body, http.StatusForbidden)
+	if re.Message != "not the tenant owner" {
+		t.Errorf("Message = %q, want the nested legacy error string", re.Message)
+	}
+}
+
+func TestParseErrorEnvelope_TopLevelCodeOutranksTheNestedOne(t *testing.T) {
+	// When both are stated the OUTER one is the specific refusal (this is the
+	// shape TestParseErrorEnvelope_NestedCodedEnvelope covers); preserving the
+	// nested one must not overwrite it.
+	body := []byte(`{"error":{"code":"role_owner_only","message":"m"},"code":"role_seating_denied"}`)
+	re := ParseErrorEnvelope(body, http.StatusForbidden)
+	if got, _ := re.Details["code"].(string); got != "role_seating_denied" {
+		t.Errorf("Details[code] = %q, want the top-level code to win", got)
+	}
+}
+
+func TestParseErrorEnvelope_CanonicalCodeIsNotAlsoCopiedIntoDetails(t *testing.T) {
+	// The other half of the preservation rule, and a mutation of the fix
+	// survived without it: a code the union DID carry stays on Code alone.
+	// Copying it into Details too would make detailCode() start answering for
+	// every canonical refusal, changing what the existing sentinel mappers
+	// match on.
+	body := []byte(`{"error":{"code":"mfa_required","message":"step up"}}`)
+	re := ParseErrorEnvelope(body, http.StatusPreconditionFailed)
+	if re.Code != ErrCodeMFARequired {
+		t.Errorf("Code = %q, want mfa_required", re.Code)
+	}
+	if got, ok := re.Details["code"]; ok {
+		t.Errorf("Details[code] = %v — a canonical code must not be duplicated into Details", got)
+	}
+	if got := detailCode(re); got != "" {
+		t.Errorf("detailCode(re) = %q, want empty", got)
+	}
+}
+
+// StatedErrorCode is the other half a proxy needs, and the half that kept the
+// BFF's `envelopeStated` alive: ParseErrorEnvelope NARROWS, so a canonical
+// stated code is indistinguishable on Code from one derived from the status,
+// and a proxy that must answer "the upstream stated no code" cannot tell them
+// apart. It reads the body verbatim and narrows nothing.
+func TestStatedErrorCode(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want string
+	}{
+		"nested canonical":                {`{"error":{"code":"forbidden","message":"m"}}`, "forbidden"},
+		"nested uncanonical":              {`{"error":{"code":"role_owner_only","message":"m"}}`, "role_owner_only"},
+		"top level outranks nested":       {`{"error":{"code":"forbidden","message":"m"},"code":"role_owner_only"}`, "role_owner_only"},
+		"flat":                            {`{"error":"m","code":"refresh_invalid"}`, "refresh_invalid"},
+		"top-level code and message":      {`{"code":"rate_limited","message":"slow down"}`, "rate_limited"},
+		"code-less GoFr middleware":       {`{"error":{"message":"invalid authorization header"}}`, ""},
+		"code-less flat":                  {`{"error":"Unauthenticated"}`, ""},
+		"empty body":                      {``, ""},
+		"html from a load balancer":       {`<html>502 Bad Gateway</html>`, ""},
+		"a non-string code is not a code": {`{"error":{"code":404}}`, ""},
+	}
+	for name, c := range cases {
+		if got := StatedErrorCode([]byte(c.body)); got != c.want {
+			t.Errorf("%s: StatedErrorCode = %q, want %q", name, got, c.want)
+		}
+	}
+}
