@@ -6,7 +6,11 @@ cross-cutting items affecting every SDK at once.
 
 ## Unreleased
 
-SDK dogfooding refactor, wave 1b. No tag is cut by this work.
+## 0.43.0 — the SDK carries the shared rules, and the envelope tells the truth (2026-08-30)
+
+The SDK dogfooding refactor: predicates a partner would otherwise re-derive now
+live here, and the error envelope stops losing what the issuer stated. Three
+defects were fixed that only a consumer could have found — see `DECISIONS.md`.
 
 ### Added
 
