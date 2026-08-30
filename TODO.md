@@ -520,3 +520,76 @@ this is the SDK-side work.
       public copy. A CI grep over the public repo for the partner-name list would
       be cheap, but the list itself is then hand-maintained — see the failure
       class in the global notes before writing one.
+
+- [ ] `java/src/test/java/dev/realmid/sdk/roles/RolePredicatesDriftTest.java` —
+      the drift gate compares `RolePredicates` against the issuer's own Go
+      source, but `Realm-ID/issuer` is a separate private repo that this repo's
+      CI never checks out, so the test ABORTS there and only returns a verdict
+      on a machine with the workspace checkout. Wire the checkout into
+      `ci.yml`'s java job (org-reader GitHub App or a read-only deploy key) and
+      make the missing-checkout case a hard failure — a gate that cannot run is
+      one release away from being a gate that stopped mattering.
+      *(Filed 2026-08-30 with the A1-java predicate port.)*
+- [ ] `java/CHANGELOG.md` — `0.40.0` (the ADR-101 work: `RoleScopes`, and
+      `required_mfa_methods` / `can_invite_roles` leaving `RoleObject`) had NO
+      per-package heading; `build.gradle.kts` was bumped and only the monorepo
+      `CHANGELOG.md` recorded it. `changelog-hygiene.sh maven` would have caught
+      it at publish. The `0.40.0` heading now added covers only the predicate
+      port, so the ADR-101 java bullets are still missing from that section.
+      *(Filed 2026-08-30.)*
+- [ ] `go/roles_authority.go` `ConfersAuthority` — the issuer classifies a
+      well-formed but NON-CATALOG permission (`widgets:read`) as conferring, via
+      catalog membership; the SDKs classify by action because they deliberately
+      embed no catalog copy. ts and java both take the SERVED catalog as an
+      optional argument and then answer exactly as the issuer does; Go has no
+      such form, so the three languages do not agree at that edge. Unreachable
+      today (write validation rejects unknown permissions), but it is a partner-
+      visible difference between SDKs. *(Filed 2026-08-30.)*
+- [ ] `ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
+      `{owner, platform_api}`, but the issuer's `realmrole.NonAssignableRoles`
+      (`internal/realmrole/store.go:131`) is `{owner, platform_api,
+      platform_mgmt_api}`; go and java carry all three. A ts-based picker will
+      offer the key-minting bot role to a human — the credential-issuance path
+      outside the owner pointer that ADR-101 D6 exists to close. The ts drift
+      test does not compare that set.
+      *(Filed 2026-08-30 from the java port; ts/ was owned by another agent.)*
+- [ ] role predicates — go/java expose ONE `isRoleAssignableTo` that folds in
+      the system-name and disabled guards; ts splits them into
+      `isRoleAssignableTo` (pure server mirror) + `isRoleSeatable` (the picker
+      predicate). Three languages, two shapes, and reaching for the wrong one in
+      ts offers `owner`. Pick one shape before the SDKs are released together.
+      *(Filed 2026-08-30.)*
+- [ ] `ts/src/roles-drift.test.ts` — same limit as the Java gate above, and the
+      same fix: the half that re-reads the LIVE issuer source cannot run in this
+      repo's single-repo CI checkout, so it emits a diagnostic and
+      `REALMID_DRIFT_STRICT=1` is what turns "issuer not reachable" into a
+      failure. The pinned-snapshot half DOES run everywhere. Wire the issuer
+      checkout into `ci.yml` (org-reader GitHub App or read-only deploy key) and
+      set `REALMID_DRIFT_STRICT=1` there.
+      *(Filed 2026-08-30 with the A1-ts predicate port.)*
+- [ ] `ts` — the `confersAuthority` non-catalog divergence filed above is now
+      CLOSED in TypeScript: `confersAuthority(role, { catalog })` takes the list
+      `roles.listPermissions()` already serves and answers exactly as the issuer
+      does, unknown keys included, with the action-derived rule as the default
+      when no catalog is supplied. `go` and `java` should take the same overload
+      so the three languages agree. *(Filed 2026-08-30.)*
+- [ ] `ts/src/errors.ts` + `go/errors.go` + `java/.../ErrorCode.java` —
+      `membership_not_found` is emitted by the issuer
+      (`internal/httpapi/me_memberships.go`, three call sites) and is in NONE of
+      the three taxonomies, so it falls back to `not_found` and the specific
+      remedy is lost. Adding it to one language alone fails
+      `scripts/taxonomy-parity.py`, which is why it was not done with the
+      ADR-092 D5 `MembershipActionCode` type — that union carries the code, the
+      SDK taxonomy does not. Three-language change. *(Filed 2026-08-30.)*
+- [ ] `ui/web/src/roleAssignability.ts` — the console mirror never learned
+      ADR-091's `is_system` exemption from the §2.3 human-only floor, so it
+      filters `platform_api` out of a service-account picker on a rule the
+      issuer stopped applying to RI-managed roles. Inert today only because
+      `platform_api` is also in the console's hardcoded exclusion set. Fixed by
+      wave 4 deleting the file for the SDK predicate; recorded here so the
+      finding is not lost if that slips. *(Filed 2026-08-30 from W1b.)*
+- [ ] `ts/CHANGELOG.md` — `0.43.0` is in `ts/package.json` (bumped by a92cdac,
+      the ADR-101 role-wire change) with NO heading of its own; only the
+      monorepo `CHANGELOG.md` recorded it. Same gap as the `java` `0.40.0` item
+      above. The `## Unreleased` section added 2026-08-30 sits above it and does
+      not cover it. *(Filed 2026-08-30.)*

@@ -4,6 +4,36 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.40.0 — the two role predicates every console re-derives (2026-08-30)
+
+Unreleased — no `java-v*` tag is cut by this work.
+
+- **New `dev.realmid.sdk.roles.RolePredicates`** — `confersAuthority(RoleObject)`
+  / `confersAuthority(List<String>)` (ADR-101 D6) and
+  `isRoleAssignableTo(RoleObject, String kind)` (ADR-081), plus the
+  `KIND_HUMAN` / `KIND_SERVICE` constants and the `SYSTEM_UNASSIGNABLE` /
+  `HUMAN_ONLY_PERMISSIONS` sets they read. Predicate parity with go and ts —
+  the same tier `RoleScopes` shipped at.
+- **`confersAuthority(List<String>, Collection<Permission>)`** — pass the realm's
+  SERVED ADR-074 catalog (`roles().listPermissions()`) and the answer matches
+  the issuer exactly, including its fail-closed verdict on a grant string the
+  catalog does not name. Without a catalog the `resource:action` split decides,
+  which agrees for every catalog entry. No catalog is embedded in the SDK: a
+  static copy would be the drift-by-copy failure one level down.
+- **Nothing here is a security control.** The issuer enforces both rules and
+  answers `403 role_owner_only` / `400 role_not_assignable_to_kind`; these exist
+  so a console never OFFERS a choice whose every save 403s.
+- **Authority is derived from the GRANTS, never from the name** — any grant
+  whose action is not `read`. An unparseable entry (no colon, or null) FAILS
+  CLOSED and counts as conferring.
+- **No per-role MFA floor.** ADR-101 removed `required_mfa_methods` from the
+  wire, so there is nothing role-level left to evaluate; the realm and tenant
+  MFA policies are untouched and are not this class's business.
+- **`RolePredicatesDriftTest` reads the issuer's own Go source** and fails when
+  the copy drifts. It needs a `Realm-ID/issuer` checkout (`../../issuer`, or
+  `-Drealmid.issuerDir` / `REALMID_ISSUER_DIR`) and cannot run in this repo's CI
+  yet — filed in `../TODO.md`.
+
 ## java-v0.39.0 — ADR-097 mint half: `scope` on the token request (2026-08-28)
 
 **The enforcement half of ADR-097 shipped here in `java-v0.37.0`. The mint half

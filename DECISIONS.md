@@ -10,8 +10,11 @@ Newest first.
 
 ## Index
 
-67 entries total — 12 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+70 entries total — 15 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle](#2026-08-30-go--a-proxy-is-not-a-client-and-the-four-things-it-re-implemented-were-all-subtle)
+- [2026-08-30 (ts) — the picker predicate and the server predicate are not the same predicate](#2026-08-30-ts--the-picker-predicate-and-the-server-predicate-are-not-the-same-predicate)
+- [2026-08-30 (later) — the predicates were written in the console; the issuer is where they are true](#2026-08-30-later--the-predicates-were-written-in-the-console-the-issuer-is-where-they-are-true)
 - [2026-08-30 (ADR-101) — the role→scope map is the half that makes the other half worth having](#2026-08-30-adr-101--the-rolescope-map-is-the-half-that-makes-the-other-half-worth-having)
 - [2026-08-28 (`realm_id`) — a type-only field, and the pin for it was checked by nothing until it was](#2026-08-28-realm_id--a-type-only-field-and-the-pin-for-it-was-checked-by-nothing-until-it-was)
 - [2026-08-28 (latest) — the enforcement half shipped in three languages and the mint half in none](#2026-08-28-latest--the-enforcement-half-shipped-in-three-languages-and-the-mint-half-in-none)
@@ -79,6 +82,232 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-30 (go) — a proxy is not a client, and the four things it re-implemented were all subtle
+
+**Context.** W1a of the SDK dogfooding refactor. The reference BFF
+(`Realm-ID/api`) is the most exercised RealmID integration in existence and it
+is a PROXY, not a typed client: it holds sealed issuer tokens, forwards raw
+bodies, and relays raw error responses. Every partner BFF is shaped the same
+way. Four things it had to hand-roll — because the SDK exposed only the typed
+client path — plus the role predicates that were born in the console.
+
+**Why these four and not the whole BFF.** Each is a PURE function whose wrong
+version fails SILENTLY. That is the selection rule, and it is why the refresh
+rotation (concurrency, Redis, live prod path) is deliberately left alone and
+documented instead:
+
+- **`ParseClaimsUnverified`** — hand-rolled twice in the BFF (`subjectFromJWT`,
+  `mfaAtFromJWT`), split/base64/unmarshal each time. The interesting content is
+  not the parsing, it is the DOC COMMENT: reading a claim without checking the
+  signature is sound *because of provenance* — the token was minted by the
+  issuer and has lived sealed server-side since — and unsound the moment someone
+  points it at a client-supplied string. That reasoning existed in one BFF's
+  comments and nowhere a partner could read it. A test asserts the warning is
+  still in the file, because for a function like this the comment IS the control.
+- **`ProxyStatus`** — preserve `Details` or the SPA's session-limit modal and
+  MFA prompt get an empty object and the user sees a dead button. **We changed
+  one thing on the way**: the BFF classifies `*RealmError` first and timeout
+  second, but the SDK transport wraps a cut context as a `*RealmError` with code
+  `network` and no HTTP status — so the documented "timeout → 504" was
+  effectively unreachable and those requests answered 500. Timeout is now
+  classified FIRST. This is a behaviour change for wave 3 to notice, not a
+  transcription.
+- **`ParseErrorEnvelope`** — the issuer speaks two error shapes and the
+  code-less GoFr-middleware 401 is the one guards forget. The SDK already read
+  both, inside an unexported function reachable only by going through a typed
+  client. A proxy holding a `[]byte` and a status could not call it, so a fourth
+  copy got written in `handlers.go`.
+- **`MFARule` + `WhenJSONField`** — this one is not a gap, it is a FORK: two Go
+  implementations of SPEC §10.4 in the same org, and the SDK's was the one
+  missing the body narrowing and the config validation. The narrowing exists for
+  a single real shape — `PATCH /tenants/{id}` is both "rename" and "deactivate",
+  and gating both trains people to click through the prompt, which is how a
+  step-up stops being a control. The ROUTE LIST stays partner data (ADR-096 D2);
+  only the model moved.
+
+**The role predicates, and the drift test that is the actual deliverable.**
+`ConfersAuthority` (ADR-101 D6) and `IsRoleAssignableTo` (ADR-081) existed in
+the issuer and in the console, in no SDK, in any language. Two design points:
+
+- **`ConfersAuthority` needs NO list.** It reads the ACTION off the
+  `resource:action` string, which is exactly how the issuer derives it from the
+  ADR-074 catalog — so a permission RealmID adds tomorrow is classified
+  correctly with no edit here. A malformed entry fails CLOSED (conferring). The
+  predicate cannot drift because there is nothing to maintain.
+- **The two lists that CAN drift are checked against the issuer's own source.**
+  `humanOnlyPermissions` and `systemUnassignable` are parsed out of
+  `internal/realmrole/{assignable,store}.go` with `go/ast` and compared. A
+  hand-maintained mirror with a comment saying "keep this in sync" is the exact
+  failure this workspace has been burned by repeatedly; the console file's
+  comment made that promise and was already false about `required_mfa_methods`.
+  The check also asserts the issuer still derives authority from
+  `p.Action != "read"`, and that its assignability gate has NOT reinstated a
+  per-role MFA floor — the ADR-101 interlock, since the SDK deliberately omits
+  that check.
+
+**The limitation, stated rather than hidden.** `Realm-ID/sdk`'s CI clones only
+this repo, so the cross-repo check has no issuer to read there and cannot run.
+It does not report a pass it did not earn: it logs `DRIFT CHECK DID NOT RUN` in
+capitals and the gap is filed in `TODO.md`. It runs for real where the two
+checkouts are siblings — every local session, and any CI that checks out both.
+Making it unconditional needs a CI change in a repo this work package does not
+own; a gate that goes permanently red in the only CI that runs it gets deleted,
+which would be worse than one that is honest about when it abstained.
+
+**Not done, deliberately.** The BFF's `api/internal/stepup` package still
+exists and is still what runs in production — wave 3 does that swap, and it must
+reproduce the D4 *refuse* what it cannot challenge behaviour, which lives in
+`passthrough.go` and is not part of the policy model moved here.
+
+## 2026-08-30 (ts) — the picker predicate and the server predicate are not the same predicate
+
+**Context.** W1b of the SDK dogfooding refactor: the TypeScript half of the
+ADR-081 / ADR-101 D6 predicate port (the WHY of the port itself is the entry
+below, written with the Java half — not repeated here), plus the envelope
+primitives and the types wave 2 builds transport on.
+
+**The console rule and the server rule are DIFFERENT, and collapsing them was
+the trap.** `ui/web/src/roleAssignability.ts` calls one function
+`isRoleAssignableTo` and folds four rules into it: the ADR-081 assignability
+predicate, the ADR-081 §2.3 human-only floor, a hardcoded
+`{owner, platform_api}` exclusion, and a `disabled` check. Only the first two
+are `requireRoleAssignableToKind`. The issuer refuses `owner` on the ownership
+pointer and `platform_api` on the API-key path — different endpoints, different
+errors — and rejects a disabled role as an assignment target elsewhere again.
+Shipping one function that means all four would give partners a mirror that can
+never be drift-tested against anything, because nothing on the server has that
+shape. So: `isRoleAssignableTo` is the EXACT server mirror and is what the drift
+gate checks; `isRoleSeatable` adds the two console guards and is what a picker
+should call; `rolesAssignableTo` filters with the latter. Naming the seam is the
+point — reaching for the server predicate in a picker offers `owner`.
+
+**The console mirror was also missing ADR-091's `is_system` exemption.** The
+issuer stopped applying the human-only floor to RI-managed roles when ADR-091
+gave `platform_api` realm-control permissions on purpose; without the exemption
+the bot role is unassignable to the bot it exists for. The console copy never
+learned that. It is a read-time picker so nothing visibly broke — which is
+exactly why a hand-maintained copy with no gate rots quietly.
+
+**`confersAuthority` takes the served catalog, closing the divergence Java
+filed.** The Go SDK and Java classify a well-formed non-catalog key by its
+action while the issuer, which can test catalog membership, calls it conferring.
+Rather than embed a catalog copy (the drift-by-copy failure one level down),
+`confersAuthority(role, { catalog })` accepts the list `roles.listPermissions()`
+already serves and then answers EXACTLY as the issuer does, unknown keys
+included. Omit it and you get the action-derived answer. The drift test proves
+the two agree on all 31 catalog entries, so the option only ever matters outside
+the catalog.
+
+**The role shape is DERIVED from `RoleObject`, never mirrored.**
+`AssignableRole = Pick<RoleObject, "name"> & Partial<Pick<RoleObject, …>>`. The
+console declared a parallel `AssignableRoleLike` instead, which is the specific
+reason ADR-101 removing `required_mfa_methods` produced no compile error and a
+dead MFA check sat in a live picker: there was nothing for the compiler to
+compare against. Deriving makes the next wire change a type error.
+
+**The drift gate binds twice, and says so when one half cannot.** A pinned
+snapshot of the ADR-074 catalog runs everywhere, including a standalone
+`Realm-ID/sdk` checkout, and proves the SDK's colon-derived action equals the
+issuer's `Action` field for every entry. A second half re-reads the live issuer
+source and fails if the snapshot has gone stale. Half two cannot run in this
+repo's CI, which checks out one repo — so it emits a diagnostic naming what did
+not run, and `REALMID_DRIFT_STRICT=1` turns that into a failure for any runner
+that can reach the source. A gate that silently degrades to nothing is the thing
+being fixed here; one that announces its own blind spot is not.
+
+**`unwrapData` / `parseErrorEnvelope` become SDK exports, and `http.ts` is their
+first consumer.** Four TypeScript copies of the GoFr envelope existed
+(web-admin transport, `ui/web/src/api.ts`, `ui/web/src/stepup.ts`, and this
+SDK's private `mapErrorResponse`). Exporting without also rewiring `http.ts`
+would have made five. There are THREE error shapes, not one, and the third — the
+code-less 401 GoFr's own middleware returns for a bad bearer, before any handler
+runs — is the one every hand-rolled copy forgets, which is why a retry guard
+keyed on a code silently never fires on it. Folding `http.ts` onto the shared
+parser also gained it web-admin's `details.server_code` preservation: a code the
+`ErrorCode` union does not yet name is still the only thing that tells a caller
+which remedy applies, and dropping it turns a specific refusal into a generic
+403.
+
+**The membership codes are their own type, NOT additions to `ErrorCode`.**
+`membership_not_found` is emitted by the issuer and absent from all three SDK
+taxonomies; adding it to TypeScript alone would break
+`scripts/taxonomy-parity.py`, which exists precisely to stop one language
+drifting. So `MembershipActionCode` (ADR-092 D5) is a separate, narrower union
+and the three-language taxonomy fix is filed rather than smuggled. The codes are
+contract; the sentences are not — the user-facing strings stay in the
+application, because they are product voice and localised, and two consoles will
+legitimately phrase `owner_cannot_leave` differently.
+
+**`Permission` becomes `CatalogPermission`, alias kept.** The ADR-074 catalog is
+a SERVED contract, so its entry type belongs in the SDK rather than hand-rolled
+in `ui/web/src/UserApiKeys.tsx`. The bare name `Permission` reads as "a
+permission string" next to `permissions: string[]`; the old name stays as a
+deprecated alias so no consumer breaks.
+
+**Verification.** Red first — all three new test files failed before any
+implementation existed (233 pass / 3 fail), then 265 pass / 0 fail / 0 skipped,
+`tsc --noEmit` clean, `npm run build` clean, and `scripts/taxonomy-parity.py`
+still exit 0. The drift gate was mutation-checked: drifting
+`HUMAN_ONLY_PERMISSIONS` and drifting the pinned catalog each turned it red on a
+different assertion.
+
+## 2026-08-30 (later) — the predicates were written in the console; the issuer is where they are true
+
+**Problem.** `confersAuthority` (ADR-101 D6) and `isRoleAssignableTo` (ADR-081)
+existed in exactly two places: the issuer, which enforces them, and
+`ui/web/src/roleAssignability.ts`, which is RealmID's own console. Every partner
+rendering a role picker has to re-derive both or watch every save come back
+`403 role_owner_only` / `400 role_not_assignable_to_kind` — the ADR-090 /
+issuer v0.84.0 bug class the console file's own header cites. `RoleScopes`
+shipped three-language the same week these were born in a single console.
+
+**Decision.** Ship both as pure predicates in `sdk/java` (`RolePredicates`),
+ported from the AUTHORITATIVE Go — `internal/realmrole/{permissions,assignable}.go`
+and `internal/httpapi/role_assignable.go` — rather than from the console copy.
+
+**Written WITHOUT a per-role MFA floor, deliberately.** ADR-101 removed
+`required_mfa_methods` from the role wire. The console mirror still declares and
+CHECKS it, which is inert but false to its own stated contract; porting from the
+console would have carried a dead check into three more languages.
+
+**Fail closed on anything unparseable.** A permission is `resource:action`; an
+entry with no colon (a legacy free-form string, ADR-074 § Storage) or a null
+entry counts as CONFERRING. An entry we cannot read must never be assumed
+harmless — the same direction the issuer takes when it classifies every string
+outside its catalog as mutating.
+
+**One divergence from the server, stated rather than hidden.** The issuer also
+treats a well-formed but NON-CATALOG key (`widgets:read`) as conferring, because
+it can test catalog membership. This SDK embeds no catalog copy on purpose —
+`roles().listPermissions()` serves it live, so a static copy would be the
+drift-by-copy failure one level down — so it classifies such a key by its
+action. The case is only reachable for a legacy row (write validation rejects
+unknown permissions with `unknown_permission`), and erring toward OFFERING there
+is caught by the server, which is the enforcement point.
+
+**A copy needs a gate, or it is the failure mode it was written to fix.**
+`RolePredicatesDriftTest` reads the issuer's Go source and compares the
+human-only floor set, the `Action != "read"` derivation, the ADR-091 `is_system`
+exemption, and the ABSENCE of an MFA floor. It refuses to swallow unparseable
+input: a marker it cannot find is a failure, never a pass. Its limit is honest
+and filed — `Realm-ID/issuer` is a separate private repo, so the gate runs where
+a checkout is on disk and ABORTS with instructions where one is not. That makes
+it a local verdict, not a CI one, until the checkout is wired in (`TODO.md`).
+
+**Aligned to the siblings where they had already landed, not re-decided.** The
+go and ts ports appeared mid-task; `SYSTEM_UNASSIGNABLE` gained
+`platform_mgmt_api` (go had it, and `realmrole.NonAssignableRoles` confirms it —
+ts is missing it, filed in `TODO.md`), a null role went from conferring to
+conferring-nothing to match both, and the catalog-aware `confersAuthority`
+overload mirrors ts's `opts.catalog`. Java keeps go's single-predicate shape
+rather than ts's `isRoleAssignableTo`/`isRoleSeatable` split; three languages
+with two shapes is filed, not silently resolved by inventing a third.
+
+**Verification.** Red first (the suite did not compile), then green; then five
+mutations — fail-open on a colon-less entry, the human-only floor removed, and
+the floor set drifted from the issuer — each caught by a different test.
+
 
 ## 2026-08-30 (ADR-101) — the role→scope map is the half that makes the other half worth having
 
