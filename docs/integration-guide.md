@@ -1591,15 +1591,9 @@ orgs' record that the integration existed).
 // role authoring is retired (§2.3), and the issuer now takes a permissions
 // list directly. Non-empty, every entry a real catalog key, and never
 // exceeding what the installing owner could grant — all fail closed
-// (permissions_required / permissions_exceed_grantor / install_grants_nothing).
-// ⚠️ SDK lag (2026-08-31): the published go/ts/java `install()` clients
-// still send the pre-ADR-101 `role_id` body, which a current issuer
-// refuses with `400 permissions_required`. Until the SDKs re-release,
-// POST the route directly (platform-token auth, like any admin call):
-//
-//   POST /tenants/{orgTenantId}/integration-installations
-//   { "integration_id": integrationId,
-//     "permissions": ["users:read"] }   // only what the integration needs
+// (permissions_required / unknown_permission / permissions_exceed_grantor).
+// Fixed in go 0.52.0 / ts 0.45.0 / java 0.42.0 (2026-08-31): the clients
+// send `permissions`. Below that, POST the route directly.
 
 // The inbound-access list: who can act in my org, as what, last used.
 const { items } = await targetRealm.integrations.listInstallations(orgTenantId);
@@ -1623,7 +1617,7 @@ review it.
 | `slug_taken` | 409 | `register` — slug already used in the realm |
 | `permissions_required` | 400 | `install` — the stated grant is empty (or the pre-ADR-101 `role_id` body was sent) |
 | `permissions_exceed_grantor` | 403 | `install` — the list names permissions the installing owner could not grant |
-| `install_grants_nothing` | 403 | `install` — nothing in the list survives validation |
+| `install_grants_nothing` | 403 | **`mint`, not `install`** — the installation row states no permissions, so it can authorise nothing. A column CHECK already prevents it; the mint re-asserts rather than trusting it |
 | `integration_disabled` | 400/403 | `install` / `mintToken` — the source disabled it |
 | `already_installed` | 409 | `install` — a live installation already exists for this org |
 | `installation_revoked` | 403 | `mintToken` — the target uninstalled |

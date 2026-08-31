@@ -13,6 +13,63 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## BREAKING — `integrations.install()` was sending a field the issuer retired — go `0.52.0` · ts `0.45.0` · java `0.42.0` · `web-admin` `0.12.0` (2026-08-31)
+
+**This call has been returning `400 permissions_required` in production.** Not a
+deprecation, not drift — a broken call, in every language, for as long as
+ADR-101 D7 has been live.
+
+The issuer replaced the install's `role_id` with a STATED `permissions` list:
+the install says what the brokered principal may do, rather than naming a role
+and inheriting whatever that role happens to grant today. The SDKs kept sending
+`role_id`.
+
+### Why it shipped, and why nothing caught it
+
+**The tests asserted the old wire shape.** `ts/src/integrations.test.ts` asserted
+the body was `{integration_id, role_id}`; the Go test asserted the same. They
+stayed green for the entire period the call was failing, because they pinned the
+implementation rather than the effect. A test that asserts what the code does
+cannot notice that what it does is wrong.
+
+The new tests assert `permissions` IS sent **and that `role_id` is ABSENT**.
+Asserting only the first would still pass for a client sending both.
+
+### Changed — all three languages
+
+- `InstallRequest`: `permissions: string[]` replaces `role_id`. Required and
+  non-empty — an install granting nothing can authorise no call, and ADR-100's
+  lesson is that an empty authority field acquires a meaning nobody chose.
+- `Installation` / `InstallResult`: carry `permissions`; **`role_id` and
+  `role_name` are gone from the response too.**
+- **java:** `InstallRequest`, `InstallResult` and `Installation` are records, so
+  positional constructor arity changes.
+
+### Error codes — three of these had no sentinel in any SDK
+
+`permissions_required` (400), `unknown_permission` (400),
+`permissions_exceed_grantor` (403), and `install_grants_nothing` (403).
+
+⚠️ **`install_grants_nothing` is raised at MINT, not install** — the
+installation row states no permissions, so the token would authorise nothing.
+The docs had it filed under `install`. It is now mapped in all three languages;
+previously a caller had to string-match it.
+
+Registering the codes was load-bearing, not cosmetic: an unregistered code
+collapses to `bad_request`/`forbidden`, so the sentinels would have existed
+while never matching — the same defect ADR-101's own `role_owner_only` hit.
+
+`role_not_service_typed` / `role_not_installable` are **retained but DEAD**: the
+issuer emits neither since ADR-101 D7. Kept so existing matches still compile;
+removing an exported symbol would be a second breaking change for no benefit.
+
+### `web-admin` needs the re-vendor, not just the ts fix
+
+`@realm-id/web-admin` bundles its own copy of `@realm-id/sdk`, so it shipped the
+broken `install()` too — and its wiring test passed precisely BECAUSE it resolved
+against the stale vendored copy. Fixed and re-vendored here. If you consume
+`web-admin`, the ts fix alone does not reach you.
+
 ## go `0.51.1` — `const Version` catches up with the tag (2026-08-30)
 
 No behaviour change. `go/v0.51.0` shipped with `const Version = "0.50.0"` still

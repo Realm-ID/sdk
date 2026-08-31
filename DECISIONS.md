@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-78 entries total — 23 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+79 entries total — 24 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (integrations) — the test asserted the wire shape, so the wire shape could rot](#2026-08-31-integrations--the-test-asserted-the-wire-shape-so-the-wire-shape-could-rot)
 - [2026-08-31 (docs, still later) — the partner guide's siblings had never been audited at all; one had never once been true](#2026-08-31-docs-still-later--the-partner-guides-siblings-had-never-been-audited-at-all-one-had-never-once-been-true)
 - [2026-08-31 (docs, later) — the full audit: the partner guide had drifted from the code wherever the code had moved](#2026-08-31-docs-later--the-full-audit-the-partner-guide-had-drifted-from-the-code-wherever-the-code-had-moved)
 - [2026-08-31 (docs) — the guide told partners to send `scope` on a route that never read it](#2026-08-31-docs--the-guide-told-partners-to-send-scope-on-a-route-that-never-read-it)
@@ -90,6 +91,46 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+
+## 2026-08-31 (integrations) — the test asserted the wire shape, so the wire shape could rot
+
+**Problem.** `integrations.install()` sent `role_id` in go, ts and java while the
+issuer has required a `permissions` list since ADR-101 D7. The call answered
+`400 permissions_required` in production, in every language, and no one noticed.
+
+**Why no one noticed is the point.** The SDK tests asserted the request body was
+`{integration_id, role_id}`. They were green throughout. A test written against
+the implementation ratifies whatever the implementation does — so when the
+server moved, the test moved with the client and away from the truth. This is
+the same shape as the mailer that sent nothing for two weeks while its tests
+asserted `Send` was called.
+
+**Decision.** Fix the wire shape in all three languages, and change what the
+tests assert: `permissions` present AND `role_id` absent. The absence assertion
+is the load-bearing half — a client sending both fields would satisfy a
+presence-only check while still being wrong.
+
+**Also decided: register the codes, do not just add sentinels.** An unmapped code
+collapses to `bad_request`/`forbidden`, so a sentinel without registration
+exists and never fires. Three of the four codes had no sentinel anywhere;
+`install_grants_nothing` additionally turned out to be a MINT refusal that the
+docs had filed under install.
+
+**Kept deliberately.** `role_not_service_typed` and `role_not_installable` are
+dead — the issuer emits neither — but the symbols stay, documented as dead.
+Deleting an exported symbol is a second breaking change that buys nothing.
+
+**Scope note.** `web-admin` bundles its own `@realm-id/sdk`, so it shipped the
+same broken call and its wiring test passed *because* it resolved against the
+stale vendored copy. Fixing `sdk/ts` alone would have left the published
+`web-admin` broken and green. It was re-vendored in the same pass.
+
+**Not established.** Whether any partner actually hit this. Failed installs
+write no audit row (the audit is emitted after the refusal returns), so the
+database cannot answer it; only the Cloud Run request log can. Queued in the
+umbrella repo's TODO with that limitation stated, because the obvious query
+returns zero and reads as "nobody was affected".
 
 ## 2026-08-31 (docs, still later) — the partner guide's siblings had never been audited at all; one had never once been true
 

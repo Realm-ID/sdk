@@ -103,8 +103,27 @@ export type ErrorCode =
   | "slug_taken"
   | "integration_not_found"
   | "already_installed"
+  // `role_not_service_typed` / `role_not_installable` are RETAINED but DEAD:
+  // the issuer has emitted neither since ADR-101 D7 replaced the installed
+  // role with a stated permission list. Kept so existing `error.code ===`
+  // branches still type-check; they can no longer arrive from a current
+  // issuer. Match the three permission codes below instead.
   | "role_not_service_typed"
   | "role_not_installable"
+  // ADR-101 D7 install refusals — the stated-permission replacement for the
+  // role-based install. `permissions_required` (400) is what a client still
+  // sending the retired `role_id` body gets back: no permission was named, and
+  // an install granting nothing can authorise no call. `unknown_permission`
+  // (400) is an entry outside the ADR-074 catalog — a typo would otherwise
+  // store INERT, reading as configured while enforcing nothing.
+  // `permissions_exceed_grantor` (403) is the "you cannot grant authority you
+  // do not hold" rule; the tenant owner is implicit-all and never sees it.
+  | "permissions_required"
+  | "unknown_permission"
+  | "permissions_exceed_grantor"
+  // `install_grants_nothing` (403) is raised at MINT, not install: the
+  // installation row states no permissions and can authorise nothing.
+  | "install_grants_nothing"
   | "installation_not_found"
   | "installation_revoked"
   | "role_unavailable"
@@ -192,7 +211,10 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "not_service", "method_violates_kind", "source_not_found", "user_not_found",
   "platform_not_found",
   "slug_taken", "integration_not_found", "already_installed",
-  "role_not_service_typed", "role_not_installable", "installation_not_found",
+  "role_not_service_typed", "role_not_installable",
+  "permissions_required", "unknown_permission", "permissions_exceed_grantor",
+  "install_grants_nothing",
+  "installation_not_found",
   "installation_revoked", "role_unavailable", "key_class_mismatch",
   "owner_cannot_be_revoked", "single_tenant_not_required", "not_invited",
   "not_pending", "invitations_unavailable", "owner_cannot_leave", "already_left",

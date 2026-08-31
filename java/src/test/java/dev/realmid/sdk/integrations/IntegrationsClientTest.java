@@ -7,6 +7,8 @@ import dev.realmid.sdk.RealmException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -14,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -62,26 +65,67 @@ class IntegrationsClientTest {
         assertEquals(ErrorCode.SLUG_TAKEN, ex.getCode());
     }
 
+    /**
+     * The install body must carry the ADR-101 D7 STATED PERMISSION LIST.
+     *
+     * <p>This test previously asserted the body carried {@code role_id}, which
+     * is why the SDK shipped broken against the live issuer for as long as it
+     * did: the issuer replaced {@code role_id} with {@code permissions} and
+     * answers {@code 400 permissions_required}, while the test pinned the old
+     * shape and stayed green. A test that asserts the implementation protects
+     * the bug.
+     */
     @Test
-    void installPostsRoleIdToTenantRoute() {
+    void installPostsPermissionListAndNoRoleIdToTenantRoute() {
         fs.onJson("POST /tenants/t1/integration-installations", (body, rec) -> {
             assertEquals("intg-1", body.get("integration_id"));
-            assertEquals("role-svc", body.get("role_id"));
+            assertEquals(List.of("users:read"), body.get("permissions"));
+            // Asserting only that `permissions` is present would still pass if
+            // the client also sent the retired `role_id`.
+            assertFalse(body.containsKey("role_id"),
+                    "role_id must not be sent — the issuer retired it (ADR-101 D7): " + body);
             return FakeServer.Reply.json(201, Map.of(
-                    "id", "inst-1", "integration_id", "intg-1", "role_id", "role-svc",
-                    "role_name", "svc", "principal_user_id", "u-9", "status", "installed"));
+                    "id", "inst-1", "integration_id", "intg-1",
+                    "permissions", List.of("users:read"),
+                    "principal_user_id", "u-9", "status", "installed"));
         });
-        InstallResult out = realm.integrations().install("t1", new InstallRequest("intg-1", "role-svc"));
+        InstallResult out = realm.integrations().install("t1",
+                new InstallRequest("intg-1", List.of("users:read")));
         assertEquals("inst-1", out.id());
         assertEquals("installed", out.status());
+        assertEquals(List.of("users:read"), out.permissions());
     }
 
+    /**
+     * The three refusals the permission-stated install can produce. None of
+     * them existed while the SDK was still sending role_id, so none was mapped.
+     */
+    @ParameterizedTest
+    @CsvSource({
+            "permissions_required,400,PERMISSIONS_REQUIRED",
+            "unknown_permission,400,UNKNOWN_PERMISSION",
+            "permissions_exceed_grantor,403,PERMISSIONS_EXCEED_GRANTOR",
+    })
+    void installPermissionRefusalsMapErrorCode(String wire, int status, ErrorCode want) {
+        fs.on("POST /tenants/t1/integration-installations", (ex, body) -> FakeServer.Reply.json(status, Map.of(
+                "error", Map.of("code", wire, "message", wire))));
+        RealmException ex = assertThrows(RealmException.class, () ->
+                realm.integrations().install("t1", new InstallRequest("intg-1", List.of("users:read"))));
+        assertEquals(want, ex.getCode());
+    }
+
+    /**
+     * RETAINED FOR THE MAPPING ONLY: the issuer has not emitted
+     * {@code role_not_service_typed} since ADR-101 D7, so this asserts the code
+     * still resolves for anyone branching on it, NOT that the refusal can still
+     * occur.
+     */
     @Test
     void installRoleNotServiceTypedMapsErrorCode() {
         fs.on("POST /tenants/t1/integration-installations", (ex, body) -> FakeServer.Reply.json(400, Map.of(
                 "error", Map.of("code", "role_not_service_typed", "message", "no"))));
         RealmException ex = assertThrows(RealmException.class, () ->
-                realm.integrations().install("t1", new InstallRequest("intg-1", "role-human")));
+                realm.integrations().install("t1", new InstallRequest("intg-1", List.of("users:read"))));
         assertEquals(ErrorCode.ROLE_NOT_SERVICE_TYPED, ex.getCode());
     }
 
@@ -90,10 +134,11 @@ class IntegrationsClientTest {
         // Map.of rejects null values, so next_cursor is omitted entirely — the
         // client's page reader defaults a missing/null cursor to null.
         fs.on("GET /tenants/t1/integration-installations", (ex, body) -> FakeServer.Reply.json(200, Map.of(
-                "items", List.of(Map.of("id", "inst-1", "integration_id", "intg-1", "role_name", "svc", "mint_count", 3)))));
+                "items", List.of(Map.of("id", "inst-1", "integration_id", "intg-1",
+                        "permissions", List.of("users:read", "users:manage"), "mint_count", 3)))));
         InstallationListPage page = realm.integrations().listInstallations("t1");
         assertEquals(1, page.items().size());
-        assertEquals("svc", page.items().get(0).roleName());
+        assertEquals(List.of("users:read", "users:manage"), page.items().get(0).permissions());
         assertEquals(3, page.items().get(0).mintCount());
         assertNull(page.nextCursor());
     }

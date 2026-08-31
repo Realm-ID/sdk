@@ -26,10 +26,13 @@ import java.util.Map;
  *
  * <p>Server error codes surface on {@link dev.realmid.sdk.RealmException} via
  * {@link dev.realmid.sdk.ErrorCode}: {@code slug_taken} / {@code already_installed}
- * (409), {@code role_not_service_typed} / {@code role_not_installable} (400),
+ * (409), {@code permissions_required} / {@code unknown_permission} (400),
+ * {@code permissions_exceed_grantor} (403),
  * {@code integration_not_found} / {@code installation_not_found} (404),
  * {@code installation_revoked} / {@code role_unavailable} (403),
- * {@code key_class_mismatch} (401).
+ * {@code key_class_mismatch} (401). {@code role_not_service_typed} /
+ * {@code role_not_installable} are retained in {@link dev.realmid.sdk.ErrorCode}
+ * but DEAD — the issuer has emitted neither since ADR-101 D7.
  */
 public final class IntegrationsClient {
 
@@ -113,14 +116,14 @@ public final class IntegrationsClient {
     // ---- target side ----
 
     /**
-     * POST /tenants/{id}/integration-installations — admit a foreign integration.
-     * {@code roleId} MUST be exactly {@code ["service"]} (ADR-082 §7.1) or the
-     * server returns {@code role_not_service_typed}.
+     * POST /tenants/{id}/integration-installations — admit a foreign
+     * integration, granting it exactly the permissions {@code body.permissions()}
+     * names (ADR-101 D7).
      */
     public InstallResult install(String tenantId, InstallRequest body) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("integration_id", body.integrationId());
-        b.put("role_id", body.roleId());
+        b.put("permissions", body.permissions());
         JsonNode raw = http.request(HttpTransport.Request.of("POST", targetBase(tenantId)).body(b));
         return http.mapper().convertValue(raw, InstallResult.class);
     }

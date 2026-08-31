@@ -137,8 +137,43 @@ public enum ErrorCode {
     SLUG_TAKEN("slug_taken"),
     INTEGRATION_NOT_FOUND("integration_not_found"),
     ALREADY_INSTALLED("already_installed"),
+    /**
+     * RETAINED BUT DEAD: the issuer has emitted neither
+     * {@code role_not_service_typed} nor {@code role_not_installable} since
+     * ADR-101 D7 replaced the installed role with a stated permission list.
+     * Kept so existing {@code switch}/comparison branches still compile; they
+     * can no longer arrive from a current issuer. Match
+     * {@link #PERMISSIONS_REQUIRED} / {@link #UNKNOWN_PERMISSION} /
+     * {@link #PERMISSIONS_EXCEED_GRANTOR} instead.
+     */
     ROLE_NOT_SERVICE_TYPED("role_not_service_typed"),
+    /** @see #ROLE_NOT_SERVICE_TYPED — retained but dead since ADR-101 D7. */
     ROLE_NOT_INSTALLABLE("role_not_installable"),
+
+    // ADR-101 D7 install refusals — the stated-permission replacement for the
+    // role-based install.
+    /**
+     * 400 — the install named no permission at all. This is also what a client
+     * still sending the retired {@code role_id} body gets back: an install
+     * granting nothing can authorise no call.
+     */
+    PERMISSIONS_REQUIRED("permissions_required"),
+    /**
+     * 400 — an entry is not in the ADR-074 catalog. A typo would otherwise
+     * store INERT: the install reads as configured and enforces nothing.
+     */
+    UNKNOWN_PERMISSION("unknown_permission"),
+    /**
+     * 403 — you cannot grant an integration authority you do not hold yourself.
+     * The tenant owner is implicit-all and never sees this.
+     */
+    PERMISSIONS_EXCEED_GRANTOR("permissions_exceed_grantor"),
+
+    /**
+     * {@code 403} at MINT, not install: the installation row states no
+     * permissions, so the token it would produce could authorise nothing.
+     */
+    INSTALL_GRANTS_NOTHING("install_grants_nothing"),
     INSTALLATION_NOT_FOUND("installation_not_found"),
     INSTALLATION_REVOKED("installation_revoked"),
     ROLE_UNAVAILABLE("role_unavailable"),

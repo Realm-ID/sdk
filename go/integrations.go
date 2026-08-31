@@ -37,18 +37,20 @@ type Integration struct {
 // Installation is the target org's view of one inbound edge — who can act in
 // the org, as what. Returned by ListInstallations (ADR-083 §4.5).
 type Installation struct {
-	ID                     string  `json:"id"`
-	IntegrationID          string  `json:"integration_id"`
-	SourceRealmID          string  `json:"source_realm_id"`
-	IntegrationSlug        string  `json:"integration_slug"`
-	IntegrationDisplayName string  `json:"integration_display_name"`
-	RoleID                 string  `json:"role_id"`
-	RoleName               string  `json:"role_name"`
-	PrincipalUserID        string  `json:"principal_user_id"`
-	ApprovedByUserID       *string `json:"approved_by_user_id"`
-	ApprovedAt             string  `json:"approved_at"`
-	LastUsedAt             *string `json:"last_used_at"`
-	MintCount              int64   `json:"mint_count"`
+	ID                     string `json:"id"`
+	IntegrationID          string `json:"integration_id"`
+	SourceRealmID          string `json:"source_realm_id"`
+	IntegrationSlug        string `json:"integration_slug"`
+	IntegrationDisplayName string `json:"integration_display_name"`
+	// Permissions is the ADR-101 D7 stated grant — what the brokered
+	// principal may do. It REPLACED `role_id`/`role_name`, which named a role
+	// and inherited whatever that role happened to grant that day.
+	Permissions      []string `json:"permissions"`
+	PrincipalUserID  string   `json:"principal_user_id"`
+	ApprovedByUserID *string  `json:"approved_by_user_id"`
+	ApprovedAt       string   `json:"approved_at"`
+	LastUsedAt       *string  `json:"last_used_at"`
+	MintCount        int64    `json:"mint_count"`
 }
 
 // IntegrationCreate is the register body.
@@ -69,21 +71,29 @@ type IntegrationPatch struct {
 	Listed      *bool   `json:"listed,omitempty"`
 }
 
-// InstallRequest is the install body. RoleID MUST name a role whose
-// assignable_to is exactly ["service"] (ADR-082 §7.1).
+// InstallRequest is the install body.
+//
+// Permissions is the ADR-101 D7 STATED grant: the ADR-074 catalog permissions
+// this integration may exercise in the target org. It replaced `role_id`,
+// which named a role and silently inherited whatever that role granted today.
+//
+// Required and non-empty — an install granting nothing can authorise no call,
+// and ADR-100's lesson is that an empty authority field acquires a meaning
+// nobody chose. Empty is ErrPermissionsRequired, not an install that enforces
+// nothing. Every entry must be a real catalog permission (ErrUnknownPermission),
+// and you cannot grant authority you do not hold (ErrPermissionsExceedGrantor).
 type InstallRequest struct {
-	IntegrationID string `json:"integration_id"`
-	RoleID        string `json:"role_id"`
+	IntegrationID string   `json:"integration_id"`
+	Permissions   []string `json:"permissions"`
 }
 
 // InstallResult is the install acknowledgment.
 type InstallResult struct {
-	ID              string `json:"id"`
-	IntegrationID   string `json:"integration_id"`
-	RoleID          string `json:"role_id"`
-	RoleName        string `json:"role_name"`
-	PrincipalUserID string `json:"principal_user_id"`
-	Status          string `json:"status"`
+	ID              string   `json:"id"`
+	IntegrationID   string   `json:"integration_id"`
+	Permissions     []string `json:"permissions"`
+	PrincipalUserID string   `json:"principal_user_id"`
+	Status          string   `json:"status"`
 }
 
 // IntegrationMintRequest is the input to MintToken. APIKey is the SOURCE platform's raw
@@ -126,11 +136,38 @@ var (
 	ErrIntegrationNotFound  = errors.New("realmid: integration not found")
 	ErrIntegrationSlugTaken = errors.New("realmid: integration slug already registered in realm")
 	ErrAlreadyInstalled     = errors.New("realmid: integration already installed in org")
-	ErrRoleNotServiceTyped  = errors.New(`realmid: role is not exactly ["service"]`)
-	ErrInstallationNotFound = errors.New("realmid: installation not found")
-	ErrInstallationRevoked  = errors.New("realmid: installation has been revoked")
-	ErrRoleUnavailable      = errors.New("realmid: the installed role can no longer back an integration")
-	ErrKeyClassMismatch     = errors.New("realmid: this grant requires a platform api key")
+	// ErrRoleNotServiceTyped is RETAINED but DEAD: the issuer has emitted
+	// neither `role_not_service_typed` nor `role_not_installable` since
+	// ADR-101 D7 replaced the role with a permission list. Kept so existing
+	// errors.Is checks still compile; it can no longer fire.
+	//
+	// Deprecated: match ErrPermissionsExceedGrantor / ErrUnknownPermission /
+	// ErrPermissionsRequired instead.
+	ErrRoleNotServiceTyped = errors.New(`realmid: role is not exactly ["service"]`)
+
+	// ErrPermissionsRequired is `400 permissions_required` — the install named
+	// no permission at all.
+	ErrPermissionsRequired = errors.New("realmid: install must name at least one permission")
+
+	// ErrUnknownPermission is `400 unknown_permission` — an entry is not in the
+	// ADR-074 catalog. A typo would otherwise store INERT: the install reads as
+	// configured and enforces nothing.
+	ErrUnknownPermission = errors.New("realmid: permission is not in the catalog")
+
+	// ErrInstallGrantsNothing is `403 install_grants_nothing`, raised at MINT
+	// (not install): the installation row states no permissions, so the token
+	// it would produce could authorise nothing. A column CHECK already prevents
+	// it; the mint re-asserts rather than trusting it.
+	ErrInstallGrantsNothing = errors.New("realmid: installation states no permissions")
+
+	// ErrPermissionsExceedGrantor is `403 permissions_exceed_grantor` — you
+	// cannot grant an integration authority you do not hold yourself. The
+	// tenant owner is implicit-all and never sees this.
+	ErrPermissionsExceedGrantor = errors.New("realmid: cannot grant permissions you do not hold")
+	ErrInstallationNotFound     = errors.New("realmid: installation not found")
+	ErrInstallationRevoked      = errors.New("realmid: installation has been revoked")
+	ErrRoleUnavailable          = errors.New("realmid: the installed role can no longer back an integration")
+	ErrKeyClassMismatch         = errors.New("realmid: this grant requires a platform api key")
 )
 
 func mapIntegrationErr(err error) error {
@@ -149,6 +186,14 @@ func mapIntegrationErr(err error) error {
 		return errors.Join(ErrAlreadyInstalled, re)
 	case "role_not_service_typed", "role_not_installable":
 		return errors.Join(ErrRoleNotServiceTyped, re)
+	case "permissions_required":
+		return errors.Join(ErrPermissionsRequired, re)
+	case "unknown_permission":
+		return errors.Join(ErrUnknownPermission, re)
+	case "permissions_exceed_grantor":
+		return errors.Join(ErrPermissionsExceedGrantor, re)
+	case "install_grants_nothing":
+		return errors.Join(ErrInstallGrantsNothing, re)
 	case "installation_not_found":
 		return errors.Join(ErrInstallationNotFound, re)
 	case "installation_revoked":
@@ -278,9 +323,8 @@ func (c *IntegrationsClient) Remove(ctx ctxpkg.Context, id string) error {
 
 // ---- target side ----
 
-// Install admits a foreign integration into a target org. The role named by
-// body.RoleID MUST be exactly ["service"] (ADR-082 §7.1) — otherwise
-// ErrRoleNotServiceTyped.
+// Install admits a foreign integration into a target org, granting it exactly
+// the permissions body.Permissions names (ADR-101 D7).
 func (c *IntegrationsClient) Install(ctx ctxpkg.Context, tenantID string, body InstallRequest) (*InstallResult, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {

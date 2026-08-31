@@ -66,7 +66,7 @@ These fire from `realm.auth.*` calls.
 | `slug_taken` | `register` — slug already used in the realm. | Pick a different slug. |
 | `permissions_required` | `install` — the stated grant is empty (or the retired `role_id` body was sent). | Name at least one ADR-074 catalog permission the integration may exercise. |
 | `permissions_exceed_grantor` | `install` — the list names permissions the installing owner could not grant. | Narrow the list to what the owner actually holds. |
-| `install_grants_nothing` | `install` — nothing in the list survives validation. | Fix the permission keys; a typo'd grant is refused, never stored inert. |
+| `install_grants_nothing` | **`mint`, not `install`** — the installation row states no permissions and can authorise nothing. | Re-install stating permissions. A typo'd grant is refused at install time (`unknown_permission`), so this means an install that predates the check or was emptied. |
 | `integration_disabled` | `install` / `mintToken` — the source platform disabled the integration. | Ask the source to re-enable it. |
 | `already_installed` | `install` — a live installation already exists for this org. | Uninstall the existing one first, or reuse it. |
 | `installation_revoked` | `mintToken` — the target org uninstalled. | Stop minting; the edge is gone. |

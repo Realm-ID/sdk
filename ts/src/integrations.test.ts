@@ -56,28 +56,69 @@ test("integrations.register: POSTs to the platform route + maps camelCase", asyn
   assert.equal(out.slug, "hiring-motion");
 });
 
-test("integrations.install: POSTs role_id to the tenant installations route", async () => {
+/**
+ * The install body must carry the ADR-101 D7 STATED PERMISSION LIST.
+ *
+ * This test previously asserted the body was `{integration_id, role_id}`,
+ * which is why the SDK shipped broken against the live issuer for as long as
+ * it did: the issuer replaced `role_id` with `permissions` and answers
+ * `400 permissions_required`, while the test pinned the old shape and stayed
+ * green. A test that asserts the implementation protects the bug.
+ */
+test("integrations.install: POSTs the permission list, and no role_id, to the tenant installations route", async () => {
+  let seenBody: Record<string, unknown> = {};
   const fetch = mkFetch((req) => {
     assert.match(req.url, /\/tenants\/t1\/integration-installations$/);
-    assert.deepEqual(req.body, { integration_id: "intg-1", role_id: "role-svc" });
+    seenBody = req.body as Record<string, unknown>;
     return new Response(JSON.stringify({
-      id: "inst-1", integration_id: "intg-1", role_id: "role-svc",
-      role_name: "svc", principal_user_id: "u-9", status: "installed",
+      id: "inst-1", integration_id: "intg-1", permissions: ["users:read"],
+      principal_user_id: "u-9", status: "installed",
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ ...cfg, fetch });
-  const out = await realm.integrations.install("t1", { integrationId: "intg-1", roleId: "role-svc" });
+  const out = await realm.integrations.install("t1", {
+    integrationId: "intg-1",
+    permissions: ["users:read"],
+  });
+  // Assert the whole body: checking only that `permissions` is present would
+  // still pass if the client also sent the retired `role_id`.
+  assert.deepEqual(seenBody, { integration_id: "intg-1", permissions: ["users:read"] });
+  assert.equal("role_id" in seenBody, false);
   assert.equal(out.id, "inst-1");
   assert.equal(out.status, "installed");
+  assert.deepEqual(out.permissions, ["users:read"]);
 });
 
-test("integrations.install: role_not_service_typed surfaces on RealmError.code", async () => {
+test("integrations.install: the three ADR-101 permission refusals surface on RealmError.code", async () => {
+  for (const [code, status] of [
+    ["permissions_required", 400],
+    ["unknown_permission", 400],
+    ["permissions_exceed_grantor", 403],
+  ] as const) {
+    const fetch = mkFetch(() =>
+      new Response(JSON.stringify({ error: "no", code }),
+        { status, headers: { "content-type": "application/json" } }));
+    const realm = createRealm({ ...cfg, fetch });
+    await assert.rejects(
+      () => realm.integrations.install("t1", { integrationId: "intg-1", permissions: ["users:read"] }),
+      (e: unknown) => e instanceof RealmError && e.code === code,
+      `expected ${code} to reach RealmError.code`,
+    );
+  }
+});
+
+/**
+ * RETAINED FOR THE MAPPING ONLY: the issuer has not emitted
+ * `role_not_service_typed` since ADR-101 D7, so this asserts the code still
+ * resolves for anyone branching on it, NOT that the refusal can still occur.
+ */
+test("integrations.install: role_not_service_typed still resolves (dead code, kept for compat)", async () => {
   const fetch = mkFetch(() =>
     new Response(JSON.stringify({ error: "no", code: "role_not_service_typed" }),
       { status: 400, headers: { "content-type": "application/json" } }));
   const realm = createRealm({ ...cfg, fetch });
   await assert.rejects(
-    () => realm.integrations.install("t1", { integrationId: "intg-1", roleId: "role-human" }),
+    () => realm.integrations.install("t1", { integrationId: "intg-1", permissions: ["users:read"] }),
     (e: unknown) => e instanceof RealmError && e.code === "role_not_service_typed",
   );
 });
@@ -85,13 +126,13 @@ test("integrations.install: role_not_service_typed surfaces on RealmError.code",
 test("integrations.listInstallations: decodes the inbound-access page", async () => {
   const fetch = mkFetch(() =>
     new Response(JSON.stringify({
-      items: [{ id: "inst-1", integration_id: "intg-1", role_name: "svc", mint_count: 3 }],
+      items: [{ id: "inst-1", integration_id: "intg-1", permissions: ["users:read", "users:manage"], mint_count: 3 }],
       next_cursor: null,
     }), { status: 200, headers: { "content-type": "application/json" } }));
   const realm = createRealm({ ...cfg, fetch });
   const page = await realm.integrations.listInstallations("t1");
   assert.equal(page.items.length, 1);
-  assert.equal(page.items[0]?.role_name, "svc");
+  assert.deepEqual(page.items[0]?.permissions, ["users:read", "users:manage"]);
   assert.equal(page.items[0]?.mint_count, 3);
   assert.equal(page.next_cursor, null);
 });

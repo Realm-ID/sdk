@@ -12,9 +12,12 @@
  * take no platform id (baked in, like `realm.roles.*`).
  *
  * Server error codes surface on `RealmError.code`: `slug_taken` (409),
- * `already_installed` (409), `role_not_service_typed` / `role_not_installable`
- * (400), `integration_not_found` / `installation_not_found` (404),
- * `installation_revoked` / `role_unavailable` (403), `key_class_mismatch` (401).
+ * `already_installed` (409), `permissions_required` / `unknown_permission`
+ * (400), `permissions_exceed_grantor` (403), `integration_not_found` /
+ * `installation_not_found` (404), `installation_revoked` / `role_unavailable`
+ * (403), `key_class_mismatch` (401). `role_not_service_typed` /
+ * `role_not_installable` are retained in the taxonomy but DEAD — the issuer
+ * has emitted neither since ADR-101 D7.
  */
 
 import type { HttpClient } from "./http.js";
@@ -41,8 +44,12 @@ export interface Installation {
   source_realm_id: string;
   integration_slug: string;
   integration_display_name: string;
-  role_id: string;
-  role_name: string;
+  /**
+   * The ADR-101 D7 stated grant — what the brokered principal may do. It
+   * REPLACED `role_id`/`role_name`, which named a role and inherited whatever
+   * that role happened to grant that day.
+   */
+  permissions: string[];
   principal_user_id: string;
   approved_by_user_id: string | null;
   approved_at: string;
@@ -69,20 +76,30 @@ export interface IntegrationPatch {
 }
 
 /**
- * POST /tenants/{id}/integration-installations body. `roleId` MUST name a role
- * whose `assignable_to` is exactly `["service"]` (ADR-082 §7.1).
+ * POST /tenants/{id}/integration-installations body.
+ *
+ * `permissions` is the ADR-101 D7 STATED grant: the ADR-074 catalog
+ * permissions this integration may exercise in the target org. It replaced
+ * `roleId`, which named a role and silently inherited whatever that role
+ * granted today.
+ *
+ * Required and non-empty — an install granting nothing can authorise no call,
+ * and ADR-100's lesson is that an empty authority field acquires a meaning
+ * nobody chose. Empty is `permissions_required`, not an install that enforces
+ * nothing. Every entry must be a real catalog permission
+ * (`unknown_permission`), and you cannot grant authority you do not hold
+ * (`permissions_exceed_grantor`).
  */
 export interface InstallRequest {
   integrationId: string;
-  roleId: string;
+  permissions: string[];
 }
 
 /** Install acknowledgment. */
 export interface InstallResult {
   id: string;
   integration_id: string;
-  role_id: string;
-  role_name: string;
+  permissions: string[];
   principal_user_id: string;
   status: string;
   [k: string]: unknown;
@@ -219,15 +236,14 @@ export class IntegrationsClient {
   // ---- target side ----
 
   /**
-   * POST /tenants/{id}/integration-installations — admit a foreign integration.
-   * `roleId` MUST be exactly `["service"]` (ADR-082 §7.1) or the server returns
-   * `role_not_service_typed`.
+   * POST /tenants/{id}/integration-installations — admit a foreign integration,
+   * granting it exactly the permissions `body.permissions` names (ADR-101 D7).
    */
   async install(tenantId: string, body: InstallRequest): Promise<InstallResult> {
     return this.http.request<InstallResult>({
       method: "POST",
       path: this.targetBase(tenantId),
-      body: { integration_id: body.integrationId, role_id: body.roleId },
+      body: { integration_id: body.integrationId, permissions: body.permissions },
     });
   }
 

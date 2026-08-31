@@ -67,7 +67,13 @@ func TestIntegrations_SlugTakenMapsSentinel(t *testing.T) {
 }
 
 // TestIntegrations_Install asserts the target-side install posts to the tenant
-// installations route with the role id.
+// installations route with the STATED PERMISSION LIST (ADR-101 D7).
+//
+// This test previously asserted the body carried `role_id`, which is why the
+// SDK shipped broken against the live issuer for as long as it did: the issuer
+// replaced role_id with `permissions` and answers `400 permissions_required`,
+// while the test pinned the old shape and stayed green. A test that asserts
+// the implementation protects the bug.
 func TestIntegrations_Install(t *testing.T) {
 	var gotBody map[string]any
 	srv := authTestServer(t, map[string]http.HandlerFunc{
@@ -76,27 +82,74 @@ func TestIntegrations_Install(t *testing.T) {
 			_ = json.Unmarshal(buf, &gotBody)
 			w.WriteHeader(http.StatusCreated)
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"id": "inst-1", "integration_id": "intg-1", "role_id": "role-svc",
-				"role_name": "svc", "principal_user_id": "u-9", "status": "installed",
+				"id": "inst-1", "integration_id": "intg-1",
+				"permissions":       []string{"users:read"},
+				"principal_user_id": "u-9", "status": "installed",
 			})
 		},
 	})
 	defer srv.Close()
 	out, err := newIntegrationsRealm(t, srv.URL).Integrations.Install(context.Background(), "t1",
-		InstallRequest{IntegrationID: "intg-1", RoleID: "role-svc"})
+		InstallRequest{IntegrationID: "intg-1", Permissions: []string{"users:read"}})
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	if gotBody["integration_id"] != "intg-1" || gotBody["role_id"] != "role-svc" {
-		t.Errorf("body = %v", gotBody)
+	if gotBody["integration_id"] != "intg-1" {
+		t.Errorf("integration_id: body = %v", gotBody)
+	}
+	// The wire field must be `permissions`, and `role_id` must be ABSENT —
+	// asserting only the former would still pass if both were sent.
+	perms, ok := gotBody["permissions"].([]any)
+	if !ok || len(perms) != 1 || perms[0] != "users:read" {
+		t.Errorf("permissions: body = %v", gotBody)
+	}
+	if _, present := gotBody["role_id"]; present {
+		t.Errorf("role_id must not be sent — the issuer retired it (ADR-101 D7): %v", gotBody)
 	}
 	if out.ID != "inst-1" || out.Status != "installed" {
 		t.Errorf("decoded = %+v", out)
 	}
+	if len(out.Permissions) != 1 || out.Permissions[0] != "users:read" {
+		t.Errorf("decoded permissions = %+v", out.Permissions)
+	}
+}
+
+// TestIntegrations_PermissionErrorsMapSentinels covers the three refusals the
+// permission-stated install can produce. None of them existed while the SDK
+// was still sending role_id, so none had a sentinel.
+func TestIntegrations_PermissionErrorsMapSentinels(t *testing.T) {
+	for _, tc := range []struct {
+		code   string
+		status int
+		want   error
+	}{
+		{"permissions_required", http.StatusBadRequest, ErrPermissionsRequired},
+		{"unknown_permission", http.StatusBadRequest, ErrUnknownPermission},
+		{"permissions_exceed_grantor", http.StatusForbidden, ErrPermissionsExceedGrantor},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			srv := authTestServer(t, map[string]http.HandlerFunc{
+				"/tenants/t1/integration-installations": func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(tc.status)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"error": map[string]any{"code": tc.code, "message": tc.code},
+					})
+				},
+			})
+			defer srv.Close()
+			_, err := newIntegrationsRealm(t, srv.URL).Integrations.Install(context.Background(), "t1",
+				InstallRequest{IntegrationID: "intg-1", Permissions: []string{"users:read"}})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("want %v, got %v", tc.want, err)
+			}
+		})
+	}
 }
 
 // TestIntegrations_RoleNotServiceTypedMapsSentinel: 400 role_not_service_typed
-// → ErrRoleNotServiceTyped (the ADR-082 §7.1 boundary surfaced typed).
+// → ErrRoleNotServiceTyped. RETAINED FOR THE MAPPING ONLY: the issuer has not
+// emitted this code since ADR-101 D7, so this asserts the sentinel still
+// resolves for anyone matching it, NOT that the refusal can still occur.
 func TestIntegrations_RoleNotServiceTypedMapsSentinel(t *testing.T) {
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/tenants/t1/integration-installations": func(w http.ResponseWriter, _ *http.Request) {
@@ -106,7 +159,7 @@ func TestIntegrations_RoleNotServiceTypedMapsSentinel(t *testing.T) {
 	})
 	defer srv.Close()
 	_, err := newIntegrationsRealm(t, srv.URL).Integrations.Install(context.Background(), "t1",
-		InstallRequest{IntegrationID: "intg-1", RoleID: "role-human"})
+		InstallRequest{IntegrationID: "intg-1", Permissions: []string{"users:read"}})
 	if !errors.Is(err, ErrRoleNotServiceTyped) {
 		t.Errorf("want ErrRoleNotServiceTyped, got %v", err)
 	}
@@ -118,7 +171,8 @@ func TestIntegrations_ListInstallations(t *testing.T) {
 		"/tenants/t1/integration-installations": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []any{
-					map[string]any{"id": "inst-1", "integration_id": "intg-1", "role_name": "svc", "mint_count": 3},
+					map[string]any{"id": "inst-1", "integration_id": "intg-1",
+						"permissions": []string{"users:read", "users:manage"}, "mint_count": 3},
 				},
 				"next_cursor": nil,
 			})
@@ -129,7 +183,8 @@ func TestIntegrations_ListInstallations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInstallations: %v", err)
 	}
-	if len(page.Items) != 1 || page.Items[0].RoleName != "svc" || page.Items[0].MintCount != 3 {
+	if len(page.Items) != 1 || page.Items[0].MintCount != 3 ||
+		len(page.Items[0].Permissions) != 2 || page.Items[0].Permissions[0] != "users:read" {
 		t.Errorf("decoded = %+v", page.Items)
 	}
 }
