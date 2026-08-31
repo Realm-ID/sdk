@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-77 entries total — 22 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+78 entries total — 23 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (docs, still later) — the partner guide's siblings had never been audited at all; one had never once been true](#2026-08-31-docs-still-later--the-partner-guides-siblings-had-never-been-audited-at-all-one-had-never-once-been-true)
 - [2026-08-31 (docs, later) — the full audit: the partner guide had drifted from the code wherever the code had moved](#2026-08-31-docs-later--the-full-audit-the-partner-guide-had-drifted-from-the-code-wherever-the-code-had-moved)
 - [2026-08-31 (docs) — the guide told partners to send `scope` on a route that never read it](#2026-08-31-docs--the-guide-told-partners-to-send-scope-on-a-route-that-never-read-it)
 - [2026-08-30 (docs) — the two things the SDK can only hand a partner as prose](#2026-08-30-docs--the-two-things-the-sdk-can-only-hand-a-partner-as-prose)
@@ -89,6 +90,61 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-31 (docs, still later) — the partner guide's siblings had never been audited at all; one had never once been true
+
+**Problem.** The partner-guide audit (previous two entries) covered ONE of the
+seven partner-facing documents. Its six siblings — `integration-guide.md` the
+largest — had never been checked against the code, and `sdk/CLAUDE.md` already
+warned the two big guides overlap unreconciled. Audited claim-by-claim against
+the issuer source and the four SDK trees, the drift split into three kinds:
+
+- **The platform moved.** `integration-guide.md` still taught opt-in BFF mode
+  (`require_bff_login` — ADR-088 deleted the key and made the escort
+  unconditional), partner role authoring as a MANDATORY bootstrap step
+  (ADR-101: `403 role_authoring_retired`; the fix names scopes), a
+  `default_invitation_role: "viewer"` example (`viewer` is gone),
+  role-based integration installs (ADR-101 D7: a stated `permissions` list),
+  owner-by-invitation (`owner_not_invitable`; owner is REQUIRED inline on
+  tenant create), identifier mutation and invite-time collision checks as
+  roadmap (both shipped — `updateContact`, `409 identifier_collision`), and
+  email/phone/display_name as token claims (never minted; `mfa_at`/`scope`/
+  `token_class`/`permissions_cap` are). `dual-token.md` classified the platform
+  token by `scope: "platform"` (moved to `token_class`, ADR-097).
+  `operations.md` pinned a compatibility matrix ~37 releases stale and carried
+  a private-repo link for a doc that has lived beside it since 2026-08-28.
+- **Never true.** §8.3's rate-limit table (per-key throttles, admin-REST
+  per-realm budgets, numeric limits) matches nothing in the issuer, which has
+  exactly ONE limiter: per-IP 5 req/s burst 20 on the public auth surface.
+  Same class: `invitation_exists`, `tenant_locked_session`,
+  `missing_platform_token`, `unknown_origin` (codes that exist nowhere),
+  `realmid.Identifier{Phone:}` / `ErrInvitationExists` / `realmid.WithClaims` /
+  `*realmid.Verifier` / `realm.identity.me()` / `@realm-id/sdk/browser`
+  (symbols and subpaths that exist nowhere), and a "test issuer shipped with
+  the SDK" that is not shipped.
+- **The SDKs lag the issuer, and the docs were teaching the lag as truth.**
+  All three `integrations.install()` clients still send ADR-101's retired
+  `role_id` body, which a current issuer answers with `400
+  permissions_required`. The docs now teach the issuer contract with an
+  explicit lag warning; the SDK fix is filed in `TODO.md`.
+
+**Decision.** Same rule as the partner guide: fix forward, never silently —
+every correction states what changed and when, so a partner holding an old
+copy can diff their mental model; a claim that was never true says so.
+Customer names that had leaked into this PUBLIC repo's examples were
+anonymized in the sections already being rewritten. Every fix was verified
+against the enforcing source (issuer request structs and gates, the four SDK
+trees), not against another document.
+
+**Not changed.** What verified clean stayed: `middleware.md` (defaults, 412
+translation, glob rules — all match `middleware.ts`/`.go`/`RealmFilter`, one
+MFA-freshness paragraph updated), `error-reference.md`'s verifier and
+auth-flow tables (every code present in `go/errors.go`), `dual-token.md`'s
+TTL/caching/logging claims (match `platform-token-manager` and the issuer's
+1..900 s bound), §8.6's audit taxonomy and 400-day retention, §9.5's cap
+model, and the §4.5 sessions note (already fixed 2026-08-21). The
+overlap-reconciliation of the two big guides remains open in `TODO.md` — this
+audit made them agree with the CODE, not yet with each other in structure.
 
 ## 2026-08-31 (docs, later) — the full audit: the partner guide had drifted from the code wherever the code had moved
 

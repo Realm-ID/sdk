@@ -24,6 +24,20 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
+- [ ] **All three SDKs' `integrations.install()` send the retired `role_id`
+  body — a current issuer refuses it.** ADR-101 D7 (issuer `v0.113.0`) replaced
+  the role-based install with a stated `permissions: []string` grant; the
+  issuer's `installReq` has no `role_id` field and an absent/empty
+  `permissions` is `400 permissions_required`. `ts/src/integrations.ts:229`
+  (`body: { integration_id, role_id }`), `go/integrations.go:76`
+  (`InstallRequest.RoleID`), and java's equivalent all still speak the old
+  contract, and the error unions still carry `role_not_service_typed` /
+  `role_not_installable` / `role_unavailable`, which no current issuer emits.
+  Fix in all three + SPEC, with a drift test against the issuer swagger.
+  *(Found 2026-08-31 during the docs audit; the docs now describe the issuer
+  contract and warn about this lag — `docs/integration-guide.md` §9.2/§9.3,
+  `docs/error-reference.md`.)*
+
 - [ ] **CI runs no job for `web/packages/*` at all.** `.github/workflows/ci.yml`
   has `go`, `ts` and `java` jobs and nothing for the browser packages, so
   `@realm-id/web-admin`'s `npm run typecheck` and `npm test` never run on a

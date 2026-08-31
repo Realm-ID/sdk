@@ -94,7 +94,7 @@ func main() {
 
     handler := realm.Middleware(realmid.MiddlewareOptions{
         ExemptPaths:       []string{"/health", "/public/*"},
-        MFAProtectedPaths: []string{"/admin/*"},
+        MFAProtectedPaths: []realmid.MFARule{{Path: "/admin/*"}},
     })(mux)
 
     log.Fatal(http.ListenAndServe(":3000", handler))
@@ -106,7 +106,7 @@ func main() {
 ```kotlin
 // build.gradle.kts
 dependencies {
-    implementation("dev.realmid:sdk:0.1.0")
+    implementation("dev.realmid:sdk:0.41.0")   // pin the current release — see CHANGELOG.md
     implementation("org.eclipse.jetty:jetty-server:11.0.20")
     implementation("org.eclipse.jetty:jetty-servlet:11.0.20")
 }
@@ -158,9 +158,10 @@ import { createVerifier } from "@realm-id/sdk";
 
 const verifier = createVerifier({
   baseUrl: "https://auth.realmid.dev",
-  realmId: "01HXYZREALM",
   audience: "your-realm.com",
 });
+// No realmId parameter: the verifier reads the realm from each
+// token's `iss` and fetches that realm's JWKS.
 
 const claims = await verifier.verify(token);
 ```
@@ -170,8 +171,9 @@ standalone `NewVerifier` factory: in Go you construct the handle with
 `realmid.NewRealm(realmid.Config{...})` and call
 `realm.Verify(ctx, token, opts)`; in Java you build
 `Realm.builder()...build()` and call `realm.verify(token)`. A
-verifier-only handle needs no API key — set `baseUrl` + `realmId` +
-`audience` and skip `apiKey`.)
+verifier-only handle needs no API key — set `baseUrl` + `realmId`
+(+ the audience, via config or per-call `VerifyOptions`) and skip
+`apiKey`.)
 
 ## Next steps
 

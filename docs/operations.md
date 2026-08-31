@@ -27,10 +27,13 @@ rotation, version policy, hosted environments, roadmap commitments.
   model, and per-realm scoping already isolates config, keys, users,
   and tokens. If your compliance posture strictly requires a separate
   hostname, file an issue — but it is not on the near roadmap.
-- **Local dev:** For local and CI tests, run against the RealmID test
-  issuer (shipped with the SDK) — same SDK code path with `baseUrl`
-  pointed at `http://localhost:<port>`. For a full local server, contact
-  the RealmID team.
+- **Local dev:** There is no packaged test issuer shipped with the SDK
+  (an earlier revision implied one). For local and CI tests, either
+  stub the handful of endpoints your code touches (the SDK is plain
+  HTTP — every suite in this repo does exactly that with an in-process
+  fake), or run against a dev realm on the hosted issuer with
+  `baseUrl` unchanged. For a full local server, contact the RealmID
+  team.
 
 ## 2. Status and incident communication
 
@@ -59,7 +62,9 @@ rotation, version policy, hosted environments, roadmap commitments.
 > issuer `v0.61.0` it **expires by default (90 days)**. The caps, the
 > mint→deploy→verify→retire sequence, the chicken-and-egg if you let it lapse,
 > and the per-realm policy for end-user `uk_live_…` keys are all in
-> [partner-integration-guide §6.4.1](../../issuer/docs/partner-integration-guide.md).
+> [partner-integration-guide §6.4.1](./partner-integration-guide.md) —
+> which lives beside this file since 2026-08-28 (it previously sat in a
+> private repo partners could not read; the old path is a pointer stub).
 > The two rotations share a word and nothing else.
 
 
@@ -92,10 +97,9 @@ rotation, version policy, hosted environments, roadmap commitments.
   The verify-success row denormalises `issuer_user_id` so partner
   side audit logs can record the gating actor without a follow-up
   RealmID query. When the partner sets `X-On-Behalf-Of-User`
-  (ADR-050), `on_behalf_of_user_id` is also captured. Until the
-  pull endpoint below ships these are server-internal only;
-  partners should mirror their own view of issue/verify into their
-  business audit log.
+  (ADR-050), `on_behalf_of_user_id` is also captured. (An earlier
+  revision said these kinds were server-internal pending the pull
+  endpoint; the endpoint shipped — they are in the feed.)
 - **Shipped — pull endpoint (ADR-055):**
   `GET /platforms/{id}/audit-events`, surfaced in all three SDKs
   (`realm.AuditEvents.List` in Go, `auditEvents.list` in TS,
@@ -120,22 +124,24 @@ audit feed gives you, and pairs well with it for a unified view.
 
 ## 5. SDK versioning
 
-- **TS:** `@realm-id/sdk` on npm. Pin to the latest minor (`^0.13`)
-  during pre-launch; re-pin on each minor release.
+- **TS:** `@realm-id/sdk` on npm. Pin to the latest minor and re-pin
+  on each minor release — and remember a caret does **not** cross a
+  0.x minor (`^0.43` never installs `0.44.0`; edit the manifest).
 - **Go:** `github.com/Realm-ID/sdk/go`. Pin via `go.mod` to the
   latest tag. The Go module follows semver post-v1; pre-1.0 minor
   bumps may include breaking changes.
 - **Java:** `dev.realmid:sdk` on Maven Central. Same versioning model.
-- **Compatibility matrix:** `SPEC.md` is the authoritative contract
-  (currently **v0.10.0**). The current per-language releases that
-  implement it are Go **`go/v0.17.0`**, TS **`ts-v0.14.0`**, and Java
-  **`java-v0.12.0`**, matching issuer server **v0.14.0**. (Go module
-  tags use the submodule-path form `go/vX.Y.Z` — that, not the stale
-  `go-v*` label, is what `go get` resolves.) SDKs are versioned
-  independently per language. Older SDK versions may lag features
-  (e.g. BFF mode, custom roles, the contact model, `X-User-Token`
-  on-behalf forwarding, workload identity federation) — see
-  `CHANGELOG.md` for per-version support.
+- **Compatibility matrix:** `SPEC.md` is the authoritative contract.
+  As of this document's last audit (2026-08-31) the released tags are
+  Go **`go/v0.51.1`**, TS **`ts-v0.44.0`**, Java **`java-v0.41.0`**,
+  against issuer **`v0.114.0`** — but treat those as a snapshot: the
+  git tags and `CHANGELOG.md` are the source of truth, not this line.
+  (Go module tags use the submodule-path form `go/vX.Y.Z` — that, not
+  the stale `go-v*` label, is what `go get` resolves. ⚠️ `go/v0.51.0`
+  is published-and-immutable with a `const Version` that says
+  `0.50.0`; pin `0.51.1` if you read `realmid.Version`.) SDKs are
+  versioned independently per language; see `CHANGELOG.md` for
+  per-version support.
 
 ## 6. Roadmap items partners often ask about
 
@@ -176,20 +182,27 @@ Most remain on the roadmap; any that have since shipped are marked.
   linking of multiple providers to one user, ADR-042 P1 — is still
   roadmap.) Partners no longer need their own uniqueness pre-check,
   though keeping one is fine defence-in-depth.
-- **`permissions[]` JWT claim (ADR-040 P2).** Custom roles (ADR-040)
-  currently store permissions per role but don't surface them in the
-  access token. Roadmap item, no committed ETA. When it ships, the
-  addition is non-breaking — partners gating on the `role` name
-  continue to work unchanged.
+- **`permissions[]` JWT claim (ADR-040 P2) — SUPERSEDED.** The need
+  this item tracked shipped as the ADR-097 `scope` claim (issuer
+  `v0.95.0`–`v0.101.0`): your backend supplies its own scope strings
+  at `/auth/token` mint time and enforces them with the SDK's
+  `ScopePolicy`. A role's `permissions[]` is RealmID's own ADR-074
+  catalog (what the holder may do *to RealmID*) and is deliberately
+  never minted into partner tokens. Note also that custom role
+  *authoring* was retired outright by ADR-101 — RealmID owns the role
+  set, and partner product roles are scopes.
 - **Per-role / per-user-class concurrent-session limit.**
-  `concurrent_session_limit` is realm-wide today. Per-class limits
-  (e.g. "100 web sessions per user, but unlimited sync sessions")
-  are not on the near roadmap. Workaround: split sync into a
-  separate realm if you need independent ceilings.
+  `concurrent_session_limit` is realm-wide today — and that is now a
+  decision, not a gap: a per-ROLE limit shipped with ADR-092 and was
+  **retired** by ADR-101 along with the rest of the per-role knobs.
+  Workaround: split sync into a separate realm if you need
+  independent ceilings.
 - **Headless device-code grant.** OAuth 2.0 device-code flow
-  (`POST /auth/device/code` → poll `/auth/device/token`) for
-  long-lived clients on headless servers. Designed but not built;
-  schedule depends on partner demand. Today's pattern is the
+  (`POST /auth/device/code` → poll `/auth/device/token`) shipped for
+  RealmID's **own** CLI at RealmID's BFF (ADR-062) — proof the shape
+  works — but there is still no issuer-side device grant a partner
+  can call. If you want it, the ADR-062 pattern is what you would
+  host on your own BFF; otherwise today's pattern remains the
   install-time browser flow described in the integration guide §6.1.
 - **Cross-tenant identity portability.** "Same human, multiple
   tenants in one realm" view (one canonical record per

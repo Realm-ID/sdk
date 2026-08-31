@@ -84,9 +84,17 @@ calls `realm.verify(token)`, and:
   kid, missing header): returns **`401`** with
   `{ error: { code, message } }`.
 - **On a path that requires MFA** (`mfaProtectedPaths` glob list)
-  where the token verifies but lacks the MFA marker (`amr` array
-  containing `"mfa"`, OR `acr === "urn:realmid:mfa"`): returns
-  **`412`** with `{ error: { code: "mfa_required", message }, mfa_challenge_token, methods }` so the client can prompt and re-mint.
+  where the token verifies but its MFA proof is absent **or stale**:
+  returns **`412`** with
+  `{ error: { code: "mfa_required", message }, mfa_challenge_token, methods }`
+  so the client can prompt and re-mint. Freshness is judged on the
+  `mfa_at` claim (SPEC §10.4) against the rule's window — a bare-string
+  rule inherits `mfaDefaultMaxAgeSeconds` (default 900 s), an `MFARule`
+  object can set `maxAgeSeconds` or `requireFresh` (≈30 s, for
+  irreversible operations) per route. Tokens from servers that predate
+  `mfa_at` fall back to the legacy marker (`amr` containing `"mfa"`, or
+  `acr === "urn:realmid:mfa"`), which satisfies age-based windows but
+  never `requireFresh`.
 
 ## Configuration
 

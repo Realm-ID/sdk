@@ -25,7 +25,8 @@ key with login traffic.
 │ SDK     ├─────────────────▶│ grant_type:          │
 │         │ (sent ONCE per   │  platform_api_key    │
 │         │  TTL, default    │ → platform JWT, 5m   │
-│         │  5 min)          │   exp, scope:platform│
+│         │  5 min)          │   exp, token_class:  │
+│         │                  │   platform           │
 │         │                  └──────────────────────┘
 │         │
 │         │  platform JWT     ┌──────────────────────┐
@@ -45,9 +46,11 @@ The platform JWT is:
 
 - Signed with the **realm's signing key** — same key that signs user
   access tokens, so the same JWKS verifies both.
-- Scoped: `scope: "platform"` claim distinguishes it from user
-  access tokens; the server's auth middleware enforces this on every
-  management endpoint.
+- Classed: the `token_class: "platform"` claim distinguishes it from
+  user access tokens; the server's auth middleware enforces this on
+  every management endpoint. (This marker rode the `scope` claim until
+  ADR-097 gave that name to partner-supplied granted authority — read
+  `token_class`, never `scope`, to classify a token.)
 - Short-lived: default 5 minutes, configurable via
   `realms.config.platform_token_ttl_seconds` (max 15 min).
 - Cached in-process by the SDK and re-minted automatically 30 s

@@ -46,19 +46,30 @@ These fire from `realm.auth.*` calls.
 | `account_suspended`       | The user's account is suspended.                                                             | Surface a "your account is suspended" message; do not retry.                                              |
 | `account_deactivated`     | The user's account is deactivated.                                                           | Surface a "this account has been closed" message.                                                         |
 | `realm_origin_mismatch`   | The request's `Origin` header disagrees with the body's `realm_id`.                          | Configuration error — either set `createRealm({ origin })` correctly or stop overriding per call.         |
+| `bff_bearer_required`     | A `/auth/*` call reached the issuer without a platform token (ADR-088 — the BFF requirement is unconditional). | Call through the SDK's `realm.auth.*` (it attaches the platform token); never let a browser hit the issuer directly. |
 | `missing_origin`          | Server requires an Origin (or body `realm_id`) and got neither.                              | The SDK auto-attaches Origin from `realm.info()`, so this should not fire under normal use.               |
 
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
+> **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
+> integration now *states* a permissions list; the role-based install
+> (`role_id` + a `["service"]`-typed role) is retired. The issuer no
+> longer emits `role_not_service_typed`, `role_not_installable` or
+> `role_unavailable` — they stay in the SDK code unions only for older
+> servers — and the published SDK `install()` bodies still send
+> `role_id`, which a current issuer refuses with `permissions_required`
+> (send `{ integration_id, permissions }` directly until the SDKs
+> re-release).
+
 | Code | Meaning | What to do |
 | --- | --- | --- |
 | `slug_taken` | `register` — slug already used in the realm. | Pick a different slug. |
-| `role_not_service_typed` | `install` — the chosen role's `assignable_to` is not exactly `["service"]`. | Author (or pick) a role declared solely for service use; a human/admin role can never back a foreign integration. |
-| `role_not_installable` | `install` — the role is `owner` or `platform_api`. | Not installable by design; choose a service-typed custom role. |
-| `integration_disabled` | `install` — the source platform disabled the integration. | Ask the source to re-enable it. |
+| `permissions_required` | `install` — the stated grant is empty (or the retired `role_id` body was sent). | Name at least one ADR-074 catalog permission the integration may exercise. |
+| `permissions_exceed_grantor` | `install` — the list names permissions the installing owner could not grant. | Narrow the list to what the owner actually holds. |
+| `install_grants_nothing` | `install` — nothing in the list survives validation. | Fix the permission keys; a typo'd grant is refused, never stored inert. |
+| `integration_disabled` | `install` / `mintToken` — the source platform disabled the integration. | Ask the source to re-enable it. |
 | `already_installed` | `install` — a live installation already exists for this org. | Uninstall the existing one first, or reuse it. |
 | `installation_revoked` | `mintToken` — the target org uninstalled. | Stop minting; the edge is gone. |
-| `role_unavailable` | `mintToken` — the installed role was disabled/narrowed after approval. | Ask the target owner to restore the role or re-install with a valid one. |
 | `key_class_mismatch` | `mintToken` — the api key is not a platform-class key. | Mint with the realm's `platform_api` key, not a service key or user token. |
 | `installation_not_found` | `mintToken` — unknown installation id, **or** a platform key from a realm other than the integration's (no cross-realm existence oracle). | Verify the installation id and that you are minting with the source realm's key. |
 
