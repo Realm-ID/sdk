@@ -479,6 +479,61 @@ this is the SDK-side work.
   wording to "verifier + admin types only." Also: its verifier tests are mildly
   flaky (1/8 intermittent, timing/JWKS-mock related).
 
+## Integration-guide improvements from the Traide exchange (2026-08-31)
+
+Derived from a live partner incident and the two-round exchange that followed,
+NOT from a review pass. Each item is something a partner actually got wrong, or
+that we got wrong answering them. Ordered by what would have prevented the most.
+
+1. **State that the `role` claim is a partner-visible CONTRACT.** The claim
+   carries `users.role` verbatim (`issuer/internal/tokens/tokens.go:52`), and
+   partners key their own authorization off that string — Traide's GoFr RBAC
+   reads `jwtClaimPath: "role"` against their own catalog. The guide never says
+   this, so a partner cannot know a role rename is a breaking change for them.
+   **Say it, and say the corollary**: do NOT key product authorization off the
+   RealmID role name; that is what ADR-097 `scope` is for. ADR-040 recorded this
+   coupling years ago and the guide never carried it forward.
+
+2. **Document the scoped-token CUTOVER, not just the mint.** §4.2 says how to
+   ask for a scope; nothing says how to adopt one on a running system. Needs:
+   the mint must sit immediately after login and not only on the refresh path
+   (because `/auth/login` can NEVER mint a scope, so a login-only population
+   never converges); mint with the gate OFF, wait one refresh cycle — NOT
+   `access_ttl_seconds` — then observe mode, then enforce; and if an overlap
+   shim is needed, it must distinguish ABSENT scope (legacy) from
+   PRESENT-but-insufficient, invert `scopeAllows`'s fail-closed default only
+   inside the partner's own wrapper, and carry a date plus a removal ticket in
+   the same commit.
+
+3. **Warn that a partner's own test doubles can hide contract drift.** Traide's
+   `stubissuer` echoes any role name back as `active` with no catalog check, so
+   their suite passes for a role RealmID would refuse; their Vitest suite mocks
+   the SDK, so it stays green against a failed install. The guide's §9
+   ("Testing your integration") should say what a stub must validate to be
+   worth anything, and that a typecheck is stronger evidence than a mocked
+   suite.
+
+4. **Document that service-account provisioning VALIDATES the role name.**
+   `service_accounts.go:281` → `validateRoleForTenantKind` → `400 unknown_role`.
+   Undocumented, and it is the difference between "re-provision onto the right
+   role" being a recovery path and being a dead end.
+
+5. **Pinning guidance, both ecosystems.** A caret does not cross a 0.x minor —
+   `^0.4.3` never installs `0.5.0` and `npm update` is silent about it. And go
+   `0.51.0` reports `const Version = "0.50.0"`; pin `0.51.1` if you read
+   `realmid.Version`.
+
+6. **A "what changes when RealmID changes" section.** The guide explains the
+   surface but never tells a partner which of our changes can reach their
+   runtime. Role vocabulary, claim shape and error codes all can; our
+   `permissions` arrays cannot. That framing is what a partner needs to know
+   which of our release notes to actually read.
+
+Related: the incident write-up is in the umbrella repo
+(`PARTNER-HANDOFF-TRAIDE-SDK-UPGRADE-2026-08-31.md`, private), and the method
+for handling this class of question is the `partner-integration-support` skill
+in the same repo.
+
 ## Docs
 
 *(Empty. The `TransferOwnerRequest` schema backfill was verified done
