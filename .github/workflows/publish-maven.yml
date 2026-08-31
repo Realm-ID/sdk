@@ -66,4 +66,38 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
-        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --stacktrace
+        # Idempotent, like publish-npm's per-package publish: an already-released
+        # version is a SKIP, not a failure.
+        #
+        # Added 2026-08-31. Without it, re-pushing a release tag — which the
+        # workflow's own header invites, since a lightweight tag is "still
+        # fixable (delete, re-cut with -a)" — re-uploads coordinates Central
+        # already holds, Central rejects the duplicate, and a red run attaches
+        # PERMANENTLY to a tag whose release actually succeeded. This repo's own
+        # verify-go-release.yml header argues the case: "a gate that is
+        # permanently red over an uncorrectable fact is a gate people learn to
+        # ignore."
+        #
+        # The check runs BEFORE gradle rather than pattern-matching its failure:
+        # Central's rejection text is not a contract, and a publish that failed
+        # for some OTHER reason must still go red. `latest` is deliberately not
+        # consulted — the metadata index lags the artifact by minutes (measured
+        # this same day), so it would report "not published" for a version that
+        # is. The pom's presence is the artifact itself.
+        run: |
+          set -euo pipefail
+          # Read from build.gradle.kts, the same file changelog-hygiene.sh reads
+          # and the one gradle itself publishes from. No JVM needed to decide
+          # whether to start one.
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' build.gradle.kts)"
+          if [ -z "$version" ]; then
+            echo "::error::could not determine the java version to publish"; exit 1
+          fi
+          pom="https://repo1.maven.org/maven2/dev/realmid/sdk/${version}/sdk-${version}.pom"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$pom")"
+          if [ "$code" = "200" ]; then
+            echo "dev.realmid:sdk ${version} is already on Maven Central — skipping publish"
+            exit 0
+          fi
+          echo "dev.realmid:sdk ${version} not on Central (pom probe: ${code}) — publishing"
+          ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache --stacktrace

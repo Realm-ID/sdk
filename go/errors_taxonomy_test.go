@@ -74,6 +74,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeIntegrationRoleNotInst, ErrCodeInstallationNotFound,
 		ErrCodeInstallationRevoked, ErrCodeIntegrationRoleUnavail,
 		ErrCodeIntegrationKeyClassMisfit,
+		ErrCodePermissionsRequired, ErrCodeUnknownPermission,
+		ErrCodePermissionsExceedGrantor, ErrCodeInstallGrantsNothing,
 		ErrCodeOwnerCannotBeRevoked, ErrCodeSingleTenantNotReqd,
 		ErrCodeNotInvited, ErrCodeNotPending, ErrCodeInvitationsUnavailable,
 		ErrCodeOwnerCannotLeave, ErrCodeAlreadyLeft,

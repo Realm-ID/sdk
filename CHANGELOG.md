@@ -13,6 +13,35 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.52.1` — the four new error codes were never registered in Go (2026-08-31)
+
+No API change. `0.52.0` declared `ErrPermissionsRequired`, `ErrUnknownPermission`,
+`ErrPermissionsExceedGrantor` and `ErrInstallGrantsNothing` and mapped them in
+`mapIntegrationErr`, but never added the four strings to `go/errors.go`'s
+taxonomy — the const block and `knownCodes`. ts and Java declared all four.
+
+**What that actually cost, stated precisely rather than repeating the release
+note's own claim.** The sentinels DO fire in `0.52.0`: `specificCode` reads the
+envelope siblings before `re.Code`, so `errors.Is(err, ErrPermissionsRequired)`
+matches. What is wrong is `RealmError.Code` — unregistered, the specific string
+never lands there, so a Go caller branching on `.Code` sees `bad_request` /
+`forbidden` where a ts or Java caller sees `permissions_required`. A
+cross-language divergence in the one field callers branch on.
+
+**Caught by the parity gate, which was RED on `main` before the release and did
+not stop it.** `scripts/taxonomy-parity.py` reported the drift on the install-fix
+commit itself. Nothing consults CI on the way to a tag, so `go/v0.52.0` shipped
+over a red gate that was naming this exact defect. That is the second time in two
+days a red ancestor reached a release.
+
+Fixed forward — `go/v0.52.0` is immutable and the proxy has cached it.
+
+⚠️ The registration lives in **THREE** hand-maintained lists, and adding a code
+to two of them leaves the build broken in a way only the third reports: the
+const block, `knownCodes`, and `declared` in `errors_taxonomy_test.go`. The test
+compares its own length against `knownCodes` precisely so a two-of-three edit
+cannot pass.
+
 ## BREAKING — `integrations.install()` was sending a field the issuer retired — go `0.52.0` · ts `0.45.0` · java `0.42.0` · `web-admin` `0.12.0` (2026-08-31)
 
 **This call has been returning `400 permissions_required` in production.** Not a

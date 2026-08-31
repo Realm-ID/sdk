@@ -148,6 +148,18 @@ const (
 	ErrCodeIntegrationRoleUnavail    ErrorCode = "role_unavailable"
 	ErrCodeIntegrationKeyClassMisfit ErrorCode = "key_class_mismatch"
 
+	// ADR-101 D7 replaced the install's role with a stated permission list.
+	// Registered for the same reason as the block above: unregistered, the
+	// specific code reaches RealmError.Code only via the envelope siblings, so a
+	// Go caller reading re.Code sees `bad_request`/`forbidden` while ts and Java
+	// see the precise string — a cross-language divergence in the one field
+	// callers branch on. The sentinels in integrations.go match either way
+	// (specificCode reads both levels); this is about Code fidelity.
+	ErrCodePermissionsRequired      ErrorCode = "permissions_required"
+	ErrCodeUnknownPermission        ErrorCode = "unknown_permission"
+	ErrCodePermissionsExceedGrantor ErrorCode = "permissions_exceed_grantor"
+	ErrCodeInstallGrantsNothing     ErrorCode = "install_grants_nothing"
+
 	// Membership self-service (ADR-092 D5). Registered so the flat envelope's
 	// specific code reaches RealmError.Code instead of collapsing into the
 	// generic 409 `conflict` — every one of these has a distinct remedy the
@@ -301,7 +313,9 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeIntegrationRoleNotInst: {}, ErrCodeInstallationNotFound: {},
 	ErrCodeInstallationRevoked: {}, ErrCodeIntegrationRoleUnavail: {},
 	ErrCodeIntegrationKeyClassMisfit: {},
-	ErrCodeOwnerCannotBeRevoked:      {}, ErrCodeSingleTenantNotReqd: {},
+	ErrCodePermissionsRequired:       {}, ErrCodeUnknownPermission: {},
+	ErrCodePermissionsExceedGrantor: {}, ErrCodeInstallGrantsNothing: {},
+	ErrCodeOwnerCannotBeRevoked: {}, ErrCodeSingleTenantNotReqd: {},
 	ErrCodeNotInvited: {}, ErrCodeNotPending: {},
 	ErrCodeInvitationsUnavailable: {}, ErrCodeOwnerCannotLeave: {},
 	ErrCodeAlreadyLeft: {},
