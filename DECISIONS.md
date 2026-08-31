@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-80 entries total — 25 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+81 entries total — 26 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong](#2026-08-31-publish-later--the-tags-were-re-cut-after-all-and-the-reason-i-predicted-a-red-run-was-wrong)
 - [2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put](#2026-08-31-publish--the-changelog-gate-fired-before-any-registry-saw-an-artifact-and-the-tags-stayed-put)
 - [2026-08-31 (integrations) — the test asserted the wire shape, so the wire shape could rot](#2026-08-31-integrations--the-test-asserted-the-wire-shape-so-the-wire-shape-could-rot)
 - [2026-08-31 (docs, still later) — the partner guide's siblings had never been audited at all; one had never once been true](#2026-08-31-docs-still-later--the-partner-guides-siblings-had-never-been-audited-at-all-one-had-never-once-been-true)
@@ -93,6 +94,47 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
+
+## 2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong
+
+**Supersedes the entry below on its central claim.** That entry says the tags
+stayed put and recorded the tag/artifact delta as permanent. Both tags were
+subsequently re-cut, with the user's approval, onto `2c5bf1e` — the commit the
+artifacts were actually built from. `ts-v0.45.0` and `java-v0.42.0` now name
+their own artifacts. `go/v0.52.0` was never moved and never will be.
+
+**What re-running the publishes actually did.** `publish-npm` skipped every
+package as designed (`already published — skipping` for ts, core, react,
+bff-realmid, admin). `publish-maven` was the interesting one.
+
+**The prediction was wrong, and it was wrong twice.** It was stated that
+re-pushing `java-v0.42.0` would re-upload coordinates Central already holds,
+Central would reject the duplicate, and a permanently red run would attach to a
+tag whose release had succeeded — the argument `verify-go-release.yml`'s header
+makes about gates people learn to ignore. That was asserted from reading the
+workflow, not from testing it. Then, when the run went green, it was suggested
+that the artifact may have been REPLACED, which was the opposite error.
+
+**Measured.** The re-cut tag points at `2c5bf1e`, which PREDATES the guard
+commit, so the re-run executed the OLD unguarded step. Gradle reported
+`:signMavenPublication`, `:publishMavenPublicationToMavenCentralRepository` and
+`:releaseRepository` all executed and `BUILD SUCCESSFUL`. And every file under
+`dev/realmid/sdk/0.42.0/` still carries its original `2026-08-31 13:35`
+timestamp — zero files stamped after the 15:24 re-run. Central accepted nothing
+and rejected nothing. Immutability held; the deployment was a silent no-op.
+
+**So the guard is kept for a weaker reason than it was added for**, and both the
+workflow comment and the changelog now say so. It does not prevent a failure. It
+converts a silent no-op into one logged, deterministic line, and avoids spending
+a build-sign-upload cycle on an outcome that depends on the Portal's tolerance
+for a republish — which is not a contract worth relying on in either direction.
+
+**The lesson is the session's own, applied to itself.** Twice today the
+conclusion came from reading an artifact — a changelog line, a workflow file —
+rather than from exercising the thing. That is the same failure as the SDK tests
+that asserted `role_id` was sent and stayed green while the call 400'd in
+production. Reading the code tells you what it says; only running it tells you
+what it does.
 
 ## 2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put
 

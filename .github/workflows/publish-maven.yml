@@ -69,14 +69,24 @@ jobs:
         # Idempotent, like publish-npm's per-package publish: an already-released
         # version is a SKIP, not a failure.
         #
-        # Added 2026-08-31. Without it, re-pushing a release tag — which the
-        # workflow's own header invites, since a lightweight tag is "still
-        # fixable (delete, re-cut with -a)" — re-uploads coordinates Central
-        # already holds, Central rejects the duplicate, and a red run attaches
-        # PERMANENTLY to a tag whose release actually succeeded. This repo's own
-        # verify-go-release.yml header argues the case: "a gate that is
-        # permanently red over an uncorrectable fact is a gate people learn to
-        # ignore."
+        # Added 2026-08-31, and the reason it was added was WRONG — recorded
+        # here so nobody re-derives the wrong one. The prediction was that
+        # re-pushing a release tag re-uploads coordinates Central already holds,
+        # Central rejects the duplicate, and a red run attaches permanently to a
+        # tag whose release succeeded. MEASURED the same day: it does not. The
+        # java-v0.42.0 re-cut ran this step UNGUARDED (the tag predates this
+        # commit), gradle reported :signMavenPublication,
+        # :publishMavenPublicationToMavenCentralRepository and :releaseRepository
+        # all executed, BUILD SUCCESSFUL — and every file under
+        # dev/realmid/sdk/0.42.0/ still carries its original 13:35 timestamp.
+        # Central accepted nothing and failed nothing. Immutability held; the
+        # deployment was a silent no-op.
+        #
+        # So this guard is NOT protecting against a red run. What it buys is
+        # that the no-op becomes explicit and deterministic — one logged line
+        # instead of a full build-sign-upload cycle whose outcome depends on the
+        # Portal's tolerance for a republish, which is not a contract we should
+        # be relying on either way.
         #
         # The check runs BEFORE gradle rather than pattern-matching its failure:
         # Central's rejection text is not a contract, and a publish that failed

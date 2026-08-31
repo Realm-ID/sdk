@@ -28,6 +28,14 @@ never lands there, so a Go caller branching on `.Code` sees `bad_request` /
 `forbidden` where a ts or Java caller sees `permissions_required`. A
 cross-language divergence in the one field callers branch on.
 
+**`publish-maven` became idempotent in the same commit, for a reason that turned
+out to be wrong.** The stated justification was that re-pushing a release tag
+would fail on a duplicate upload and leave a permanently red run. Measured: it
+does not. The `java-v0.42.0` re-cut ran the step unguarded and went GREEN, and
+every file on Central kept its original timestamp — Central accepted nothing and
+rejected nothing. The guard is kept because it makes that no-op explicit rather
+than implicit, not because it prevents a failure.
+
 **Caught by the parity gate, which was RED on `main` before the release and did
 not stop it.** `scripts/taxonomy-parity.py` reported the drift on the install-fix
 commit itself. Nothing consults CI on the way to a tag, so `go/v0.52.0` shipped
