@@ -19,8 +19,9 @@
 > guide is the platform-shaped one (the model, claims, RBAC, migration). They
 > overlap and are being reconciled; where they disagree, `SPEC.md` wins.
 >
-> **Current as of 2026-07-15 (issuer v0.39.0), except §4.2 (`scope`), refreshed
-> 2026-08-28.**
+> **Current as of 2026-08-31 (issuer v0.114.0)** — audited line-by-line against
+> the issuer source and the three published SDKs on that date; the sections
+> that had drifted say so inline.
 >
 > Audience: a backend engineer at a partner platform integrating with RealmID. Features deferred past v1
 > (cross-platform authorization endpoints, per-realm invitation TTL)
@@ -238,11 +239,11 @@ being able to promote themselves. The full management surface is in
 
 Two ways to attach data:
 
-**(a) Inline custom claims on the JWT.** Any non-reserved keys you pass in `POST /auth/login`'s `custom_claims` field land on the token payload directly (e.g. `outlet_ids`, `feature_flags`, `region`). Reserved claim names are **refused**, not silently dropped: sending one in `custom_claims` on `POST /auth/token` returns `400 reserved_claim_key` (ADR-097 D3 — a dropped claim is indistinguishable, from your side, from an honoured one, and once `scope` carries granted authority that difference is a gate that never fires). The reserved set is `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `scope`, `token_class`. Claims are snapshotted on the session, so refresh re-emits the same set; tenant switch (`POST /auth/token { tenant_id }`, ADR-031/032) clears them because they're tenant-specific. Use this when the data is small, stable-for-the-session, and needs to be available without a DB hop (a per-user list of the outlets or branches they may see is the archetype).
+**(a) Inline custom claims on the JWT.** Custom claims ride on **`POST /auth/token` only** — the `custom_claims` field on `/auth/login` was deprecated with Sunset 2026-07-01 and is gone (a login body still carrying it is inert; this paragraph named the wrong route until 2026-08-31). Keys you pass on `/auth/token` land on the minted access token (e.g. `outlet_ids`, `feature_flags`, `region`), subject to two gates that both refuse loudly rather than dropping silently. First, every key must be on your realm's allowlist, `realms.config.access_token_custom_claim_keys` — a key that is not is `400 bad_request`, and the allowlist defaults to **empty**, so custom claims are something you turn on deliberately, not a field that happens to work. Second, reserved claim names are `400 reserved_claim_key` (ADR-097 D3 — a dropped claim is indistinguishable, from your side, from an honoured one, and once `scope` carries granted authority that difference is a gate that never fires). The reserved set is `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `scope`, `token_class`. Claims are per-mint, like `scope`: send them on each `/auth/token` call (refresh and the ADR-031/032 tenant switch included) — they are not stored on the session. Use this when the data is small and needs to be available without a DB hop (a per-user list of the outlets or branches they may see is the archetype).
 
 **(b) Partner-side lookup keyed on JWT subject.** Read `tenant_id` + `user_id` off the verified claim, consult your own DB per request. Use this when the data is mutable mid-session (tokens won't reflect changes until next refresh) or too big for a claim.
 
-Do **not** try to stuff extra roles into the RealmID JWT by overriding reserved keys — they'll be stripped. Prefer `scope` over a role LABEL in `custom_claims`: `scope` is re-resolved on every `/auth/token` call and never stored, whereas custom claims are snapshotted onto the session and drift across a long one.
+Do **not** try to stuff extra roles into the RealmID JWT by overriding reserved keys — the mint refuses them (`400 reserved_claim_key`). Prefer `scope` over a role LABEL in `custom_claims`: a scope is what the SDK's route gate evaluates (§4.2), while a role label in a custom claim is a string only your own code will ever read.
 
 **Role permissions on the RealmID admin surface (ADR-074).** Realm roles carry
 a `permissions` array drawn from a closed `resource:action` catalog (`GET
@@ -641,7 +642,7 @@ reading and revoking one you already hold is not.
 ## 5. Sessions, logout, MFA
 
 - **Sessions:** one RealmID session per login. Concurrent session limits configurable per realm (design.md §Session Management).
-- **Logout:** call SDK `Logout(ctx, sessionID)`. Revokes in DB + Redis immediately.
+- **Logout:** call the SDK — Go `realm.Auth.Logout(ctx, &realmid.LogoutRequest{RefreshToken: rt})`, TS `realm.auth.logout({ refreshToken })`. Revocation is immediate (DB + Redis); pass `AccessToken` too and the Go SDK's optional `RevocationCache` rejects that token's `jti` locally until natural expiry.
 - **MFA at login:** configurable per realm/tenant, delegated to the provider when it supports it natively (Firebase, Google); otherwise handled by RealmID TOTP (ADR-008).
 - **First-login MFA self-enrollment (ADR-061):** when a user logs into an MFA-required tenant with no factor yet, `/auth/login` returns `412 mfa_registration_required` with an `mfa_challenge_token` and `tenant_id`. The user (via your BFF) enrolls a TOTP factor through **`POST /auth/mfa/enroll`** — this is **refresh-authed** (the request carries the login session's `refreshToken` + `tenant_id`), so the **same** endpoint serves first-login enrollment *and* a logged-in user switching into an MFA-required tenant. The enroll response returns `{ secret, qr_url, recovery_codes, mfa_challenge_token, tenant_id }`; complete it by passing the **enroll-scoped** `mfa_challenge_token` to **`POST /auth/mfa/verify`** — a single verify both confirms the new secret and mints the token pair. There is **no** `/auth/mfa/confirm` step (it was removed in ADR-061; confirmation folds into verify). SDK: `selfEnrollMfa` (SPEC §4.8). **Note:** `recovery_codes` ARE redeemable — `POST /auth/mfa/recovery` (ADR-077 §2), and `POST /auth/mfa/recovery/regenerate` rotates them. This bullet used to say they were "not yet redeemable"; that stopped being true when the redeem path shipped.
 - **MFA freshness model (SPEC §10.4):** access tokens carry an `mfa_at` claim — the unix-seconds timestamp of the user's most recent successful MFA verify. SDK middleware reads `mfa_at` and enforces a per-route freshness window (`maxAgeSeconds` or `requireFresh`); on miss it returns `412 mfa_required` with a sibling `mfa_challenge_token`. The realm-wide default window lives at `realms.config.mfa_session_ttl_seconds` (default 900s). When fresh MFA is needed mid-session, partners call `POST /auth/mfa/challenge` (bearer = current access token) to mint a step-up challenge, then `POST /auth/mfa/verify` to complete it — verify returns a freshly-minted access + refresh pair carrying the new `mfa_at`. Full contract in [SDK SPEC §10.4](../../sdk/SPEC.md).
@@ -723,25 +724,39 @@ a list — a list has to be revisited every time you add a route.
 
 ## 6. SDK methods you will actually call
 
-From your partner API (holding a Service JWT obtained via API key at startup). The Go SDK exposes two top-level constructs:
+From your partner API (bootstrapped with your `rk_live_…` key, or WIF — §6.5).
+The published Go SDK (`github.com/Realm-ID/sdk/go`) exposes **one** handle —
+`realmid.NewRealm(realmid.Config{RealmID, APIKey, …})` — that is both the
+client and the verifier.
 
-### `realmid.Client` — calls RealmID from your backend
+> ⚠️ Until 2026-08-31 this section documented `realmid.Client` /
+> `realmid.Verifier` — the issuer repo's *internal* SDK, which partners cannot
+> even import (that repo is private), whose `AuthenticateUser` called an
+> endpoint that no longer exists, and whose `Introspect` named a capability
+> the issuer has never exposed over HTTP. What follows is the published
+> surface.
+
+### Calling RealmID from your backend — `realm.Auth` and friends
 
 | Method | When |
 | --- | --- |
-| `AuthenticateUser(AuthenticateUserInput{Method, ProviderToken, Origin, MFAProof, CustomClaims})` | User login. `CustomClaims` is inlined into the issued JWT (§4 option a). |
-| `Refresh(refreshToken)` | Refresh flow. Re-emits the original custom claims. |
-| `Logout(refreshToken, all)` | Revoke current session; `all=true` kills every session for the user. |
-| `Introspect(accessToken)` | `{active, revoked, jti, user_id, tenant_id}` — use for tighter-than-TTL revocation checks on high-privilege endpoints. |
+| `Auth.Login(ctx, LoginRequest{Method, ProviderToken, TenantID, …})` | User login (`grant_type=provider_token` on the wire). On an MFA gate it returns a `*RealmError` carrying `Details["mfa_challenge_token"]`. |
+| `Auth.Token(ctx, TokenRequest{RefreshToken, TenantID, Scope, CustomClaims, …})` | Refresh, tenant switch, and the §4.2 scoped mint. Custom claims are supplied HERE, per mint (§4 option a). |
+| `Auth.Logout(ctx, &LogoutRequest{RefreshToken, AccessToken})` | Revoke the session. `AccessToken`, when set, also feeds the local `RevocationCache` (below). |
+| `Auth.ListSessions` / `Auth.RevokeSession` | Session administration on behalf of the user. |
+| `Tenants.*`, `Roles.*`, `APIKeys.*`, `Domains.*`, `Origins.*`, … | The admin surface — `SPEC.md` §6 carries the per-resource contract. |
 
-### `realmid.Verifier` — validates incoming tokens on every request
+### Verifying incoming tokens on every request — `realm.Verify`
 
-| Option | Effect |
+`realm.Verify(ctx, token, opts)` fetches JWKS from
+`BaseURL/{realmID}/.well-known/jwks.json` (cached in-process), checks RS256 +
+`iss`-prefix + `aud`, and returns typed `Claims`.
+
+| `Config` field | Effect |
 | --- | --- |
-| `BaseURL`, `Audience` | Required. The verifier fetches JWKS from `BaseURL/{realmID}/.well-known/jwks.json` and checks `iss`-prefix + `aud`. |
-| `StaticKeys: map[realmID]*signer.Keyring` | In-process keyring bypass — no HTTP fetch. Used by tests through `testsupport/issuer` (see [issuer README](../testsupport/issuer/README.md)). |
-| `RevocationChecker` | Called after the stateless JWT check. Return `active=false` → Verify fails with `ErrRevoked`. Wire this to `Client.Introspect` when you want per-request revocation enforcement. |
-| `CacheTTL`, `Leeway`, `Now` | JWKS cache lifetime, clock skew, time hook. |
+| `RealmID` | Required. `BaseURL` defaults to the hosted issuer. |
+| `Leeway`, `Clock` | Clock-skew tolerance for `exp`/`nbf` (default 30s); time hook for tests. |
+| `Revocation RevocationCache` | Optional JTI denylist consulted after the stateless checks — stops the bleed on a stolen access token between logout and natural expiry. `NewMemRevocationCache(nil)` for one process; back it with Redis across replicas. There is **no issuer-side introspection endpoint** — tighter-than-TTL revocation is this cache plus your own logout wiring. |
 
 > **Audience auto-discovery (ADR-064, issuer v0.14.0+).** If you call
 > `Verify(ctx, token, nil)` without an explicit audience, the verifier reads the
@@ -773,7 +788,7 @@ Your platform token stays the wire bearer — this is **additive**, not a swap.
 | --- | --- |
 | Go — typed methods (`Tenants.*`, `Origins.*`, `Auth.*`) | **Yes**, since `go/v0.37.0` |
 | Go — `Realm.Do` (raw escape hatch) | Yes |
-| TypeScript, Java | **Not yet** — hand-roll the header, or call via `Do`-equivalent |
+| TypeScript, Java | **Yes**, since ts `0.33.0` / java `0.32.0` — `const asUser = realm.withUserToken(accessJWT)` returns a derived handle, the original is untouched. (This row said "not yet" until 2026-08-31; the surface shipped 2026-08-02.) |
 
 > **The bare `X-On-Behalf-Of-User` header is no longer an identity (issuer
 > `v0.66.0`, SECURITY).** It used to be accepted as an on-behalf assertion, which
@@ -787,7 +802,7 @@ Your platform token stays the wire bearer — this is **additive**, not a swap.
 
 ### Not-yet-in-SDK (call over HTTP)
 
-`ListTenants`, `ListUsers`, `InviteUser`, `SetUserStatus`, cross-platform authorizations — on the HTTP surface; SDK wrappers are on the roadmap. (MFA *is* now wrapped: self-service `selfEnrollMfa` / `disableMfa` and the admin `tenants.users.{enrollMfa,confirmMfa,resetMfa}` surface — SPEC §4.8 / §6.2.)
+Almost nothing, now — this list is where wrapped surfaces kept being reported as missing. The lot it used to defer is in the SDKs: `Tenants.List`, `Tenants.Users.List` / `UpdateStatus`, `Tenants.Invitations.Create`, the MFA surface (self-service `selfEnrollMfa` / `disableMfa` and the admin `tenants.users.{enrollMfa,confirmMfa,resetMfa}` — SPEC §4.8 / §6.2), and bulk import (`Tenants.Users.ImportUsers`, §7.3). What genuinely remains HTTP-only is **cross-platform authorizations** — and those are post-v1 and unmounted (§9.7), so there is nothing to call yet.
 
 > **Success-status convention (ADR-069).** If you call the HTTP surface
 > directly, **accept the whole `2xx` class** — never hardcode `== 200`. RealmID
@@ -799,7 +814,8 @@ Your platform token stays the wire bearer — this is **additive**, not a swap.
 > `201 Created`. The RealmID SDKs already treat `2xx` as success, so this only
 > matters for raw-HTTP integrations.
 
-> **Invite identifier validation is format-only.** `InviteUser` classifies the
+> **Invite identifier validation is format-only.** The invitation create
+> (`Tenants.Invitations.Create` / `POST /tenants/{id}/invitations`) classifies the
 > identifier syntactically (email = contains `@`, phone = starts with `+`) and
 > inserts it into `user_contacts`. There is **no** MX lookup, SMTP probe, or DNS
 > reachability check — so a non-deliverable synthetic address (e.g.
@@ -882,16 +898,16 @@ issues an OTP after the SA's first-factor login fails open with
 
 ```go
 // Go SDK
-sess, err := client.Auth.Login(ctx, realmid.LoginRequest{
-    Method: "google", Token: googleIDToken,
+sess, err := realm.Auth.Login(ctx, realmid.LoginRequest{
+    Method: realmid.LoginGoogle, ProviderToken: googleIDToken,
 })
-// err is RealmError with code "mfa_required" + Details["mfa_challenge_token"]
+// err is *RealmError with code "mfa_required" + Details["mfa_challenge_token"]
 // (manager-side) issue a login OTP for the SA
-otp, err := client.OTP.Issue(ctx, tenantID, realmid.OTPIssueRequest{
+otp, err := realm.OTP.Issue(ctx, realmid.IssueRequest{
     SubjectRef: "user:" + saUserID, Purpose: "login",
 })
 // (SA-side) complete the second factor
-sess, err = client.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
+sess, err = realm.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
     MFAToken: mfaChallengeToken, Presented: otp.Value,
 })
 ```
@@ -899,7 +915,7 @@ sess, err = client.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
 ```ts
 // TS SDK
 try {
-  await realm.auth.login({ method: "google", token: googleIdToken });
+  await realm.auth.login({ method: "google", providerToken: googleIdToken });
 } catch (e) {
   if (e instanceof RealmError && e.code === "mfa_required") {
     const mfaToken = String(e.details?.mfa_challenge_token);
@@ -916,14 +932,14 @@ types phone (or email) + the manager-issued code; no federated
 provider:
 
 ```go
-sess, err := client.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{
-    RealmID: realmID, Identifier: "+919999000011", Presented: otp.Value,
+// the realm is fixed by the SDK handle's config — there is no per-call realm id
+sess, err := realm.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{
+    Identifier: "+919999000011", Presented: otp.Value,
 })
 ```
 
 ```ts
 const session = await realm.auth.otpLogin({
-  realmId,
   identifier: "+919999000011",
   presented: otp.value,
 });
@@ -965,44 +981,52 @@ operators driving the CLI) hit this hard — there are **two** auth
 guards on the `/platforms/{id}/...` admin surface, and they take
 *different* credentials.
 
-### Key class is derived from the bound bot user — not from `scope`
+### Every key binds to the `platform_api` bot — and only that bot (ADR-091 D3)
 
-`POST /platforms/{id}/api-keys` mints a key whose **class** is decided
-**solely by the role of the bot user it binds to**:
+`POST /platforms/{id}/api-keys` binds every new key to your realm's
+**`platform_api` bot user**, and refuses anything else:
 
-- binds to a user with role **`platform_api`** → **platform-class** key
-  → exchanges at `/auth/login` with `grant_type=platform_api_key` →
-  yields a `scope=platform` session.
-- binds to **any other** user (a human owner, a `service` bot) →
-  **service-class** key → `grant_type=api_key` → `scope=service`
-  session.
+- omit `user_id` → the realm's `platform_api` bot is resolved for you →
+  **platform-class** key → exchanges at `/auth/login` with
+  `grant_type=platform_api_key` → yields a `scope=platform` session.
+- pass `user_id` explicitly → it must name that same bot. A human owner is
+  `400 invalid_user_for_api_key` — an owner-bound key used to mint a
+  service-class credential that inherited owner implicit-all while dodging
+  both ADR-085 caps, and a live one was found in prod, which is why the
+  refusal exists. `platform_mgmt_api` is `400 platform_mgmt_api_is_wif_only`:
+  it is the identity that mints `platform_api`'s key (§6.4.1), so it may
+  never hold a key of its own.
 
-The `scope` field on the create request (`--field scope=platform`) is
-**cosmetic** — it's stored and echoed but the class check
-(`isPlatformKey`) ignores it. Setting `scope=platform` does **not**
-upgrade a service key. (This footgun is tracked for fix.)
+The `scope` field on the create request is **derived, never stored**: the
+response reports the class the bound user's role implies, and a caller-supplied
+`scope` that disagrees is `400 scope_mismatch` rather than silently persisted.
+(Until the ADR-085 Amendment / ADR-091 this section warned that `scope` was
+cosmetic and the echo always said `"service"` — both were true, both are
+fixed, and the echoed class is now authoritative.)
+
+`grant_type=api_key` (service-class) survives on the login surface for keys
+minted before the D3 cut; you cannot mint a new one.
 
 How binding is chosen:
 
 ```bash
-# No user_id → defaults to the realm's platform_api bot user → PLATFORM-class.
+# No user_id → the realm's platform_api bot user → PLATFORM-class.
 realm-id api-keys create --platform <realm-id> --field label=provisioning
-# Explicit user_id → binds to THAT user (a human owner → service-class).
+# Explicit user_id → must BE that bot; a human owner's id is refused.
 realm-id api-keys create --platform <realm-id> --field user_id=<bot-user-id>
 ```
 
 **Revoking a key.** Keys are soft-revoked via
 `DELETE /platforms/{id}/api-keys/{keyId}` (CLI: `realm-id api-keys
-delete --platform <realm-id> --keyId <key-id>`). After revoke, both
-`grant_type=api_key` and `grant_type=platform_api_key` exchanges for
-that key return `401 revoked_api_key`. Use this to clean up any
-service-class keys minted while sorting out the bot-user/class issue
-above.
+revoke --platform <realm-id> --keyId <key-id>` — the verb is `revoke`,
+not `delete`). After revoke, both `grant_type=api_key` and
+`grant_type=platform_api_key` exchanges for that key return
+`401 revoked_api_key`.
 
-> ⚠️ The create response **always echoes `"scope":"service"`** regardless
-> of the real class — ignore it. Confirm the real class by exchanging the
-> key: `POST /auth/login {grant_type:"platform_api_key", api_key:"…"}`
-> returning `200` + `subject_type:"platform"` means it's platform-class.
+> The create response's `scope` reports the DERIVED class and is trustworthy
+> (ADR-085 Amendment). If you want proof anyway, exchange the key:
+> `POST /auth/login {grant_type:"platform_api_key", api_key:"…"}` returning
+> `200` + `subject_type:"platform"` is platform-class from the horse's mouth.
 
 > **ADR-089 (issuer `v0.68.0`): the exchange returns NO `refresh_token`.**
 > A platform / service / WIF login yields `{access_token, expires_in}` and
@@ -1026,10 +1050,12 @@ normal way already has it. **But a realm provisioned outside that path
 
 - `api-keys create` with no `user_id` → **`400 no_default_bot_user`**
   ("realm has no platform_api bot user; pass user_id explicitly").
-- passing a human owner's `user_id` succeeds but yields a
-  **service-class** key — which `grant_type=platform_api_key` rejects
-  with `key_class_mismatch`, and which `origins`/`domains` then reject
-  for `wrong_scope`.
+- passing a human owner's `user_id` is refused outright —
+  **`400 invalid_user_for_api_key`** ("user role must be platform_api").
+  It used to succeed and yield a service-class key that
+  `grant_type=platform_api_key` then rejected with `key_class_mismatch`;
+  ADR-091 D3 closed that door, so there is no wrong-class key left to mint
+  by accident.
 
 There is **no self-serve call** to backfill the bot user — it's an
 **RI-side operation** (operator-runbook → "ensure platform_api bot
@@ -1050,10 +1076,23 @@ accepts **either** credential for the target realm (ADR-047 amendment,
 | the realm's **owner user JWT** | directly, or through the BFF on-behalf passthrough (also the RI-staff cross-realm path) |
 | a **realm-scoped platform token** (`scope=platform`, realm-matched) | exchange your realm's platform api-key / WIF, then bear it directly against `auth.realmid.dev` |
 
-So you can provision a whole realm with **one** credential — either an
-owner session (e.g. the CLI/BFF) or your realm's platform token driven
-directly against the issuer. A platform token for a *different* realm is
-still rejected.
+So one credential goes a long way: an owner session (e.g. the CLI/BFF)
+provisions everything, and your realm's platform token driven directly
+against the issuer covers most of it — see the caveat below for what the
+platform token deliberately cannot do. A platform token for a *different*
+realm is still rejected.
+
+> ⚠️ **Since ADR-091 D1 (and ADR-101), `scope=platform` is no longer
+> implicit-all.** A platform token administers the realm through the ROLE its
+> bot user holds — the RI-managed `platform_api` set — which grants the
+> day-to-day surface (users, invitations, service accounts, IdPs, sources,
+> federation, realm config, tenants, integrations) and deliberately withholds
+> the credential-issuing and irreversible knobs: `platform_api_keys:manage`
+> (a bot must not mint its own successor), `domains:manage`,
+> `signing_keys:rotate`, `user_api_keys:manage`. For those, use an owner
+> session — or, for key rotation specifically, the `platform_mgmt_api` WIF
+> channel (§6.4.1). "One credential provisions the whole realm" is therefore
+> true only of the OWNER session.
 
 > **History (why older runbooks split this).** Before the amendment,
 > `origins`/`domains` required a realm-scoped platform token while the
@@ -1103,12 +1142,23 @@ mid-rotation.
 
 #### Who may mint — and who deliberately may NOT
 
-`platform_api_keys:manage` on the realm. Use **one of these two**:
+`platform_api_keys:manage` on the realm — which, since ADR-091 D3, exactly two
+principals hold:
 
-1. **A WIF-bootstrapped platform session** (ADR-057) — ambient workload
-   identity, no stored secret. This is the recommended automated path; see
-   below.
-2. **An owner / admin user JWT** holding `platform_api_keys:manage` — a human.
+1. **A WIF session whose binding maps `platform_mgmt_api`** (ADR-057 +
+   ADR-091 D3) — ambient workload identity, no stored secret. This is the
+   recommended automated path; see below. The role exists for precisely this
+   one job (mint/revoke `platform_api`'s key), holds nothing else, and is
+   WIF-only by construction — the identity that mints keys must be the one
+   identity that has no key of its own.
+2. **An owner user JWT** — a human. (Not "admin": the `admin` set deliberately
+   excludes every credential-issuing grant, and since ADR-101 you cannot edit
+   a role to add one.)
+
+The default `platform_api` role — the one your day-to-day platform token runs
+on — deliberately LACKS this permission: a bot must not mint its own
+successor. That is the same rule as the `403 api_key_cannot_mint_api_key`
+refusal below, now also structural in the role set.
 
 > ### ⚠️ Do NOT build rotation on "the old key mints the new key"
 >
@@ -1194,10 +1244,10 @@ WIF binding  ──(ambient OIDC, never expires, nothing stored)──►  platf
                                               your secret store / config system
 ```
 
-A federated login mints the **same** `class=platform`, `scope=platform` session
-a static key does, and that session already carries realm-admin authority over
-its own realm — so it can mint and revoke keys with no additional grant. The
-practical effect:
+Register the binding with `mapped_role: "platform_mgmt_api"` — the role whose
+whole job is minting and revoking `platform_api`'s key (§ above). A federated
+login then mints a `class=platform` session holding exactly that authority and
+nothing else. The practical effect:
 
 - **The rotating identity is not a stealable secret.** Nothing in your secret
   store can be lifted to impersonate it, so the leak-mints-successor problem
@@ -1209,25 +1259,20 @@ practical effect:
 - **Distributing the new key inside your own systems is entirely your call** —
   RealmID's involvement ends when it returns the value.
 
-> ⚠️ **Size the blast radius honestly: a WIF session is realm-admin, and you
-> cannot currently narrow it.** Every federated login mints `scope=platform`,
-> and `authorizeRealmPermission` short-circuits to implicit-all on
-> `scope == "platform" && realm matches` **before** it consults the principal's
-> role. So a binding's `mapped_role` does **not** restrict what the session can
-> do on its own realm — pointing the binding at a `kind=service` principal
-> holding only `platform_api_keys:manage` yields exactly the same authority as
-> pointing it at the default bot.
+> **The blast radius is now the mapped role — the gap this box used to
+> describe is CLOSED.** Until ADR-091 D1, every federated login was
+> implicit-all on its own realm: `authorizeRealmPermission` short-circuited on
+> `scope == "platform"` before reading the role, so `mapped_role` restricted
+> nothing. That branch is deleted. A WIF session now holds exactly what its
+> `mapped_role` grants, and because the value is load-bearing it is validated
+> at binding-create against the governing catalog — `invalid_mapped_role` on a
+> typo, a disabled role, or a role a service principal may not hold.
 >
-> Practically: whoever can trigger the workflow holding that binding can
-> administer your whole realm, not just rotate keys. Constrain it on the
-> **claim** side instead, which does work — pin `repository`, and additionally
-> `workflow_ref`, `environment` or `ref` so only one workflow on one branch can
-> present it.
->
-> A per-binding permission ceiling is a real gap, tracked on our side. Until it
-> exists, treat a WIF binding as equivalent to a platform api-key in power and
-> better only in *handling*: nothing at rest to steal, nothing to expire, and
-> revocation is deleting the binding rather than hunting a copied string.
+> So a rotation binding mapped to `platform_mgmt_api` can mint and revoke
+> platform keys and do nothing else. Still constrain the **claim** side too —
+> pin `repository`, and additionally `workflow_ref`, `environment` or `ref` so
+> only one workflow on one branch can present it: a narrower session is not a
+> reason to let more workflows hold it.
 
 #### Or: don't have a key at all
 
@@ -1254,10 +1299,11 @@ platform key. Both expire by default. Neither sends a reminder.
 
 ## 6.5 Workload Identity Federation (keyless M2M)
 
-> **Status (ADR-057): shipped.** Backend, swagger, and all three SDKs
-> are live; the credential-source API symbols below are stable. Released
-> for Go (`go/v0.18.0`) and TS (`ts-v0.15.0`); the Java lockstep tag
-> (`java-v0.11.0`) is still pending, so Java consumers track `main`.
+> **Status (ADR-057): shipped.** Backend, swagger, and all three SDKs are
+> live; the credential-source API symbols below are stable and released in
+> all three (first in Go `go/v0.18.0` / TS `ts-v0.15.0`; Java followed and
+> has published to Maven Central since 2026-07-09 — the "Java tag pending"
+> note that stood here was long stale).
 
 ### When to use it vs a static `rk_live_` API key
 
@@ -1275,8 +1321,11 @@ trust is a registered binding, not a copied string.
 | Where it works | anywhere | GCP Cloud Run/GKE/GCE + GitHub Actions workloads |
 | Setup | mint a key | register a binding keyed on a workload claim |
 
-Both paths bootstrap the **same** `class="platform"` session — the one
-pinned to your realm's `platform_api` bot user. Everything downstream
+Both paths bootstrap the **same** `class="platform"` session — by default the
+one pinned to your realm's `platform_api` bot user (a binding's `mapped_role`
+can pin a different role, and since ADR-091 D1 that role IS the session's
+authority — §6.4.1's rotation channel maps `platform_mgmt_api`). Everything
+downstream
 (the SDK auto-attaching the platform JWT, the admin surface you can
 call) is identical. Federation only changes how the SDK obtains that
 first platform session: it exchanges the workload's ambient OIDC token
@@ -1356,8 +1405,10 @@ re-assignable, the `uniqueId` is not.
 > (`k=v` infers scalars; `k:=rawjson` injects a typed value — see the CLI
 > README "Body" note.)
 
-Optional fields on the create body: `mapped_role` (the role stamped on
-the minted platform session; defaults to `platform_api`) and `scope`.
+Optional fields on the create body: `mapped_role` — the role stamped on the
+minted platform session; defaults to `platform_api`, is validated against the
+governing catalog at create (`invalid_mapped_role`), and since ADR-091 D1 it
+IS the session's authority (§6.4.1) — and `scope`.
 
 ### GitHub Actions
 
@@ -1774,11 +1825,12 @@ usually differs from a self-hosted stack:
 1. **Create your realm** via `POST /platforms` (`slug`, optional custom
    `domain`). A custom domain is optional (ADR-073) — you can start on the
    `<slug>.realmid.dev` hosted-login subdomain and claim/verify your own domain
-   later via the realm-origins flow. **Seed any non-system roles now:** pass
-   `starter_roles` (e.g. `["admin"]`) — a role you import users into must already
-   exist and be enabled in the realm catalog (only `owner`/`member`/`platform_api`
-   are system roles; `admin`/`viewer` are opt-in since v0.54.0). See §7.3 for the
-   role rules the import enforces.
+   later via the realm-origins flow. **There are no roles to seed** (ADR-101):
+   every realm arrives with the fixed set — `owner`, `admin`, `member` for your
+   orgs — and `starter_roles`, which this step used to tell you to pass, is now
+   refused outright (`400 starter_roles_retired`). The one shaping decision
+   left is whether to *disable* `admin` (§4). See §7.3 for the role rules the
+   import enforces.
 2. **Audit your JWT claims.** If your tokens currently carry only `user_id`/`tenant_id`/`role`, you will gain `iss`, `aud`, `azp`, `sub` — update your verifier to expect and validate these. Note your **`sub` changes type to a UUID** — grep for anywhere you log, cache, or join on it.
 3. **Create your tenants** via `POST /platforms/{pid}/tenants`. Since v0.59.0
    (ADR-073 Amendment C) the tenant id is **bring-your-own**: pass an optional
@@ -1834,9 +1886,10 @@ was written — fix the per-row errors and resubmit. Per row:
   first-SSO anchor into `contact_verifications`; omit both to bind on first SSO
   by verified email/phone match. Imported contacts are written **verified**,
   users `status='active'`, `kind=human`.
-- **Roles.** `role` must be registered + enabled in the realm catalog (seed via
-  `starter_roles` at realm creation, §7.2 step 1). `owner` and `platform_api`
-  are **rejected** — you cannot import an owner (next bullet).
+- **Roles.** `role` must be one of the realm's enabled roles — since ADR-101
+  that is the fixed `owner`/`admin`/`member` set (§7.2 step 1), minus `admin`
+  where the realm has disabled it. `owner` and `platform_api` are **rejected**
+  — you cannot import an owner (next bullet).
 - **Ownership is seated at create, not by import.** Ownership is the
   `tenants.owner_user_id` pointer (ADR-076), not a role. Since v0.59.0 the
   inline `owner` on `POST /platforms/{pid}/tenants` is **required** and
@@ -1885,9 +1938,17 @@ To calibrate expectations:
 
 - No billing, no plan management, no invoices. Partner-owned.
 - No sub-tenant RBAC (ADR-025).
-- No action-gated MFA (ADR-027).
 - No custom-domain signup flow for end users beyond what ADR-019 documents.
-- No automatic domain-ownership re-verification after the initial verify (design.md §Domain Verification).
+- No partner product RBAC inside RealmID: your roles, your route map and your
+  scope vocabulary live in your repo (§4.2). RealmID stores no partner
+  catalog, ever.
+
+Two items used to sit on this list and then shipped anyway — struck here
+rather than silently deleted, so an old copy of this section doesn't mislead
+you: action-gated MFA (ADR-027) **shipped** as the OTP primitive (§6) plus
+operation step-up (§5.1, ADR-096), and automatic domain re-verification
+**shipped** with per-org domain SSO (ADR-094 — a re-verification worker
+re-checks standing grants on a schedule).
 
 ## 9. Testing your integration
 
@@ -1895,8 +1956,13 @@ Don't stand up RealmID (or Firebase) to write tests. Use the `ritest`
 helper:
 
 - **Go partners**: `import "realmid.dev/auth/testsupport/issuer"`, mint
-  tokens in-process, verify via `Verifier.StaticKeys` — zero HTTP, zero
-  subprocess. Ideal for middleware unit tests and fast feedback loops.
+  tokens in-process — zero HTTP, zero subprocess. Ideal for middleware unit
+  tests and fast feedback loops. ⚠️ The library (and the `StaticKeys`
+  verifier bypass it pairs with) targets the issuer repo's internal SDK, and
+  both live in the private `Realm-ID/issuer` repo — like the ADRs, ask and we
+  will send it. The published `github.com/Realm-ID/sdk/go` verifier has no
+  `StaticKeys`; with it, run `ritest` as a binary and point `BaseURL` at the
+  loopback port instead.
 - **Non-Go partners or compose stacks**: run `ritest` as a binary on a
   loopback port; point your partner API's `BaseURL` at it.
 - **Cross-test-run persistence**: pass `--state-file <path>` (binary) or
@@ -1906,7 +1972,9 @@ helper:
 - **Single-concurrent-session tests**: pass a fixed `jti` on `POST /mint`
   so two successive tokens share identity; one `POST /revoke` kills both.
 
-Full reference: [`issuer/testsupport/issuer/README.md`](../testsupport/issuer/README.md).
+Full reference: `testsupport/issuer/README.md` in the private
+`Realm-ID/issuer` repo (the old relative link here broke when this guide
+moved repos — ask us for the file).
 
 `ritest` is **not** an auth issuer you point production clients at — it
 has no authentication on `/mint`. Run it only in test/CI networks and
@@ -1929,8 +1997,12 @@ get 401 because "my platforms" has no meaning for a service identity.
 
 ## 9.6 Error envelopes
 
-Every 4xx/5xx carries `{"error": { "code", "message", ...sibling-fields }}`.
-Branch on `error.code`. The canonical 412 shapes partners must handle
+Every handler-emitted 4xx/5xx carries
+`{"error": { "code", "message", ...sibling-fields }}` — branch on
+`error.code`, but remember the code-less third shape (§6.6): GoFr's own
+middleware rejects a bad `Authorization` bearer as
+`{"error": "Unauthenticated"}` with no code at all, so that one branch keys
+on the HTTP status. The canonical 412 shapes partners must handle
 (see `design.md §Error envelope`):
 
 ```json
@@ -1979,5 +2051,5 @@ per-IP token bucket now guards the public auth surface) and OTP login
 - ADR-026 — tenant context in JWT.
 - ADR-027 — action-gated MFA scope decision.
 - ADR-057 — workload identity federation (keyless M2M; §6.5).
-- `../testsupport/issuer/README.md` — `ritest` library + binary reference.
+- `testsupport/issuer/README.md` in `Realm-ID/issuer` (private) — `ritest` library + binary reference.
 - `migrations/from-firebase-uid-on-users.md` — schema-migration recipe for partners arriving with `firebase_uid` on their `users` row.

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-76 entries total — 21 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+77 entries total — 22 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (docs, later) — the full audit: the partner guide had drifted from the code wherever the code had moved](#2026-08-31-docs-later--the-full-audit-the-partner-guide-had-drifted-from-the-code-wherever-the-code-had-moved)
 - [2026-08-31 (docs) — the guide told partners to send `scope` on a route that never read it](#2026-08-31-docs--the-guide-told-partners-to-send-scope-on-a-route-that-never-read-it)
 - [2026-08-30 (docs) — the two things the SDK can only hand a partner as prose](#2026-08-30-docs--the-two-things-the-sdk-can-only-hand-a-partner-as-prose)
 - [2026-08-30 (contract) — one key, two levels: settling the SDK error contract before publish](#2026-08-30-contract--one-key-two-levels-settling-the-sdk-error-contract-before-publish)
@@ -88,6 +89,69 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-31 (docs, later) — the full audit: the partner guide had drifted from the code wherever the code had moved
+
+**Problem.** The `scope`-on-login defect (previous entry) was found by accident,
+so the whole of `docs/partner-integration-guide.md` was audited line-by-line
+against the issuer source and the three published SDKs on the working
+assumption that it was not alone. It was not. The drift clustered exactly where
+the platform had moved since the guide's "current as of v0.39.0" stamp:
+
+- **§6 documented the wrong SDK.** The `realmid.Client` / `realmid.Verifier`
+  tables described the issuer repo's *internal* SDK — a private import path,
+  an `AuthenticateUser` that calls the deleted `/auth/user-token`, an
+  `Introspect` the issuer has never exposed over HTTP, and `StaticKeys` /
+  `RevocationChecker` / `CacheTTL` options the published
+  `github.com/Realm-ID/sdk/go` does not have.
+- **§4(a) put `custom_claims` on `/auth/login`**, where the field has been
+  inert since its 2026-07-01 sunset, and never mentioned the
+  `access_token_custom_claim_keys` allowlist — which defaults to empty, so the
+  documented flow would 400 (or no-op) for every partner who tried it.
+- **§7.2/§7.3 told migrating partners to pass `starter_roles`**, which
+  ADR-101 turned into a hard `400 starter_roles_retired` on realm create —
+  step 1 of the migration checklist was an outage.
+- **§6.4/§6.5 pre-dated ADR-091**: it taught that an owner-bound api key
+  mints a service-class credential (now `400 invalid_user_for_api_key`), that
+  the create request's `scope` is cosmetic and its echo always lies (both
+  fixed — `400 scope_mismatch`, echo authoritative), that a WIF session is
+  implicit-all realm-admin and `mapped_role` restricts nothing (inverted:
+  D1 deleted the `scope=platform` short-circuit, the mapped role IS the
+  session's authority), and that a WIF-bootstrapped `platform_api` session
+  can mint keys (that role deliberately lacks `platform_api_keys:manage`; the
+  rotation channel is a `platform_mgmt_api` binding).
+- **§8 denied two shipped features** — action-gated MFA (ADR-027, shipped as
+  the OTP primitive the same file documents in §6) and automatic domain
+  re-verification (ADR-094's worker) — while §6's "not-yet-in-SDK" list named
+  four surfaces that are all wrapped, and the X-User-Token table said ts/java
+  "not yet" for a surface that shipped 2026-08-02.
+- **Four code samples would not compile**: `Token:` for `ProviderToken`,
+  `OTPIssueRequest`/extra `tenantID` arg for `IssueRequest`, a `RealmID` field
+  `OTPLoginRequest` does not have (twice, Go and ts), plus a CLI verb
+  (`api-keys delete`) the CLI does not accept (`revoke`).
+
+**Why it mattered.** This is the document partners integrate from, and most of
+these are fail-at-the-partner-shaped: a 400 on realm create mid-migration, an
+uncompilable first example, a security posture (WIF blast radius) described as
+worse than it is and a mint path described as more permissive than it is.
+Every fix was verified against the source that enforces it — the issuer's
+request structs, gates and seeded role tables, and the three SDKs' exported
+surfaces — not against another document.
+
+**Decision.** Fix prose forward, never silently: where the old text taught a
+now-closed behaviour, the correction says what changed and when, so a partner
+holding an old copy can diff their mental model. Version claims
+(go `0.49.0` / ts `0.42.0` / java `0.39.0` for the scope mint, ADR-089
+handling, ts `0.33.0` / java `0.32.0` for `withUserToken`) were checked
+against `CHANGELOG.md` and kept. The currency stamp now names the audit date
+and issuer version instead of pretending v0.39.0 vintage with one refreshed
+section.
+
+**Not changed.** Everything that verified clean stayed in its own voice —
+§4.1/§4.2's cap-vs-scope model, the §6.7 refresh-rotation rules, §7.3 import
+mechanics, the error-code and TTL tables (all confirmed against
+`internal/httpapi` and `internal/realm`), and the §6.6 shared-logic inventory,
+whose every named symbol exists in the three SDKs.
 
 ## 2026-08-31 (docs) — the guide told partners to send `scope` on a route that never read it
 
