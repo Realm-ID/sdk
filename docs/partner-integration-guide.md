@@ -1976,6 +1976,21 @@ Full reference: `testsupport/issuer/README.md` in the private
 `Realm-ID/issuer` repo (the old relative link here broke when this guide
 moved repos — ask us for the file).
 
+> **Available today, without waiting on us: run a local RealmID stack.** The
+> `ritest` library and binary live in a private repo, so obtaining them is a
+> conversation rather than a download. Extracting them to a public repo is on
+> our backlog and is the direction we are leaning, but it is not done. Until it
+> is, the self-service option is to stand up a real issuer locally (Postgres +
+> Redis + the issuer image) and point your `BaseURL` at it.
+>
+> That is **stronger evidence than a hand-written stub**, and the difference is
+> not theoretical. A stub that echoes back whatever it is handed will pass for a
+> role name the real issuer refuses with `400 unknown_role`, for a field the
+> real issuer ignores, and for a route that no longer exists — so a green suite
+> against it tells you your code is self-consistent, not that it integrates.
+> If you keep a stub for speed, keep a smaller suite against a real issuer too,
+> and put the contract assertions there.
+
 `ritest` is **not** an auth issuer you point production clients at — it
 has no authentication on `/mint`. Run it only in test/CI networks and
 never on a non-loopback interface (the binary refuses unless you pass
