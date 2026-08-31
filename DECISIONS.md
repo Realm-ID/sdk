@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-75 entries total — 20 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+76 entries total — 21 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (docs) — the guide told partners to send `scope` on a route that never read it](#2026-08-31-docs--the-guide-told-partners-to-send-scope-on-a-route-that-never-read-it)
 - [2026-08-30 (docs) — the two things the SDK can only hand a partner as prose](#2026-08-30-docs--the-two-things-the-sdk-can-only-hand-a-partner-as-prose)
 - [2026-08-30 (contract) — one key, two levels: settling the SDK error contract before publish](#2026-08-30-contract--one-key-two-levels-settling-the-sdk-error-contract-before-publish)
 - [2026-08-30 (envelope) — a code the union does not name is still contract](#2026-08-30-envelope--a-code-the-union-does-not-name-is-still-contract)
@@ -87,6 +88,47 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-08-31 (docs) — the guide told partners to send `scope` on a route that never read it
+
+**Problem.** `docs/partner-integration-guide.md` §4 ("Your product's roles live
+in your system") ended its worked example with
+`realm.auth.login({ ..., scope: scopes, rolePermissions: scopes })`. No SDK has
+ever accepted `scope` on `login` — it is absent from Go's `LoginRequest`, from
+ts's `LoginRequest`, and from the body ts actually builds — and the issuer's
+`loginReq` has no `Scope` field either, only `tokenReq` does. §4.2 of the same
+guide documents the correct route. So the guide contradicted itself across 240
+lines, and the half a partner reads first was the wrong half.
+
+**Why it mattered more than a typo.** The failure is silent and it is
+fail-open-shaped from the partner's side: a TypeScript partner gets a compile
+error, but a JavaScript one, or anyone copying the shape onto a raw HTTP call,
+gets a `200` and a token with no `scope` claim. Their `ScopePolicy` gate is
+default-deny, so every gated route then refuses every user — a confusing outage
+rather than a security hole, but one debugged at the far end from the cause.
+This is the `signup_mode` / `allowed_domains` shape the issuer's `v0.108.0`
+`Warning: 299` header exists to announce, and that header is the only thing
+that would have surfaced it.
+
+**Decision.** Correct the snippet to the two calls the design actually
+requires — `login` to validate the credential and resolve the memberships, then
+`/auth/token` with the refresh token, the selected `tenant_id` and the scopes
+from the partner's own role→scope map. Add a note stating the ONE-route rule and
+its structural reason (the ADR-041 escort runs on `/auth/token` for every
+refresh class, so a user cannot self-assert a scope), and stating the
+consequence nothing said out loud before: **the token `/auth/login` mints
+carries no `scope` claim at all**, so a backend must re-mint before the user
+does anything.
+
+**Also disambiguated.** `rolePermissions` IS accepted on both routes, which is
+probably how the two got conflated. It is a different operand for a different
+mechanism — ADR-100 narrowing of a user API key's `permissions_cap`, honoured by
+`grant_type=user_api_key` alone and inert on every other grant. Passing the same
+list as both, as the old snippet did, is ADR-097's "conflating any two of the
+three permission-shaped things" in one line of sample code.
+
+**Not changed.** The rule itself. `scope` stays off `/auth/login` — the escort
+argument is the reason it is safe to take a partner-asserted scope at all.
 
 ## 2026-08-30 (docs) — the two things the SDK can only hand a partner as prose
 

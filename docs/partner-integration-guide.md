@@ -187,10 +187,30 @@ const ROLE_SCOPES = {
 // time, far from the typo.
 for (const e of validateRoleScopes(ROLE_SCOPES)) console.error(e);
 
-// At login, per user.
+// Per user, for the org they selected. TWO calls — see §4.2.
 const scopes = scopesForRoles(ROLE_SCOPES, user.roles);
-await realm.auth.login({ ..., scope: scopes, rolePermissions: scopes });
+const session = await realm.auth.login({ ... });          // no `scope` here
+const mint = await realm.auth.token({                      // the scoped token
+  refreshToken: session.refreshToken,
+  tenantId,
+  scope: scopes,
+});
 ```
+
+> ⚠️ **`scope` is accepted on `/auth/token` ONLY, never on `/auth/login`** —
+> structurally, because the ADR-041 escort runs on `/auth/token` for every
+> refresh class and a user therefore cannot self-assert a scope (§4.2). So the
+> token `/auth/login` mints carries **no `scope` claim**, and against a
+> default-deny route map it is refused everywhere: your backend must mint the
+> scoped token before the user does anything. This snippet passed `scope` to
+> `login()` until 2026-08-31; no SDK ever accepted the field there and the
+> issuer never read it.
+>
+> `rolePermissions` is the other operand and IS accepted on both routes — but
+> it is honoured by `grant_type=user_api_key` alone and inert everywhere else,
+> because no other grant produces a capped token. It narrows a key's
+> `permissions_cap`; it does not put a `scope` on the token. The two are
+> different things (§4.1, and ADR-097's “three permission-shaped things”).
 
 Go: `realmid.RoleScopes{...}.ScopesFor(roles...)`. Java:
 `RoleScopes.scopesForRoles(MAP, roles)`. Both have the same `Validate`.
