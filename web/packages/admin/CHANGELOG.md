@@ -1,5 +1,15 @@
 # @realm-id/web-admin — changelog
 
+## 0.12.0 — BREAKING: the re-vendor that carries the `integrations.install()` fix (2026-08-31)
+
+- Bundles `@realm-id/sdk` `0.45.0`, whose `integrations.install()` sends
+  `permissions` instead of the retired `role_id`. **The ts fix alone does not
+  reach you**: `web-admin` bundles its own copy of `@realm-id/sdk`, so it shipped
+  the broken call too — and its wiring test passed precisely BECAUSE it resolved
+  against the stale vendored copy.
+- `InstallRequest.permissions: string[]` replaces `role_id`; `role_id` and
+  `role_name` are gone from the install response.
+
 ## 0.11.0 — the role vocabulary (ADR-101 D1 write side) (2026-08-30)
 
 - **`admin.roleTemplates`** — RealmID's role VOCABULARY, not one realm's roles.

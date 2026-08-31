@@ -4,6 +4,28 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## java-v0.42.0 — BREAKING: `integrations.install()` sent a field the issuer retired (2026-08-31)
+
+**This call has been returning `400 permissions_required` in production.** The
+issuer replaced the install's `role_id` with a STATED `permissions` list: the
+install says what the brokered principal may do, rather than naming a role and
+inheriting whatever that role grants today.
+
+- **`InstallRequest`: `permissions` (`List<String>`) replaces `roleId`.**
+  Required and non-empty — an install granting nothing can authorise no call.
+- **`InstallResult` / `Installation` carry `permissions`; `roleId` and
+  `roleName` are gone from the response too.**
+- ⚠️ All three are **records**, so the positional constructor arity changes —
+  a caller using the canonical constructor will not compile until updated.
+- Error sentinels registered — `permissions_required` (400),
+  `unknown_permission` (400), `permissions_exceed_grantor` (403) and
+  `install_grants_nothing` (403). Registration is load-bearing: an unregistered
+  code collapses to `bad_request`/`forbidden`, so a sentinel without it exists
+  and never fires. ⚠️ `install_grants_nothing` is raised at **MINT**, not
+  install.
+- `role_not_service_typed` / `role_not_installable` are **retained but DEAD** —
+  the issuer emits neither since ADR-101 D7. Kept so existing matches compile.
+
 ## java-v0.41.0 — the role vocabulary (ADR-101 D1 write side) (2026-08-30)
 
 - **`realm.roleTemplates()`** — RealmID's role VOCABULARY: `list`, `create`,

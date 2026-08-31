@@ -4,6 +4,31 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.45.0 — BREAKING: `integrations.install()` sent a field the issuer retired (2026-08-31)
+
+**This call has been returning `400 permissions_required` in production.** The
+issuer replaced the install's `role_id` with a STATED `permissions` list: the
+install says what the brokered principal may do, rather than naming a role and
+inheriting whatever that role grants today.
+
+- **`InstallRequest`: `permissions: string[]` replaces `role_id`.** Required and
+  non-empty — an install granting nothing can authorise no call, and ADR-100's
+  lesson is that an empty authority field acquires a meaning nobody chose.
+- **`Installation` / `InstallResult` carry `permissions`; `role_id` and
+  `role_name` are gone from the response too.**
+- Error sentinels registered — `permissions_required` (400),
+  `unknown_permission` (400), `permissions_exceed_grantor` (403) and
+  `install_grants_nothing` (403). Registration is load-bearing: an unregistered
+  code collapses to `bad_request`/`forbidden`, so a sentinel without it exists
+  and never fires. ⚠️ `install_grants_nothing` is raised at **MINT**, not
+  install.
+- `role_not_service_typed` / `role_not_installable` are **retained but DEAD** —
+  the issuer emits neither since ADR-101 D7. Kept so existing matches compile.
+- The old tests asserted the body was `{integration_id, role_id}` and stayed
+  green for the whole period the call was failing. The new ones assert
+  `permissions` IS sent **and that `role_id` is ABSENT** — presence-only would
+  still pass for a client sending both.
+
 ## 0.44.0 — the role vocabulary (ADR-101 D1 write side)
 
 - **`realm.roleTemplates`** — RealmID's role VOCABULARY: `list`, `create`,
