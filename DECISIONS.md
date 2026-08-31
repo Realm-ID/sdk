@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-79 entries total — 24 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+80 entries total — 25 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put](#2026-08-31-publish--the-changelog-gate-fired-before-any-registry-saw-an-artifact-and-the-tags-stayed-put)
 - [2026-08-31 (integrations) — the test asserted the wire shape, so the wire shape could rot](#2026-08-31-integrations--the-test-asserted-the-wire-shape-so-the-wire-shape-could-rot)
 - [2026-08-31 (docs, still later) — the partner guide's siblings had never been audited at all; one had never once been true](#2026-08-31-docs-still-later--the-partner-guides-siblings-had-never-been-audited-at-all-one-had-never-once-been-true)
 - [2026-08-31 (docs, later) — the full audit: the partner guide had drifted from the code wherever the code had moved](#2026-08-31-docs-later--the-full-audit-the-partner-guide-had-drifted-from-the-code-wherever-the-code-had-moved)
@@ -92,6 +93,51 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
+
+## 2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put
+
+**Problem.** `go/v0.52.0`, `ts-v0.45.0` and `java-v0.42.0` were pushed to release
+the breaking `integrations.install()` fix. The Go tag verified and published; the
+other two failed within seconds at `changelog-hygiene.sh`. The root
+`CHANGELOG.md` carried the entry, but `ts/CHANGELOG.md`, `java/CHANGELOG.md` and
+`web/packages/admin/CHANGELOG.md` did not — and the gate checks the per-package
+files, which is the whole reason it exists (three packages lost history to that
+silence before it did).
+
+**The gate's placement is the decision that paid off here.** It runs BEFORE the
+publish steps, so nothing reached npm or Central: the failure was a docs commit
+away from fixed, not an immutable-artifact problem. `go/v*` has no such luxury —
+there the tag IS the release — which is why its equivalent check is a
+post-publish verification with "ship the next patch" as its only remedy.
+
+**Options weighed for the re-release.**
+
+1. *Delete the remote tags and re-cut them at the changelog commit.* What the
+   `publish-npm.yml` header explicitly sanctions ("a lightweight tag here is
+   still fixable... because no registry has seen the artifact yet").
+2. *`workflow_dispatch` from `main`.* Both workflows support it; it checks out
+   the default branch and SKIPS the annotated-tag check by design, because a
+   dispatch has no tag to check.
+
+**Decision: (2).** Not on merit — (1) is the tidier provenance — but because
+deleting a remote tag was refused by this environment's permission layer, and
+working around a denial to get a tidier tag is not a trade worth making. The
+dispatch published from `main`, one commit ahead of the tags.
+
+**Tradeoff, stated so nobody re-derives it from a confusing `git show`.**
+`ts-v0.45.0` and `java-v0.42.0` point at `ebd4b40`; the artifacts on npm and
+Central were built from `2c5bf1e`. The delta is **the three changelog files and
+nothing else** — no source, no `package.json`, no `build.gradle.kts`. The
+published versions are what the tags name. If the tags are ever re-cut, move
+them forward to `2c5bf1e`; never re-point a `go/v*` tag, which the proxy has
+already cached.
+
+**Verified, on the registries rather than on the green tick.** npm serves
+`@realm-id/sdk` `0.45.0` and `@realm-id/web-admin` `0.12.0`; the published
+`web-admin` tarball bundles `@realm-id/sdk` `0.45.0` and its compiled
+integrations module contains **zero** occurrences of `role_id` — the absence
+asserted, not just the presence of `permissions`. The Go proxy serves `v0.52.0`
+carrying `const Version = "0.52.0"`.
 
 ## 2026-08-31 (integrations) — the test asserted the wire shape, so the wire shape could rot
 
