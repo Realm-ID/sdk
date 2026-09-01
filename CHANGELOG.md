@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Derived claims were resolved on LOGIN LANES ONLY — go `0.54.0` · java `0.44.0` (2026-09-01)
+## Derived claims were resolved on LOGIN LANES ONLY — go `0.54.0` · ts `0.47.0` · java `0.44.0` (2026-09-01)
 
 **Fixes a live defect and unblocks an ADR-097 cutover.** `product_roles` and
 `scope` are resolved per mint — but nothing resolved them on a REFRESH, so a
@@ -34,7 +34,13 @@ rest of its life.
   authority. A `ScopePolicy` gate therefore begins denying everything one
   access-TTL into every session.
 
-**New:** `Config.Scopes` (`ScopesHandler`), the `scope` twin of
+**Shipped in all three SDKs** — go `0.54.0`, ts `0.47.0`, java `0.44.0`. A
+partial port would be worse than none: the claim this seam makes is "resolved at
+every mint", and a partner on the unported language would read that promise and
+get the old behaviour.
+
+**New:** `Config.Scopes` (`ScopesHandler`) — `config.scopes` in ts,
+`Realm.Builder.scopes(...)` in java — the `scope` twin of
 `Config.ProductRoles` — same signature, same retry budget, same side-effect-free
 contract, same "empty result mints no claim" rule. Use it, not
 `TokenRequest.Scope`, for anything that must reach human sessions: a per-call
