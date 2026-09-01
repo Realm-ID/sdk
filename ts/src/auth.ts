@@ -22,6 +22,8 @@ import {
   resolveProductRoles,
   type ProductRolesHandler,
 } from "./product-roles.js";
+import { resolveScopes, type ScopesHandler } from "./scopes-handler.js";
+import { enrichRefreshMint } from "./derived-claims-refresh.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
 import { paginate, readPage, type Paginated, type Page, type PageOpts } from "./pagination.js";
 
@@ -558,6 +560,15 @@ export class AuthClient {
      * org. Optional; undefined means the claim is simply omitted.
      */
     private readonly productRoles?: ProductRolesHandler,
+    /**
+     * ADR-097 — resolves the PARTNER's own granted-authority scope strings for
+     * a principal in one org. Optional; undefined means the claim is omitted.
+     *
+     * Runs on the SAME lanes as `productRoles`, login AND refresh. A handler
+     * that worked on one lane only is the exact defect this seam exists to
+     * close.
+     */
+    private readonly scopes?: ScopesHandler,
   ) {}
 
   /**
@@ -703,14 +714,20 @@ export class AuthClient {
     tenantId: string,
     rolePermissions?: string[],
   ): Promise<void> {
-    if (!this.productRoles && session.accessToken) return;
+    if (!this.productRoles && !this.scopes && session.accessToken) return;
     // The handler's error surfaces as a ProductRolesError and is NOT mapped
     // into a RealmError. The session stays intact so the caller can recover.
     const roles = await resolveProductRoles(this.productRoles, tenantId, session.user?.id ?? "");
+    // ADR-097 granted authority, resolved on the SAME lanes and by the same
+    // rules. A `scopes` handler that worked on refresh but not here would be
+    // the mirror of the bug this whole seam exists to close, and would be found
+    // the same way: by a partner, in production.
+    const scopes = await resolveScopes(this.scopes, tenantId, session.user?.id ?? "");
     const mint = await this.token({
       refreshToken: session.refreshToken,
       tenantId,
       productRoles: roles,
+      scope: scopes,
       rolePermissions,
     });
     session.accessToken = mint.accessToken;
@@ -724,6 +741,31 @@ export class AuthClient {
         break;
       }
     }
+  }
+
+  /**
+   * Re-mints a freshly-refreshed token so it carries the derived claims
+   * (ADR-102 `product_roles`, ADR-097 `scope`), updating `out` IN PLACE.
+   *
+   * @internal — this is the MIDDLEWARE's seam, not a partner API. It is a
+   * method on AuthClient only because the handlers and `token` live here;
+   * `enrichRefreshMint` in `derived-claims-refresh.ts` holds the behaviour and
+   * its reasoning. Calling it yourself after your own `token()` is harmless but
+   * pointless: pass the claims to `token()` instead.
+   *
+   * A NO-OP when neither handler is configured, which is what keeps the second
+   * round trip off every consumer who never adopts either claim.
+   */
+  async enrichRefresh(out: TokenResponse, tenantId: string): Promise<void> {
+    await enrichRefreshMint(
+      {
+        productRoles: this.productRoles,
+        scopes: this.scopes,
+        mint: (req) => this.token(req),
+      },
+      out,
+      tenantId,
+    );
   }
 
   /**

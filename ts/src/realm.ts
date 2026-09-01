@@ -41,6 +41,7 @@ import { staticApiKey, autoDetectCredential, DEFAULT_FEDERATION_AUDIENCE } from 
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
 import type { ProductRolesHandler } from "./product-roles.js";
+import type { ScopesHandler } from "./scopes-handler.js";
 import type { RevocationCache } from "./revocation.js";
 
 export interface RealmConfig {
@@ -101,6 +102,24 @@ export interface RealmConfig {
    * side-effect freedom that makes the D11 retry policy legal.
    */
   productRoles?: ProductRolesHandler;
+
+  /**
+   * ADR-097 — resolves the PARTNER's own scope strings for a principal in one
+   * org, which the SDK mints onto the access token as the `scope` claim.
+   *
+   * Optional. Undefined means the claim is simply omitted — see
+   * {@link ScopesHandler} for the full contract, including the side-effect
+   * freedom that makes the retry policy legal.
+   *
+   * ⚠️ Use THIS, not `TokenRequest.scope`, for anything that must reach human
+   * sessions. A per-call field only covers mints a partner writes by hand; in a
+   * BFF deployment the middleware builds the request itself, so the per-call
+   * field never reaches the lane humans actually use.
+   *
+   * ⚠️ Not `realm.scopes`, which is the ADR-097 §F bulk-rename CLIENT. This is
+   * a config hook; that is a management resource.
+   */
+  scopes?: ScopesHandler;
 }
 
 export interface Realm {
@@ -277,7 +296,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       baseUrl,
       tokenDelivery: cfg.tokenDelivery ?? "cookie",
       revocation: cfg.revocation,
-      auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation, cfg.productRoles),
+      auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation, cfg.productRoles, cfg.scopes),
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),
       apiKeys: new ApiKeysClient(client, cfg.realmId),

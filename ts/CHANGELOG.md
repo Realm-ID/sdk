@@ -4,6 +4,58 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.47.0 — derived claims are resolved at EVERY mint, refresh included (2026-09-01)
+
+### Fixed — `product_roles` and `scope` were resolved on LOGIN LANES ONLY
+
+`mintProductRoles` had exactly three call sites — `login`, `completeLogin`,
+`passwordLogin` — and all three are login lanes. The middleware's refresh minted
+with `{refreshToken, tenantId, customClaims}` alone, and `token()` forwards only
+what it is handed. So a BFF-fronted session carried the claims for one
+access-TTL and then lost them for the rest of its life.
+
+- **`product_roles` was silently dropped on every refresh**, while
+  `product-roles.ts` promised the opposite in writing the whole time: *"It runs
+  on EVERY mint, refresh included, and nothing caches."*
+- **`scope` had the same hole with a sharper edge.** The issuer never stores
+  `scope` on a session — deliberately, so it cannot go stale — so an unrequested
+  claim is an ABSENT one, and `scopesFrom` reads absence as no granted
+  authority. A `ScopePolicy` gate therefore begins denying everything one
+  access-TTL into every session.
+
+### Added — `scopes` on `createRealm` (`ScopesHandler`, `ScopesError`)
+
+The `scope` twin of `productRoles`: same signature, same retry budget (the
+constants are re-exported, not re-declared, so the two cannot drift), same
+side-effect-free contract, same "empty result mints no claim" rule. Use it, not
+`TokenRequest.scope`, for anything that must reach human sessions — a per-call
+field only covers mints a partner writes by hand, and in a BFF deployment the
+middleware builds the request itself.
+
+⚠️ Not `realm.scopes` (the ADR-097 §F bulk-rename client) and not `scope.ts`
+(the enforcement layer that reads the claim back). Three different things named
+after the same claim; this one is the config hook.
+
+### Behaviour change worth knowing
+
+A refresh now costs a SECOND `/auth/token` round trip — **but only when a
+handler is configured**. The refresh lane has no user id until a token comes
+back (the subject lives in the access token), so the order is mint → read the
+subject locally → resolve → re-mint. The peek is a local base64 decode, no JWT
+library and no JWKS fetch, over a token the issuer signed and handed back
+moments earlier. Consumers who adopt neither handler still mint exactly once,
+and a test asserts the COUNT so the extra call cannot creep in unnoticed.
+
+⚠️ **The nil/empty rules across the three claims are NOT uniform, and that is
+deliberate.** `product_roles` and `scope` key on EMPTINESS (empty and absent
+both mint no claim); `rolePermissions` keys on `undefined`, because an empty
+non-nil list is a real instruction the issuer answers with a `403`. Do not
+harmonise them.
+
+The new tests are LANE-SPECIFIC on purpose, and they assert the effect ON THE
+WIRE rather than that a handler was called: an assertion that "a login carries
+the claim" passed throughout the entire life of this bug.
+
 ## 0.46.1 — the discovery response carries `credential_methods` (2026-09-01)
 
 ### Fixed — the discovery response no longer DELETES `credential_methods`

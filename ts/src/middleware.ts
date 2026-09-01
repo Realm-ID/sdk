@@ -281,6 +281,11 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
   const customClaims = (body["custom_claims"] ?? body["customClaims"]) as Record<string, unknown> | undefined;
   try {
     const out = await realm.auth.token({ refreshToken, tenantId, customClaims });
+    // The derived claims (ADR-102 `product_roles`, ADR-097 `scope`) are
+    // resolved PER MINT, and a refresh is a mint. Without this the middleware
+    // handed back a token missing both, one access-TTL into every session —
+    // see derived-claims-refresh.ts for why the resolution follows the mint.
+    await realm.auth.enrichRefresh(out, tenantId);
     if (cfg.tokenDelivery === "cookie") {
       setRefreshCookie(res, cfg, out.refreshToken);
       sendJson(res, 200, {

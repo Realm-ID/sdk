@@ -226,4 +226,10 @@ export {
   LoginMintError,
 } from "./product-roles.js";
 export type { ProductRolesHandler } from "./product-roles.js";
+// ADR-097 — the `scope` twin of the product-roles handler. Configure it as
+// `scopes` on createRealm; `ScopesClient` above is the unrelated bulk-rename
+// resource, and `scope.ts`'s helpers are the enforcement layer that reads the
+// minted claim back.
+export { ScopesError } from "./scopes-handler.js";
+export type { ScopesHandler } from "./scopes-handler.js";
 export { needsTenantChoice, selectTenant } from "./auth.js";
