@@ -97,6 +97,19 @@ type Config struct {
 	// hooks and all live here. `WithRefreshSink` is a TokenManagerOption because
 	// TokenManager takes options; Realm does not.
 	ProductRoles ProductRolesHandler
+
+	// Scopes resolves the PARTNER's own ADR-097 scope strings for a principal in
+	// one org, and the SDK mints them onto the access token's `scope` claim.
+	//
+	// Optional. Nil means the claim is simply omitted — see ScopesHandler for
+	// the full contract, including the side-effect freedom that makes the retry
+	// policy legal.
+	//
+	// ⚠️ Use THIS, not TokenRequest.Scope, for anything that must reach human
+	// sessions. A per-call field only covers mints a partner writes by hand; in
+	// a BFF deployment the middleware builds the request itself, so the
+	// per-call field never reaches the lane humans actually use.
+	Scopes ScopesHandler
 }
 
 // Realm is the SDK handle. Construct with NewRealm; safe for concurrent
@@ -186,7 +199,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.53.1"
+const Version = "0.54.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

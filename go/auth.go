@@ -637,7 +637,7 @@ func (a *AuthClient) CompleteLogin(ctx ctxpkg.Context, s *Session, tenantID stri
 // Login for EVERY consumer, not just the one that knew to go looking — which
 // ADR-102 D10 names as this decision's acceptance test.
 func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, tenantID string, rolePermissions []string) error {
-	if a.realm.cfg.ProductRoles == nil && s.AccessToken != "" {
+	if a.realm.cfg.ProductRoles == nil && a.realm.cfg.Scopes == nil && s.AccessToken != "" {
 		return nil
 	}
 	roles, err := a.realm.resolveProductRoles(ctx, tenantID, s.User.ID)
@@ -647,10 +647,19 @@ func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, tenantID s
 		// — see Login's doc comment.
 		return err
 	}
+	// ADR-097 granted authority, resolved on the SAME lanes and by the same
+	// rules. A Config.Scopes that worked on refresh but not here would be the
+	// mirror of the bug this whole seam exists to close, and would be found the
+	// same way: by a partner, in production.
+	scopes, err := a.realm.resolveScopes(ctx, tenantID, s.User.ID)
+	if err != nil {
+		return err
+	}
 	mint, err := a.Token(ctx, TokenRequest{
 		RefreshToken:    s.RefreshToken,
 		TenantID:        tenantID,
 		ProductRoles:    roles,
+		Scope:           scopes,
 		RolePermissions: rolePermissions,
 	})
 	if err != nil {

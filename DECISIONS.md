@@ -12,6 +12,7 @@ Newest first.
 
 82 entries total — 27 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins](#2026-09-01-derived-claims-the-handler-ran-on-three-lanes-and-all-three-were-logins)
 - [2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong](#2026-08-31-adr-102105--login-mints-now-and-the-parity-hole-that-made-it-possible-to-get-wrong)
 - [2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong](#2026-08-31-publish-later--the-tags-were-re-cut-after-all-and-the-reason-i-predicted-a-red-run-was-wrong)
 - [2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put](#2026-08-31-publish--the-changelog-gate-fired-before-any-registry-saw-an-artifact-and-the-tags-stayed-put)
@@ -95,6 +96,68 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
+
+## 2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins
+
+**The problem.** A partner asked one narrow question — does `scope` survive a
+refresh that does not re-request it? — and the answer was no. Tracing the fix
+found the larger defect underneath it: `mintProductRoles` had exactly three call
+sites, `Login`, `CompleteLogin` and `PasswordLogin`, and **all three are login
+lanes**. Nothing resolved on refresh. `Token` forwards only what its caller
+passes, and `middleware.go` refreshed with `{RefreshToken, TenantID,
+CustomClaims}`.
+
+So `product_roles` — a claim a partner had adopted and shipped that same day —
+was dropped one access-TTL into every BFF-fronted session, silently, as an
+absence rather than an error.
+
+**Why it survived review.** `product_roles.go` states the correct contract in
+writing: *"It runs on EVERY mint, refresh included, and nothing caches."* The
+contract was right; one lane did not honour it. Nothing compared the two, and
+every test asserted the claim on a LOGIN — which passed throughout the entire
+life of the bug. **The lane was the subject, and no test had the lane as its
+subject.**
+
+**Decision 1 — one mechanism for both claims, not a `Config.Scopes` beside a
+broken `ProductRoles`.** Shipping the scope handler alone would have satisfied
+the partner's request and left the live defect standing next to it. The two
+claims answer different questions (`scope` is granted authority, `product_roles`
+is a name) but they have the same freshness requirement, so they get the same
+seam.
+
+**Decision 2 — resolve AFTER the mint on the refresh lane, and pay a second
+round trip.** A handler needs a user id; the refresh lane holds a refresh token
+and the subject lives in the access token it does not have yet. So: mint → read
+the subject locally with `peekJWTUserFields` (no network) → resolve → re-mint.
+*Rejected:* peeking the subject off the EXPIRING access token to save the trip.
+It reads a token we are explicitly not verifying — its expiry is the reason we
+are there — and assumes the caller still holds it. A refresh is not on a human's
+critical path the way a login is, so the round trip is the cheaper mistake.
+The cost is opt-in: with no handler configured the lane still mints exactly
+once, and **a test asserts the COUNT**, because a body assertion would let the
+extra call creep back in unnoticed.
+
+**Decision 3 — an error refuses the mint rather than minting without the
+claim.** This matters more for `scope` than for `product_roles`: a token minted
+without granted authority reads as "denied" to every gate, so a transient blip
+in a partner's role store would become an authorization outage that our logs
+record as a clean `200`. Same rule `ProductRolesError` already stated.
+
+**Decision 4 — do not harmonise the nil/empty rules.** `product_roles` and
+`scope` key on emptiness; `role_permissions` keys on nil, because an empty
+non-nil list is a real instruction the issuer answers with a `403`. Three claims
+on one request with two different rules looks like an inconsistency and is not.
+It is now stated in the handler doc, the changelog and a test.
+
+**What the partner's report got wrong, and why it mattered.** They cited
+`auth.go:924` as being inside `Token`. It is inside `PasswordLogin`. Their
+conclusion — that `Token` does not resolve — was right, but checking the
+citation rather than accepting it is what exposed that *no* lane resolves on
+refresh, turning a future blocker into a live defect. Verifying a claim you
+agree with is worth the thirty seconds.
+
+**Cost.** The go SDK moves `0.53.1` → `0.54.0`. ts and java must follow or the
+parity claim is false.
 
 ## 2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong
 

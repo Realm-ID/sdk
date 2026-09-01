@@ -13,6 +13,46 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Derived claims were resolved on LOGIN LANES ONLY — go `0.54.0` (2026-09-01)
+
+**Fixes a live defect and unblocks an ADR-097 cutover.** `product_roles` and
+`scope` are resolved per mint — but nothing resolved them on a REFRESH, so a
+BFF-fronted session carried them for one access-TTL and then lost them for the
+rest of its life.
+
+- `mintProductRoles` had exactly three call sites — `Login`, `CompleteLogin`,
+  `PasswordLogin` — and all three are login lanes. The middleware's refresh
+  minted with `{RefreshToken, TenantID, CustomClaims}` alone, and `Token`
+  forwards only what it is handed.
+- **`product_roles` was silently dropped on every refresh.** A partner who
+  adopted ADR-102 saw the claim at login and lost it one TTL later. Our own
+  `product_roles.go` promised the opposite in writing the whole time: *"It runs
+  on EVERY mint, refresh included, and nothing caches."*
+- **`scope` had the same hole with a sharper edge.** The issuer never stores
+  `scope` on a session — deliberately, so it cannot go stale — so an unrequested
+  claim is an ABSENT one, and `ScopesFrom` reads absence as no granted
+  authority. A `ScopePolicy` gate therefore begins denying everything one
+  access-TTL into every session.
+
+**New:** `Config.Scopes` (`ScopesHandler`), the `scope` twin of
+`Config.ProductRoles` — same signature, same retry budget, same side-effect-free
+contract, same "empty result mints no claim" rule. Use it, not
+`TokenRequest.Scope`, for anything that must reach human sessions: a per-call
+field only covers mints a partner writes by hand, and in a BFF deployment the
+middleware builds the request itself.
+
+**Behaviour change worth knowing:** a refresh now costs a SECOND `/auth/token`
+round trip — but only when a handler is configured. The refresh lane has no user
+id until a token comes back (the subject lives in the access token), so the order
+is mint → read the subject locally → resolve → re-mint. Consumers who adopt
+neither handler still mint exactly once, and a test asserts the COUNT so the
+extra call cannot creep in unnoticed.
+
+⚠️ **The nil/empty rules across the three claims are NOT uniform, and that is
+deliberate.** `product_roles` and `scope` key on EMPTINESS (nil and empty both
+mint no claim); `role_permissions` keys on NIL, because an empty non-nil list is
+a real instruction the issuer answers with a `403`. Do not harmonise them.
+
 ## `credential_methods` was being dropped by the SDKs — go `0.53.1` · ts `0.46.1` · java `0.43.1` (2026-09-01)
 
 ### Fixed — the discovery response no longer DELETES `credential_methods`

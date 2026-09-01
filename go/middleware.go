@@ -583,6 +583,15 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		return
 	}
 
+	// The derived claims (ADR-102 product_roles, ADR-097 scope) are resolved
+	// PER MINT, and a refresh is a mint. Without this the middleware handed back
+	// a token missing both, one access-TTL into every session — see
+	// derived_claims_refresh.go for why the resolution has to follow the mint.
+	if err := r.enrichRefreshMint(req.Context(), out, tenantID); err != nil {
+		r.respondAuthFail(w, req, opts, stageRefresh, asRealmError(err))
+		return
+	}
+
 	// OnAuthSuccess (ADR-065). MintResult carries no user object, so recover
 	// UserID by verifying the freshly-minted access token's sub — only when
 	// a hook is registered.
