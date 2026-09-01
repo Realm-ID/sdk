@@ -249,12 +249,40 @@ no gate** — not an authorization check, not an audit decision, not a UI
 permission test. It is the third and last piece of getting your authorization
 off our vocabulary, alongside `scope` (§4.2) and your own role→scope map.
 
+**Wire it as a REALM-LEVEL HANDLER, not as a field on each call.** This is the
+part to get right and the part this guide got wrong until 2026-09-01:
+
+```ts
+const realm = new Realm({
+  // ...
+  // Runs at EVERY mint the SDK performs — login, tenant switch and refresh.
+  productRoles: async (tenantId, userId) => rolesFor(tenantId, userId),
+});
+```
+
+Go: `Config.ProductRoles` (`realmid.go`). Java: `Realm.Builder`.
+
+The handler is what reaches your HUMAN users, because the SDK runs it wherever
+it mints: `Auth.Login` → `mintProductRoles`, `CompleteLogin` on the multi-tenant
+branch, and `Auth.Token` on refresh. If your users authenticate through a BFF —
+i.e. your own code never constructs a `TokenRequest` for a person — then the
+handler is the ONLY seam that reaches them.
+
+⚠️ **Setting `productRoles` on a `TokenRequest` by hand covers only the calls
+you write yourself**, which in a BFF deployment is typically the machine lane
+(a sync agent, a job runner) and not your users at all. Our own SDK source says
+so at the field: *"Normally you do NOT set this by hand: configure
+`Config.ProductRoles`."* This guide previously showed only the by-hand form,
+and a BFF-fronted partner following it would have wired the lane that was
+already working and concluded ADR-102 changed nothing for their users. The
+explicit field remains correct for a call you genuinely construct:
+
 ```ts
 const mint = await realm.auth.token({
   refreshToken: session.refreshToken,
   tenantId,
   scope: scopesForRoles(ROLE_SCOPES, user.roles),  // AUTHORITY
-  productRoles: user.roles,                        // the NAME, for your own use
+  productRoles: user.roles,                        // by hand — the exception
 });
 ```
 
@@ -278,6 +306,21 @@ Four rules, each of which has a reason rather than a preference behind it:
   indistinguishable from the truth for a principal who genuinely has none — a
   silent under-grant that surfaces as a 403 storm in YOUR product against a
   `200` in ours.
+
+  **Classify your handler's errors before you return them, though — "error"
+  is not one category.** A partner's integration suite found this, and unit
+  tests structurally could not: they stub the store, and only a real database
+  raises it.
+
+  | your handler hits | return | why |
+  |---|---|---|
+  | a transient failure (query error, timeout) | **an error** — refuse | the retry may succeed; if it does not, failing the login beats issuing a token that is denied everything for its lifetime |
+  | a DETERMINISTIC data error — e.g. Postgres class-22 `22P02`, a subject that is not a UUID so no row is ever considered | **no error, no roles** | retrying cannot change the outcome, and refusing fails the login of a principal whose only fault is not being one of yours. Mint no claim and let your RBAC deny — a 403, not a 401 at login |
+  | configured but not yet bound (no database supplied) | **an error** — refuse | "no roles" from a misconfigured process is indistinguishable from a realm where nobody holds one, which is the exact ambiguity this claim exists to remove |
+
+  The test is not "did something go wrong" but **"can a retry change this
+  answer?"** If it cannot, you are looking at a principal who has no roles here,
+  not at a failure.
 - **Bounds are 16 entries x 64 bytes**, each non-empty, valid UTF-8, no control
   characters. Deliberately NOT the `user_api_keys.max_permission_strings` knob
   that `scope` borrows, which already governs two unrelated things.
