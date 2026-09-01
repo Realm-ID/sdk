@@ -13,13 +13,33 @@
 import type { HttpClient } from "./http.js";
 
 /**
- * OTP delivery modes (ADR-071 §4). v1 supports `view_bff` only: the plaintext
- * OTP is returned to the BFF for display, never delivered out-of-band.
+ * OTP delivery modes.
+ * 
+ * The withholding rule is what distinguishes them: `view_bff` returns the
+ * plaintext to the CALLER, while `email` and `sms` have RealmID deliver it to
+ * the SUBJECT and the caller receives nothing.
+ * 
+ * ⚠️ For `purpose=login` that rule decides WHO MAY BE AUTHENTICATED (ADR-103
+ * D3/D4), not merely how the code travels:
+ * 
+ * 	view_bff  the PARTNER reads it  -> kind=service subjects ONLY, owner-gated
+ * 	sms       the SUBJECT reads it  -> ANY kind
+ * 	email     refused — a login code mailed to an address turns mailbox access
+ * 	          into account access with no second factor
+ * 
+ * There is NO FALLBACK between the RI-delivered modes: asking for `sms` and
+ * silently receiving mail would substitute the channel the subject controls,
+ * which is the whole property. A subject with no address of the requested kind
+ * is a 400 and the issue FAILS.
  */
-export type OtpDeliveryMode = "view_bff";
+export type OtpDeliveryMode = "view_bff" | "email" | "sms";
 
-/** Convenience constant for {@link OtpIssueRequest.deliveryMode}. */
+/** Returns the plaintext to the authorized caller (ADR-071 §4). The default. */
 export const DELIVERY_MODE_VIEW_BFF: OtpDeliveryMode = "view_bff";
+/** RealmID emails the code to the subject (ADR-095 D7). Refused for `purpose=login`. */
+export const DELIVERY_MODE_EMAIL: OtpDeliveryMode = "email";
+/** RealmID texts the code to the subject's phone (ADR-103). Allowed for `purpose=login`, any kind. */
+export const DELIVERY_MODE_SMS: OtpDeliveryMode = "sms";
 
 export interface OtpIssueRequest {
   subjectRef: string;

@@ -12,17 +12,39 @@ package dev.realmid.sdk.otp;
  * token + {@code X-On-Behalf-Of-User}). {@code onBehalfOfIp} is optional and
  * only meaningful in BFF mode.
  *
- * <p>{@code deliveryMode} (ADR-071 §4) selects how the OTP reaches the
- * end-user. v1 supports {@link #DELIVERY_MODE_VIEW_BFF} only (the plaintext
- * value is returned for BFF display); null defers to the issuer default. A
- * {@code purpose="login"} OTP for a service account requires {@code view_bff}.
+ * <p>{@code deliveryMode} selects how the OTP reaches the end-user; null
+ * defers to the issuer default ({@code view_bff}). The withholding rule is what
+ * distinguishes the modes: {@code view_bff} returns the plaintext to the
+ * CALLER, while {@code email} and {@code sms} have RealmID deliver it to the
+ * SUBJECT and the caller receives nothing.
+ *
+ * <p><b>⚠️ For {@code purpose="login"} that rule decides WHO MAY BE
+ * AUTHENTICATED</b> (ADR-103 D3/D4), not merely how the code travels:
+ * {@code view_bff} is read by the PARTNER, so it authenticates
+ * {@code kind=service} subjects only and is owner-gated; {@code sms} is read by
+ * the SUBJECT, so it authenticates any kind; {@code email} is refused, because
+ * a login code mailed to an address turns mailbox access into account access
+ * with no second factor.
+ *
+ * <p>There is NO FALLBACK between the RI-delivered modes: asking for
+ * {@code sms} and silently receiving mail would substitute the channel the
+ * subject controls, which is the whole property.
  */
 public record OtpIssueRequest(String subjectRef, String purpose,
                               String userId, String userBearer, String onBehalfOfIp,
                               String deliveryMode) {
 
-    /** ADR-071 §4 delivery mode: plaintext OTP returned to the BFF for display. */
+    /** ADR-071 §4: plaintext OTP returned to the authorized caller. The default. */
     public static final String DELIVERY_MODE_VIEW_BFF = "view_bff";
+
+    /** ADR-095 D7: RealmID emails the code to the subject. Refused for {@code purpose="login"}. */
+    public static final String DELIVERY_MODE_EMAIL = "email";
+
+    /**
+     * ADR-103: RealmID texts the code to the subject's phone. Allowed for
+     * {@code purpose="login"}, for a principal of ANY kind.
+     */
+    public static final String DELIVERY_MODE_SMS = "sms";
 
     /** Back-compat 5-arg constructor (no delivery mode — issuer default). */
     public OtpIssueRequest(String subjectRef, String purpose,
