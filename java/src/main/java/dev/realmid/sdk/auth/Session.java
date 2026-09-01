@@ -60,13 +60,107 @@ public record Session(
         boolean tenantChoiceRequired,
         // The memberships the D5 picker may choose between; null when absent.
         @JsonProperty("tenant_choices") @JsonAlias("tenantChoices")
-        List<TenantChoice> tenantChoices
+        List<TenantChoice> tenantChoices,
+        // ADR-102 D10 — the tenant this session resolved to, once settled.
+        // null on the multi-tenant branch until completeLogin runs.
+        @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
+        // The caller's role in tenantId.
+        String role
 ) {
+
+    /**
+     * Reports whether the issuer returned a tenant PICKER instead of a session:
+     * more than one membership and no access token minted (ADR-102 D10).
+     *
+     * <p><b>⚠️ Ported from Go's {@code Session.NeedsTenantChoice}.</b> It had no
+     * Java or TS equivalent, which is exactly the surface D10 depends on — a
+     * hand-mirrored surface with a hole in it is how the hole survived.
+     *
+     * <p>Unrelated to {@link #tenantChoiceRequired()} (ADR-092 D5), which is a
+     * single-tenant-membership RECONCILIATION prompt on a login that already
+     * SUCCEEDED. Same words, different mechanism; do not conflate them.
+     */
+    public boolean needsTenantChoice() {
+        return (accessToken == null || accessToken.isEmpty())
+                && tenants != null && tenants.size() > 1;
+    }
+
+    /**
+     * Resolves the final {@code (tenantId, role)} pair to persist, given an
+     * optional caller preference. Order: preferred &gt; {@link #tenantId()} &gt;
+     * {@code tenants().get(0)}.
+     *
+     * <p><b>⚠️ DO NOT use this to settle the D10 multi-tenant branch.</b> The
+     * {@code tenants[0]} fallback would mint for an ARBITRARY tenant and resolve
+     * THAT tenant's product roles — a silent wrong answer, not an error. This is
+     * for a caller that has already decided;
+     * {@code AuthClient.completeLogin} is the selection mechanism.
+     *
+     * <p>Ported from Go's {@code Session.SelectTenant}.
+     */
+    public TenantSelection selectTenant(String preferred) {
+        String tid = (preferred != null && !preferred.isEmpty()) ? preferred : tenantId;
+        if ((tid == null || tid.isEmpty()) && tenants != null && !tenants.isEmpty()) {
+            tid = tenants.get(0).id();
+        }
+        String r = role;
+        if (tenants != null) {
+            for (TenantRef t : tenants) {
+                if (t.id() != null && t.id().equals(tid)) {
+                    r = t.role();
+                    break;
+                }
+            }
+        }
+        return new TenantSelection(tid, r);
+    }
+
+    /** The resolved pair returned by {@link #selectTenant(String)}. */
+    public record TenantSelection(String tenantId, String role) {}
+
+    /**
+     * Returns a copy carrying a freshly minted token pair and the settled tenant
+     * (ADR-102 D10).
+     *
+     * <p>A record cannot be updated in place, so the Java shape of D10 returns a
+     * NEW session where Go and TS mutate one. The contract is identical; only the
+     * idiom differs.
+     */
+    public Session withMint(TokenResponse mint, String settledTenantId) {
+        String r = role;
+        if (tenants != null) {
+            for (TenantRef t : tenants) {
+                if (t.id() != null && t.id().equals(settledTenantId)) {
+                    r = t.role();
+                    break;
+                }
+            }
+        }
+        return new Session(
+                mint.accessToken(), mint.refreshToken(), mint.expiresIn(),
+                mint.refreshExp() != 0 ? mint.refreshExp() : refreshExp,
+                idleTtl, expiresAt, initiatedByUserId, user, tenants, id, createdAt,
+                lastUsedAt, userAgent, ip, deviceName,
+                tenantChoiceRequired, tenantChoices, settledTenantId, r);
+    }
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TenantRef(
-            String id,
+            // The wire field is `tenant_id`; `id` is accepted as a fallback for
+            // older and mocked issuers, matching Go's TenantRef.IDLegacy.
+            @JsonProperty("tenant_id") @JsonAlias({"tenantId", "id"}) String id,
             String role,
-            @JsonProperty("display_name") @JsonAlias("displayName") String displayName) {}
+            @JsonProperty("display_name") @JsonAlias("displayName") String displayName,
+            /**
+             * Whether this membership demands an MFA step before a usable access
+             * token is minted. A BFF uses it to tell an unminted-because-MFA
+             * login apart from an unminted-because-multi-tenant one.
+             *
+             * <p><b>⚠️ Ported from Go as part of ADR-102 D10.</b> It existed only
+             * in the Go SDK; D10's multi-tenant branch depends on being able to
+             * tell those two states apart, so closing the parity gap is a
+             * prerequisite, not a tidy-up.
+             */
+            @JsonProperty("mfa_required") @JsonAlias("mfaRequired") boolean mfaRequired) {}
 
     /** One option in the ADR-092 D5 single-tenant picker. */
     @JsonIgnoreProperties(ignoreUnknown = true)

@@ -98,7 +98,6 @@ export {
   type UserApiKey,
   type UserApiKeyWrite,
   type UserApiKeyCreate,
-  type OrgScope,
   type LivePermissionResolver,
 } from "./user-api-keys.js";
 
@@ -176,6 +175,8 @@ export {
 export {
   OtpClient,
   DELIVERY_MODE_VIEW_BFF,
+  DELIVERY_MODE_EMAIL,
+  DELIVERY_MODE_SMS,
   type OtpDeliveryMode,
   type OtpIssueRequest,
   type OtpIssueResponse,
@@ -218,3 +219,11 @@ export {
   isMembershipActionCode,
   type MembershipActionCode,
 } from "./memberships.js";
+
+// ADR-102 D10/D11 — the product-roles handler and the Go-parity session helpers.
+export {
+  ProductRolesError,
+  LoginMintError,
+} from "./product-roles.js";
+export type { ProductRolesHandler } from "./product-roles.js";
+export { needsTenantChoice, selectTenant } from "./auth.js";

@@ -17,6 +17,11 @@
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
 import { scopeWireValue } from "./scope.js";
+import {
+  LoginMintError,
+  resolveProductRoles,
+  type ProductRolesHandler,
+} from "./product-roles.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
 import { paginate, readPage, type Paginated, type Page, type PageOpts } from "./pagination.js";
 
@@ -70,6 +75,18 @@ export interface TenantRef {
   id: string;
   role: string;
   displayName?: string;
+  /**
+   * Whether this membership demands an MFA step before a usable access token is
+   * minted. The issuer sets it per tenant on the login tenant list; a BFF uses
+   * it to tell an unminted-because-MFA login apart from an
+   * unminted-because-multi-tenant one.
+   *
+   * ⚠️ **Ported from Go as part of ADR-102 D10.** It existed only in the Go SDK
+   * — a hand-mirrored surface with a hole in it, which is how the hole survived.
+   * D10's multi-tenant branch depends on being able to tell those two states
+   * apart, so closing the parity gap is a prerequisite, not a tidy-up.
+   */
+  mfaRequired?: boolean;
 }
 
 export interface UserSummary {
@@ -120,6 +137,57 @@ export interface LoginResponse {
   tenantChoiceRequired?: boolean;
   /** The memberships the D5 picker may choose between. */
   tenantChoices?: TenantChoice[];
+  /**
+   * The tenant this session resolved to, once settled. Empty on the D10
+   * multi-tenant branch until `completeLogin` runs.
+   */
+  tenantId?: string;
+  /** The caller's role in `tenantId`. */
+  role?: string;
+}
+
+/**
+ * Reports whether the issuer returned a tenant PICKER instead of a session:
+ * more than one membership and no access token minted (ADR-102 D10).
+ *
+ * ⚠️ **Ported from Go's `Session.NeedsTenantChoice`.** It had no TS or Java
+ * equivalent, which is exactly the surface D10 depends on.
+ *
+ * Unrelated to `tenantChoiceRequired` / `tenantChoices` (ADR-092 D5), which is a
+ * single-tenant-membership RECONCILIATION prompt on a login that already
+ * SUCCEEDED. Same words, different mechanism; do not conflate them.
+ */
+export function needsTenantChoice(s: LoginResponse | undefined): boolean {
+  if (!s) return false;
+  return !s.accessToken && (s.tenants?.length ?? 0) > 1;
+}
+
+/**
+ * Resolves the final `(tenantId, role)` pair to persist for a session, given an
+ * optional caller preference. Order: preferred > `s.tenantId` > `s.tenants[0]`.
+ *
+ * ⚠️ **DO NOT use this to settle the D10 multi-tenant branch.** The
+ * `tenants[0]` fallback would mint for an ARBITRARY tenant and resolve THAT
+ * tenant's product roles — a silent wrong answer, not an error. This is for a
+ * caller that has already decided; `completeLogin` is the selection mechanism.
+ *
+ * Ported from Go's `Session.SelectTenant`.
+ */
+export function selectTenant(
+  s: LoginResponse | undefined,
+  preferred?: string,
+): { tenantId: string; role: string } {
+  if (!s) return { tenantId: preferred ?? "", role: "" };
+  let tenantId = preferred || s.tenantId || "";
+  if (!tenantId && s.tenants?.length) tenantId = s.tenants[0]!.id;
+  let role = s.role ?? "";
+  for (const t of s.tenants ?? []) {
+    if (t.id === tenantId) {
+      role = t.role;
+      break;
+    }
+  }
+  return { tenantId, role };
 }
 
 /** One option in the ADR-092 D5 single-tenant picker. */
@@ -138,6 +206,25 @@ export interface TenantChoice {
 export interface TokenRequest {
   refreshToken: string;
   tenantId: string;
+  /**
+   * ADR-102 — the PARTNER's own role name(s) for this principal, carried onto
+   * the access token and read by no RealmID gate.
+   *
+   * Normally you do NOT set this by hand: configure `productRoles` on the realm
+   * and `login`/`completeLogin` populate it on every mint. The field is here
+   * because the mint accepts it.
+   *
+   * ⚠️ `scope` carries authority; this carries a NAME. Do not branch
+   * authorization on it, and do not confuse it with the `role` claim, which is
+   * RealmID's OWN vocabulary and a trusted authorization lookup key on the
+   * direct-bearer lane.
+   *
+   * Bounded by CONSTANTS, not realm config: at most 16 entries of at most 64
+   * bytes, each non-empty, valid UTF-8 and free of control characters
+   * (`400 too_many_product_roles` / `product_role_too_long` /
+   * `invalid_product_role`). An empty array mints no claim rather than `[]`.
+   */
+  productRoles?: string[];
   /**
    * v0.1.0 — custom claims merged into the minted **access token**,
    * subject to a per-realm server-side allowlist. Use this for app-state
@@ -423,7 +510,9 @@ interface RawAuthResponse {
   expires_at?: string;
   initiated_by_user_id?: string;
   user: UserSummary;
-  tenants?: TenantRef[];
+  tenants?: { tenant_id?: string; id?: string; role: string; display_name?: string; mfa_required?: boolean }[];
+  tenant_id?: string;
+  role?: string;
   tenant_choice_required?: boolean;
   tenant_choices?: { tenant_id: string; display_name: string; is_owner?: boolean }[];
 }
@@ -442,18 +531,67 @@ interface RawTokenResponse {
 /** Resolves the Origin header for an auth call. Returns undefined when neither override, handle config, nor info() yields a value. */
 export type OriginResolver = (perCall?: string) => Promise<string | undefined>;
 
+/**
+ * Returns the tenant a login resolved to, or "" when the caller must still
+ * choose (ADR-102 D10).
+ *
+ * "Settled" means the issuer picked one: a flat `tenant_id`, or exactly one
+ * membership. It deliberately does NOT fall back to `tenants[0]` on a
+ * multi-tenant login — that is what {@link selectTenant} does for a caller who
+ * has already decided, and using it here would mint for an arbitrary org and
+ * resolve that org's roles.
+ */
+function settledTenant(s: LoginResponse): string {
+  if (s.tenantId) return s.tenantId;
+  if ((s.tenants?.length ?? 0) === 1) return s.tenants![0]!.id;
+  return "";
+}
+
 export class AuthClient {
   constructor(
     private readonly http: HttpClient,
     private readonly realmId: string,
     private readonly resolveOrigin: OriginResolver,
     private readonly revocation?: import("./revocation.js").RevocationCache,
+    /**
+     * ADR-102 — resolves the PARTNER's own role names for a principal in one
+     * org. Optional; undefined means the claim is simply omitted.
+     */
+    private readonly productRoles?: ProductRolesHandler,
   ) {}
 
   /**
    * SPEC §4.1 — exchange a provider token for a realm-scoped session.
    * Throws RealmError("mfa_required") with details.mfa_challenge_token when
    * the server demands an MFA challenge.
+   *
+   * ## ⚠️ BREAKING (ADR-102 D10): `login` MINTS now
+   *
+   * Once the tenant is settled, `login` follows `/auth/login` with a
+   * `/auth/token` mint, and the `productRoles` handler runs there. It is a
+   * CHANGED entry point, not a new one: a separate `loginAndMint` would have
+   * been non-breaking and would have left the default wrong — every consumer who
+   * never knew to re-mint would keep the role-blind token, which is the exact
+   * failure this removes.
+   *
+   * Two branches, and they are the two `/auth/login` already has:
+   *
+   * - **exactly one tenant** — mint immediately; the caller gets a fully-minted
+   *   session in one call, as today.
+   * - **several tenants** (`needsTenantChoice`) — do NOT mint. Your app presents
+   *   the choice, with your labels and your role names, and calls
+   *   {@link completeLogin} on selection.
+   *
+   * ⚠️ Do NOT settle the multi-tenant branch with {@link selectTenant}: its
+   * `tenants[0]` fallback would mint for an ARBITRARY tenant and resolve THAT
+   * tenant's roles — a silent wrong answer, not an error.
+   *
+   * What moves for you: the `412 mfa_required` gate now surfaces from `login`
+   * where it previously surfaced from your own `token()` call.
+   *
+   * The session `/auth/login` created is NOT discarded when the mint fails: it
+   * rides on a {@link LoginMintError}, the ADR-102 OQ8 RECOVERY ANCHOR. Read
+   * that class for why it is on the error rather than in the return value.
    */
   async login(req: LoginRequest): Promise<LoginResponse> {
     const headers = await this.originHeaders(req.origin);
@@ -482,7 +620,110 @@ export class AuthClient {
         ...(req.rolePermissions !== undefined ? { role_permissions: req.rolePermissions } : {}),
       },
     });
-    return mapAuthResp(raw);
+    const session = mapAuthResp(raw);
+    // ADR-102 D10 — mint once the tenant is settled. See the doc comment.
+    const settled = settledTenant(session);
+    if (settled) {
+      await this.mintOrThrowWithAnchor(session, settled, req.rolePermissions);
+    }
+    return session;
+  }
+
+  /**
+   * Mints, and on failure throws a {@link LoginMintError} CARRYING the session.
+   *
+   * ⚠️ Throwing a bare error would silently drop the ADR-102 OQ8 recovery
+   * anchor, because a caller's `catch` has no other handle on the session — and
+   * the users stranded by that are exactly the ones ADR-092's session-limit
+   * affordance and ADR-061's enrollment gate exist for.
+   */
+  private async mintOrThrowWithAnchor(
+    session: LoginResponse,
+    tenantId: string,
+    rolePermissions?: string[],
+  ): Promise<void> {
+    try {
+      await this.mintProductRoles(session, tenantId, rolePermissions);
+    } catch (err) {
+      throw new LoginMintError(session, tenantId, err);
+    }
+  }
+
+  /**
+   * Finishes a multi-tenant login: runs the `productRoles` handler for the
+   * CHOSEN tenant and mints through `/auth/token`, updating the session in
+   * place (ADR-102 D10).
+   *
+   * Call it when {@link needsTenantChoice} reported true and your app has
+   * presented the choice. A tenant the session does not list is refused LOCALLY
+   * rather than sent: the issuer's answer for it (`invalid_credentials`) would
+   * read as a login failure rather than the caller bug it is.
+   *
+   * Safe on an already-minted single-tenant session: it re-mints for the named
+   * tenant, which is the tenant-switch operation.
+   */
+  async completeLogin(
+    session: LoginResponse,
+    tenantId: string,
+    rolePermissions?: string[],
+  ): Promise<void> {
+    if (!session) throw new Error("completeLogin needs a session");
+    if (!tenantId) {
+      throw new Error(
+        "completeLogin needs a tenantId — the multi-tenant branch does not auto-pick, " +
+          "and selectTenant's tenants[0] fallback would mint for an arbitrary org",
+      );
+    }
+    const known = (session.tenants?.length ?? 0) === 0 ||
+      (session.tenants ?? []).some((t) => t.id === tenantId);
+    if (!known) {
+      throw new Error(`tenant ${tenantId} is not one of this session's memberships`);
+    }
+    await this.mintProductRoles(session, tenantId, rolePermissions);
+  }
+
+  /**
+   * Runs the handler and re-mints the session through `/auth/token`, updating
+   * it in place.
+   *
+   * With NO handler configured and an access token ALREADY in hand it returns
+   * immediately: a round trip that could only reproduce the token we are holding
+   * is pure cost, and skipping it is what keeps D10 from taxing every consumer
+   * who never adopts the claim.
+   *
+   * The remaining condition — no handler, no access token — is exactly the guard
+   * RealmID's own BFF hand-rolled (`if (!sess.accessToken)`), with a comment
+   * explaining that the issuer skips its inline single-tenant mint under MFA and
+   * that the 412 gate "fires on /auth/token, which login never calls". That is
+   * SDK documentation living in a consumer; once `login` mints, the guard
+   * collapses and the gate surfaces for EVERY consumer.
+   */
+  private async mintProductRoles(
+    session: LoginResponse,
+    tenantId: string,
+    rolePermissions?: string[],
+  ): Promise<void> {
+    if (!this.productRoles && session.accessToken) return;
+    // The handler's error surfaces as a ProductRolesError and is NOT mapped
+    // into a RealmError. The session stays intact so the caller can recover.
+    const roles = await resolveProductRoles(this.productRoles, tenantId, session.user?.id ?? "");
+    const mint = await this.token({
+      refreshToken: session.refreshToken,
+      tenantId,
+      productRoles: roles,
+      rolePermissions,
+    });
+    session.accessToken = mint.accessToken;
+    session.refreshToken = mint.refreshToken;
+    session.expiresIn = mint.expiresIn;
+    if (mint.refreshExp) session.refreshExp = mint.refreshExp;
+    session.tenantId = tenantId;
+    for (const t of session.tenants ?? []) {
+      if (t.id === tenantId) {
+        session.role = t.role;
+        break;
+      }
+    }
   }
 
   /**
@@ -505,6 +746,14 @@ export class AuthClient {
         tenant_id: req.tenantId,
         custom_claims: req.customClaims,
         ...(req.rolePermissions !== undefined ? { role_permissions: req.rolePermissions } : {}),
+        // Keyed on EMPTINESS, not on `undefined` (ADR-102 D11 rule 2) — the
+        // opposite of rolePermissions directly above, and the difference is the
+        // whole point. An empty rolePermissions is an instruction ("this role
+        // confers nothing here"); an empty productRoles is not, because absent
+        // and empty must mean the same thing. Every token issued before ADR-102
+        // has no claim at all, so a reader handles absence regardless, and
+        // minting [] would invent a third state for them to interpret.
+        ...(req.productRoles?.length ? { product_roles: req.productRoles } : {}),
         // Keyed on emptiness, not on `undefined` — the inverse of
         // rolePermissions above, and for the stated reason: parseScope trims
         // and returns nil for "", so an empty scope IS an absent one.
@@ -553,6 +802,61 @@ export class AuthClient {
       },
     });
     return mapAuthResp(raw);
+  }
+
+  /**
+   * ADR-104 — sign in with a native username/password credential.
+   *
+   * `identifier` is an email, an E.164 phone, or a USERNAME. The issuer
+   * CLASSIFIES IT ONCE, never trying several kinds in turn: a fallthrough would
+   * let a string valid as two kinds resolve differently depending on which store
+   * answered first — a nondeterministic identity.
+   *
+   * ⚠️ **`tenantId` is optional for an email or phone and LOAD-BEARING for a
+   * username.** Usernames are unique per TENANT, not per realm — `alice` in two
+   * orgs is routinely two people — so the issuer resolves the tenant as: this
+   * field if present, else the tenant bound to the request's host. **Explicit
+   * wins**, including when the two disagree: a partner BFF is server-side and
+   * its Origin is its own, so an Origin-wins rule would make BFF-fronted
+   * username login unimplementable without one host per org. Neither source
+   * yielding one is `400 tenant_required` — a NAMED code, because it is an
+   * integration mistake rather than a wrong password. The SDK does NOT guess.
+   *
+   * Every failure collapses to `401 invalid_credentials`. ⚠️ Except
+   * `403 password_must_change`, which is NOT collapsed: the password was
+   * CORRECT, but an administrator set it, so it is an assertion rather than a
+   * proof and the holder must replace it through `PUT /me/password` first.
+   * Saying "invalid credentials" there would send them to a reset flow that does
+   * not exist.
+   *
+   * A `kind=service` account cannot hold a password (ADR-071).
+   */
+  async passwordLogin(req: {
+    identifier: string;
+    presented: string;
+    tenantId?: string;
+    origin?: string;
+  }): Promise<LoginResponse> {
+    const headers = await this.originHeaders(req.origin);
+    const raw = await this.http.request<RawAuthResponse>({
+      method: "POST",
+      path: "/auth/login",
+      headers,
+      body: {
+        realm_id: this.realmId,
+        grant_type: "password",
+        identifier: req.identifier,
+        presented: req.presented,
+        ...(req.tenantId ? { tenant_id: req.tenantId } : {}),
+      },
+    });
+    const session = mapAuthResp(raw);
+    // ADR-102 D10 — same mint rule as `login`: once the tenant is settled the
+    // product-roles handler runs and the session is re-minted. A password login
+    // is a login, so it must not be the one lane returning a role-blind token.
+    const settled = settledTenant(session);
+    if (settled) await this.mintOrThrowWithAnchor(session, settled);
+    return session;
   }
 
   /**
@@ -831,7 +1135,16 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
     expiresAt: r.expires_at,
     initiatedByUserId: r.initiated_by_user_id,
     user: r.user,
-    tenants: r.tenants ?? [],
+    tenantId: r.tenant_id,
+    role: r.role,
+    // `tenant_id` is the wire field; `id` is accepted as a fallback for older
+    // and mocked issuers, matching the Go SDK's TenantRef.IDLegacy.
+    tenants: (r.tenants ?? []).map((t) => ({
+      id: t.tenant_id ?? t.id ?? "",
+      role: t.role,
+      displayName: t.display_name,
+      mfaRequired: t.mfa_required,
+    })),
     // Both stay UNDEFINED when the server omits them: an ordinary login must
     // not grow a falsy picker field that a caller might render.
     tenantChoiceRequired: r.tenant_choice_required,

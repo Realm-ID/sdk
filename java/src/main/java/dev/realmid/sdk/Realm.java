@@ -52,6 +52,12 @@ public final class Realm {
     private final HttpTransport http;
     private final Verifier verifier;
     private final AuthClient auth;
+    /**
+     * ADR-102 — the partner role-name resolver, carried so a withUserToken copy
+     * keeps it. A copy that dropped it would silently stop minting the claim on
+     * exactly the BFF lane the claim exists for.
+     */
+    private final dev.realmid.sdk.auth.ProductRolesHandler productRoles;
     private final OtpClient otp;
     private final TenantsClient tenants;
     private final DomainsClient domains;
@@ -90,6 +96,7 @@ public final class Realm {
         this.baseUrl = stripSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
         this.origin = b.origin;
         this.logger = b.logger == null ? Logging.NOOP : b.logger;
+        this.productRoles = b.productRoles;
         ObjectMapper mapper = b.mapper == null ? new ObjectMapper() : b.mapper;
         HttpClient httpClient = b.httpClient == null
                 ? HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
@@ -123,7 +130,7 @@ public final class Realm {
                 }),
                 httpClient, mapper,
                 b.cacheTtl, b.leeway, clock, this.logger);
-        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -162,13 +169,14 @@ public final class Realm {
         this.baseUrl = parent.baseUrl;
         this.origin = parent.origin;
         this.logger = parent.logger;
+        this.productRoles = parent.productRoles;
         this.clock = parent.clock;
         this.platformTokens = parent.platformTokens;
         this.info = parent.info;
         this.verifier = parent.verifier;
         this.http = parent.http.withUserToken(userToken);
 
-        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -332,6 +340,7 @@ public final class Realm {
         private Duration cacheTtl;
         private Duration leeway;
         private Duration refreshSkew;
+        private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
 
         public Builder realmId(String v) { this.realmId = v; return this; }
         public Builder apiKey(String v) { this.apiKey = v; return this; }
@@ -347,6 +356,21 @@ public final class Realm {
         public Builder cacheTtl(Duration v) { this.cacheTtl = v; return this; }
         public Builder leeway(Duration v) { this.leeway = v; return this; }
         public Builder refreshSkew(Duration v) { this.refreshSkew = v; return this; }
+
+        /**
+         * ADR-102 — registers the handler that resolves the PARTNER's own role
+         * names for a principal in one org, which the SDK mints onto the access
+         * token as the {@code product_roles} claim.
+         *
+         * <p>Optional. Unset means the claim is simply omitted — see
+         * {@link dev.realmid.sdk.auth.ProductRolesHandler} for the full
+         * contract, including the side-effect freedom that makes the D11 retry
+         * policy legal.
+         */
+        public Builder productRoles(dev.realmid.sdk.auth.ProductRolesHandler v) {
+            this.productRoles = v;
+            return this;
+        }
 
         public Realm build() { return new Realm(this); }
     }

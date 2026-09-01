@@ -72,39 +72,74 @@ public record TokenRequest(
          * the intersection with {@code permissions_cap}; see
          * {@code rolePermissions} for that narrowing.
          */
-        java.util.List<String> scope) {
+        java.util.List<String> scope,
+        /**
+         * ADR-102 — the PARTNER's own role name(s) for this principal, carried
+         * onto the access token and read by no RealmID gate.
+         *
+         * <p>Normally you do NOT set this by hand: register a
+         * {@link ProductRolesHandler} on the realm builder and
+         * {@code login}/{@code completeLogin} populate it on every mint. The
+         * field is here because the mint accepts it.
+         *
+         * <p><b>⚠️ {@code scope} carries authority; this carries a NAME.</b> Do
+         * not branch authorization on it, and do not confuse it with the
+         * {@code role} claim, which is RealmID's OWN vocabulary and a trusted
+         * authorization lookup key on the direct-bearer lane.
+         *
+         * <p>Bounded by CONSTANTS, not realm config: at most 16 entries of at
+         * most 64 bytes, each non-empty, valid UTF-8 and free of control
+         * characters. An empty list mints no claim rather than {@code []}.
+         */
+        java.util.List<String> productRoles) {
+
+    /** Pre-ADR-102 constructor; supplies no product roles. */
+    public TokenRequest(String refreshToken, String tenantId,
+                        Map<String, Object> customClaims, String origin,
+                        java.util.List<String> rolePermissions, java.util.List<String> scope) {
+        this(refreshToken, tenantId, customClaims, origin, rolePermissions, scope, null);
+    }
 
     /** Pre-ADR-097-mint constructor; supplies no scope. */
     public TokenRequest(String refreshToken, String tenantId,
                         Map<String, Object> customClaims, String origin,
                         java.util.List<String> rolePermissions) {
-        this(refreshToken, tenantId, customClaims, origin, rolePermissions, null);
+        this(refreshToken, tenantId, customClaims, origin, rolePermissions, null, null);
     }
 
     /** Pre-ADR-100 constructor; supplies no role permission list. */
     public TokenRequest(String refreshToken, String tenantId,
                         Map<String, Object> customClaims, String origin) {
-        this(refreshToken, tenantId, customClaims, origin, null, null);
+        this(refreshToken, tenantId, customClaims, origin, null, null, null);
     }
 
     public static TokenRequest of(String refreshToken, String tenantId) {
-        return new TokenRequest(refreshToken, tenantId, null, null, null, null);
+        return new TokenRequest(refreshToken, tenantId, null, null, null, null, null);
     }
 
     public static TokenRequest withClaims(String refreshToken, String tenantId,
                                           Map<String, Object> customClaims) {
-        return new TokenRequest(refreshToken, tenantId, customClaims, null, null, null);
+        return new TokenRequest(refreshToken, tenantId, customClaims, null, null, null, null);
     }
 
     /** Returns a copy carrying the ADR-100 role permission list. */
     public TokenRequest withRolePermissions(java.util.List<String> rolePermissions) {
-        // The CANONICAL 6-arg constructor, deliberately — the 5-arg compat form
-        // below compiles here just as well and would silently drop `scope`.
-        return new TokenRequest(refreshToken, tenantId, customClaims, origin, rolePermissions, scope);
+        // The CANONICAL constructor, deliberately — a shorter compat form
+        // compiles here just as well and would silently drop `scope` and
+        // `productRoles`. That trap is why every `with*` below names all of them.
+        return new TokenRequest(refreshToken, tenantId, customClaims, origin,
+                rolePermissions, scope, productRoles);
     }
 
     /** Returns a copy carrying the ADR-097 granted-authority scope list. */
     public TokenRequest withScope(java.util.List<String> scope) {
-        return new TokenRequest(refreshToken, tenantId, customClaims, origin, rolePermissions, scope);
+        return new TokenRequest(refreshToken, tenantId, customClaims, origin,
+                rolePermissions, scope, productRoles);
+    }
+
+    /** Returns a copy carrying the ADR-102 partner role names. */
+    public TokenRequest withProductRoles(java.util.List<String> productRoles) {
+        return new TokenRequest(refreshToken, tenantId, customClaims, origin,
+                rolePermissions, scope, productRoles);
     }
 }

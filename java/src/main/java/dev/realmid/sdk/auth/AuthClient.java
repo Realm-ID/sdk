@@ -19,14 +19,60 @@ public final class AuthClient {
     private final HttpTransport http;
     private final String realmId;
     private final Supplier<String> originResolver;
+    /**
+     * ADR-102 — resolves the PARTNER's own role names for a principal in one
+     * org. null means the claim is simply omitted.
+     */
+    private final ProductRolesHandler productRoles;
 
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver) {
+        this(http, realmId, originResolver, null);
+    }
+
+    public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver,
+                      ProductRolesHandler productRoles) {
         this.http = http;
         this.realmId = realmId;
         this.originResolver = originResolver;
+        this.productRoles = productRoles;
     }
 
-    /** SPEC §4.1 — exchange a provider token for a realm-scoped session. */
+    /**
+     * SPEC §4.1 — exchange a provider token for a realm-scoped session.
+     *
+     * <h2>⚠️ BREAKING (ADR-102 D10): {@code login} MINTS now</h2>
+     *
+     * <p>Once the tenant is settled, {@code login} follows {@code /auth/login}
+     * with a {@code /auth/token} mint, and the {@link ProductRolesHandler} runs
+     * there. It is a CHANGED entry point, not a new one: a separate
+     * {@code loginAndMint} would have been non-breaking and would have left the
+     * default wrong — every consumer who never knew to re-mint would keep the
+     * role-blind token, which is the exact failure this removes.
+     *
+     * <p>Two branches, and they are the two {@code /auth/login} already has:
+     *
+     * <ul>
+     *   <li><b>exactly one tenant</b> — mint immediately; the caller gets a
+     *       fully-minted session in one call, as today.</li>
+     *   <li><b>several tenants</b> ({@link Session#needsTenantChoice()}) — do
+     *       NOT mint. Your app presents the choice, with your labels and your
+     *       role names, and calls {@link #completeLogin} on selection.</li>
+     * </ul>
+     *
+     * <p><b>⚠️ Do NOT settle the multi-tenant branch with
+     * {@link Session#selectTenant(String)}.</b> Its {@code tenants[0]} fallback
+     * would mint for an ARBITRARY tenant and resolve THAT tenant's roles — a
+     * silent wrong answer, not an error.
+     *
+     * <p>What moves for you: the {@code 412 mfa_required} gate now surfaces from
+     * {@code login} where it previously surfaced from your own {@code token}
+     * call.
+     *
+     * <p>The session {@code /auth/login} created is NOT discarded when the mint
+     * fails: it rides on a {@link LoginMintException}, the ADR-102 OQ8 RECOVERY
+     * ANCHOR. Read that class for why it is on the exception rather than in the
+     * return value.
+     */
     public Session login(LoginRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
@@ -56,7 +102,123 @@ public final class AuthClient {
             r.header("x-device-name", deviceLabel);
         }
         JsonNode raw = http.request(r);
-        return http.mapper().convertValue(raw, Session.class);
+        Session session = http.mapper().convertValue(raw, Session.class);
+        // ADR-102 D10 — mint once the tenant is settled. See the doc comment.
+        String settled = settledTenant(session);
+        if (settled != null && !settled.isEmpty()) {
+            return mintOrThrowWithAnchor(session, settled, req.rolePermissions(), req.origin());
+        }
+        return session;
+    }
+
+    /**
+     * Mints, and on failure throws a {@link LoginMintException} CARRYING the
+     * session.
+     *
+     * <p><b>⚠️ Throwing a bare exception would silently drop the ADR-102 OQ8
+     * recovery anchor</b>, because a caller's {@code catch} has no other handle
+     * on the session — and the users stranded by that are exactly the ones
+     * ADR-092's session-limit affordance and ADR-061's enrollment gate exist for.
+     */
+    private Session mintOrThrowWithAnchor(Session session, String tenantId,
+                                          java.util.List<String> rolePermissions, String origin) {
+        try {
+            return mintProductRoles(session, tenantId, rolePermissions, origin);
+        } catch (RuntimeException e) {
+            throw new LoginMintException(session, tenantId, e);
+        }
+    }
+
+    /**
+     * Finishes a multi-tenant login: runs the {@link ProductRolesHandler} for
+     * the CHOSEN tenant, mints through {@code /auth/token}, and returns the
+     * updated session (ADR-102 D10).
+     *
+     * <p>A record cannot be updated in place, so this RETURNS a new session
+     * where Go and TS mutate one. The contract is identical; only the idiom
+     * differs.
+     *
+     * <p>Call it when {@link Session#needsTenantChoice()} reported true and your
+     * app has presented the choice. A tenant the session does not list is
+     * refused LOCALLY rather than sent: the issuer's answer for it
+     * ({@code invalid_credentials}) would read as a login failure rather than
+     * the caller bug it is.
+     */
+    public Session completeLogin(Session session, String tenantId,
+                                 java.util.List<String> rolePermissions) {
+        if (session == null) throw new IllegalArgumentException("completeLogin needs a session");
+        if (tenantId == null || tenantId.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "completeLogin needs a tenantId — the multi-tenant branch does not "
+                            + "auto-pick, and selectTenant's tenants[0] fallback would mint "
+                            + "for an arbitrary org");
+        }
+        boolean known = session.tenants() == null || session.tenants().isEmpty();
+        if (session.tenants() != null) {
+            for (Session.TenantRef t : session.tenants()) {
+                if (tenantId.equals(t.id())) {
+                    known = true;
+                    break;
+                }
+            }
+        }
+        if (!known) {
+            throw new IllegalArgumentException(
+                    "tenant " + tenantId + " is not one of this session's memberships");
+        }
+        return mintProductRoles(session, tenantId, rolePermissions, null);
+    }
+
+    /**
+     * Returns the tenant a login resolved to, or null when the caller must still
+     * choose (ADR-102 D10).
+     *
+     * <p>"Settled" means the issuer picked one: a flat {@code tenant_id}, or
+     * exactly one membership. It deliberately does NOT fall back to
+     * {@code tenants[0]} on a multi-tenant login — that is what
+     * {@link Session#selectTenant(String)} does for a caller who has already
+     * decided, and using it here would mint for an arbitrary org and resolve
+     * that org's roles.
+     */
+    private static String settledTenant(Session s) {
+        if (s == null) return null;
+        if (s.tenantId() != null && !s.tenantId().isEmpty()) return s.tenantId();
+        if (s.tenants() != null && s.tenants().size() == 1) return s.tenants().get(0).id();
+        return null;
+    }
+
+    /**
+     * Runs the handler and re-mints the session through {@code /auth/token}.
+     *
+     * <p>With NO handler configured and an access token ALREADY in hand it
+     * returns the session unchanged: a round trip that could only reproduce the
+     * token we are holding is pure cost, and skipping it is what keeps D10 from
+     * taxing every consumer who never adopts the claim.
+     *
+     * <p>The remaining condition — no handler, no access token — is exactly the
+     * guard RealmID's own BFF hand-rolled, with a comment explaining that the
+     * issuer skips its inline single-tenant mint under MFA and that the 412 gate
+     * "fires on /auth/token, which login never calls". That is SDK documentation
+     * living in a consumer; once {@code login} mints, the guard collapses and
+     * the gate surfaces for EVERY consumer.
+     */
+    private Session mintProductRoles(Session session, String tenantId,
+                                     java.util.List<String> rolePermissions, String origin) {
+        if (productRoles == null
+                && session.accessToken() != null && !session.accessToken().isEmpty()) {
+            return session;
+        }
+        String userId = null;
+        if (session.user() != null && session.user().get("id") != null) {
+            userId = String.valueOf(session.user().get("id"));
+        }
+        // The handler's failure surfaces as a ProductRolesException and is NOT
+        // mapped into a RealmException. The session stays intact so the caller
+        // can recover — see login's doc comment.
+        java.util.List<String> roles = ProductRoles.resolve(productRoles, tenantId, userId);
+        TokenResponse mint = token(new TokenRequest(
+                session.refreshToken(), tenantId, null, origin, rolePermissions, null, roles));
+        return session.withMint(mint, tenantId);
     }
 
     /** SPEC §4.2. */
@@ -70,6 +232,16 @@ public final class AuthClient {
         // WIDER than the one it replaces. See the note on the login body above
         // for why this is null-guarded rather than empty-guarded.
         if (req.rolePermissions() != null) body.put("role_permissions", req.rolePermissions());
+        // ADR-102 D11 rule 2. Keyed on EMPTINESS, not null — the opposite of
+        // rolePermissions directly above, and the difference is the whole point.
+        // An empty rolePermissions is an instruction ("this role confers nothing
+        // here"); an empty productRoles is not, because absent and empty must
+        // mean the same thing. Every token issued before ADR-102 has no claim at
+        // all, so a reader handles absence regardless, and minting [] would
+        // invent a third state for them to interpret.
+        if (req.productRoles() != null && !req.productRoles().isEmpty()) {
+            body.put("product_roles", req.productRoles());
+        }
         // ADR-097 mint half. Keyed on emptiness, not null — the inverse of
         // rolePermissions above, and for the stated reason: parseScope trims and
         // returns nil for "", so an empty scope IS an absent one. Computed
@@ -135,6 +307,49 @@ public final class AuthClient {
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, Session.class);
+    }
+
+    /**
+     * ADR-104 — sign in with a native username/password credential.
+     *
+     * <p>Every failure collapses to {@code 401 invalid_credentials} — an unknown
+     * handle, a user with no credential row, a wrong password, a stored
+     * algorithm this issuer cannot verify. Reporting "this account has no
+     * password set" separately would tell a prober which accounts are
+     * password-enabled.
+     *
+     * <p><b>⚠️ {@code 403 password_must_change} is DIFFERENT and is not
+     * collapsed:</b> the password was CORRECT, but an administrator set it, so
+     * it is an assertion rather than a proof and the holder must replace it
+     * through {@code PUT /me/password} first. Saying "invalid credentials" there
+     * would send them to a reset flow that does not exist.
+     *
+     * <p>A {@code kind=service} account cannot hold a password: its lanes are
+     * {@code api_key} and {@code otp}/{@code view_bff} (ADR-071), and a service
+     * account with a human-chosen secret is a shared password by another name.
+     */
+    public Session passwordLogin(PasswordLoginRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("realm_id", realmId);
+        body.put("grant_type", "password");
+        body.put("identifier", req.identifier());
+        body.put("presented", req.presented());
+        if (req.tenantId() != null && !req.tenantId().isEmpty()) {
+            body.put("tenant_id", req.tenantId());
+        }
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
+        attachOrigin(r, req.origin());
+        JsonNode raw = http.request(r);
+        Session session = http.mapper().convertValue(raw, Session.class);
+        // ADR-102 D10 — same mint rule as login: once the tenant is settled the
+        // product-roles handler runs and the session is re-minted. A password
+        // login is a login, so it must not be the one lane that returns a
+        // role-blind token.
+        String settled = settledTenant(session);
+        if (settled != null && !settled.isEmpty()) {
+            return mintOrThrowWithAnchor(session, settled, null, req.origin());
+        }
+        return session;
     }
 
     /**

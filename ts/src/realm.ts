@@ -40,6 +40,7 @@ import type { CredentialSource } from "./credential.js";
 import { staticApiKey, autoDetectCredential, DEFAULT_FEDERATION_AUDIENCE } from "./credential.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
+import type { ProductRolesHandler } from "./product-roles.js";
 import type { RevocationCache } from "./revocation.js";
 
 export interface RealmConfig {
@@ -90,6 +91,16 @@ export interface RealmConfig {
    * a Redis/memcached-backed implementation for multi-replica deploys.
    */
   revocation?: RevocationCache;
+
+  /**
+   * ADR-102 — resolves the PARTNER's own role names for a principal in one org,
+   * which the SDK mints onto the access token as the `product_roles` claim.
+   *
+   * Optional. Undefined means the claim is simply omitted — see
+   * {@link ProductRolesHandler} for the full contract, including the
+   * side-effect freedom that makes the D11 retry policy legal.
+   */
+  productRoles?: ProductRolesHandler;
 }
 
 export interface Realm {
@@ -266,7 +277,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       baseUrl,
       tokenDelivery: cfg.tokenDelivery ?? "cookie",
       revocation: cfg.revocation,
-      auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation),
+      auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation, cfg.productRoles),
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),
       apiKeys: new ApiKeysClient(client, cfg.realmId),

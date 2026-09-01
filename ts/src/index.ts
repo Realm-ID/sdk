@@ -107,7 +107,6 @@ export type {
   UserApiKey,
   UserApiKeyWrite,
   UserApiKeyCreate,
-  OrgScope,
   LivePermissionResolver,
 } from "./user-api-keys.js";
 export { capAllows, isUserApiKeyRevoked } from "./user-api-keys.js";
@@ -206,7 +205,12 @@ export type {
 export { AuditEventsClient } from "./audit-events.js";
 export type { AuditEventsResponse, ListAuditEventsOpts } from "./audit-events.js";
 
-export { OtpClient, DELIVERY_MODE_VIEW_BFF } from "./otp.js";
+export {
+  OtpClient,
+  DELIVERY_MODE_VIEW_BFF,
+  DELIVERY_MODE_EMAIL,
+  DELIVERY_MODE_SMS,
+} from "./otp.js";
 export type {
   OtpDeliveryMode,
   OtpIssueRequest,
@@ -311,3 +315,11 @@ export type {
 // contract; the user-facing sentences stay in the application.
 export { MEMBERSHIP_ACTION_CODES, isMembershipActionCode } from "./memberships.js";
 export type { MembershipActionCode } from "./memberships.js";
+
+// ADR-102 D10/D11 — the product-roles handler and the Go-parity session helpers.
+export {
+  ProductRolesError,
+  LoginMintError,
+} from "./product-roles.js";
+export type { ProductRolesHandler } from "./product-roles.js";
+export { needsTenantChoice, selectTenant } from "./auth.js";
