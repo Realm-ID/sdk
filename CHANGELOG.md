@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased (all three SDKs) — ADR-102/103/104/105
+## ADR-102/103/104/105 — go `0.53.0` · ts `0.46.0` · java `0.43.0` · `web` `0.6.0` · `web-admin` `0.13.0` (2026-09-01)
 
 ### BREAKING — `login` MINTS now (ADR-102 D10)
 

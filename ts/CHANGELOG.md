@@ -4,7 +4,7 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased (0.46.0) — BREAKING: `login` mints, and user API keys lose their org scope
+## 0.46.0 — BREAKING: `login` mints, and user API keys lose their org scope
 
 ### BREAKING — `login` MINTS now (ADR-102 D10)
 

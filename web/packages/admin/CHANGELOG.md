@@ -1,5 +1,14 @@
 # @realm-id/web-admin — changelog
 
+## 0.13.0 — BREAKING: a user API key is bound to ONE org (ADR-105) (2026-09-01)
+
+- `OrgScope` is no longer re-exported — the type is deleted upstream in
+  `@realm-id/sdk` 0.46.0, which this package bundles. A key mints into exactly
+  one org, always the minting principal's own tenant, so the scope enum and the
+  multi-org allowlist it selected have nothing left to describe.
+- Bundles `@realm-id/sdk` `0.46.0`, which also carries ADR-102's minting `login`
+  and the `productRoles` handler.
+
 ## 0.12.0 — BREAKING: the re-vendor that carries the `integrations.install()` fix (2026-08-31)
 
 - Bundles `@realm-id/sdk` `0.45.0`, whose `integrations.install()` sends

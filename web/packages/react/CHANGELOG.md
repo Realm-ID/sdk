@@ -13,6 +13,12 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.0 — peer range accepts `@realm-id/web@^0.6.0` (2026-09-01)
+
+Metadata only; no code change. `@realm-id/web` 0.6.0 adds the ADR-103/104
+credential-grant fields and is additive, but the previous peer range refused it
+outright. The range is now `^0.4.0 || ^0.5.0 || ^0.6.0`.
+
 ## 0.4.1 — peer range accepts `@realm-id/web@^0.5.0` (2026-08-30)
 
 Metadata only; no code change. `@realm-id/web` 0.5.0 is additive, but the

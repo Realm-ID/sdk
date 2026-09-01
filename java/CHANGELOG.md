@@ -4,7 +4,7 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased (0.43.0) — BREAKING: `login` mints, and user API keys lose their org scope
+## 0.43.0 — BREAKING: `login` mints, and user API keys lose their org scope
 
 ### BREAKING — `login` MINTS now (ADR-102 D10)
 

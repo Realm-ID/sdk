@@ -39,8 +39,22 @@
 # THE VERSION MUST BE A WHOLE TOKEN. `0.4.5` must not be satisfied by a heading
 # for `0.4.50`, and `0.3.6` must not be satisfied by `10.3.6` — hence the
 # non-[0-9.] boundary on both sides. It deliberately does NOT pin the heading's
-# shape beyond that: `## 0.37.0 — …` (ts), `## 0.8.19` (web-admin) and
-# `## java-v0.35.0` (java) are all live conventions and all correct.
+# shape beyond that: `## 0.37.0 — …` (ts), `## 0.8.19` (web-admin),
+# `## Unreleased (0.46.0) — …` (ts/java pre-release) and `## java-v0.35.0`
+# (java) are all live conventions and all correct.
+#
+# THE VERSION MUST ALSO OPEN A TOKEN, and that is not the same requirement.
+# Until 2026-09-01 the rule accepted the version ANYWHERE in the heading, so
+# `@realm-id/web-react` `0.5.0` was reported present on the strength of
+#
+#     ## 0.4.1 — peer range accepts `@realm-id/web@^0.5.0` (2026-08-30)
+#
+# — the PREVIOUS release's heading, which merely mentions the version in prose.
+# A dependency range naming a version is the single most likely thing to appear
+# in a changelog heading, so this was not a remote corner: react shipped 0.5.0
+# with no entry and the gate said ✅. The version must now be preceded by the
+# start of the heading, whitespace, or `(`, which admits every convention above
+# and rejects `@^0.5.0`, `web@0.5.0` and `>=0.5.0`.
 #
 # ORDERING. Every mode runs BEFORE its publish step, where the remedy is simply
 # "write the entry" — except `go`, which cannot: that module publishes by tag
@@ -85,7 +99,7 @@ json_field() {
 has_entry() {
   local changelog="$1" version="$2" escaped
   escaped=$(printf '%s' "$version" | sed 's/\./\\./g')
-  grep -qE "^## (.*[^0-9.])?${escaped}([^0-9.]|\$)" "$changelog"
+  grep -qE "^## ([^#]*[[:space:](])?v?${escaped}([^0-9.]|\$)" "$changelog"
 }
 
 report() {

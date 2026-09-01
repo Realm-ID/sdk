@@ -16,6 +16,16 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.0 — the BFF adapter carries the credential grant (ADR-103/104) (2026-09-01)
+
+- Maps `credential_methods` off the discovery response into
+  `ProvidersResponse.credentialMethods`, and **only when the server sent it**.
+  Mapping absence to `[]` would tell a login page "credential login is off" when
+  the truth is "the server did not say".
+- Sends `identifier` and `presented` on the login request, verbatim — see
+  `LoginRequest.identifier` in `@realm-id/web` 0.6.0 for why no layer here may
+  reshape the handle.
+
 ## 0.4.0 — discovery maps `tenant_id` and `nickname` (2026-08-30)
 
 Additive. The reference BFF's `GET /identity-providers` was already returning

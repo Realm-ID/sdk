@@ -14,6 +14,21 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.6.0 — the credential grant reaches the browser core (ADR-103/104) (2026-09-01)
+
+- `LoginRequest` gains `identifier` and `presented`, the handle and secret of a
+  CREDENTIAL grant (`password` or `otp`). The identifier may be an email, an
+  E.164 phone, or a username.
+- ⚠️ **`identifier` is passed through VERBATIM.** The issuer classifies it ONCE
+  against three disjoint grammars, so no layer between the input field and the
+  issuer may reshape it — a transport that trimmed or lower-cased or "fixed" a
+  phone number would make the resolved identity depend on which door the request
+  came through. Normalising a phone is the UI's job, at the input, exactly once.
+- `ProvidersResponse` gains `credentialMethods`: the non-IdP login methods the
+  realm can actually complete. **Absent means "the server did not say", never
+  "none"** — an older issuer omits the field, and reading absence as an empty
+  list tells a login page that credential login is off when it is not.
+
 ## 0.5.0 — step-up retry, membership self-service, the pre-session revocation flow (2026-08-30)
 
 Additive; nothing existing changed shape. The package stays **dependency-free at
