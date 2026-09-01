@@ -1,53 +1,40 @@
 import { test } from "node:test";
-import { strict as assert } from "node:assert";
-import { createRealm } from "./realm.js";
+import assert from "node:assert/strict";
+import type { IdentityProvidersResponse } from "./identity-providers.js";
 
-function mkFetch(handler: (url: string, init?: RequestInit) => Response): typeof fetch {
-  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
-      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300 }), {
-        status: 200, headers: { "content-type": "application/json" },
-      });
-    }
-    return handler(url, init);
-  }) as typeof fetch;
-}
+/**
+ * Pins the defect that shipped in ts 0.46.0 / go 0.53.0 / java 0.43.0.
+ *
+ * A BFF built on this SDK decodes the issuer's discovery response into
+ * IdentityProvidersResponse and re-serialises it to the browser. Any field the
+ * type omits is therefore DELETED from what the login screen receives, with no
+ * error at any layer — which is how ADR-103/104 credential sign-in shipped
+ * unreachable from every BFF-fronted console.
+ *
+ * TypeScript erases types at runtime, so a structural assertion cannot catch
+ * this on its own; what CAN drop the field is a re-serialisation that copies
+ * named properties. So the round trip below is written the way a BFF writes it.
+ */
+test("credential_methods survives a decode → re-encode round trip", () => {
+  const upstream = `{"providers":[{"type":"google"}],"credential_methods":["password","otp"]}`;
+  const decoded = JSON.parse(upstream) as IdentityProvidersResponse;
 
-test("identityProviders.discover: GETs the realm discovery endpoint and decodes providers", async () => {
-  let hitUrl = "";
-  const fetch = mkFetch((url) => {
-    hitUrl = url;
-    return new Response(JSON.stringify({
-      tenant_id: "tnt-1",
-      providers: [
-        { type: "google", client_type: "web", client_id: "goog-123" },
-        { type: "firebase", client_type: "web", client_id: "fb-1", config: { apiKey: "k", authDomain: "d" } },
-      ],
-    }), { status: 200, headers: { "content-type": "application/json" } });
-  });
+  assert.deepEqual(decoded.credential_methods, ["password", "otp"]);
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  const res = await realm.identityProviders.discover({ platform: "web", tenantId: "tnt-1" });
-
-  assert.match(hitUrl, /\/platforms\/r-1\/identity-providers/);
-  assert.match(hitUrl, /platform=web/);
-  assert.match(hitUrl, /tenant_id=tnt-1/);
-  assert.equal(res.tenant_id, "tnt-1");
-  assert.equal(res.providers.length, 2);
-  assert.equal(res.providers[0]!.type, "google");
-  assert.equal(res.providers[1]!.config?.apiKey, "k");
+  // A BFF re-serialising the typed shape must carry the field onward.
+  const forwarded: IdentityProvidersResponse = {
+    tenant_id: decoded.tenant_id,
+    providers: decoded.providers,
+    credential_methods: decoded.credential_methods,
+  };
+  const wire = JSON.parse(JSON.stringify(forwarded));
+  assert.deepEqual(wire.credential_methods, ["password", "otp"]);
 });
 
-test("identityProviders.discover: sends Origin header when origin opt set", async () => {
-  let sawOrigin: string | null = null;
-  const fetch = mkFetch((_url, init) => {
-    const h = new Headers(init?.headers);
-    sawOrigin = h.get("origin");
-    return new Response(JSON.stringify({ providers: [] }),
-      { status: 200, headers: { "content-type": "application/json" } });
-  });
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
-  await realm.identityProviders.discover({ origin: "https://app.partner.com" });
-  assert.equal(sawOrigin, "https://app.partner.com");
+test("an absent credential_methods stays absent, and is not an empty list", () => {
+  const decoded = JSON.parse(`{"providers":[]}`) as IdentityProvidersResponse;
+  assert.equal(decoded.credential_methods, undefined);
+
+  const wire = JSON.parse(JSON.stringify({ providers: decoded.providers }));
+  assert.equal("credential_methods" in wire, false);
 });

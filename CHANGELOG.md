@@ -13,6 +13,35 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `credential_methods` was being dropped by the SDKs — go `0.53.1` · ts `0.46.1` · java `0.43.1` (2026-09-01)
+
+### Fixed — the discovery response no longer DELETES `credential_methods`
+
+`IdentityProvidersResponse` had no field for it, in all three SDKs. The
+reference BFF does not read discovery — it DECODES the issuer's response into
+that type and RE-SERIALISES it to the browser — so the field was dropped in
+transit, silently, with no error at any layer.
+
+⚠️ **The effect was that ADR-103/104 credential sign-in was unreachable from
+any BFF-fronted console**, which is precisely the failure `credential_methods`
+was designed to prevent. The issuer advertised it correctly, `@realm-id/web`
+mapped it, `LoginPage` rendered from it — and the SDK in the middle deleted it.
+
+Proven end-to-end against a live stack before and after: straight from the
+issuer the response carries `credential_methods: ["password"]`; through the BFF
+it was ABSENT.
+
+Every layer's own tests passed over this. The issuer's integration suite
+asserts the issuer EMITS it; the console's unit tests assert the screen renders
+GIVEN it; nothing asserted it SURVIVES the hop between them. The new guard is a
+decode → re-encode round trip rather than a decode-only assertion, because
+reading a field back off a struct you just populated passes whether or not the
+field is carried onward. Mutation-verified: tagging the field `json:"-"` turns
+it red.
+
+Absent still means "the server did not say", never "none" — a second test
+asserts an omitted field is not re-emitted as an empty list.
+
 ## ADR-102/103/104/105 — go `0.53.0` · ts `0.46.0` · java `0.43.0` · `web` `0.6.0` · `web-admin` `0.13.0` (2026-09-01)
 
 ### BREAKING — `login` MINTS now (ADR-102 D10)

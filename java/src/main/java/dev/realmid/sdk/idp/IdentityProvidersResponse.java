@@ -15,4 +15,15 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record IdentityProvidersResponse(
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
-        List<PublicIdentityProvider> providers) {}
+        List<PublicIdentityProvider> providers,
+        /**
+         * The NON-IdP login methods the realm can actually complete:
+         * {@code "password"} (ADR-104) and {@code "otp"} (ADR-103).
+         *
+         * <p>⚠️ A BFF that re-serialises a typed discovery response DELETES any
+         * field its type omits, with no error anywhere — which is how credential
+         * sign-in shipped unreachable from every BFF-fronted console. Absent
+         * means "the server did not say", never "none".
+         */
+        @JsonProperty("credential_methods") @JsonAlias("credentialMethods")
+        List<String> credentialMethods) {}

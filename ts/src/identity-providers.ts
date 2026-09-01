@@ -29,6 +29,16 @@ export interface IdentityProvider {
 export interface IdentityProvidersResponse {
   tenant_id?: string;
   providers: IdentityProvider[];
+  /**
+   * The NON-IdP login methods the realm can actually complete:
+   * `"password"` (ADR-104) and `"otp"` (ADR-103).
+   *
+   * ⚠️ A BFF that re-serialises a typed discovery response DELETES any field
+   * its type omits, with no error anywhere — which is how credential sign-in
+   * shipped unreachable from every BFF-fronted console. Absent means "the
+   * server did not say", never "none".
+   */
+  credential_methods?: string[];
 }
 
 /** Tunes the discovery call (all optional). */

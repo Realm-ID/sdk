@@ -27,6 +27,23 @@ type IdentityProvider struct {
 type IdentityProvidersResponse struct {
 	TenantID  string             `json:"tenant_id,omitempty"`
 	Providers []IdentityProvider `json:"providers"`
+
+	// CredentialMethods are the NON-IdP login methods the realm can
+	// actually complete: "password" (ADR-104) and "otp" (ADR-103).
+	//
+	// ⚠️ THIS FIELD MUST EXIST HERE EVEN IF NO GO CALLER READS IT. The
+	// reference BFF decodes the issuer's response into this struct and
+	// re-serialises it to the browser, so a field missing from this type
+	// is DELETED from the response the login screen sees — silently, with
+	// no error anywhere. That is exactly what shipped: the issuer
+	// advertised `credential_methods`, the browser SDK mapped it, the
+	// console rendered from it, and this struct dropped it in between, so
+	// credential sign-in was unreachable from any BFF-fronted console.
+	//
+	// ABSENT means "the server did not say", never "none" — an older
+	// issuer omits the field, and reading absence as an empty list tells a
+	// login screen credential login is off when it is not.
+	CredentialMethods []string `json:"credential_methods,omitempty"`
 }
 
 // IdentityProvidersOptions tunes the IdentityProviders call.
