@@ -131,7 +131,14 @@ and the subject lives in the access token it does not have yet. So: mint → rea
 the subject locally with `peekJWTUserFields` (no network) → resolve → re-mint.
 *Rejected:* peeking the subject off the EXPIRING access token to save the trip.
 It reads a token we are explicitly not verifying — its expiry is the reason we
-are there — and assumes the caller still holds it. A refresh is not on a human's
+are there — and assumes the caller still holds it.
+**Confirmed by the partner the same day, with a better reason than ours:** their
+BFF runs in COOKIE MODE, refreshing with `credentials: 'include'` and no
+`Authorization` header, so at that point the expiring access token is not in hand
+at all. The rejected option is not merely more expensive for a cookie-mode BFF —
+it is **impossible**, because there is no `sub` to read. That is likely the
+common partner shape rather than an edge case, which retires the option rather
+than trading against it. A refresh is not on a human's
 critical path the way a login is, so the round trip is the cheaper mistake.
 The cost is opt-in: with no handler configured the lane still mints exactly
 once, and **a test asserts the COUNT**, because a body assertion would let the
