@@ -58,6 +58,12 @@ public final class Realm {
      * exactly the BFF lane the claim exists for.
      */
     private final dev.realmid.sdk.auth.ProductRolesHandler productRoles;
+    /**
+     * ADR-097 — the partner scope resolver, carried for the same reason
+     * productRoles is: a withUserToken copy that dropped it would stop minting
+     * granted authority on exactly the BFF lane the claim exists for.
+     */
+    private final dev.realmid.sdk.auth.ScopesHandler scopes;
     private final OtpClient otp;
     private final TenantsClient tenants;
     private final DomainsClient domains;
@@ -97,6 +103,7 @@ public final class Realm {
         this.origin = b.origin;
         this.logger = b.logger == null ? Logging.NOOP : b.logger;
         this.productRoles = b.productRoles;
+        this.scopes = b.scopes;
         ObjectMapper mapper = b.mapper == null ? new ObjectMapper() : b.mapper;
         HttpClient httpClient = b.httpClient == null
                 ? HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
@@ -130,7 +137,7 @@ public final class Realm {
                 }),
                 httpClient, mapper,
                 b.cacheTtl, b.leeway, clock, this.logger);
-        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -170,13 +177,14 @@ public final class Realm {
         this.origin = parent.origin;
         this.logger = parent.logger;
         this.productRoles = parent.productRoles;
+        this.scopes = parent.scopes;
         this.clock = parent.clock;
         this.platformTokens = parent.platformTokens;
         this.info = parent.info;
         this.verifier = parent.verifier;
         this.http = parent.http.withUserToken(userToken);
 
-        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -341,6 +349,7 @@ public final class Realm {
         private Duration leeway;
         private Duration refreshSkew;
         private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
+        private dev.realmid.sdk.auth.ScopesHandler scopes;
 
         public Builder realmId(String v) { this.realmId = v; return this; }
         public Builder apiKey(String v) { this.apiKey = v; return this; }
@@ -369,6 +378,25 @@ public final class Realm {
          */
         public Builder productRoles(dev.realmid.sdk.auth.ProductRolesHandler v) {
             this.productRoles = v;
+            return this;
+        }
+
+        /**
+         * ADR-097 — registers the handler that resolves the PARTNER's own scope
+         * strings for a principal in one org, which the SDK mints onto the
+         * access token's {@code scope} claim on EVERY mint, refresh included.
+         *
+         * <p>Optional. Unset means the claim is simply omitted — see
+         * {@link dev.realmid.sdk.auth.ScopesHandler} for the full contract.
+         *
+         * <p><b>⚠️ Use THIS, not {@code TokenRequest.scope}, for anything that
+         * must reach human sessions.</b> The per-call field only covers mints a
+         * partner writes by hand; in a BFF deployment {@code RealmFilter}
+         * builds the request itself, so the per-call field never reaches the
+         * lane humans actually use.
+         */
+        public Builder scopes(dev.realmid.sdk.auth.ScopesHandler v) {
+            this.scopes = v;
             return this;
         }
 

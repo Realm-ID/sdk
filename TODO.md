@@ -874,3 +874,17 @@ in the same repo.
       while the partner-visible statement of the problem lives in
       `web/BFF-SPEC.md` § Reference implementation.
       *(Filed 2026-08-30, W5 docs — REVIEW.md item C3.)*
+
+- [ ] `java/src/main/java/dev/realmid/sdk/auth/JwtPeek.java` — THREE private
+      unverified-JWT peeks now exist in the Java SDK and none can see the
+      others: `tokens/TokensClient.peek` reads `jti`+`exp`,
+      `platformtoken/PlatformTokenManager.peekJwtIssuer` reads `iss`, and
+      `auth/JwtPeek.subject` reads `sub`. Each was added because the previous
+      one was unreachable from the new call site. Consolidate them into one
+      package-visible helper (Go has exactly two, `peekJWTUserFields` and
+      `peekJWTRevokeFields`, both in one file). Deliberately NOT done inside the
+      derived-claims fix — a live-defect fix is the wrong place to move three
+      security-adjacent decoders. Any consolidation must keep the "never
+      authorize on this" warning attached and must not weaken the malformed-input
+      behaviour, which differs per call site today (null vs "" vs null).
+      *(Filed 2026-09-01, java `0.44.0`.)*

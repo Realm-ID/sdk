@@ -306,6 +306,29 @@ public class RealmFilter implements Filter {
                     e.getCode().wire(), e.getMessage(), e.getDetails());
             return;
         }
+        // The derived claims (ADR-102 product_roles, ADR-097 scope) are resolved
+        // PER MINT, and a REFRESH IS A MINT. Without this the filter handed back
+        // a token missing both, one access-TTL into every session — see
+        // AuthClient.enrichRefreshMint for why the resolution has to follow the
+        // mint rather than precede it. A no-op unless a handler is registered.
+        //
+        // A handler failure REFUSES the refresh: minting without the claim hands
+        // back a token every gate reads as "denied", so a blip in the partner's
+        // store would become an authorization outage recorded as a clean 200.
+        try {
+            t = cfg.realm.auth().enrichRefreshMint(t, String.valueOf(tenantId));
+        } catch (RealmException e) {
+            sendError(res, e.getHttpStatus() > 0 ? e.getHttpStatus() : 500,
+                    e.getCode().wire(), e.getMessage(), e.getDetails());
+            return;
+        } catch (RuntimeException e) {
+            // ProductRolesException / ScopesException are deliberately NOT
+            // RealmExceptions — one is the partner's database, the other is
+            // ours — so they surface here as a server_error, the same mapping
+            // Go's asRealmError applies.
+            sendError(res, 500, ErrorCode.SERVER_ERROR.wire(), e.getMessage(), null);
+            return;
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("access_token", t.accessToken());
         out.put("expires_in", t.expiresIn());

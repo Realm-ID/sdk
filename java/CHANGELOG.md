@@ -4,6 +4,73 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.44.0 — derived claims are resolved at EVERY mint, refresh included (2026-09-01)
+
+### Added — `Realm.Builder.scopes(ScopesHandler)`
+
+The `scope` twin of `productRoles(ProductRolesHandler)`. It resolves the
+PARTNER's own ADR-097 scope strings for a principal in one org and the SDK mints
+them onto the access token's `scope` claim, SPACE-DELIMITED on the wire.
+
+Same contract as `ProductRolesHandler`, deliberately: side-effect freedom is
+required (the SDK retries, so the handler must be a pure read), the retry budget
+is the SHARED one — 3 attempts, ~50ms then ~150ms — and an empty or null result
+mints NO claim rather than an empty one. A handler failure REFUSES the mint as a
+`ScopesException`, which is deliberately NOT a `RealmException`: "your scope
+handler failed 3 times" and "RealmID refused your mint" are different incidents
+and must not look alike in your logs.
+
+⚠️ **The empty rule is NOT uniform and must not be harmonised.** `productRoles`
+and `scope` key on EMPTINESS; `rolePermissions` keys on NULL, because an empty
+non-null list is a real instruction ("this role confers nothing here") that the
+issuer answers with a 403.
+
+⚠️ **Use the handler, not `TokenRequest.scope`, for anything that must reach
+human sessions.** The per-call field only covers mints you write by hand; in a
+BFF deployment `RealmFilter` builds the request itself, so the per-call field
+never reaches the lane humans actually use.
+
+### Fixed — `product_roles` and `scope` were dropped one access-TTL into every session
+
+`AuthClient.mintProductRoles` had two call sites, `login` and `completeLogin`,
+and BOTH are login lanes. Nothing resolved on refresh: `RealmFilter.handleRefresh`
+minted with `new TokenRequest(candidate, tenantId, custom, null)` alone. So a
+BFF-fronted session carried `product_roles` for one access-TTL and then lost it
+for the rest of its life — while `ProductRolesHandler` promised in writing that
+it "runs on EVERY mint, refresh included, and nothing caches".
+
+`scope` had the same hole with a sharper edge. The issuer NEVER stores `scope`
+on a session (deliberately, so it cannot go stale), so an unrequested claim is an
+ABSENT one and `Scopes.scopesFrom` reads absence as no granted authority — a
+`ScopePolicy` gate therefore starts denying EVERYTHING about one access-TTL into
+every session.
+
+`RealmFilter`'s refresh lane now resolves both. The order is mint → read the
+`sub` from the returned access token LOCALLY (no network, no verification round
+trip) → resolve → re-mint against the ROTATED refresh token, because the refresh
+lane has no user id until a token comes back.
+
+**The second round trip is OPT-IN with the feature**: with no handler registered
+the refresh mints exactly ONCE, and a test asserts the mint COUNT rather than
+just the body. It is also skipped when both handlers return nothing, since the
+re-mint could only reproduce the token already in hand.
+
+### Added — `AuthClient.enrichRefreshMint(TokenResponse, String)`
+
+The seam `RealmFilter` calls. Public because Java has no cross-package internal
+visibility, and useful directly if you run your own refresh lane.
+
+⚠️ **`TokenManager` is deliberately NOT enriched**, matching the Go SDK. It is
+the single-identity daemon lane, where the caller holds one refresh token
+out-of-band; the derived claims belong to the human-session lane the middleware
+fronts. If you want them there, call `enrichRefreshMint` yourself.
+
+### Compatibility
+
+Source- and binary-compatible. `AuthClient` gains a 5-argument constructor and
+keeps the 3- and 4-argument ones; `Realm.Builder` gains `scopes(...)`; no record
+component and no canonical constructor changed.
+
 ## 0.43.1 — the discovery response carries `credential_methods` (2026-09-01)
 
 ### Fixed — the discovery response no longer DELETES `credential_methods`

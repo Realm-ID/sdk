@@ -24,17 +24,29 @@ public final class AuthClient {
      * org. null means the claim is simply omitted.
      */
     private final ProductRolesHandler productRoles;
+    /**
+     * ADR-097 — resolves the PARTNER's own scope strings (granted authority)
+     * for a principal in one org. null means the claim is simply omitted.
+     */
+    private final ScopesHandler scopes;
 
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver) {
-        this(http, realmId, originResolver, null);
+        this(http, realmId, originResolver, null, null);
+    }
+
+    /** Pre-ADR-097-handler constructor; registers no scope resolver. */
+    public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver,
+                      ProductRolesHandler productRoles) {
+        this(http, realmId, originResolver, productRoles, null);
     }
 
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver,
-                      ProductRolesHandler productRoles) {
+                      ProductRolesHandler productRoles, ScopesHandler scopes) {
         this.http = http;
         this.realmId = realmId;
         this.originResolver = originResolver;
         this.productRoles = productRoles;
+        this.scopes = scopes;
     }
 
     /**
@@ -204,7 +216,10 @@ public final class AuthClient {
      */
     private Session mintProductRoles(Session session, String tenantId,
                                      java.util.List<String> rolePermissions, String origin) {
-        if (productRoles == null
+        // BOTH handlers gate the short-circuit. Consulting productRoles alone
+        // would leave a scopes-only consumer silently never minting at all —
+        // the mirror of the refresh bug, pointed at the other lane.
+        if (productRoles == null && scopes == null
                 && session.accessToken() != null && !session.accessToken().isEmpty()) {
             return session;
         }
@@ -212,13 +227,114 @@ public final class AuthClient {
         if (session.user() != null && session.user().get("id") != null) {
             userId = String.valueOf(session.user().get("id"));
         }
-        // The handler's failure surfaces as a ProductRolesException and is NOT
-        // mapped into a RealmException. The session stays intact so the caller
-        // can recover — see login's doc comment.
+        // The handler's failure surfaces as a ProductRolesException / a
+        // ScopesException and is NOT mapped into a RealmException. The session
+        // stays intact so the caller can recover — see login's doc comment.
         java.util.List<String> roles = ProductRoles.resolve(productRoles, tenantId, userId);
+        // ADR-097 granted authority, resolved on the SAME lanes and by the same
+        // rules. A scopes handler that worked on refresh but not here would be
+        // the mirror of the bug this whole seam exists to close, and would be
+        // found the same way: by a partner, in production.
+        java.util.List<String> grantedScopes = ScopeClaims.resolve(scopes, tenantId, userId);
         TokenResponse mint = token(new TokenRequest(
-                session.refreshToken(), tenantId, null, origin, rolePermissions, null, roles));
+                session.refreshToken(), tenantId, null, origin, rolePermissions,
+                grantedScopes, roles));
         return session.withMint(mint, tenantId);
+    }
+
+    /**
+     * Re-mints a freshly-refreshed token so it carries the derived claims
+     * (ADR-102 {@code product_roles}, ADR-097 {@code scope}), returning the
+     * token response the caller should hand back.
+     *
+     * <h2>The bug this closes</h2>
+     *
+     * <p>{@link #mintProductRoles} ran on the LOGIN lanes only. Nothing ran on
+     * refresh, and {@code RealmFilter.handleRefresh} minted with
+     * {@code {refreshToken, tenantId, customClaims}} alone. So a BFF-fronted
+     * session carried {@code product_roles} for one access-TTL and then lost it
+     * for the rest of its life, while {@link ProductRolesHandler} promised in
+     * writing that the handler "runs on EVERY mint, refresh included".
+     *
+     * <p>{@code scope} had the same hole with a sharper edge: the issuer NEVER
+     * stores {@code scope} on a session (deliberately, so it cannot go stale),
+     * so an unrequested claim is an absent one and
+     * {@code Scopes.scopesFrom} reads absence as no granted authority. A
+     * {@code ScopePolicy} gate therefore starts denying everything one
+     * access-TTL into every session.
+     *
+     * <h2>Why the resolution happens AFTER the mint</h2>
+     *
+     * <p>A handler needs the user id, and the refresh lane does not have one: it
+     * holds a refresh token, and the subject is inside the ACCESS token it does
+     * not have yet. So the order is mint &rarr; read the subject &rarr; resolve
+     * &rarr; re-mint. The subject is read LOCALLY (no network, no verification
+     * round trip) from a token the issuer just signed and handed us.
+     *
+     * <p>The alternative — peeking the subject off the EXPIRING access token the
+     * caller still holds — would save a round trip, but it reads a token we are
+     * explicitly not verifying (its expiry is the reason we are here at all) and
+     * it assumes the old token is still in hand at that point in the caller's
+     * deployment. A refresh is not on a human's critical path the way a login
+     * is, so the round trip is the cheaper mistake to make.
+     *
+     * <p><b>It is a NO-OP when neither handler is configured</b>, and that guard
+     * is load bearing: it is what keeps the second round trip off every consumer
+     * who never adopts either claim. The cost is opt-in with the feature.
+     *
+     * <p>An error from either handler REFUSES the refresh (as a
+     * {@link ProductRolesException} / {@link ScopesException}) rather than
+     * minting without the claim. Minting anyway would hand back a token that
+     * reads as "no granted authority" to every gate — turning a transient blip
+     * in the partner's store into an authorization outage our own logs record as
+     * a clean 200.
+     *
+     * @param minted    the response the first {@code /auth/token} call returned
+     * @param tenantId  the tenant the refresh was requested for
+     * @return {@code minted} itself when nothing needed re-minting, else the
+     *         second mint's response
+     */
+    public TokenResponse enrichRefreshMint(TokenResponse minted, String tenantId) {
+        if (productRoles == null && scopes == null) return minted;
+        if (minted == null
+                || minted.refreshToken() == null || minted.refreshToken().isEmpty()) {
+            // Nothing to re-mint against. A credential-bootstrapped session gets
+            // no refresh token at all (ADR-089), so this is a legitimate shape
+            // and not an error — there is simply no second mint to make.
+            return minted;
+        }
+        // Prefer the tenant the issuer actually settled on over the one we asked
+        // for: on a tenant switch they differ, and resolving for the requested
+        // tenant while the token is minted for another is a silent wrong answer.
+        String tenant = minted.tenantId() != null && !minted.tenantId().isEmpty()
+                ? minted.tenantId() : tenantId;
+        String userId = JwtPeek.subject(minted.accessToken());
+        if (userId == null) {
+            // Deliberately NOT an error. The peek is a convenience over a token
+            // the issuer signed; if its shape ever changes we degrade to the old
+            // behaviour (the claim is omitted) rather than breaking every
+            // refresh. The regression tests assert the subject REACHES the
+            // handler, so this branch cannot silently become the normal path
+            // without turning them red.
+            return minted;
+        }
+
+        java.util.List<String> roles = ProductRoles.resolve(productRoles, tenant, userId);
+        java.util.List<String> grantedScopes = ScopeClaims.resolve(scopes, tenant, userId);
+        boolean nothingToCarry = (roles == null || roles.isEmpty())
+                && (grantedScopes == null || grantedScopes.isEmpty());
+        if (nothingToCarry) {
+            // Both empty means both claims would be omitted, so the re-mint could
+            // only reproduce the token we are already holding. Skipping it also
+            // keeps a handler that legitimately returns nothing from costing a
+            // round trip on every refresh forever.
+            return minted;
+        }
+
+        // Re-mint against the ROTATED refresh token. The first mint already
+        // spent the one the caller presented; re-using it would fail as a replay.
+        return token(new TokenRequest(minted.refreshToken(), tenant, null, null,
+                null, grantedScopes, roles));
     }
 
     /** SPEC §4.2. */

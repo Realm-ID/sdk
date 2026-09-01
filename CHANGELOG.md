@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Derived claims were resolved on LOGIN LANES ONLY — go `0.54.0` (2026-09-01)
+## Derived claims were resolved on LOGIN LANES ONLY — go `0.54.0` · java `0.44.0` (2026-09-01)
 
 **Fixes a live defect and unblocks an ADR-097 cutover.** `product_roles` and
 `scope` are resolved per mint — but nothing resolved them on a REFRESH, so a
@@ -52,6 +52,14 @@ extra call cannot creep in unnoticed.
 deliberate.** `product_roles` and `scope` key on EMPTINESS (nil and empty both
 mint no claim); `role_permissions` keys on NIL, because an empty non-nil list is
 a real instruction the issuer answers with a `403`. Do not harmonise them.
+
+**Java** ports the same seam: `Realm.Builder.scopes(ScopesHandler)`,
+`ScopesException` (deliberately not a `RealmException`, mirroring
+`ProductRolesException`), and `AuthClient.enrichRefreshMint` wired into
+`RealmFilter.handleRefresh`. Additive only — `AuthClient` gains a 5-argument
+constructor and keeps the old ones, and no record component changed. Java's
+`TokenManager` is left alone for the same reason Go's is: it is the
+single-identity daemon lane, not the human-session lane the middleware fronts.
 
 ## `credential_methods` was being dropped by the SDKs — go `0.53.1` · ts `0.46.1` · java `0.43.1` (2026-09-01)
 

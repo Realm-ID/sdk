@@ -159,6 +159,49 @@ agree with is worth the thirty seconds.
 **Cost.** The go SDK moves `0.53.1` → `0.54.0`. ts and java must follow or the
 parity claim is false.
 
+### Java port (`0.43.1` → `0.44.0`) — three forks Go did not have
+
+The semantics are the Go ones, unchanged. What needed deciding was Java-shaped.
+
+**J1 — `enrichRefreshMint` is PUBLIC, because Java has no cross-package
+internal.** Go's is unexported and `middleware.go` sits in the same package.
+`RealmFilter` lives in `dev.realmid.sdk.middleware` and `AuthClient` in
+`…​.auth`, so the seam had to be published or duplicated. Publishing it is the
+better of the two: a partner running their own refresh lane (rather than our
+filter) needs exactly this call, and hiding it would have re-created the very
+gap this fixes — a resolution path reachable only from code we wrote.
+
+**J2 — a THIRD private JWT peek, not a JWT library.** `TokensClient` peeks
+`jti`+`exp`, `PlatformTokenManager` peeks `iss`; both are private methods on the
+class that needs them and neither was reachable. `JwtPeek.subject` is
+package-private in `…​.auth` and uses Jackson, already an `api` dependency.
+Consolidating all three is worth doing and is NOT worth doing inside a fix for a
+live defect — it is filed, not done here.
+
+**J3 — additive only, because in Java a breaking change hides in a
+constructor.** `UserAPIKeyWrite`'s canonical constructor did exactly that in a
+recent release. So: `AuthClient` gains a 5-argument constructor and KEEPS the 3-
+and 4-argument ones, `Realm.Builder` gains `scopes(...)`, and no record
+component moved — `TokenRequest` already carried both `scope` and
+`productRoles`. Nothing here is source- or binary-breaking.
+
+**Not ported, deliberately: `TokenManager`.** Go leaves its equivalent alone and
+so does Java. It is the single-identity daemon lane — one refresh token held
+out-of-band, no browser, no session — and the derived claims belong to the
+human-session lane the middleware fronts. A partner who wants them there calls
+`enrichRefreshMint` themselves. Saying this out loud matters: an unexplained
+asymmetry between two refresh paths is exactly what the next reader would
+"fix" in the wrong direction.
+
+**The Java RED was lane-specific and was confirmed before any implementation.**
+Eight of eleven new assertions failed, and the two that carry the whole point
+failed with the message they were written to print: *"the product_roles handler
+was never called on the REFRESH lane"* and *"the scopes handler was never called
+on the LOGIN lane"*. The three that were green from the start are the
+absence-and-cost guards (`noHandlerMintsExactlyOnce`,
+`emptyOrNullResultMintsNoClaim` ×2) — they exist to catch the FIX over-reaching,
+not the bug, so green-before-and-after is their correct history.
+
 ## 2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong
 
 Four ADRs land in the SDKs together (102, 103, 104, 105). Two of them change the
