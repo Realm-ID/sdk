@@ -19,9 +19,14 @@
 > guide is the platform-shaped one (the model, claims, RBAC, migration). They
 > overlap and are being reconciled; where they disagree, `SPEC.md` wins.
 >
-> **Current as of 2026-08-31 (issuer v0.114.0)** — audited line-by-line against
-> the issuer source and the three published SDKs on that date; the sections
+> **Current as of 2026-09-01 (issuer v0.116.0, spec 0.38.0)** — audited
+> line-by-line against the issuer source and the three published SDKs on
+> 2026-08-31, then updated for ADR-102/103/104/105 on 2026-09-01; the sections
 > that had drifted say so inline.
+>
+> ⚠️ A currency line is a CLAIM, and this one has been wrong before by fourteen
+> months. If the version above is behind `GET /.well-known/openapi.json`, treat
+> every statement here as unverified and read the source.
 >
 > Audience: a backend engineer at a partner platform integrating with RealmID. Features deferred past v1
 > (cross-platform authorization endpoints, per-realm invitation TTL)
@@ -207,6 +212,17 @@ const mint = await realm.auth.token({                      // the scoped token
 > `login()` until 2026-08-31; no SDK ever accepted the field there and the
 > issuer never read it.
 >
+> ⚠️ **The SDK's `login()` MINTS as of go `0.53.0` / ts `0.46.0` / java
+> `0.43.0`** (ADR-102 D10), which changes the snippet above for SDK callers
+> though not the wire rule beside it. Once the tenant is settled `login`
+> follows `/auth/login` with a `/auth/token` mint itself; a single-tenant
+> login mints immediately, and a multi-tenant one returns the tenant list and
+> refresh token for your app to settle with `completeLogin`. The visible half
+> is that the `412 mfa_required` gate now surfaces from `login` rather than
+> from your own `token()` call. Do NOT settle the multi-tenant branch with
+> `selectTenant`: its `tenants[0]` fallback would mint for an arbitrary tenant
+> and resolve THAT tenant's roles — a silent wrong answer rather than an error.
+>
 > `rolePermissions` is the other operand and IS accepted on both routes — but
 > it is honoured by `grant_type=user_api_key` alone and inert everywhere else,
 > because no other grant produces a capped token. It narrows a key's
@@ -225,6 +241,100 @@ is how you catch the gap.
 The other half of the same idea — route → scope — is §4.2 below. Both maps live
 in your repo; the SDK only evaluates them.
 
+### Your role NAMES on the token — `product_roles` (ADR-102, issuer v0.116.0)
+
+`POST /auth/token` accepts `product_roles`: an array of YOUR OWN role names for
+the principal. RealmID mints it onto the access token verbatim and **reads it in
+no gate** — not an authorization check, not an audit decision, not a UI
+permission test. It is the third and last piece of getting your authorization
+off our vocabulary, alongside `scope` (§4.2) and your own role→scope map.
+
+```ts
+const mint = await realm.auth.token({
+  refreshToken: session.refreshToken,
+  tenantId,
+  scope: scopesForRoles(ROLE_SCOPES, user.roles),  // AUTHORITY
+  productRoles: user.roles,                        // the NAME, for your own use
+});
+```
+
+**`scope` carries authority; `product_roles` carries a NAME.** Both ride the
+same token and answer different questions. If you branch authorization on the
+name you have rebuilt, one field over, exactly the coupling ADR-101 spent four
+migrations removing — see "Your product's roles live in your system" above.
+
+Four rules, each of which has a reason rather than a preference behind it:
+
+- **Absent and empty mint the SAME token — no claim at all, never `[]`.** Every
+  token issued before ADR-102 carries none, so your reader must handle absence
+  regardless; making empty distinguishable would give you a difference you
+  cannot rely on.
+- **Your handler must be SIDE-EFFECT FREE.** The SDK calls it an unspecified
+  number of times per mint, because it retries (3 attempts, ~50ms then ~150ms).
+  A "role resolved" audit line or a billing hook inside it will fire two or
+  three times per login.
+- **A handler ERROR refuses the mint** rather than minting without the claim.
+  Minting anyway would assert "this principal has no product roles", which is
+  indistinguishable from the truth for a principal who genuinely has none — a
+  silent under-grant that surfaces as a 403 storm in YOUR product against a
+  `200` in ours.
+- **Bounds are 16 entries x 64 bytes**, each non-empty, valid UTF-8, no control
+  characters. Deliberately NOT the `user_api_keys.max_permission_strings` knob
+  that `scope` borrows, which already governs two unrelated things.
+
+It is `/auth/token` ONLY, and that is structural rather than a preference: the
+SDK handler is `(tenantId, userId) -> roles`, and at the moment `/auth/login` is
+called the caller holds NEITHER input — login is what resolves the identity and,
+on the multi-tenant path, what returns the tenant options.
+
+⚠️ `product_roles` is a RESERVED claim name, so you cannot also send it through
+`custom_claims`; that is a `400 reserved_claim_key`.
+
+### Credential sign-in: password and one-time code (ADR-103/104, issuer v0.116.0)
+
+`grant_type=password` is implemented. It has been recognised on the wire since
+ADR-051 and refused with `400 unknown_method` ever since; there is a verifier
+now. `identifier` accepts an email, an E.164 phone, or a USERNAME, classified
+ONCE against three disjoint grammars — never tried as several kinds in turn,
+which would make an identity depend on which store answered first.
+
+- **A username is unique per TENANT, not per realm** — `alice` in two orgs is
+  routinely two people. So a username login NEEDS a tenant: `tenant_id` if you
+  send it, else the tenant bound to the request host through its ADR-094 domain
+  grant. Explicit wins, because a partner BFF is server-side and its Origin is
+  its own. Neither yielding one is `400 tenant_required`, a NAMED code: it is an
+  integration mistake, not a wrong password, and the two must not look alike in
+  your logs.
+- **An ADMIN-set password is an ASSERTION, not a proof.** It is written with
+  `must_change` and the next login answers `403 password_must_change` — NOT
+  `invalid_credentials`, because the password was correct and saying otherwise
+  sends the holder to a reset flow that does not exist. There is no
+  "forgot my password" flow; an admin set is the v1 recovery path, stated as the
+  real product gap it is.
+- **`delivery_mode: "sms"`** on `POST /auth/otp/issue` texts the code to the
+  subject's phone, and `purpose=login` now accepts it for a principal of ANY
+  kind. There is no fallback between modes: a subject with no phone is
+  `400 no_delivery_address` and the issue FAILS rather than quietly mailing it.
+- ⚠️ **BREAKING: a phone must be canonical E.164.** `+1 (555) 010-9999` is now a
+  `400`; `+15550109999` is accepted. Every write path previously checked only
+  for a leading `+`, which accepted both as two identities for one person. This
+  is partner-visible on bulk import and the inline platform-owner path, both of
+  which take phones from backends unattended — normalise at your input.
+
+**Discovery tells you which of these a realm can actually complete.**
+`GET /platforms/{id}/identity-providers` reports `credential_methods`, listing
+`password` and/or `otp`. They can never appear in `providers`: that array is
+`identity_providers` rows, a closed enum of IdPs each carrying a `client_id`,
+and a password is not an IdP. **An ABSENT field means "the server did not say",
+never "none"** — an older issuer omits it, and reading absence as an empty list
+tells your login screen credential login is off when it is not.
+
+⚠️ If you run a BFF that decodes discovery into a typed SDK struct and
+re-serialises it, use go `0.53.1` / ts `0.46.1` / java `0.43.1` or later. The
+`.0` releases had no field for `credential_methods` and therefore DELETED it in
+transit, silently — credential sign-in was unreachable from any BFF-fronted
+console.
+
 ### Attaching partner-owned DATA (not authority)
 
 RealmID gives you **one role per user per tenant** (ADR-025). Use `PATCH
@@ -239,7 +349,7 @@ being able to promote themselves. The full management surface is in
 
 Two ways to attach data:
 
-**(a) Inline custom claims on the JWT.** Custom claims ride on **`POST /auth/token` only** — the `custom_claims` field on `/auth/login` was deprecated with Sunset 2026-07-01 and is gone (a login body still carrying it is inert; this paragraph named the wrong route until 2026-08-31). Keys you pass on `/auth/token` land on the minted access token (e.g. `outlet_ids`, `feature_flags`, `region`), subject to two gates that both refuse loudly rather than dropping silently. First, every key must be on your realm's allowlist, `realms.config.access_token_custom_claim_keys` — a key that is not is `400 bad_request`, and the allowlist defaults to **empty**, so custom claims are something you turn on deliberately, not a field that happens to work. Second, reserved claim names are `400 reserved_claim_key` (ADR-097 D3 — a dropped claim is indistinguishable, from your side, from an honoured one, and once `scope` carries granted authority that difference is a gate that never fires). The reserved set is `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `scope`, `token_class`. Claims are per-mint, like `scope`: send them on each `/auth/token` call (refresh and the ADR-031/032 tenant switch included) — they are not stored on the session. Use this when the data is small and needs to be available without a DB hop (a per-user list of the outlets or branches they may see is the archetype).
+**(a) Inline custom claims on the JWT.** Custom claims ride on **`POST /auth/token` only** — the `custom_claims` field on `/auth/login` was deprecated with Sunset 2026-07-01 and is gone (a login body still carrying it is inert; this paragraph named the wrong route until 2026-08-31). Keys you pass on `/auth/token` land on the minted access token (e.g. `outlet_ids`, `feature_flags`, `region`), subject to two gates that both refuse loudly rather than dropping silently. First, every key must be on your realm's allowlist, `realms.config.access_token_custom_claim_keys` — a key that is not is `400 bad_request`, and the allowlist defaults to **empty**, so custom claims are something you turn on deliberately, not a field that happens to work. Second, reserved claim names are `400 reserved_claim_key` (ADR-097 D3 — a dropped claim is indistinguishable, from your side, from an honoured one, and once `scope` carries granted authority that difference is a gate that never fires). The reserved set is `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `scope`, `token_class`, `product_roles` (read from `internal/tokens/tokens.go` on 2026-09-01; `product_roles` joined the set in ADR-102 and this list omitted it until then, so a partner following the older text would have got a `400` for a key the guide implied was free). Claims are per-mint, like `scope`: send them on each `/auth/token` call (refresh and the ADR-031/032 tenant switch included) — they are not stored on the session. Use this when the data is small and needs to be available without a DB hop (a per-user list of the outlets or branches they may see is the archetype).
 
 **(b) Partner-side lookup keyed on JWT subject.** Read `tenant_id` + `user_id` off the verified claim, consult your own DB per request. Use this when the data is mutable mid-session (tokens won't reflect changes until next refresh) or too big for a claim.
 
