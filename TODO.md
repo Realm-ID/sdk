@@ -1,5 +1,48 @@
 # TODO — sdk/ (go · ts · java · web)
 
+> 🔴 **BLOCKER FOR A LIVE PARTNER, filed 2026-09-01 — `scope` has no
+> every-mint seam, so ADR-097 cannot be adopted by a BFF partner.**
+> Found by Traide's engineering while designing their ADR-097 cutover; the
+> mechanism is VERIFIED in issuer source at `3954a4c` (live `v0.116.0`), not
+> taken on their word.
+>
+> **The issuer does not carry `scope` across a refresh, by design.**
+> `sessionstore.Session` has no scope field and `authsvc/service.go:1613-1616`
+> states why: *"`scope` is never stored on a session, precisely so it cannot go
+> stale."* `MintForTenant` reads `req.Scope` only (`:1328`), and
+> `tokens.Claims.Scope` is `omitempty`, so a `/auth/token` without `scope`
+> mints **no scope claim at all**. `sdk/go/scope.go:50-53` then reads that as
+> "no granted authority" — fail-closed, correctly.
+>
+> **The gap is OURS, and it is the same class as the §4.1 guide defect.**
+> `Config` has exactly one handler, `ProductRoles`. There is no scope analogue,
+> so nothing derives scopes from the roles a partner's own handler just
+> resolved. On the LOGIN flow a partner can re-mint via `OnAuthSuccess` (the
+> event carries a live `*Session` and fires before the response is written).
+> **On the REFRESH flow `ev.Session` is nil**, and the middleware's own refresh
+> mints with no `Scope` and no `RolePermissions` — so a BFF-fronted human
+> session loses its authority at the FIRST refresh, and a `ScopePolicy` gate
+> denies everything roughly one access-TTL into every session.
+>
+> **Consequence:** for a BFF partner, token scope is stale for the LIFE of the
+> session, not for one TTL. Traide are correctly refusing to ship the cutover
+> until this exists.
+>
+> **Shape:** a `Config.Scopes` handler applied at EVERY mint, exactly as
+> `mintProductRoles` already does for ADR-102 (`auth.go:557`/`:618`/`:924`).
+> Needs NO issuer change — the issuer's contract is "requested per mint, never
+> remembered", and a client-side closure satisfies it. Do the same in ts + java,
+> not just go; the ADR-102 seam is the template for all three.
+>
+> ⚠️ **Check the partner-integration guide in the same pass.** §4.1 already had
+> to be corrected once for pointing BFF partners at a per-call field instead of
+> the realm-level handler that actually reaches humans. Anything the guide says
+> about `scope` is likely to carry the identical error.
+>
+> Not started. Needs a design pass + the user's go-ahead (`discuss features
+> first`) — it is a new SDK surface across three languages, not a fix.
+
+
 Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 `SPEC.md` is law — if a language SDK and the SPEC disagree, fix the SDK.
 
