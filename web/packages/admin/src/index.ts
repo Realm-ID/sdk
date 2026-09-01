@@ -285,7 +285,6 @@ export type {
   UserApiKey,
   UserApiKeyWrite,
   UserApiKeyCreate,
-  OrgScope,
   LivePermissionResolver,
 } from "@realm-id/sdk/internal";
 

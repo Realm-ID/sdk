@@ -16,6 +16,19 @@ export interface LoginRequest {
   email?: string;
   password?: string;
   otpCode?: string;
+  /**
+   * ADR-103/104 — the handle for a CREDENTIAL grant (`method: "password"` or
+   * `"otp"`): an email, an E.164 phone, or a username.
+   *
+   * ⚠️ Passed through VERBATIM. The issuer classifies it ONCE against three
+   * disjoint grammars, so nothing between the input field and the issuer may
+   * reshape it: a layer that trimmed or lower-cased or "fixed" a phone number
+   * would make the resolved identity depend on which door the request came
+   * through. Normalising a phone is the UI's job, at the input, exactly once.
+   */
+  identifier?: string;
+  /** The password (ADR-104) or the OTP value (ADR-103). */
+  presented?: string;
   /** Optional tenant pin — server may use to scope discovery / signup. */
   tenantId?: string;
   /** Pass-through for partner-specific fields (e.g. realmId, captchaToken). */
@@ -103,6 +116,26 @@ export interface ProvidersResponse {
   tenantId?: string | null;
   signupMode?: "closed" | "allowlist" | "open" | (string & {});
   allowedSignupDomains?: string[];
+  /**
+   * The NON-IdP login methods this realm can actually complete:
+   * `"password"` (ADR-104) and `"otp"` (ADR-103).
+   *
+   * ⚠️ **They cannot ride in `providers`**, and this is not a stylistic choice.
+   * That array is `identity_providers` rows, whose `type` is a closed enum of
+   * IdPs and whose entries carry a `clientId`. A password is not an IdP and has
+   * no client id, so a login screen driven off `providers` alone can never
+   * offer one.
+   *
+   * **Advertised only when COMPLETABLE.** `password` appears only when the
+   * deployment has a credential store wired, `otp` only when the realm's
+   * `otp_login_enabled` is set. Offering a method the deployment cannot finish
+   * is the "coming soon" failure — a user picks it and nothing happens.
+   *
+   * **ABSENT means "the server did not say"**, never "none": an older issuer
+   * omits the field entirely, so a login page must not read absence as
+   * "credential login is off" and hide a working method.
+   */
+  credentialMethods?: string[];
 }
 
 export interface MeResponse {

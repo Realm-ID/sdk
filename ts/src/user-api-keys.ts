@@ -16,37 +16,37 @@ import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
 import type { Claims } from "./claims.js";
 
-/** Org-scope modes (ADR-084 §6). */
-export type OrgScope = "selected" | "all";
+/**
+ * ⚠️ **ADR-084 §6's `OrgScope` type is GONE (ADR-105).** A user API key is bound
+ * to exactly ONE org — the minting principal's own — and the mint takes no org
+ * input at all.
+ *
+ * `"all"` meant "every org in this realm the holder belongs to, now and in
+ * future", resolved fresh at each exchange: the one mode that widened with no
+ * human in the loop. Prod held ZERO keys of either shape when it was measured
+ * (2026-08-31), so it went out as a deletion rather than a deprecation.
+ *
+ * A caller needing a credential across N orgs mints N keys. Strictly better:
+ * revoking one then revokes one, and a key's compromise no longer spans orgs.
+ */
 
 /**
  * The write payload, shared by {@link UserApiKeysClient.create} and
  * {@link UserApiKeysClient.update} (ADR-100 D12).
  *
  * ⚠️ **PUT RESETS WHAT IT OMITS.** `update` replaces the whole key, so a caller
- * that wants to change only the cap must READ THE KEY FIRST and send `label`,
- * `org_scope` and `org_ids` back unchanged. Send just the cap and the label is
- * blanked and the org scope reset to the realm default. This is the price of
- * one write schema instead of two, and it is deliberate: PATCH would make
+ * that wants to change only the cap must READ THE KEY FIRST and send `label`
+ * back unchanged. Send just the cap and the label is blanked. This is the price
+ * of one write schema instead of two, and it is deliberate: PATCH would make
  * `permissions_cap` and `uncapped` an order-dependent pair that can arrive
  * half-specified.
+ *
+ * ⚠️ **ADR-105 removed `org_scope` and `org_ids`.** The fields are GONE rather
+ * than accepted-and-ignored: a property left in the type would look like a live
+ * knob.
  */
 export interface UserApiKeyWrite {
   label: string;
-  /**
-   * Defaults to the realm's `user_api_keys.org_scope_default`.
-   *
-   * `"selected"` pins the key to a FROZEN allowlist — orgs the user joins later
-   * do NOT widen it. `"all"` is FORWARD-INCLUSIVE and requires the realm's
-   * `user_api_keys.allow_all_orgs`, because it is the one mode that widens with
-   * no human in the loop.
-   */
-  org_scope?: OrgScope;
-  /**
-   * Defaults to just the user's current org. Every entry must be a live
-   * membership of the target user, else `400 org_not_a_membership`.
-   */
-  org_ids?: string[];
   /**
    * **REQUIRED — a key's authority is stated, never inferred (ADR-100).**
    *
@@ -90,8 +90,8 @@ export type UserApiKeyCreate = UserApiKeyWrite;
 /**
  * One key entry. A union of the create-response and list-row wire shapes:
  *
- *   - On create: `id`, `value` (the one-time secret), `label`, `org_scope`,
- *     `org_ids`, `permissions_cap`, `expires_at`.
+ *   - On create: `id`, `value` (the one-time secret), `label`, `org_id`,
+ *     `permissions_cap`, `expires_at`.
  *   - On list:   the above minus `value`, plus `prefix`, `minted_mfa_at`,
  *     `created_at`, `last_used_at`, `revoked_at`.
  */
@@ -106,14 +106,16 @@ export interface UserApiKey {
    */
   prefix?: string;
   label?: string;
-  org_scope?: OrgScope;
   /**
-   * The scope AS STORED. An org named here may no longer be reachable:
-   * revocation on membership loss is an async sweep and live membership is
-   * re-intersected at every exchange, so a key can LIST an org it can no longer
-   * MINT into. Showing the stored value is the honest answer.
+   * The ONE org this key mints into (ADR-105) — the minting principal's own
+   * tenant, never client-supplied.
+   *
+   * It may briefly outlive the membership it depends on: revocation on
+   * membership loss is an async sweep and live membership is re-checked at
+   * every exchange, so a key can LIST an org it can no longer MINT into.
+   * Showing the stored value is the honest answer.
    */
-  org_ids?: string[];
+  org_id?: string;
   /**
    * `true` when the key carries the holder's full authority. Mutually exclusive
    * with a non-empty `permissions_cap`: exactly one of the two describes the
@@ -172,9 +174,8 @@ export class UserApiKeysClient {
    * ⚠️ **This is a PUT: it resets what it omits.** Read the key, change the one
    * field, send the whole shape back. See {@link UserApiKeyWrite}.
    *
-   * Widening — `uncapped: false → true`, adding permissions, `org_scope:
-   * "selected" → "all"`, extending the TTL — is gated by the same MFA step-up
-   * as the mint (`user_api_keys.require_mfa_at_mint`). It has to be: a key
+   * Widening — `uncapped: false → true`, adding permissions, extending the
+   * TTL — is gated by the same MFA step-up as the mint (`user_api_keys.require_mfa_at_mint`). It has to be: a key
    * minted narrowly and then widened through an unguarded update would make the
    * mint's gate decorative.
    *
@@ -229,8 +230,6 @@ function writeBody(body: UserApiKeyWrite): Record<string, unknown> {
   return {
     label: body.label,
     uncapped: !!body.uncapped,
-    ...(body.org_scope !== undefined ? { org_scope: body.org_scope } : {}),
-    ...(body.org_ids !== undefined ? { org_ids: body.org_ids } : {}),
     ...(body.permissions_cap !== undefined ? { permissions_cap: body.permissions_cap } : {}),
     ...(body.ttl_seconds !== undefined ? { ttl_seconds: body.ttl_seconds } : {}),
   };

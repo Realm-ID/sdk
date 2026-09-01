@@ -40,7 +40,6 @@ describe("UserApiKeysClient via web-admin transport (ADR-084)", () => {
     const { http, calls } = makeHttp({ id: "k2", value: "uk_live_secret", label: "ci" });
     const out = await asClient(http).create("t1", "u1", {
       label: "ci",
-      org_scope: "selected",
       uncapped: false,
       permissions_cap: ["users:read"],
     });
@@ -50,10 +49,12 @@ describe("UserApiKeysClient via web-admin transport (ADR-084)", () => {
     // conditional spread would drop. An absent `uncapped` used to mean "grant
     // the holder's full authority", so the field being unconditional is the
     // whole mechanism, not a detail of the serialiser.
+    // ADR-105: no `org_scope` and no `org_ids`. A key is bound to the minting
+    // principal's own org and the mint takes NO org input, so the serialiser
+    // must not be able to put one on the wire.
     assert.deepEqual(calls[0]!.opts.body, {
       label: "ci",
       uncapped: false,
-      org_scope: "selected",
       permissions_cap: ["users:read"],
     });
     assert.equal(out.value, "uk_live_secret");

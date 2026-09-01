@@ -109,13 +109,14 @@ class CapCheckTest {
 
     @Test
     void revokedKeysOffRevokedAt() {
-        UserAPIKey live = new UserAPIKey("k1", null, "pfx", "l", OrgScope.SELECTED,
-                List.of("o1"), Boolean.FALSE, List.of("audit:read"), null, 1L, null, null, null);
+        // ADR-105 — one orgId, no orgScope/orgIds pair.
+        UserAPIKey live = new UserAPIKey("k1", null, "pfx", "l", "o1",
+                Boolean.FALSE, List.of("audit:read"), null, 1L, null, null, null);
         assertFalse(live.revoked());
         // uncapped=TRUE with a null cap, which is the only shape the server can
         // now return for an unrestricted key (ADR-100 D1: {} is not storable).
-        UserAPIKey dead = new UserAPIKey("k2", null, "pfx", "l", OrgScope.SELECTED,
-                List.of("o1"), Boolean.TRUE, null, null, 1L, null, null, 1000L);
+        UserAPIKey dead = new UserAPIKey("k2", null, "pfx", "l", "o1",
+                Boolean.TRUE, null, null, 1L, null, null, 1000L);
         assertTrue(dead.revoked());
     }
 }

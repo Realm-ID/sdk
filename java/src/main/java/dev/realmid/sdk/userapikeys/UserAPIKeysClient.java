@@ -47,7 +47,7 @@ public final class UserAPIKeysClient {
      * the one field, send the whole shape back. See {@link UserAPIKeyWrite}.
      *
      * <p>Widening — {@code uncapped} FALSE→TRUE, adding permissions,
-     * {@code orgScope} selected→all, extending the TTL — is gated by the same MFA
+     * extending the TTL — is gated by the same MFA
      * step-up as the mint ({@code user_api_keys.require_mfa_at_mint}). It has to
      * be: a key minted narrowly and then widened through an unguarded update
      * would make the mint's gate decorative.
@@ -75,8 +75,6 @@ public final class UserAPIKeysClient {
     private static Map<String, Object> writeBody(UserAPIKeyWrite body) {
         Map<String, Object> b = new LinkedHashMap<>();
         b.put("label", body.label());
-        if (body.orgScope() != null) b.put("org_scope", body.orgScope());
-        if (body.orgIds() != null) b.put("org_ids", body.orgIds());
         b.put("uncapped", body.uncapped());
         if (body.permissionsCap() != null) b.put("permissions_cap", body.permissionsCap());
         if (body.ttlSeconds() != null) b.put("ttl_seconds", body.ttlSeconds());

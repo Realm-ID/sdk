@@ -20,8 +20,7 @@ import java.util.List;
  *
  * <ul>
  *   <li>On create: {@code id}, {@code value} (the one-time secret), {@code label},
- *       {@code orgScope}, {@code orgIds}, {@code permissionsCap},
- *       {@code expiresAt}.</li>
+ *       {@code orgId}, {@code permissionsCap}, {@code expiresAt}.</li>
  *   <li>On list: the above minus {@code value}, plus {@code prefix},
  *       {@code mintedMfaAt}, {@code createdAt}, {@code lastUsedAt},
  *       {@code revokedAt}.</li>
@@ -44,15 +43,22 @@ public record UserAPIKey(
          */
         String prefix,
         String label,
-        /** {@code "selected"} or {@code "all"} — see {@link OrgScope}. */
-        @JsonProperty("org_scope") @JsonAlias("orgScope") String orgScope,
         /**
-         * The scope AS STORED. An org named here may no longer be reachable:
-         * revocation on membership loss is an async sweep and live membership is
-         * re-intersected at every exchange, so a key can LIST an org it can no
-         * longer MINT into. Showing the stored value is the honest answer.
+         * The ONE org this key mints into (ADR-105) — the minting principal's
+         * own tenant, never client-supplied.
+         *
+         * <p>It may briefly outlive the membership it depends on: revocation on
+         * membership loss is an async sweep and live membership is re-checked at
+         * every exchange, so a key can LIST an org it can no longer MINT into.
+         * Showing the stored value is the honest answer.
+         *
+         * <p><b>{@code orgScope} and {@code orgIds} are GONE (ADR-105).</b>
+         * {@code "all"} meant every org in the realm the holder belongs to, now
+         * and in future — the one mode that widened with no human in the loop.
+         * Prod held ZERO keys of either shape when it was measured, so it went
+         * out as a deletion rather than a deprecation.
          */
-        @JsonProperty("org_ids") @JsonAlias("orgIds") List<String> orgIds,
+        @JsonProperty("org_id") @JsonAlias("orgId") String orgId,
         /**
          * True when the key carries the holder's FULL authority — all current
          * and future permissions. Mutually exclusive with a non-empty

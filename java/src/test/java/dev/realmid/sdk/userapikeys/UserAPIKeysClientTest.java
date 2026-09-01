@@ -94,7 +94,7 @@ class UserAPIKeysClientTest {
             return FakeServer.Reply.json(400, Map.of(
                     "error", Map.of("code", "uncapped_required", "message", "state it")));
         });
-        UserAPIKeyWrite forgot = new UserAPIKeyWrite("x", null, null, null, null, null);
+        UserAPIKeyWrite forgot = new UserAPIKeyWrite("x", null, null, null);
         try {
             realm.userApiKeys().create("t1", "u1", forgot);
         } catch (RuntimeException expected) {

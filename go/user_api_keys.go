@@ -16,10 +16,10 @@ import (
 //
 // The struct unions the create-response and list-row wire shapes (issuer wins):
 //
-//   - On create: ID, Value (the one-time secret), Label, OrgScope, OrgIDs,
-//     PermissionsCap, ExpiresAt.
-//   - On list:   ID, Prefix, Label, OrgScope, OrgIDs, PermissionsCap,
-//     MintedMFAAt, CreatedAt, LastUsedAt, ExpiresAt, RevokedAt.
+//   - On create: ID, Value (the one-time secret), Label, OrgID, PermissionsCap,
+//     ExpiresAt.
+//   - On list:   ID, Prefix, Label, OrgID, PermissionsCap, MintedMFAAt,
+//     CreatedAt, LastUsedAt, ExpiresAt, RevokedAt.
 type UserAPIKey struct {
 	ID string `json:"id"`
 	// Value is the raw secret, returned ONLY on create (one-time reveal).
@@ -30,13 +30,14 @@ type UserAPIKey struct {
 	// uk_live_… cannot otherwise be correlated to its row.
 	Prefix string `json:"prefix,omitempty"`
 	Label  string `json:"label,omitempty"`
-	// OrgScope is "selected" or "all". See OrgScopeSelected / OrgScopeAll.
-	OrgScope string `json:"org_scope,omitempty"`
-	// OrgIDs is the scope AS STORED. An org named here may no longer be
-	// reachable: revocation on membership loss is an async sweep and live
-	// membership is re-intersected at every exchange, so a key can LIST an org it
-	// can no longer MINT into. Showing the stored value is the honest answer.
-	OrgIDs []string `json:"org_ids,omitempty"`
+	// OrgID is the ONE org this key mints into (ADR-105): the minting
+	// principal's own tenant, never client-supplied.
+	//
+	// It may briefly outlive the membership it depends on — revocation on
+	// membership loss is an async sweep and live membership is re-checked at
+	// every exchange — so a key can LIST an org it can no longer MINT into.
+	// Showing the stored value is the honest answer.
+	OrgID string `json:"org_id,omitempty"`
 	// Uncapped reports that the key carries the holder's FULL authority — all
 	// current and future permissions. Mutually exclusive with a non-empty
 	// PermissionsCap: exactly one of the two describes the key (ADR-100 D2).
@@ -58,17 +59,17 @@ type UserAPIKey struct {
 	RevokedAt  *int64 `json:"revoked_at,omitempty"`
 }
 
-// Org-scope modes (ADR-084 §6).
-const (
-	// OrgScopeSelected pins the key to a FROZEN allowlist, defaulting to just the
-	// user's current org. Orgs joined later do NOT widen the key.
-	OrgScopeSelected = "selected"
-	// OrgScopeAll is FORWARD-INCLUSIVE: every org in the realm the user belongs
-	// to, now and in future, resolved fresh at each exchange rather than
-	// snapshotted. Gated on the realm's user_api_keys.allow_all_orgs because it
-	// is the one mode that widens with no human in the loop.
-	OrgScopeAll = "all"
-)
+// ⚠️ ADR-084 §6's ORG-SCOPE MODES ARE GONE (ADR-105). `OrgScopeSelected` and
+// `OrgScopeAll` no longer exist, and neither does the concept: a key is bound to
+// exactly ONE org, `UserAPIKey.OrgID`.
+//
+// `all` meant "every org in this realm the holder belongs to, now and in
+// future", resolved fresh at each exchange — the one mode that widened with no
+// human in the loop. Prod held ZERO keys of either shape when it was measured
+// (2026-08-31), so it went out as a deletion rather than a deprecation.
+//
+// A caller needing a credential across N orgs mints N keys. Strictly better:
+// revoking one then revokes one, and a key's compromise no longer spans orgs.
 
 // Revoked reports whether the key has been soft-revoked.
 func (k UserAPIKey) Revoked() bool { return k.RevokedAt != nil }
@@ -79,18 +80,17 @@ func (k UserAPIKey) Revoked() bool { return k.RevokedAt != nil }
 //
 // ⚠️ UPDATE RESETS WHAT IT OMITS. Update is a PUT, not a PATCH: it replaces the
 // whole key, so a caller changing only the cap must READ THE KEY FIRST and send
-// Label, OrgScope and OrgIDs back unchanged. Send just the cap and the label is
-// blanked and the org scope reset to the realm default. That is the price of
-// one write schema instead of two, and it is deliberate — PATCH would make
-// PermissionsCap and Uncapped an order-dependent pair that can arrive
+// Label back unchanged. Send just the cap and the label is blanked. That is the
+// price of one write schema instead of two, and it is deliberate — PATCH would
+// make PermissionsCap and Uncapped an order-dependent pair that can arrive
 // half-specified.
+//
+// ⚠️ ADR-105 REMOVED OrgScope and OrgIDs from this struct. A key is bound to the
+// minting principal's own org and the mint takes no org input at all. The fields
+// are GONE rather than accepted-and-ignored: a struct tag left behind would look
+// like a live knob.
 type UserAPIKeyWrite struct {
 	Label string `json:"label"`
-	// OrgScope defaults to the realm's user_api_keys.org_scope_default.
-	OrgScope string `json:"org_scope,omitempty"`
-	// OrgIDs defaults to just the user's current org. Every entry must be a live
-	// membership of the target user, else 400 org_not_a_membership.
-	OrgIDs []string `json:"org_ids,omitempty"`
 	// Uncapped is REQUIRED — a key's authority is stated, never inferred
 	// (ADR-100).
 	//
@@ -191,15 +191,15 @@ func (c *UserAPIKeysClient) List(ctx ctxpkg.Context, tenantID, userID string) ([
 	return decodeUserAPIKeyList(raw)
 }
 
-// Update replaces a key in place (ADR-100 D12) — cap, label, org scope and TTL.
+// Update replaces a key in place (ADR-100 D12) — cap, label and TTL.
 // The key's SECRET is untouched: Update never re-issues plaintext and the
 // returned key carries no Value.
 //
 // ⚠️ This is a PUT: IT RESETS WHAT IT OMITS. Read the key, change the one field,
 // send the whole shape back. See UserAPIKeyWrite.
 //
-// Widening — Uncapped false→true, adding permissions, OrgScope
-// "selected"→"all", extending the TTL — is gated by the same MFA step-up as the
+// Widening — Uncapped false→true, adding permissions, extending the TTL — is
+// gated by the same MFA step-up as the
 // mint (user_api_keys.require_mfa_at_mint). It has to be: a key minted narrowly
 // and then widened through an unguarded update would make the mint's gate
 // decorative.

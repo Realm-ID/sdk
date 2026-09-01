@@ -9,11 +9,17 @@ import java.util.List;
  *
  * <p><b>⚠️ UPDATE RESETS WHAT IT OMITS.</b> {@code update} is a PUT, not a
  * PATCH: it replaces the whole key, so a caller changing only the cap must READ
- * THE KEY FIRST and pass {@code label}, {@code orgScope} and {@code orgIds} back
- * unchanged. Pass just the cap and the label is blanked and the org scope reset
- * to the realm default. That is the price of one write schema instead of two,
- * and it is deliberate — PATCH would make {@code permissionsCap} and
- * {@code uncapped} an order-dependent pair that can arrive half-specified.
+ * THE KEY FIRST and pass {@code label} back unchanged. Pass just the cap and the
+ * label is blanked. That is the price of one write schema instead of two, and it
+ * is deliberate — PATCH would make {@code permissionsCap} and {@code uncapped}
+ * an order-dependent pair that can arrive half-specified.
+ *
+ * <p><b>⚠️ ADR-105 REMOVED {@code orgScope} and {@code orgIds}.</b> A key is
+ * bound to the minting principal's own org and the mint takes no org input at
+ * all. The components are GONE rather than accepted-and-ignored: a record
+ * component left behind would look like a live knob. This is a source-breaking
+ * change to the canonical constructor — use the {@code capped} / {@code uncapped}
+ * factories, which is what every caller should already be doing.
  *
  * <p><b>This record replaces {@code UserAPIKeyCreate}, and its
  * {@code of(label)} factory is gone on purpose.</b> That factory passed four
@@ -26,11 +32,6 @@ import java.util.List;
  *
  * @param label          required human label — the only handle on a key that
  *                       never shows its plaintext again
- * @param orgScope       {@link OrgScope#SELECTED} or {@link OrgScope#ALL}; null =
- *                       the realm's {@code org_scope_default}
- * @param orgIds         the frozen allowlist for {@code selected}; null = just the
- *                       user's current org. Every entry must be a live membership
- *                       of the target user, else {@code 400 org_not_a_membership}
  * @param uncapped       <b>required — a key's authority is stated, never
  *                       inferred.</b> {@code TRUE} means all current AND FUTURE
  *                       permissions of the holder and needs the realm's
@@ -55,8 +56,6 @@ import java.util.List;
  */
 public record UserAPIKeyWrite(
         String label,
-        String orgScope,
-        List<String> orgIds,
         Boolean uncapped,
         List<String> permissionsCap,
         Integer ttlSeconds
@@ -70,7 +69,7 @@ public record UserAPIKeyWrite(
      * forward-inclusive.
      */
     public static UserAPIKeyWrite capped(String label, List<String> permissions) {
-        return new UserAPIKeyWrite(label, null, null, Boolean.FALSE, permissions, null);
+        return new UserAPIKeyWrite(label, Boolean.FALSE, permissions, null);
     }
 
     /**
@@ -81,6 +80,6 @@ public record UserAPIKeyWrite(
      * this is RealmID admin authority.
      */
     public static UserAPIKeyWrite uncapped(String label) {
-        return new UserAPIKeyWrite(label, null, null, Boolean.TRUE, null, null);
+        return new UserAPIKeyWrite(label, Boolean.TRUE, null, null);
     }
 }
