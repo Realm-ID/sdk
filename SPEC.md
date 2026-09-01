@@ -1,7 +1,13 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-08-28 — go `go/v0.49.0` · ts `ts-v0.42.0` · java
-`java-v0.39.0`** (see §12 for the tag matrix).
+**Current as of 2026-08-31 — go `go/v0.52.1` · ts `ts-v0.45.0` · java
+`java-v0.42.0`** (see §12 for the tag matrix).
+
+> ⚠️ **This revision describes an UNRELEASED surface** (ADR-102/103/104/105).
+> `login` MINTS now (§4.1.1) — a behaviour change for every consumer — and
+> `orgScope` / `orgIds` are GONE from the user-API-key surface (§6.6). Both are
+> BREAKING. The tags above are the last RELEASED ones; nothing in §4.1.1,
+> §4.1.2, §4.1.3 or §6.6's ADR-105 block is in them yet.
 
 > **Every tag named here is a tag that exists.** The previous header pinned
 > `go/v0.46.0` · `ts-v0.38.0` · `java-v0.36.0`, and **none of those three were
@@ -440,9 +446,12 @@ Request: `{ method, providerToken, origin?, deviceName?, rolePermissions? }`
 
   Ignored for a token that is not key-derived, and ignored for an **uncapped**
   key, whose claim stays absent whatever you send (D7). **An empty intersection
-  is `403`, never an empty claim** (D8) — and because the narrowing is per-org,
-  a multi-org key can mint in one org and be refused in another, so the error
-  names the org.
+  is `403`, never an empty claim** (D8). ⚠️ **ADR-105 changed this refusal's
+  shape:** the narrowing used to be per-org, so the same key could mint in one
+  org and be refused in another and the error named which. A key now has exactly
+  one org, so the refusal is **unconditional** — the key IS broken for the only
+  org it has — and the error no longer carries a tenant id. There is no "try
+  another org" recovery to point at.
   **Sanitizing is split, and the split is deliberate.** The server strips
   control characters and caps the value at **120 characters**
   (`sanitizeDeviceName`); no SDK duplicates the CAP, because that is policy and
@@ -504,6 +513,174 @@ Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, expire
 > Custom claims are **not** accepted on login. The refresh token carries
 > identity only. Custom claims belong on the access token (see §4.2).
 
+#### 4.1.1 `login` MINTS. Behaviour change, ADR-102 D10 — read this before upgrading
+
+⚠️ **BREAKING for every consumer.** `login` no longer returns whatever
+`/auth/login` happened to give it. Once the tenant is settled it follows up with
+a `/auth/token` mint, and the ADR-102 `productRoles` handler (§4.1.2) runs
+there. This is a changed entry point, not a new one: a separate `loginAndMint`
+would have been non-breaking and would have left the default wrong — every
+consumer who never knew to re-mint keeps a role-blind token.
+
+**Two branches, and they are the two branches `/auth/login` already has:**
+
+| login resolved | `login` behaviour |
+|---|---|
+| **exactly one tenant** | **mints immediately** — runs the handler for that tenant, calls `/auth/token`, returns a fully-minted session in one call, as today |
+| **several tenants** (`tenantsRequired`) | **does NOT mint.** Returns the tenant list and the refresh token. Your app presents the choice — your labels, your role names, your decision — and calls the mint step on selection, which runs the handler for the CHOSEN tenant |
+
+⚠️ **`selectTenant` must NOT be used to settle the multi-tenant branch.** It
+falls back to `tenants[0]` when nothing is preferred, so wiring the branch
+through it would mint for an ARBITRARY tenant and resolve THAT tenant's roles —
+a silent wrong answer, not an error. The auto-pick is for a caller that has
+already decided; it is not a tenant-selection mechanism.
+
+Unrelated to ADR-092 D5's `tenantChoiceRequired` / `tenantChoices`, which is a
+single-tenant-membership RECONCILIATION prompt on a login that already
+succeeded. Same words, different mechanism; do not conflate them.
+
+**What moves for you.** The `412 mfa_required` gate now surfaces from `login`
+where it previously surfaced from your own `token()` call. Callers that handled
+it around `token()` and not around `login()` will see it in a new place.
+
+**The session `login` created is NOT discarded on a mint failure.** It is the
+recovery anchor, and every mint-time refusal is recoverable from the one refresh
+token you hold:
+
+| refusal at mint | recovery, same refresh token |
+|---|---|
+| role handler failed for org A | choose org B — handler failures are often tenant-specific |
+| `412 mfa_required` | verify, then mint |
+| ADR-092 concurrent-session limit | the issuer returns the active-session list and a revocation token; let the user revoke one, then mint |
+
+**Costs, accepted:** one extra issuer round trip per login on the happy path, and
+one extra refresh-token ROTATION (the token minted inline by login is
+immediately superseded). Both are per-login, not per-request.
+
+#### 4.1.2 The `productRoles` handler (ADR-102 D3/D11)
+
+A caller-supplied resolver, wired at construction:
+
+```
+(tenantId, userId) -> string[]
+```
+
+Wired per language, following the existing hook precedent in each — Go a
+functional option alongside `WithRefreshSink`, TS a field on
+`TokenManagerOptions` alongside `refreshSink`, Java a `Realm.Builder` method.
+
+Four rules:
+
+1. **No handler configured -> the claim is omitted, no error.** §4.1.1 already
+   changes `login` for everyone; making the handler mandatory on top would break
+   every existing integration for a feature they did not ask for.
+2. **Empty or nil -> the claim is omitted**, not `[]`. Absent and empty mean the
+   same thing — every token minted before this shipped has no claim, so readers
+   must handle absence anyway. This is `scopesFrom`'s rule verbatim.
+3. **An ERROR -> the SDK RETRIES, then REFUSES to mint.** Not swallowed, not
+   best-effort. Minting anyway would say "this principal has no product roles",
+   which is indistinguishable from the truth for a principal who genuinely has
+   none — a silent under-grant that surfaces as a 403 storm in YOUR product with
+   a `200` in our logs.
+   - **3 attempts total** (initial + 2 retries), backoff ~50ms then ~150ms. This
+     is the login hot path with a human waiting; the ~200ms ceiling is part of
+     the contract, not an implementation detail. Not exponential-unbounded.
+   - **Abort immediately if the context is cancelled or past its deadline.** A
+     retry loop that outlives its context turns a client timeout into a
+     server-side pileup.
+   - **Every error is retried; there is no taxonomy** and no sentinel for you to
+     wrap. The SDK cannot tell your transient DB error from a permanent one.
+   - **The final error is YOURS and says so** — a distinct SDK error wrapping the
+     last handler error, never mapped into a `RealmError`. "Your role handler
+     failed 3 times" and "RealmID refused your mint" are different incidents and
+     must not look alike in your logs.
+4. **It runs on EVERY mint, refresh included.** No caching. That freshness is the
+   entire advantage this claim has over `customClaims`, and it only holds if
+   nothing caches.
+
+⚠️ **Side-effect freedom is a CONTRACT, not a suggestion.** Retrying is only
+legal because the handler is a pure read. It is called an unspecified number of
+times per mint and MUST NOT write, bill, audit, or emit. A partner who logs
+"role resolved" inside it will see triple entries and be right to call it a bug.
+
+**Cross-language parity prerequisite.** `session.needsTenantChoice()` /
+`session.selectTenant()` and `tenantRef.mfaRequired` existed only in Go. §4.1.1's
+multi-tenant branch depends on them, so they ship in TS and Java as part of this
+work. A hand-mirrored surface with a hole in it is how that hole survived.
+
+#### 4.1.3 New grants and identifiers
+
+- **`method: "password"`** (ADR-104) — native username/password. Body
+  `{ identifier, presented, tenantId? }`. `identifier` may be an email, an
+  E.164 phone, or a **username**; it is classified ONCE, never tried as several
+  kinds in turn.
+  ⚠️ **Usernames are unique per TENANT, not per realm.** A username login needs
+  a tenant: `tenantId` if you send it, else the tenant derived from the
+  request's subdomain / `Origin`. **Explicit wins**, including when the two
+  disagree. Neither yielding one is `400 tenant_required` — a named code, not a
+  credential failure, because it is an integration mistake rather than a wrong
+  password. The SDK does not guess a tenant and does not fall back to
+  `tenants[0]`.
+  `kind=service` accounts may not hold a password.
+- **Phone OTP login** (ADR-103) — `otp.issue` accepts
+  `deliveryMode: "sms"`, and `purpose: "login"` now accepts it for principals of
+  ANY kind, not only `kind=service`. `view_bff` on a login OTP is still
+  `kind=service` only (the PARTNER reads the plaintext there; over SMS the
+  SUBJECT does), and `email` on a login OTP is still refused. See §X.1.
+
+#### 4.1.4 Discovery reports the CREDENTIAL methods separately
+
+`realm.providers()` gains `credentialMethods: string[]` — the non-IdP login
+methods a realm can complete (`"password"`, `"otp"`).
+
+⚠️ **They cannot ride in `providers`, and this is not a stylistic choice.** That
+array is `identity_providers` rows: a closed enum of IdPs, each carrying a
+`clientId`. A password is not an IdP and has no client id, so a login screen
+driven off `providers` alone can never offer one — which is exactly what
+happened to RealmID's own console, whose `password` label and keyboard shortcut
+predated any button that could render.
+
+**Advertised only when COMPLETABLE.** `password` appears only when the
+deployment has a credential store wired; `otp` only when the realm's
+`otp_login_enabled` is set. Offering a method the deployment cannot finish is
+the "coming soon" failure — a user picks it and nothing happens.
+
+**ABSENT means "the server did not say", never "none".** An older issuer omits
+the field; do not read absence as "credential login is off" and hide a working
+method.
+
+#### 4.1.5 `login` is not the only lane that mints
+
+`passwordLogin` (§4.1.3) and `otpLogin` (§X.4) follow the SAME ADR-102 D10 rule
+as `login`: once the tenant is settled they run the handler and mint. A
+credential login must not be the one lane that hands back a role-blind token, or
+the claim's freshness guarantee holds everywhere except where a partner actually
+uses it.
+
+#### 4.1.6 A mint failure hands the SESSION back
+
+**ADR-102 OQ8.** When the post-login mint fails, the session `/auth/login`
+already created is NOT discarded and NOT revoked. It rides on a dedicated error
+— Go `*LoginMintError`, TS `LoginMintError`, Java `LoginMintException` — because
+it is the RECOVERY ANCHOR:
+
+| refusal at mint | recovery, same refresh token |
+|---|---|
+| the role handler failed for org A | choose org B — failures are often per-org |
+| `412 mfa_required` | verify, then mint |
+| `412 mfa_registration_required` | enroll a first factor, then mint |
+| ADR-092 session limit | the issuer returns the ACTIVE SESSION LIST and a revocation token — a surface that only makes sense while you still hold a usable refresh token |
+
+⚠️ **Returning the session in the return value would not have worked**, and the
+reason is idiomatic rather than theoretical: every Go caller writes
+`if err != nil { return nil, err }`, and a TS/Java `catch` has no other handle on
+it. The anchor has to be ON the error or it is dropped — and the users dropped
+are exactly the ones those affordances exist for.
+
+The residual risk (a partner whose role DB is down for every tenant burning
+ADR-092 session slots) is bounded by D11's retries and by the sessions' own
+expiry, and is the cheaper failure of the two.
+
 ### 4.2 `token(req)`
 
 Refresh-token rotation, tenant switch, and **custom claim injection on
@@ -511,7 +688,7 @@ the minted access token**. Wire: `POST /auth/token` with the refresh
 token presented as `Authorization: Bearer ...` (or in the body as
 `refresh_token`).
 
-Request: `{ refreshToken, tenantId, customClaims?, scope?, rolePermissions? }`
+Request: `{ refreshToken, tenantId, customClaims?, scope?, productRoles?, rolePermissions? }`
 - `tenantId`: required for multi-tenant user picks; ignored on service
   refresh tokens (ADR-051). There is no *platform* refresh token to ignore
   it on — ADR-089 withdrew it (§4.0). "Service" here means the ADR-071
@@ -554,6 +731,48 @@ Request: `{ refreshToken, tenantId, customClaims?, scope?, rolePermissions? }`
   Where the token is ALSO user-API-key-derived, the claim minted is the
   intersection with `permissions_cap`; see `rolePermissions` below.
 
+- `productRoles` (wire `product_roles`, ADR-102): **the name of the role the
+  bearer holds in YOUR system** — for display ("Signed in as: Dispatch"),
+  routing, report defaults and your own audit trail.
+
+  Normally you do not set this by hand: configure the §4.1.2 handler and the SDK
+  populates it on every mint. The field is here because the mint accepts it.
+
+  ⚠️ **`scope` carries authority; `productRoles` carries a NAME. Do not branch
+  AUTHORIZATION on it.** A name is a label, a scope is a grant. Keying
+  authorization off the name re-creates exactly the coupling ADR-101 spent four
+  migrations removing. Both claims ride the same token and answer different
+  questions.
+
+  ⚠️ **Not the `role` claim.** `role` is RealmID's OWN vocabulary and is a
+  trusted authorization lookup key on the direct-bearer lane. The two are never
+  merged, and `product_roles` reaches no RealmID gate — a test in the issuer
+  asserts the claim name appears nowhere in its authorization surface.
+
+  **A list on the wire too**, unlike `scope`: partner role names are not
+  constrained to the RFC 6749 §3.3 charset and a legitimate `"Regional Manager"`
+  must survive. The element rule is only non-empty, valid UTF-8, no control
+  characters — there is no delimiter to break.
+
+  **Bounded by CONSTANTS, not realm config**: at most **16** elements of at most
+  **64 bytes** each (`400 too_many_product_roles`, `400 product_role_too_long`,
+  `400 invalid_product_role`). Deliberately NOT the
+  `user_api_keys.max_permission_strings` knobs, which already govern two
+  unrelated things.
+
+  **Absent and empty are the same request.** An empty list mints no claim rather
+  than `[]`, matching `scopesFrom`'s fail-closed reading of an absent `scope`.
+
+  **`/auth/token` only, never `/auth/login`** — and that is structural, not
+  taste: the handler is `(tenantId, userId) -> roles`, and at the moment login is
+  called the caller holds NEITHER input. Login resolves the identity, and on the
+  multi-tenant path login is what RETURNS the tenant options. The handler's
+  inputs are login's outputs. §4.1.1 is how the SDK closes that gap.
+
+  **Nothing is stored.** Re-resolved per mint; never snapshotted onto the
+  session. Reserved, so it cannot be smuggled through `customClaims`
+  (`400 reserved_claim_key`).
+
 - `rolePermissions` (wire `role_permissions`, ADR-100 D16): the permissions the
   holder's ROLE confers, in **your** vocabulary, used to narrow a
   user-API-key-derived token's `permissions_cap` claim **per org** — on REFRESH as well as login (D18). Supply it
@@ -572,9 +791,12 @@ Request: `{ refreshToken, tenantId, customClaims?, scope?, rolePermissions? }`
 
   Ignored for a token that is not key-derived, and ignored for an **uncapped**
   key, whose claim stays absent whatever you send (D7). **An empty intersection
-  is `403`, never an empty claim** (D8) — and because the narrowing is per-org,
-  a multi-org key can mint in one org and be refused in another, so the error
-  names the org.
+  is `403`, never an empty claim** (D8). ⚠️ **ADR-105 changed this refusal's
+  shape:** the narrowing used to be per-org, so the same key could mint in one
+  org and be refused in another and the error named which. A key now has exactly
+  one org, so the refusal is **unconditional** — the key IS broken for the only
+  org it has — and the error no longer carries a tenant id. There is no "try
+  another org" recovery to point at.
 
 Response: `{ accessToken, refreshToken, expiresIn, refreshExp?, idleTtl?, tenantId,
 role, subjectType }`. `subjectType` ∈ `{user, service, platform}` (ADR-051);
@@ -1268,17 +1490,17 @@ members' keys does not thereby gain platform-key power).
   only; the plaintext is never returned again.
 - `revoke(tenantId, userId, id)` — soft revoke.
 
-**`write` is ONE schema, shared by both verbs** (`{ label, orgScope?, orgIds?,
-uncapped, permissionsCap?, ttlSeconds? }`), and `update` is a **PUT**, not a
-PATCH: it **resets what it omits**. A caller changing only the cap must read the
-key first and send `label`, `orgScope` and `orgIds` back unchanged. That is the
+**`write` is ONE schema, shared by both verbs** (`{ label, uncapped,
+permissionsCap?, ttlSeconds? }`), and `update` is a **PUT**, not a PATCH: it
+**resets what it omits**. A caller changing only the cap must read the key first
+and send `label` back unchanged. That is the
 price of one schema instead of two, and it is deliberate — PATCH would make
 `permissionsCap` and `uncapped` an order-dependent pair that can arrive
 half-specified.
 
 `ttlSeconds` is mutable on `update` (D13) and recorded in the audit log.
-Widening on `update` — `uncapped` false→true, adding permissions, `orgScope`
-selected→all, extending the TTL — carries the same MFA step-up as the mint
+Widening on `update` — `uncapped` false→true, adding permissions, extending the
+TTL — carries the same MFA step-up as the mint
 (`user_api_keys.require_mfa_at_mint`) and the same ADR-097 §E BFF escort. It has
 to: a key minted narrowly and then widened through an unguarded update would
 make the mint's gate decorative.
@@ -1296,17 +1518,32 @@ REMOVED. It is no longer a config key at all — PATCHing it answers
 `400 unknown_config_key` rather than being accepted and silently ignored.
 
 Row DTO (code wins — the issuer response is authoritative):
-`{ id, prefix, label?, orgScope, orgIds, uncapped, permissionsCap?, mintedMfaAt?,
+`{ id, prefix, label?, orgId, uncapped, permissionsCap?, mintedMfaAt?,
 createdAt, lastUsedAt?, expiresAt?, revokedAt? }`. All `*At` are unix seconds and nullable
 except `createdAt`.
 
-- `orgScope` ∈ `"selected" | "all"`. `selected` is a FROZEN allowlist — orgs the
-  user joins later do **not** widen the key. `all` is **forward-inclusive** and
-  gated on `user_api_keys.allow_all_orgs`.
-- `orgIds` is the list **as stored**. An org named here may no longer be
-  reachable: revocation on membership loss is an async sweep and live membership
-  is re-intersected at every exchange, so a key can *list* an org it can no
-  longer *mint into*.
+⚠️ **BREAKING, ADR-105: `orgScope` and `orgIds` are GONE from every SDK.** A user
+API key is bound to exactly **one** org — the minting principal's own — and the
+mint takes no org input at all. `orgScope: "all"` (every org in the realm the
+holder belongs to, forward-inclusive) and multi-org `selected` allowlists are
+both deleted, along with the realm knobs that gated them
+(`user_api_keys.org_scope_default`, `user_api_keys.allow_all_orgs`, now inert).
+
+A caller needing a credential across N orgs mints N keys — strictly better,
+because revoking one then revokes one, and a key's compromise no longer spans
+orgs.
+
+Measured before deciding: **prod held 0 `user_api_keys` rows and `allow_all_orgs`
+was off in every realm**, so there is no data migration. Zero rows is not zero
+surface, though — this is a wire-contract change and the SDK types break.
+An un-upgraded SDK keeps working (the issuer ignores unknown request fields and
+announces them in a `Warning: 299` header since `v0.108.0`) and its keys become
+single-org, which is the desired end state anyway.
+
+- `orgId` is the ONE org this key mints into. It may briefly outlive the
+  membership it depends on: revocation on membership loss is an async sweep and
+  live membership is re-checked at every exchange, so a key can *list* an org it
+  can no longer *mint into*.
 - `uncapped` and `permissionsCap` are mutually exclusive: exactly one of the two
   describes the key. `uncapped: true` comes with an absent or empty
   `permissionsCap`; otherwise `permissionsCap` is non-empty. The server cannot
@@ -2227,13 +2464,35 @@ Mints a code for `(subject_ref, purpose)`. Multiple issuers may issue
 concurrently; codes stack until consumed or expired.
 
 Request: `{ subjectRef, purpose, deliveryMode? }` — `subjectRef` /
-`purpose` are opaque tenant-scoped strings. `deliveryMode` (ADR-071):
-`"view_bff"` returns the plaintext OTP to the **caller** (the
-BFF/manager console) rather than delivering it to the subject — the
-handoff used to log service accounts in (§6.11). Constants:
-go `DeliveryModeViewBFF`, ts `DELIVERY_MODE_VIEW_BFF`, java
-`OtpIssueRequest.DELIVERY_MODE_VIEW_BFF`.
-Response: `{ id, value, expiresAt, purpose, subjectRef }`.
+`purpose` are opaque tenant-scoped strings. `deliveryMode` is one of
+`"view_bff"` (ADR-071), `"email"` (ADR-095 D7) or `"sms"` (ADR-103), with
+constants per language (go `DeliveryModeViewBFF` / `…Email` / `…SMS`, ts
+`DELIVERY_MODE_VIEW_BFF` / `…_EMAIL` / `…_SMS`, java
+`OtpIssueRequest.DELIVERY_MODE_VIEW_BFF` / `…_EMAIL` / `…_SMS`).
+
+- `view_bff` returns the plaintext OTP to the **caller** (the BFF/manager
+  console) rather than delivering it to the subject — the handoff used to log
+  service accounts in (§6.11).
+- `email` / `sms` have RealmID deliver it to the SUBJECT. The caller does **not**
+  receive the plaintext: `value` is omitted and `delivered` reports which
+  transport ran. **There is no fallback between the two** — asking for `sms` and
+  silently getting mail would substitute the channel the subject controls, which
+  is the whole property.
+
+**`purpose: "login"` (ADR-103 D3/D4):**
+
+| mode | login | why |
+|---|---|---|
+| `view_bff` | allowed, `kind=service` subjects ONLY | the PARTNER reads the plaintext |
+| `sms` | allowed, ANY kind | the SUBJECT reads it, on a channel only they hold |
+| `email` | **refused** | a login code mailed to an address turns mailbox access into account access with no second factor — a separate security decision, not an enum value |
+
+Errors: `400 unsupported_delivery_mode`, `400 no_delivery_address` (the subject
+has no address of the requested kind — the issue FAILS rather than handing you
+an id for a code nobody will receive), `503 delivery_unavailable` (the mode is
+legal but the deployment has no transport wired).
+
+Response: `{ id, value?, delivered?, expiresAt, purpose, subjectRef }`.
 
 Length and TTL come from `realms.config.otp_length` (default 6) and
 `realms.config.otp_ttl_seconds` (default 60). Per-call overrides are

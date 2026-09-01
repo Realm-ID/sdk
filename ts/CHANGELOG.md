@@ -4,6 +4,101 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased (0.46.0) — BREAKING: `login` mints, and user API keys lose their org scope
+
+### BREAKING — `login` MINTS now (ADR-102 D10)
+
+Once the tenant is settled, `login` follows `/auth/login` with a `/auth/token`
+mint, and the new `productRoles` handler runs there.
+
+- **Single tenant** → mints immediately; one call, as today.
+- **Several tenants** → does NOT mint. The tenant list and the refresh token come
+  back; your app presents the choice and calls `completeLogin` on selection.
+- ⚠️ **Do NOT settle the multi-tenant branch with `selectTenant`.** Its
+  `tenants[0]` fallback would mint for an ARBITRARY tenant and resolve THAT
+  tenant's roles — a silent wrong answer, not an error.
+- **The `412 mfa_required` gate now surfaces from `login`**, where it previously
+  surfaced from your own `token()` call. That is the visible half of the change.
+- A CHANGED entry point rather than a new one, deliberately: a `loginAndMint`
+  would have been non-breaking and would have left the default wrong — every
+  consumer who never knew to re-mint keeps the role-blind token.
+- **The session `login` created is NOT discarded when the mint fails.** It is the
+  recovery anchor: a handler failure is often tenant-specific, so the user can
+  choose a different org and mint without re-authenticating.
+- **No handler + an access token already in hand costs NO extra round trip**, so
+  consumers who never adopt the claim pay nothing.
+
+### Added — `product_roles`, the partner's role NAME on the token (ADR-102)
+
+- A `productRoles` handler `(tenantId, userId) -> string[]`, wired where each
+  language wires a realm-level hook (Go a `Config` field, TS a config property,
+  Java a `Realm.Builder` method).
+- ⚠️ **SIDE-EFFECT FREEDOM IS A CONTRACT.** The SDK calls it an unspecified
+  number of times per mint (it retries), so it MUST NOT write, bill, audit or
+  emit. A partner logging "role resolved" inside it will see triple entries.
+- **No handler → claim omitted, no error.** **Empty or nil → claim omitted, not
+  `[]`**: absent and empty must mean the same thing, since every token issued
+  before ADR-102 has no claim at all.
+- **An error RETRIES (3 attempts, ~50ms then ~150ms) then REFUSES the mint.**
+  Minting anyway would say "this principal has no product roles", which is
+  indistinguishable from the truth for a principal who genuinely has none — a
+  silent under-grant that surfaces as a 403 storm in YOUR product with a 200 in
+  our logs. The failure is a distinct SDK error wrapping yours, never a
+  `RealmError`: your outage and ours are different incidents.
+- It runs on EVERY mint, refresh included. Nothing caches — that freshness is the
+  whole advantage over `customClaims`.
+- ⚠️ `scope` carries AUTHORITY; this carries a NAME. Do not branch authorization
+  on it, and do not confuse it with the `role` claim, which is RealmID's OWN
+  vocabulary and a trusted authorization lookup key on the direct-bearer lane.
+
+### Added — cross-language parity that D10 depends on
+
+`needsTenantChoice`, `selectTenant` and `TenantRef.mfaRequired` existed **only in
+Go**. A hand-mirrored surface with a hole in it is how the hole survived; D10's
+multi-tenant branch depends on all three, so closing the gap was a prerequisite
+rather than a tidy-up.
+
+### BREAKING — user API keys are bound to ONE org (ADR-105)
+
+- `orgScope` / `org_scope` and `orgIDs` / `org_ids` are **removed** from the
+  write payload, the row shape and the exported types. The row carries `orgId`:
+  the minting principal's own tenant, never client-supplied.
+- `org_scope: "all"` (every org in the realm the holder belongs to, forward
+  inclusive) is deleted along with the realm knobs that gated it.
+- A caller needing N orgs mints N keys — strictly better, because revoking one
+  then revokes one.
+- Measured before deciding: **prod held 0 `user_api_keys` rows**. Zero rows is
+  not zero surface, though — the types break.
+- ⚠️ The empty-intersection refusal is now **unconditional**: the narrowing used
+  to be per-org and the error named which, but a key has one org now and there
+  is no "try another org" recovery to point at.
+
+### Added — phone login parity (ADR-103)
+
+- `deliveryMode` accepts `"email"` and `"sms"` alongside `"view_bff"`, with
+  constants in all three languages.
+- ⚠️ For `purpose=login` the mode decides **who may be authenticated**, not
+  merely how the code travels: `view_bff` is read by the PARTNER, so it
+  authenticates `kind=service` subjects only; `sms` is read by the SUBJECT, so it
+  authenticates any kind; `email` is refused.
+- No fallback between the RI-delivered modes.
+
+### Added — native username/password login (ADR-104)
+
+- `passwordLogin` / `PasswordLogin`, taking `identifier` + `presented` +
+  optional `tenantId`.
+- `identifier` may be an email, an E.164 phone, or a **username**, classified
+  ONCE by the issuer.
+- ⚠️ **`tenantId` is load-bearing for a username.** Usernames are unique per
+  TENANT, not per realm. Explicit wins over the host-derived tenant; neither
+  yielding one is `400 tenant_required`, a NAMED code rather than a credential
+  failure.
+- `403 password_must_change` is NOT collapsed into `invalid_credentials`: the
+  password was correct, but an admin set it, so it is an assertion rather than a
+  proof.
+
+Spec `0.37.0` → `0.38.0`.
+
 ## 0.45.0 — BREAKING: `integrations.install()` sent a field the issuer retired (2026-08-31)
 
 **This call has been returning `400 permissions_required` in production.** The

@@ -108,6 +108,8 @@ interface RealmidProvidersBody {
   signup_mode?: string;
   allowed_signup_domains?: string[];
   tenant_id?: string | null;
+  /** ADR-103/104 — the non-IdP login methods, absent on an older issuer. */
+  credential_methods?: string[];
 }
 
 function mapTenant(t: RealmidLoginTenant): TenantRef {
@@ -202,6 +204,13 @@ const adaptProviders: NonNullable<ResponseAdapters["providers"]> = (raw, _ctx): 
       config: p.config,
     })),
     signupMode: body.signup_mode as ProvidersResponse["signupMode"],
+    // ADR-103/104 — the non-IdP methods. Passed through only when the server
+    // sent it: an older issuer omits the field, and mapping absence to `[]`
+    // would tell a login page "credential login is off" when the truth is "the
+    // server did not say".
+    ...(Array.isArray(body.credential_methods)
+      ? { credentialMethods: body.credential_methods as string[] }
+      : {}),
     allowedSignupDomains: body.allowed_signup_domains,
     // Origin-bound discovery states the tenant it resolved to, or nothing at a
     // realm-root origin. Dropping it forced every console to re-fetch the same
@@ -248,6 +257,10 @@ export const realmidBffRequestAdapters: RequestAdapters = {
     if (canonical.email) body.email = canonical.email;
     if (canonical.password) body.password = canonical.password;
     if (canonical.otpCode) body.otp_code = canonical.otpCode;
+    // ADR-103/104 credential grants. Verbatim — see LoginRequest.identifier on
+    // why no layer here may reshape the handle.
+    if (canonical.identifier) body.identifier = canonical.identifier;
+    if (canonical.presented) body.presented = canonical.presented;
     return body;
   },
   // /token is bearer-only on the reference BFF; send no body.

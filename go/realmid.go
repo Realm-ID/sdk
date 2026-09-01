@@ -81,6 +81,22 @@ type Config struct {
 	// NewMemRevocationCache(nil) for a single-process default, or supply
 	// a Redis/memcached-backed implementation for multi-replica deploys.
 	Revocation RevocationCache
+
+	// ProductRoles resolves the PARTNER's own role names for a principal in one
+	// org, and the SDK mints them onto the access token as the ADR-102
+	// `product_roles` claim.
+	//
+	// Optional. Nil means the claim is simply omitted — see
+	// ProductRolesHandler for the full contract, including the side-effect
+	// freedom that makes the D11 retry policy legal.
+	//
+	// ⚠️ A CONFIG FIELD, not a functional option, and that is a deliberate
+	// reading of ADR-102 D3's "Go functional option per WithRefreshSink". The
+	// precedent that matters is the one for a REALM-level hook, and in this SDK
+	// that is a Config field: Revocation, Clock, Logger and HTTPClient are all
+	// hooks and all live here. `WithRefreshSink` is a TokenManagerOption because
+	// TokenManager takes options; Realm does not.
+	ProductRoles ProductRolesHandler
 }
 
 // Realm is the SDK handle. Construct with NewRealm; safe for concurrent
@@ -170,7 +186,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.52.1"
+const Version = "0.53.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

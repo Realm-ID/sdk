@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-81 entries total — 26 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+82 entries total — 27 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong](#2026-08-31-adr-102105--login-mints-now-and-the-parity-hole-that-made-it-possible-to-get-wrong)
 - [2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong](#2026-08-31-publish-later--the-tags-were-re-cut-after-all-and-the-reason-i-predicted-a-red-run-was-wrong)
 - [2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put](#2026-08-31-publish--the-changelog-gate-fired-before-any-registry-saw-an-artifact-and-the-tags-stayed-put)
 - [2026-08-31 (integrations) — the test asserted the wire shape, so the wire shape could rot](#2026-08-31-integrations--the-test-asserted-the-wire-shape-so-the-wire-shape-could-rot)
@@ -94,6 +95,86 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
+
+## 2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong
+
+Four ADRs land in the SDKs together (102, 103, 104, 105). Two of them change the
+SHAPE of the SDK rather than adding to it, and those are what this entry is
+about.
+
+**ADR-102 D10 makes `login` MINT, and it is a changed entry point rather than a
+new one.** A `loginAndMint` alongside the old `login` would have been
+non-breaking — and would have left the default wrong. Every consumer who never
+knew to re-mint would keep the role-blind token, which is the exact failure the
+ADR exists to remove. C0.1's bar says favour the paved path over the
+additive-but-ignorable one, so `login` moves and the change is announced.
+
+**The multi-tenant branch does NOT mint, and the reason is a silent failure
+rather than a preference.** The handler is `(tenantId, userId) -> roles`; on a
+login that resolves several tenants there is no tenantId to pass it. The
+tempting shortcut is `selectTenant`, which every SDK already has — and it falls
+back to `tenants[0]` when nothing is preferred, so wiring the branch through it
+would mint for an ARBITRARY org and resolve THAT org's roles. Not an error: a
+wrong answer. Every SDK's test therefore chooses `t2` and not `tenants[0]`, so an
+auto-pick is visible rather than coincidentally right.
+
+⚠️ **The parity hole had to be closed FIRST, and finding it is the reason this
+entry exists.** `Session.NeedsTenantChoice`, `SelectTenant` and
+`TenantRef.MFARequired` existed **only in Go**. D10's multi-tenant branch depends
+on all three — it is precisely the surface that tells "unminted because MFA"
+apart from "unminted because several tenants" — so TS and Java could not have
+implemented D10 correctly without them. A hand-mirrored surface with a hole in it
+is how the hole survived four SDK releases; the fix is to port them, and the
+lasting fix is that the drift tests must be RUN with a sibling `issuer/` present
+or they skip and report nothing. They were run that way here: TS 8 passed / 0
+skipped, Java 268 tests / 0 skipped with the 4 drift cases among them.
+
+**D11's error handling is the same house rule three times over.** A failing
+handler retries (3 attempts, ~50ms then ~150ms) and then REFUSES the mint. It
+does not mint an empty claim, because "this principal has no product roles" is
+indistinguishable from the truth for a principal who genuinely has none — a
+silent under-grant that surfaces as a 403 storm in the PARTNER's product with a
+200 in our logs. ADR-097 D3 turned a silently dropped claim into a 400 for this
+reason; `otpsvc.Issue` fails the whole call rather than reporting success on an
+undelivered OTP. And the failure is a distinct SDK error wrapping the partner's,
+never a `RealmError`: "your role handler failed 3 times" and "RealmID refused
+your mint" are different incidents and must not look alike in their logs.
+
+**The retry policy is what makes side-effect freedom a CONTRACT.** Retrying is
+only legal because the handler is specified as a pure read, so every language's
+doc comment says it is called an unspecified number of times per mint and must
+not write, bill, audit or emit. A partner who logs "role resolved" inside it will
+see triple entries and be right to call it a bug.
+
+**Where the handler is wired differs by language, and one of them departs from
+ADR-102 D3's letter.** D3 said "Go functional option per `WithRefreshSink`". In
+this SDK `WithRefreshSink` is a *TokenManager* option because TokenManager takes
+options; `Realm` does not — it takes a `Config` struct, and every other
+realm-level hook (`Revocation`, `Clock`, `Logger`, `HTTPClient`) is a field on
+it. The precedent that matters is the one for a REALM-level hook, so
+`Config.ProductRoles` is the field. TS follows its config object and Java its
+`Realm.Builder`, both as written.
+
+**Java returns a new Session where Go and TS mutate one.** `Session` is a
+`record`; the contract is identical and only the idiom differs, which is worth
+saying out loud because the cross-language SPEC otherwise reads as if all three
+mutate.
+
+**ADR-105 deletes `orgScope`/`orgIDs` from four surfaces, and zero rows is not
+zero surface.** Prod held 0 `user_api_keys` rows when it was measured, which is
+what makes this a deletion rather than a deprecation — but the SDK TYPES break
+regardless, and Java's is source-breaking on the canonical `UserAPIKeyWrite`
+constructor. The `capped`/`uncapped` factories, which is what every caller should
+already be using, are unaffected. The `OrgScope` constant class is deleted
+outright rather than deprecated: a constant for a mode the server no longer has
+is a value that can only produce a 400.
+
+**One ADR-100 property went with it, and it had to be decided rather than
+inherited.** The empty-intersection refusal stays a 403 and the narrowing still
+happens — but the error's per-org PROPERTY is gone. It named the org because the
+narrowing was per-org and the identical request would succeed against a different
+tenant, and with one org per key there is no other org to point at. Keeping the
+sentence would have advertised a "try another org" recovery that does not exist.
 
 ## 2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong
 
