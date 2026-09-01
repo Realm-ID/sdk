@@ -1,7 +1,28 @@
 # TODO — sdk/ (go · ts · java · web)
 
-> 🔴 **BLOCKER FOR A LIVE PARTNER, filed 2026-09-01 — `scope` has no
-> every-mint seam, so ADR-097 cannot be adopted by a BFF partner.**
+> 🔴 **LIVE DEFECT + BLOCKER, filed 2026-09-01 — derived claims are resolved on
+> LOGIN LANES ONLY, so a BFF session loses them at its first refresh.**
+>
+> ⚠️ **WIDENED the same day, and the widening is the important part.** This was
+> filed as "`scope` has no every-mint seam" (a future blocker). Tracing the fix
+> showed **`product_roles` has the IDENTICAL hole and it is LIVE** — Traide
+> shipped ADR-102 adoption in their `api v0.37.0` on 2026-09-01 and their humans
+> lose the claim one access-TTL into every session.
+> `mintProductRoles` has exactly THREE call sites — `auth.go:557` `Login`,
+> `:618` `CompleteLogin`, `:924` `PasswordLogin` — **all login lanes**, verified
+> byte-identical to the published `go/v0.53.1`. `middleware.go:568` refreshes
+> with `{RefreshToken, TenantID, CustomClaims}` and `Token` forwards only what it
+> is given. **Our own `product_roles.go:30-32` promises the opposite in
+> writing** — *"runs on EVERY mint, refresh included, and nothing caches"* — so
+> the contract is right and the refresh lane does not honour it.
+> Traide's report cited `:924` as being inside `Token`; it is inside
+> `PasswordLogin`, and correcting that citation is what exposed this.
+> **They have NOT been told** — their session ended before the follow-up could
+> be delivered. Outstanding partner notification.
+> Design: `.scratch/scope-hook/SPEC.md`. Fix BOTH claims with ONE mechanism.
+>
+> ~~`scope` has no every-mint seam, so ADR-097 cannot be adopted by a BFF
+> partner.~~ (still true; now the second half of the above)
 > Found by Traide's engineering while designing their ADR-097 cutover; the
 > mechanism is VERIFIED in issuer source at `3954a4c` (live `v0.116.0`), not
 > taken on their word.
