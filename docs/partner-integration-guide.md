@@ -139,7 +139,7 @@ Every RealmID access token carries at least:
 | `iss` | `https://auth.realmid.dev/{realmId}` | Validate prefix matches SDK `BaseURL` (ADR-020). |
 | `aud` | The realm's intrinsic audience `realmid:<platform_ref>` (ADR-064) — frozen at platform creation, **not** your domain | Validate matches SDK `Audience`. |
 | `azp` | The login origin (e.g., `app.dealera.com`) | Audit / analytics; don't gate on it. |
-| `sub` | RealmID user ID (UUIDv7) — **per (person, tenant), NOT per person** | Your FK to a RealmID user **row**. Key on `(sub, tenant_id)`, never on `sub` alone — see the warning below. |
+| `sub` | RealmID user ID (UUIDv7) — **per (person, tenant), NOT per person** | Your FK to a RealmID membership **row**. Scope reads with `tenant_id`; never treat it as a person id — see the warning below. |
 | `tenant_id` | RealmID tenant ID | **Authoritative** tenant boundary for the request. |
 | `role` | The user's single role in that tenant | See §4 for how to extend. |
 | `jti` | Session ID | For audit correlation. |
@@ -155,21 +155,31 @@ Partner API middleware must reject any token where `iss` prefix, `aud`, or signa
 > (`Subject: tenantUser.ID`). `GET /me` exists precisely to fan a person's
 > memberships out across those rows. So:
 >
-> - **Do not make `sub` the primary key of your own users table.** It holds
->   right up until the same person joins a second organisation, and then it
->   fails by SPLITTING them into two of your rows — or, if you deduplicate,
->   by colliding two memberships onto one. Neither failure raises an error;
->   both silently mis-authorize.
-> - **Key on `(tenant_id, sub)`.** The pair is the stable identifier of "this
->   person, acting in this organisation", which is the unit RealmID actually
->   authorizes.
+> - **Scope every lookup to the membership: `(tenant_id, sub)`.** That pair is
+>   the identifier of "this person, acting in this organisation", which is the
+>   unit RealmID authorizes.
+> - **A `sub`-keyed row is a MEMBERSHIP row. Never let it become a person row.**
+>   `sub` is unique per membership, so storing it as your own primary key is
+>   sound *provided* every read is membership-scoped: a second membership then
+>   simply inserts a second row, which is the correct shape for a per-tenant
+>   model. The defect is not the key — it is any code that later reads that row
+>   as "the user", counts those rows as people, or hangs person-scoped state
+>   (preferences, billing identity, consent) off one of them. That code is
+>   usually written much later, by someone who did not choose the key.
 > - **To recognise the same HUMAN across organisations, do not use `sub`
 >   at all** — correlate on your own identifier, or on the memberships
->   `GET /me` returns.
+>   `GET /me` returns. There is no RealmID claim that identifies a person
+>   across tenants.
+> - **`sub` is STABLE.** Removing a user is a status transition
+>   (`deactivated`), not a row deletion — nothing in the issuer hard-deletes a
+>   `users` row — so a foreign key onto `sub` does not dangle when someone
+>   leaves, and it does not change if they return.
 >
-> A partner discovered this on 2026-09-02 by repointing their users primary key
-> at `sub`. It worked, because they had exactly one tenant in production. The
-> guidance above is what this table should have said before they read it.
+> A partner repointed their users primary key at `sub` on the strength of the
+> one-line description this table used to carry. Their reads were already
+> membership-scoped, so the key itself was sound — but they had one production
+> tenant, so nothing in their system had yet met a person with two memberships.
+> The guidance above is what this table should have said before they read it.
 
 ## 4. Adding your own RBAC
 
