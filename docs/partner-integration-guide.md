@@ -139,13 +139,37 @@ Every RealmID access token carries at least:
 | `iss` | `https://auth.realmid.dev/{realmId}` | Validate prefix matches SDK `BaseURL` (ADR-020). |
 | `aud` | The realm's intrinsic audience `realmid:<platform_ref>` (ADR-064) — frozen at platform creation, **not** your domain | Validate matches SDK `Audience`. |
 | `azp` | The login origin (e.g., `app.dealera.com`) | Audit / analytics; don't gate on it. |
-| `sub` | RealmID user ID (UUIDv7) | Your FK to RealmID users. |
+| `sub` | RealmID user ID (UUIDv7) — **per (person, tenant), NOT per person** | Your FK to a RealmID user **row**. Key on `(sub, tenant_id)`, never on `sub` alone — see the warning below. |
 | `tenant_id` | RealmID tenant ID | **Authoritative** tenant boundary for the request. |
 | `role` | The user's single role in that tenant | See §4 for how to extend. |
 | `jti` | Session ID | For audit correlation. |
 | `exp`, `iat`, `nbf` | Standard | Standard. |
 
 Partner API middleware must reject any token where `iss` prefix, `aud`, or signature check fails. The SDK does this by default.
+
+> ⚠️ **`sub` IDENTIFIES A MEMBERSHIP, NOT A HUMAN — and this table said only "your FK to RealmID users" until 2026-09-02.**
+>
+> RealmID's `users` table is **per tenant**: one person who belongs to three of
+> your organisations has THREE `users` rows with three different ids, and the
+> token's `sub` is the id of the row **for the tenant in that token**
+> (`Subject: tenantUser.ID`). `GET /me` exists precisely to fan a person's
+> memberships out across those rows. So:
+>
+> - **Do not make `sub` the primary key of your own users table.** It holds
+>   right up until the same person joins a second organisation, and then it
+>   fails by SPLITTING them into two of your rows — or, if you deduplicate,
+>   by colliding two memberships onto one. Neither failure raises an error;
+>   both silently mis-authorize.
+> - **Key on `(tenant_id, sub)`.** The pair is the stable identifier of "this
+>   person, acting in this organisation", which is the unit RealmID actually
+>   authorizes.
+> - **To recognise the same HUMAN across organisations, do not use `sub`
+>   at all** — correlate on your own identifier, or on the memberships
+>   `GET /me` returns.
+>
+> A partner discovered this on 2026-09-02 by repointing their users primary key
+> at `sub`. It worked, because they had exactly one tenant in production. The
+> guidance above is what this table should have said before they read it.
 
 ## 4. Adding your own RBAC
 
@@ -394,7 +418,7 @@ Two ways to attach data:
 
 **(a) Inline custom claims on the JWT.** Custom claims ride on **`POST /auth/token` only** — the `custom_claims` field on `/auth/login` was deprecated with Sunset 2026-07-01 and is gone (a login body still carrying it is inert; this paragraph named the wrong route until 2026-08-31). Keys you pass on `/auth/token` land on the minted access token (e.g. `outlet_ids`, `feature_flags`, `region`), subject to two gates that both refuse loudly rather than dropping silently. First, every key must be on your realm's allowlist, `realms.config.access_token_custom_claim_keys` — a key that is not is `400 bad_request`, and the allowlist defaults to **empty**, so custom claims are something you turn on deliberately, not a field that happens to work. Second, reserved claim names are `400 reserved_claim_key` (ADR-097 D3 — a dropped claim is indistinguishable, from your side, from an honoured one, and once `scope` carries granted authority that difference is a gate that never fires). The reserved set is `iss`, `sub`, `aud`, `iat`, `nbf`, `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `scope`, `token_class`, `product_roles` (read from `internal/tokens/tokens.go` on 2026-09-01; `product_roles` joined the set in ADR-102 and this list omitted it until then, so a partner following the older text would have got a `400` for a key the guide implied was free). Claims are per-mint, like `scope`: send them on each `/auth/token` call (refresh and the ADR-031/032 tenant switch included) — they are not stored on the session. Use this when the data is small and needs to be available without a DB hop (a per-user list of the outlets or branches they may see is the archetype).
 
-**(b) Partner-side lookup keyed on JWT subject.** Read `tenant_id` + `user_id` off the verified claim, consult your own DB per request. Use this when the data is mutable mid-session (tokens won't reflect changes until next refresh) or too big for a claim.
+**(b) Partner-side lookup keyed on JWT subject.** Read `tenant_id` + `sub` off the verified claim — **both, as a pair** (§3's warning: `sub` identifies a membership, not a person) — and consult your own DB per request. Use this when the data is mutable mid-session (tokens won't reflect changes until next refresh) or too big for a claim.
 
 Do **not** try to stuff extra roles into the RealmID JWT by overriding reserved keys — the mint refuses them (`400 reserved_claim_key`). Prefer `scope` over a role LABEL in `custom_claims`: a scope is what the SDK's route gate evaluates (§4.2), while a role label in a custom claim is a string only your own code will ever read.
 
