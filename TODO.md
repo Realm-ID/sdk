@@ -1,37 +1,53 @@
 # TODO — sdk/ (go · ts · java · web)
 
-> 🔴 **THIRD instance of the same defect class, found 2026-09-01 — the refresh
-> lane drops `role_permissions` too, and per ADR-100 D18 that SILENTLY WIDENS a
-> token.**
+> ⚠️ **DOWNGRADED 2026-09-02 after validating it against source — this is NOT a
+> live defect, and the version below (filed 2026-09-01) was wrong in the way that
+> would have cost the most: it prescribed a three-language redesign for a path no
+> SDK lane can reach.**
 >
-> Found while reviewing a partner's ADR against issuer source. The derived-claims
-> fix (go `0.54.0` / ts `0.47.0` / java `0.44.0`) covers `product_roles` and
-> `scope`. It does **not** cover `role_permissions`, and that one is worse
-> because the failure direction is WIDER rather than absent.
+> What is TRUE: `narrow()` returns the stored cap unchanged when
+> `RolePermissions == nil` (`authsvc/user_api_key_login.go`), and the refresh
+> lane passes exactly that. A user-API-key session IS refreshable — `AuthMethod`
+> is `user_api_key`, which `isCredentialBootstrapped` does not list, and the class
+> is `ClassUser`, so `MintForRefresh` falls through to `MintForTenant`.
 >
-> **Issuer source, `authsvc/service.go:1415-1422` (ADR-100 D18), verbatim:**
-> *"the narrowing operand is supplied on REFRESH too, and it has to be. A
-> user-API-key session IS refreshable (`recheckUserKeyForMint` re-reads the row
-> on every mint), so a refresh that skipped the narrowing would hand back a token
-> WIDER than the one it replaced — silently, and on a schedule."*
+> What is FALSE: that the SDK middleware widens anything. The capped mint is
+> gated on `sess.ViaUserAPIKeyID`, which ONLY the `grant_type=user_api_key`
+> exchange sets — and **the SDK has no user-key exchange at all**.
+> `user_api_keys.go` is the key MANAGEMENT surface (create/list/update), not a
+> login lane. Every session the middleware can create is provider/password/OTP,
+> for which `recheckUserKeyForMint` returns nil and the capped mint is never
+> taken. So the middleware's refresh cannot widen a cap that cannot exist.
 >
-> The SDK middleware's refresh passes no `RolePermissions`, so `narrow()` takes
-> the `RolePermissions == nil` branch and returns the STORED cap unnarrowed. The
-> token cannot exceed the stored cap (`A ∩ B ⊆ A`), but it DOES widen back to the
-> full stored cap from whatever the per-org list had narrowed it to at login.
+> What it actually is: **the specified contract**, not a bug. ADR-100 D6/D18 say
+> the operand is optional and absent means unnarrowed, and
+> `TestRolePermissions_NarrowTheCapAtMint` pins exactly that as a deliberate
+> POSITIVE CONTROL — omit the field on refresh and the cap comes back unnarrowed.
+> A "fix" would have to change the ADR and that test, not the SDKs.
 >
-> ⚠️ **A user-API-key session IS refreshable, and our own source says otherwise
-> in one place.** `user_api_key_login.go:273` says *"This lane is ADR-089
-> access-token-only"* — but `:223` mints a refresh token, `:231` stores its hash,
-> `:289` returns it, and `:156`/`:237` both describe the session refreshing
-> through `MintForTenant`. **The comment is wrong; the code is right.** I relayed
-> that comment to a partner as fact before checking the surrounding code, and had
-> to correct it. Fix the comment as part of this.
+> The residual hazard, which is real but is a DOCUMENTATION problem: a caller who
+> exchanges a user key themselves and then refreshes without re-supplying the
+> list gets a wider token than they held. `TokenRequest.RolePermissions` already
+> says so in bold ("Supply it on EVERY mint... comes back WIDER"), and RealmID's
+> own BFF (`api/internal/middleware/refresh.go:53`) already threads it onto every
+> mint including refresh. **Nothing to build.**
 >
-> **Needs a design pass, not an inline fix** — a `RolePermissions` resolver is a
-> third handler, and unlike the other two its absence is a silent WIDENING rather
-> than a missing claim, so "no handler configured" cannot mean "do nothing".
-> Not started.
+> ⚠️ It WOULD become live if an SDK user-key exchange were ever added. If you add
+> one, the resolver question below becomes real — that is the trigger to watch
+> for, not a task to schedule.
+>
+> ~~Needs a design pass~~ — withdrawn. The design question it posed ("no handler
+> configured cannot mean do nothing") only exists on a lane that does not exist.
+>
+> ✅ The one REAL finding in the original entry is FIXED: the comment at
+> `authsvc/user_api_key_login.go` claiming *"this lane is ADR-089
+> access-token-only"* was false — the same function mints a refresh token, stores
+> its hash and returns it. Corrected in issuer, with the reason recorded.
+>
+> **Standing lesson (this is the third time):** a TODO's defect description is a
+> timestamped CLAIM, not a finding. This one quoted issuer source accurately and
+> still reached the wrong conclusion, because it never checked whether the lane it
+> blamed could produce the session the defect needs.
 
 
 > 🔴 **LIVE DEFECT + BLOCKER, filed 2026-09-01 — derived claims are resolved on
