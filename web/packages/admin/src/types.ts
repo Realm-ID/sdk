@@ -181,9 +181,18 @@ export interface ApiKeyListItem {
   expires_at: number | null;
 }
 
+/**
+ * The SPEC §7 envelope for `/platforms/{id}/api-keys`.
+ *
+ * `has_more` is the truncation signal and is NOT derivable from `items` — a
+ * page that fills exactly to the limit may or may not be the last. It is
+ * optional here only because the field is newer than the envelope; `readPage`
+ * derives it from `next_cursor` when a server omits it.
+ */
 export interface ApiKeyListPage {
   items: ApiKeyListItem[];
   next_cursor?: string | null;
+  has_more?: boolean;
   total?: number;
 }
 

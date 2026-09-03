@@ -94,23 +94,19 @@ func (c *APIKeysClient) Create(ctx ctxpkg.Context, body APIKeyCreate) (*APIKey, 
 	return &k, nil
 }
 
-// List returns every API key associated with this realm. The issuer
-// returns a paginated {items, next_cursor, total} envelope; we also
-// accept a flat array or a legacy {api_keys} envelope for resilience.
-func (c *APIKeysClient) List(ctx ctxpkg.Context) ([]APIKey, error) {
-	tok, err := c.realm.platformToken.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var raw json.RawMessage
-	if err := c.realm.http.do(ctx, requestOptions{
-		Method: "GET",
-		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/api-keys",
-		Bearer: tok,
-	}, &raw); err != nil {
-		return nil, err
-	}
-	return decodeAPIKeyList(raw)
+// List paginates the realm's API keys.
+//
+// It returns a pager, NOT a slice. The previous signature's own doc comment
+// already said the issuer answers a paginated {items, next_cursor, total}
+// envelope — and then discarded it, so a caller could neither page nor detect
+// truncation. Read Page(...).HasMore, or range over All.
+//
+//	for k, err := range realm.APIKeys.List(ctx).All(ctx) { ... }
+func (c *APIKeysClient) List(ctx ctxpkg.Context) *Paginated[APIKey] {
+	path := "/platforms/" + url.PathEscape(c.realm.realmID) + "/api-keys"
+	return newPaginated(func(ctx ctxpkg.Context, opts PageOpts) (*Page[APIKey], error) {
+		return fetchPage[APIKey](ctx, c.realm, path, opts)
+	})
 }
 
 func (c *APIKeysClient) Revoke(ctx ctxpkg.Context, id string) error {

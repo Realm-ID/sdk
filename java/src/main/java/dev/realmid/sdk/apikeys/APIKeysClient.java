@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import dev.realmid.sdk.pagination.PageReader;
+import dev.realmid.sdk.pagination.Paginated;
 
 /** SPEC §6.5. */
 public final class APIKeysClient {
@@ -30,21 +32,22 @@ public final class APIKeysClient {
         return http.mapper().convertValue(raw, APIKey.class);
     }
 
-    public List<APIKey> list() {
-        JsonNode raw = http.request(HttpTransport.Request.of(
-                "GET", "/platforms/" + enc(realmId) + "/api-keys"));
-        if (raw == null) return List.of();
-        if (raw.isArray()) {
-            List<APIKey> out = new ArrayList<>(raw.size());
-            for (JsonNode n : raw) out.add(http.mapper().convertValue(n, APIKey.class));
-            return out;
-        }
-        JsonNode arr = raw.get("items");
-        if (arr == null || !arr.isArray()) arr = raw.get("api_keys");
-        if (arr == null || !arr.isArray()) return List.of();
-        List<APIKey> out = new ArrayList<>(arr.size());
-        for (JsonNode n : arr) out.add(http.mapper().convertValue(n, APIKey.class));
-        return out;
+    /**
+     * Paginates this realm's API keys.
+     *
+     * <p>Returns the PAGER, not a {@code List}. The previous signature answered
+     * a bare list from a paginated {@code {items, next_cursor, total}}
+     * envelope, so a caller could neither page nor detect truncation.
+     */
+    public Paginated<APIKey> list() {
+        String path = "/platforms/" + enc(realmId) + "/api-keys";
+        return Paginated.of(opts -> {
+            Map<String, Object> q = new LinkedHashMap<>();
+            if (opts.cursor() != null) q.put("cursor", opts.cursor());
+            if (opts.limit() != null) q.put("limit", opts.limit());
+            JsonNode raw = http.request(HttpTransport.Request.of("GET", path).query(q));
+            return PageReader.read(http.mapper(), raw, APIKey.class);
+        });
     }
 
     public void revoke(String id) {

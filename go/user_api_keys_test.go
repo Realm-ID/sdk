@@ -155,21 +155,21 @@ func TestUserAPIKey_RevokedAndListDecoding(t *testing.T) {
 		t.Error("a key with revoked_at IS revoked")
 	}
 
-	// The issuer's {items} envelope.
-	got, err := decodeUserAPIKeyList([]byte(`{"items":[{"id":"a","prefix":"pfx","org_scope":"selected"}],"next_cursor":null}`))
-	if err != nil || len(got) != 1 || got[0].ID != "a" || got[0].Prefix != "pfx" {
-		t.Fatalf("items envelope: got %+v err=%v", got, err)
+	// The issuer's paginated envelope, decoded through the shared Page type.
+	// The flat-array and "any other shape" cases are gone with
+	// decodeUserAPIKeyList: SPEC §7 locks the wire to {items, next_cursor,
+	// has_more}, fetchPage rejects anything else with a server_error, and a
+	// per-endpoint tolerance was the thing letting this list drift from every
+	// other paginated list in the SDK.
+	var pg Page[UserAPIKey]
+	if err := json.Unmarshal([]byte(`{"items":[{"id":"a","prefix":"pfx"}],"next_cursor":null,"has_more":false}`), &pg); err != nil {
+		t.Fatalf("items envelope: %v", err)
 	}
-	// A flat array, for resilience.
-	got, err = decodeUserAPIKeyList([]byte(`[{"id":"b"}]`))
-	if err != nil || len(got) != 1 || got[0].ID != "b" {
-		t.Fatalf("flat array: got %+v err=%v", got, err)
+	if len(pg.Items) != 1 || pg.Items[0].ID != "a" || pg.Items[0].Prefix != "pfx" {
+		t.Fatalf("items envelope: got %+v", pg.Items)
 	}
-	// Anything else is an error rather than a silent empty list — an empty list
-	// would read as "this user has no keys", which is a different and misleading
-	// fact.
-	if _, err = decodeUserAPIKeyList([]byte(`"nope"`)); err == nil {
-		t.Error("an unexpected shape must error, not read as an empty list")
+	if pg.HasMore {
+		t.Error("has_more:false must decode as false")
 	}
 }
 

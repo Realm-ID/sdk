@@ -15,6 +15,7 @@
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
 import type { Claims } from "./claims.js";
+import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 /**
  * ⚠️ **ADR-084 §6's `OrgScope` type is GONE (ADR-105).** A user API key is bound
@@ -196,15 +197,25 @@ export class UserApiKeysClient {
   }
 
   /**
-   * List every key for `userId`, INCLUDING revoked and expired ones — the
-   * surface shows them and callers filter as needed. Never returns plaintext.
+   * Paginate `userId`'s keys, INCLUDING revoked and expired ones — the surface
+   * shows them and callers filter as needed. Never returns plaintext.
+   *
+   * Returns the PAGER, not an array. This endpoint has CLAIMED to be paginated
+   * for longer than it has been one: `next_cursor` and `total` were hard-wired
+   * null while `cursor`/`limit` were documented and unread, so a client that
+   * trusted the wire stopped after a single complete page. Now that the SQL is
+   * real, `hasMore` is the truncation signal — do not infer it from
+   * `items.length`.
    */
-  async list(tenantId: string, userId: string): Promise<UserApiKey[]> {
-    const raw = await this.http.request<unknown>({
-      method: "GET",
-      path: userApiKeysPath(tenantId, userId),
+  list(tenantId: string, userId: string, opts?: PageOpts): Paginated<UserApiKey> {
+    return paginate<UserApiKey>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: userApiKeysPath(tenantId, userId),
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<UserApiKey>(raw);
     });
-    return decodeUserApiKeyList(raw);
   }
 
   /** Soft revoke. Idempotent. */
@@ -312,15 +323,4 @@ function capFromClaims(claims: Claims): string[] | undefined {
   return [];
 }
 
-/** Tolerates the issuer `{ items }` envelope or a flat array. */
-function decodeUserApiKeyList(raw: unknown): UserApiKey[] {
-  if (Array.isArray(raw)) return raw as UserApiKey[];
-  if (raw && typeof raw === "object") {
-    const env = raw as { items?: UserApiKey[] };
-    if (Array.isArray(env.items)) return env.items;
-  }
-  throw new RealmError({
-    code: "server_error",
-    message: "user-api-keys list: unexpected response shape",
-  });
-}
+

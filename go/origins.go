@@ -207,7 +207,8 @@ func (c *OriginsClient) doListCall(ctx ctxpkg.Context, realmID string, po PageOp
 	}, &env); err != nil {
 		return nil, err
 	}
-	return &Page[Origin]{Items: env.Items, NextCursor: env.NextCursor, Total: env.Total}, nil
+	p := env.page()
+	return &p, nil
 }
 
 // OriginClaim is the response from OriginsClient.Claim. Realm-origin

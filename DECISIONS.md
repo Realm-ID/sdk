@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-82 entries total — 27 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+83 entries total — 28 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise](#2026-09-03-pagination--four-list-methods-threw-the-envelope-away-and-the-doc-comments-promised-otherwise)
 - [2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins](#2026-09-01-derived-claims-the-handler-ran-on-three-lanes-and-all-three-were-logins)
 - [2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong](#2026-08-31-adr-102105--login-mints-now-and-the-parity-hole-that-made-it-possible-to-get-wrong)
 - [2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong](#2026-08-31-publish-later--the-tags-were-re-cut-after-all-and-the-reason-i-predicted-a-red-run-was-wrong)
@@ -96,6 +97,101 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
+
+## 2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise
+
+**Problem.** Three consecutive issuer releases added real SQL pagination —
+S4 `GET /sources`, S5 service-accounts, S6
+`GET /tenants/{tid}/users/{uid}/user-api-keys` — and every field they added was
+discarded before an SDK caller could read it. `SourcesClient.List` returned
+`out.Items`; the TS twin returned `raw?.items ?? []`; Java built an `ArrayList`
+off `raw.get("items")`. A caller could neither page nor DETECT truncation, so
+from any consumer's point of view the three releases were invisible and the
+lists silently stopped at one page. All three languages' doc comments still said
+they returned **"every"** source / service account / key, which those releases
+had made false.
+
+**The sweep found a fourth, and that is the finding that matters.** The report
+named three endpoints; `apiKeys.list` (`GET /platforms/{id}/api-keys`) had the
+same defect, and its own doc comment already SAID so — *"the issuer returns a
+paginated `{items, next_cursor, total}` envelope"* — immediately before throwing
+it away. A fifth copy lived in `web/packages/admin/src/api-keys.ts`, which
+deliberately overrides the bundled client, so fixing `ts/` alone would have left
+`ui/web` on page one. Four endpoints across three releases is not three
+accidents; it is the shape of the list surface, which is why the fix is at the
+surface (`Page`/`Paginated`) and not per method. The next paged endpoint now
+inherits the honest behaviour instead of the defect.
+
+**Decision — the pager, not the array.** All four now return the existing
+per-language pager rather than a slice, matching what `tenants`, `origins`,
+`invitations`, `federationBindings`, `driftReviews` and `contactVerifications`
+have returned for releases: Go `*Paginated[T]` (`.Page(ctx, opts)` + `.All(ctx)`
+as `iter.Seq2`), TS `Paginated<T>` (`AsyncIterable` + `.page(opts)`), Java
+`Paginated<T>` (`stream()` + `page(opts)`). Nothing new was invented — the
+convention already existed and these four were the outliers.
+
+**`has_more` is added to the envelope in all three languages, and it is the
+terminator.** Swagger marks it required on exactly these newer schemas and says
+it is not derivable from `items`: a page that fills to the limit may or may not
+be the last, and `total` is an estimate on some endpoints. It is also now what
+STOPS the page walk, ahead of `next_cursor` — a server answering a stale
+non-empty cursor with `has_more: false` has said stop, and before this
+`next_cursor` alone could loop or over-read.
+
+- **Absent is not false.** `has_more` is newer than the envelope, so the wire
+  carries three states. Where the key is missing the SDKs derive the flag from
+  `next_cursor`, which is exactly right for every pre-`has_more` endpoint — they
+  emit a cursor precisely when another page exists. Resolving that once at the
+  edge (Go's `pageEnvelope.page()`, TS's `readPage`, Java's `PageReader`) means
+  `Page.hasMore` is a plain bool every caller can trust, rather than an
+  `Option` every caller would mis-handle.
+- **No `omitempty` on the way out.** `has_more: false` is a real answer ("this is
+  the last page"); an absent key is not.
+
+**Tradeoffs, taken deliberately.**
+
+- *This is a breaking public API change on four methods per language.* It is a
+  compile error with an obvious fix, against a silent wrong answer. SPEC §7 §
+  `listSessions` records the same call being made for `0.40.0` and the same
+  reasoning: a compile error beats the same call quietly returning a different
+  number of rows.
+- *The per-endpoint tolerances are gone* — `decodeUserAPIKeyList` and
+  `decodeAPIKeyList` (both languages) accepted a flat array and, for api-keys, a
+  legacy `{api_keys}` envelope. SPEC §7 locks the wire and the shared readers
+  reject anything else with a `server_error`; a tolerance that only two of
+  sixteen list endpoints had was the thing letting them drift from the rest.
+  A malformed body now surfaces as an error instead of reading as "this user has
+  no keys", which is a different and misleading fact.
+- *`ServiceAccountList` (Go) is kept and marked deprecated* rather than deleted,
+  so an existing type reference still compiles.
+
+**Guard: a decode → RE-ENCODE round trip, in each SDK.** This is the specific
+test this class of bug needs, and the reason is on the record. A decode-only
+assertion ("the field arrived") passes whether or not the field is carried
+onward — which is precisely how `go/v0.53.0` deleted `credential_methods` from
+discovery: the BFF DECODED discovery into an SDK type and RE-SERIALISED it, and
+every layer's own suite was green because nothing spanned the trip. So each
+language gained a public re-encoder (`Page.MarshalJSON` via struct tags in Go,
+`writePage` in TS, `PageWriter` in Java) and a test that round-trips a full
+envelope and asserts every wire key survives, plus one pinning `has_more: false`
+as an explicit false rather than a dropped key. The Java assertion compares
+through JSON **text**, not two in-memory trees: Jackson distinguishes `IntNode`
+from `LongNode`, which is a decoding artefact and not a wire difference — the
+first version of that test failed on exactly that and would have been noise.
+
+**SPEC first, then the fan-out.** §7 now documents `has_more`, the
+absent-derives-from-cursor rule, the terminator precedence, "a list method
+returns the PAGER, never a bare array", and the round-trip requirement. Per the
+repo convention, the spec moved before the code.
+
+**Deliberately NOT done.** No error-taxonomy entry for the stricter
+`limit`/`cursor` validation being built concurrently in `issuer/` — that code
+string is not settled and inventing one would put a wrong constant in three
+published SDKs. Nothing here blocks adding it. No version bump on `ts`/`go`/
+`java` and no publish; `web-admin` alone went `0.13.0` → `0.14.0` because
+`ui/web` pins it as a vendored TARBALL BY FILENAME, and re-vendoring changed
+content under an unchanged version is the pin-masks-the-fix trap that produced a
+live Microsoft-login bug once already.
 
 ## 2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins
 

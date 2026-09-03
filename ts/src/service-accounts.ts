@@ -15,6 +15,7 @@
  */
 
 import type { HttpClient } from "./http.js";
+import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 /** One `kind=service` account (issuer serviceAccountDTO). */
 export interface ServiceAccount {
@@ -46,10 +47,6 @@ export interface ServiceAccountRevokeResult {
   [k: string]: unknown;
 }
 
-interface ServiceAccountList {
-  items?: ServiceAccount[];
-}
-
 export class ServiceAccountsClient {
   constructor(private readonly http: HttpClient) {}
 
@@ -69,13 +66,22 @@ export class ServiceAccountsClient {
     });
   }
 
-  /** GET /tenants/{id}/service-accounts — every service account in a tenant. */
-  async list(tenantId: string): Promise<ServiceAccount[]> {
-    const raw = await this.http.request<ServiceAccountList>({
-      method: "GET",
-      path: this.base(tenantId),
+  /**
+   * GET /tenants/{id}/service-accounts — the tenant's service accounts.
+   *
+   * Returns the PAGER, not an array: the endpoint is paginated server-side, so
+   * an array would silently be page one. `for await` walks every page;
+   * `.page({cursor, limit})` gives one page plus `hasMore`.
+   */
+  list(tenantId: string, opts?: PageOpts): Paginated<ServiceAccount> {
+    return paginate<ServiceAccount>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: this.base(tenantId),
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<ServiceAccount>(raw);
     });
-    return raw?.items ?? [];
   }
 
   /** GET /tenants/{id}/service-accounts/{said}. */

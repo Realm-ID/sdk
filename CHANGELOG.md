@@ -13,6 +13,40 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Pagination envelope reaches the caller — go · ts · java · web-admin `0.14.0` (2026-09-03)
+
+**Breaking, and deliberately so** — four list methods returned a bare array and
+now return the same pager every other paginated list has returned for releases.
+Unversioned for `ts`/`go`/`java`: committed, not published.
+
+- **`sources.list`, `serviceAccounts.list`, `userApiKeys.list`, `apiKeys.list`
+  return `Paginated<T>`** (Go `*Paginated[T]`, TS `Paginated<T>`, Java
+  `Paginated<T>`), not `[]T`. They discarded `next_cursor`/`has_more`/`total`
+  before any caller saw them, so a caller could neither page nor detect
+  truncation — every field the three issuer releases beneath them added was
+  invisible. `apiKeys.list` was found by sweep, not reported; its own doc
+  comment already named the envelope it was throwing away.
+  - Go: `realm.Sources.List(ctx).All(ctx)` / `.Page(ctx, &PageOpts{Limit: 50})`
+  - TS: `for await (const s of realm.sources.list())` / `.page({ limit: 50 })`
+  - Java: `realm.sources().list().stream()` / `.page(PageOpts.withLimit(50))`
+- **`has_more` on the page envelope**, in all three languages. It is the
+  truncation signal (not derivable from `items`) AND the page walk's terminator,
+  ahead of `next_cursor`. An ABSENT `has_more` is derived from `next_cursor`,
+  never read as `false`.
+- **`writePage` (ts) / `PageWriter` (java) / `Page` JSON tags (go)** — a public
+  re-encoder, so a consumer that decodes a page and re-emits it has one correct
+  way to do it. Each SDK gained a decode → re-encode round-trip test.
+- **Removed**: the flat-array / `{api_keys}` tolerances in the user-api-key and
+  api-key list decoders. SPEC §7 locks the wire; a bad shape is now a
+  `server_error` rather than an empty list.
+- **`@realm-id/web-admin` `0.13.0` → `0.14.0`** — its package-local
+  `ApiKeysClient.list` had the same defect and is fixed the same way; the
+  package now re-exports `Paginated`/`Page`/`PageOpts`/`readPage`/`writePage`.
+- **Doc comments** that promised "every source / service account / key" are
+  corrected — three issuer releases had made them false.
+- `SPEC.md` §7 documents all of the above. Go: `ServiceAccountList` is
+  deprecated but kept.
+
 ## Derived claims were resolved on LOGIN LANES ONLY — go `0.54.0` · ts `0.47.0` · java `0.44.0` (2026-09-01)
 
 **Fixes a live defect and unblocks an ADR-097 cutover.** `product_roles` and

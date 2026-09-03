@@ -17,6 +17,7 @@
  * `PlatformsClient`.
  */
 
+import { paginate, readPage, type Paginated, type PageOpts } from "@realm-id/sdk";
 import type { HttpLike } from "./transport.js";
 import type {
   ApiKeyCreateInput,
@@ -44,13 +45,26 @@ export class ApiKeysClient {
     });
   }
 
-  /** List keys (active + revoked). Revoked rows carry a non-null `revoked_at`. */
-  async list(platformId: string): Promise<ApiKeyListItem[]> {
-    const page = await this.http.request<ApiKeyListPage>({
-      method: "GET",
-      path: `/platforms/${encodeURIComponent(platformId)}/api-keys`,
+  /**
+   * Paginate a platform's keys (active + revoked). Revoked rows carry a
+   * non-null `revoked_at`.
+   *
+   * Returns the PAGER, not an array. `/platforms/{id}/api-keys` is paginated
+   * server-side, so an array could only ever be page one and the caller had no
+   * way to tell it was cut short — a console showing 50 of 300 keys and no hint
+   * that 250 exist is worse than one that says so. `for await` walks every
+   * page; `.page({cursor, limit})` gives one page plus `hasMore`.
+   */
+  list(platformId: string, opts?: PageOpts): Paginated<ApiKeyListItem> {
+    const path = `/platforms/${encodeURIComponent(platformId)}/api-keys`;
+    return paginate<ApiKeyListItem>(async (po) => {
+      const raw = await this.http.request<ApiKeyListPage>({
+        method: "GET",
+        path,
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<ApiKeyListItem>(raw);
     });
-    return page.items ?? [];
   }
 
   /** Soft-delete (sets `revoked_at`); the row stays visible in `list()`. */

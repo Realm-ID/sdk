@@ -9,6 +9,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import dev.realmid.sdk.pagination.PageReader;
+import dev.realmid.sdk.pagination.Paginated;
+import dev.realmid.sdk.pagination.PageOpts;
 
 /**
  * Service accounts surface — {@code realm.serviceAccounts()} (ADR-071 §2/§10).
@@ -47,16 +50,21 @@ public final class ServiceAccountsClient {
         return http.mapper().convertValue(raw, ServiceAccount.class);
     }
 
-    /** GET /tenants/{id}/service-accounts — every service account in a tenant. */
-    public List<ServiceAccount> list(String tenantId) {
-        JsonNode raw = http.request(HttpTransport.Request.of("GET", base(tenantId)));
-        List<ServiceAccount> out = new ArrayList<>();
-        if (raw != null && raw.has("items") && raw.get("items").isArray()) {
-            for (JsonNode n : raw.get("items")) {
-                out.add(http.mapper().convertValue(n, ServiceAccount.class));
-            }
-        }
-        return out;
+    /**
+     * GET /tenants/{id}/service-accounts — the tenant's service accounts.
+     *
+     * <p>Returns the PAGER, not a {@code List}: the endpoint is paginated
+     * server-side, so a list would silently be page one. {@code stream()} walks
+     * every page; {@code page(opts)} gives one page plus {@code hasMore}.
+     */
+    public Paginated<ServiceAccount> list(String tenantId) {
+        return Paginated.of(opts -> {
+            Map<String, Object> q = new LinkedHashMap<>();
+            if (opts.cursor() != null) q.put("cursor", opts.cursor());
+            if (opts.limit() != null) q.put("limit", opts.limit());
+            JsonNode raw = http.request(HttpTransport.Request.of("GET", base(tenantId)).query(q));
+            return PageReader.read(http.mapper(), raw, ServiceAccount.class);
+        });
     }
 
     /** GET /tenants/{id}/service-accounts/{said}. */

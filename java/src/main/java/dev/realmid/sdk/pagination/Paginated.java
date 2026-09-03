@@ -37,7 +37,10 @@ public interface Paginated<T> {
                             Page<T> p = fetcher.apply(cursor == null ? PageOpts.empty() : PageOpts.withCursor(cursor));
                             current = p.items().iterator();
                             cursor = p.nextCursor();
-                            if (cursor == null || cursor.isEmpty()) done = true;
+                            // hasMore is the terminator, ahead of nextCursor: a
+                            // server answering a stale non-empty cursor with
+                            // has_more:false has said stop.
+                            if (!p.hasMore() || cursor == null || cursor.isEmpty()) done = true;
                             if (!current.hasNext() && done) return;
                         }
                     }

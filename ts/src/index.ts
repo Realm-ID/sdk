@@ -187,6 +187,11 @@ export type {
 } from "./federation-bindings.js";
 
 export type { Paginated, Page, PageOpts } from "./pagination.js";
+// readPage/writePage are exported as VALUES, not types: any consumer that
+// decodes a page and re-emits it (a BFF, a proxy, a cache) needs one correct
+// round trip rather than a hand-rolled object literal that quietly omits
+// has_more. That omission is exactly how go/v0.53.0 deleted credential_methods.
+export { paginate, readPage, writePage } from "./pagination.js";
 
 export { AdminClient } from "./admin.js";
 export type {

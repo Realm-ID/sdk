@@ -14,6 +14,7 @@
  */
 
 import type { HttpClient } from "./http.js";
+import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 /** One app/source registration (issuer sourceDTO). */
 export interface Source {
@@ -42,24 +43,34 @@ export interface SourcePatch {
   enabled?: boolean;
 }
 
-interface SourceList {
-  items?: Source[];
-}
-
 export class SourcesClient {
   constructor(
     private readonly http: HttpClient,
     private readonly realmId: string,
   ) {}
 
-  /** GET /sources?platform_id={realmId} — every source (including disabled). */
-  async list(): Promise<Source[]> {
-    const raw = await this.http.request<SourceList>({
-      method: "GET",
-      path: "/sources",
-      query: { platform_id: this.realmId },
+  /**
+   * GET /sources?platform_id={realmId} — the realm's sources, disabled ones
+   * included.
+   *
+   * Returns the PAGER, not an array: the endpoint is paginated server-side, so
+   * an array could only ever be page one with no way for the caller to tell it
+   * was cut short. `for await` walks every page; `.page({cursor, limit})` gives
+   * one page plus `hasMore`/`nextCursor`/`total`.
+   */
+  list(opts?: PageOpts): Paginated<Source> {
+    return paginate<Source>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: "/sources",
+        query: {
+          platform_id: this.realmId,
+          cursor: po.cursor,
+          limit: po.limit ?? opts?.limit,
+        },
+      });
+      return readPage<Source>(raw);
     });
-    return raw?.items ?? [];
   }
 
   /** POST /sources — register a new app/source. `platformId` defaults to the realm. */

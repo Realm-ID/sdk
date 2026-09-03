@@ -29,7 +29,7 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
 
 const cfg = { realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test" };
 
-test("sources.list: GETs /sources?platform_id=<realm> and unwraps {items}", async () => {
+test("sources.list: GETs /sources?platform_id=<realm> and returns a page", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "GET");
     assert.match(req.url, /\/sources\?platform_id=r$/);
@@ -43,9 +43,11 @@ test("sources.list: GETs /sources?platform_id=<realm> and unwraps {items}", asyn
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ ...cfg, fetch });
-  const items = await realm.sources.list();
-  assert.equal(items.length, 2);
-  assert.deepEqual(items[1]!.allowed_methods, ["otp"]);
+  const page = await realm.sources.list().page();
+  assert.equal(page.items.length, 2);
+  assert.deepEqual(page.items[1]!.allowed_methods, ["otp"]);
+  // No has_more and no cursor on the wire: not "more pages", not a guess.
+  assert.equal(page.hasMore, false);
 });
 
 test("sources.create: POSTs /sources, defaults platform_id to the realm", async () => {

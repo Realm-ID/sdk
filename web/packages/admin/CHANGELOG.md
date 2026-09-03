@@ -1,5 +1,25 @@
 # @realm-id/web-admin — changelog
 
+## 0.14.0 — BREAKING: `apiKeys.list` returns the pager, not an array (2026-09-03)
+
+- **`apiKeys.list(platformId)` now returns `Paginated<ApiKeyListItem>`.** It
+  read the SPEC §7 envelope and returned `page.items ?? []`, so a console
+  rendered page one as if it were the whole set with no way to tell. This
+  client is package-local (it deliberately overrides the bundled
+  `@realm-id/sdk` one), so the upstream fix did not reach it — fixing only
+  `@realm-id/sdk` would have left `ui/web` truncated.
+  Use `.page({ cursor, limit })` or `for await`.
+- **`sources.list`, `serviceAccounts.list` and `userApiKeys.list` change the
+  same way**, via the bundled `@realm-id/sdk`.
+- **New re-exports**: `Paginated`, `Page`, `PageOpts` (types) and `readPage`,
+  `writePage` (values) — a consumer that cannot name `Paginated` cannot type
+  the value it just received, and `writePage` is the one correct way to re-emit
+  a decoded page.
+- `ApiKeyListPage` gains `has_more?: boolean` — the truncation signal, not
+  derivable from `items`.
+- Bundles `@realm-id/sdk` with the `has_more` envelope and the decode →
+  re-encode round-trip guard.
+
 ## 0.13.0 — BREAKING: a user API key is bound to ONE org (ADR-105) (2026-09-01)
 
 - `OrgScope` is no longer re-exported — the type is deleted upstream in

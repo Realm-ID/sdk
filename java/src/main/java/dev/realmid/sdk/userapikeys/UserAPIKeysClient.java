@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import dev.realmid.sdk.pagination.PageReader;
+import dev.realmid.sdk.pagination.Paginated;
 
 /** SPEC §6.6 — end-user API keys (ADR-084). */
 public final class UserAPIKeysClient {
@@ -82,18 +84,25 @@ public final class UserAPIKeysClient {
     }
 
     /**
-     * Lists every key for {@code userId}, INCLUDING revoked and expired ones —
-     * the surface shows them and callers filter as needed. Never returns
-     * plaintext.
+     * Paginates {@code userId}'s keys, INCLUDING revoked and expired ones — the
+     * surface shows them and callers filter as needed. Never returns plaintext.
+     *
+     * <p>Returns the PAGER, not a {@code List}. This endpoint has CLAIMED to be
+     * paginated for longer than it has been one: {@code next_cursor} and
+     * {@code total} were hard-wired null while {@code cursor}/{@code limit} were
+     * documented and unread, so a client that trusted the wire stopped after a
+     * single complete page. Now that the SQL is real, {@code hasMore} is the
+     * truncation signal — do not infer it from {@code items.size()}.
      */
-    public List<UserAPIKey> list(String tenantId, String userId) {
-        JsonNode raw = http.request(HttpTransport.Request.of("GET", path(tenantId, userId)));
-        if (raw == null) return List.of();
-        JsonNode arr = raw.isArray() ? raw : raw.get("items");
-        if (arr == null || !arr.isArray()) return List.of();
-        List<UserAPIKey> out = new ArrayList<>(arr.size());
-        for (JsonNode n : arr) out.add(http.mapper().convertValue(n, UserAPIKey.class));
-        return out;
+    public Paginated<UserAPIKey> list(String tenantId, String userId) {
+        return Paginated.of(opts -> {
+            Map<String, Object> q = new LinkedHashMap<>();
+            if (opts.cursor() != null) q.put("cursor", opts.cursor());
+            if (opts.limit() != null) q.put("limit", opts.limit());
+            JsonNode raw = http.request(HttpTransport.Request.of(
+                    "GET", path(tenantId, userId)).query(q));
+            return PageReader.read(http.mapper(), raw, UserAPIKey.class);
+        });
     }
 
     /** Soft revoke. Idempotent. */

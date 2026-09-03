@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.realmid.sdk.pagination.Page;
+import dev.realmid.sdk.pagination.PageOpts;
 
 class SourcesClientTest {
     private FakeServer fs;
@@ -53,10 +55,13 @@ class SourcesClientTest {
                                     "label", "Bot", "allowed_methods", List.of("otp"),
                                     "enabled", false, "created_at", 200))));
         });
-        List<Source> items = realm.sources().list();
+        Page<Source> page = realm.sources().list().page(PageOpts.empty());
+        List<Source> items = page.items();
         assertEquals(2, items.size());
         assertEquals(List.of("otp"), items.get(1).allowedMethods());
         assertFalse(items.get(1).enabled());
+        // No has_more and no cursor on the wire: not "more pages", not a guess.
+        assertFalse(page.hasMore());
     }
 
     @Test

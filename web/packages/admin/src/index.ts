@@ -319,6 +319,14 @@ export type { AssignableRole, ConfersAuthorityOptions, CatalogPermission } from 
  * the SAME implementation this package's transport does. Four hand-rolled
  * copies of these two functions is what motivated the export.
  */
+// The pagination surface. Re-exported because four list methods on this
+// package now hand back the SPEC §7 envelope rather than a bare array, and a
+// consumer that cannot NAME Paginated/Page cannot type the variable it just
+// received. readPage/writePage come along for any consumer that re-emits a
+// page — omitting has_more on the way out is exactly how go/v0.53.0 deleted
+// credential_methods from discovery.
+export { readPage, writePage } from "@realm-id/sdk";
+export type { Paginated, Page, PageOpts } from "@realm-id/sdk";
 export { unwrapData, parseErrorEnvelope } from "@realm-id/sdk";
 export type { ErrorEnvelope } from "@realm-id/sdk";
 

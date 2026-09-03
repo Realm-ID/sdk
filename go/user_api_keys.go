@@ -2,7 +2,6 @@ package realmid
 
 import (
 	ctxpkg "context"
-	"encoding/json"
 	"net/url"
 )
 
@@ -173,22 +172,20 @@ func (c *UserAPIKeysClient) Create(ctx ctxpkg.Context, tenantID, userID string, 
 	return &k, nil
 }
 
-// List returns every key for userID, INCLUDING revoked and expired ones — the
+// List paginates userID's keys, INCLUDING revoked and expired ones — the
 // surface shows them, and callers filter as needed. Never returns plaintext.
-func (c *UserAPIKeysClient) List(ctx ctxpkg.Context, tenantID, userID string) ([]UserAPIKey, error) {
-	tok, err := c.realm.platformToken.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var raw json.RawMessage
-	if err := c.realm.http.do(ctx, requestOptions{
-		Method: "GET",
-		Path:   userAPIKeysPath(tenantID, userID),
-		Bearer: tok,
-	}, &raw); err != nil {
-		return nil, err
-	}
-	return decodeUserAPIKeyList(raw)
+//
+// It returns a pager, NOT a slice. This endpoint has claimed to be paginated
+// for longer than it has been one: `next_cursor` and `total` were hard-wired
+// null while `limit`/`cursor` were documented and unread, so a caller that
+// trusted the wire terminated after a single complete page. Now that the SQL is
+// real, HasMore is the truncation signal — do not infer it from len(Items).
+//
+//	for k, err := range realm.UserAPIKeys.List(ctx, tenantID, userID).All(ctx) { ... }
+func (c *UserAPIKeysClient) List(ctx ctxpkg.Context, tenantID, userID string) *Paginated[UserAPIKey] {
+	return newPaginated(func(ctx ctxpkg.Context, opts PageOpts) (*Page[UserAPIKey], error) {
+		return fetchPage[UserAPIKey](ctx, c.realm, userAPIKeysPath(tenantID, userID), opts)
+	})
 }
 
 // Update replaces a key in place (ADR-100 D12) — cap, label and TTL.
@@ -234,21 +231,6 @@ func (c *UserAPIKeysClient) Revoke(ctx ctxpkg.Context, tenantID, userID, id stri
 		Path:   userAPIKeysPath(tenantID, userID) + "/" + url.PathEscape(id),
 		Bearer: tok,
 	}, nil)
-}
-
-// decodeUserAPIKeyList tolerates the issuer's {items} envelope or a flat array.
-func decodeUserAPIKeyList(raw json.RawMessage) ([]UserAPIKey, error) {
-	var env struct {
-		Items []UserAPIKey `json:"items"`
-	}
-	if err := json.Unmarshal(raw, &env); err == nil && env.Items != nil {
-		return env.Items, nil
-	}
-	var arr []UserAPIKey
-	if err := json.Unmarshal(raw, &arr); err == nil {
-		return arr, nil
-	}
-	return nil, &RealmError{Code: ErrCodeServerError, Message: "user-api-keys list: unexpected response shape"}
 }
 
 // LivePermissionResolver returns the permissions a principal holds RIGHT NOW,

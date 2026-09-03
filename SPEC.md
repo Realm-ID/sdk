@@ -1954,9 +1954,30 @@ Every list endpoint returns a paginated iterator. The SDK fetches one
 page at a time and yields items lazily.
 
 **Wire shape (server contract):** every paginated response is
-`{ items: [...], next_cursor: "..." | null, total?: number }`. SDKs
-**reject** any other shape — surfaces hidden behind that uniformity
+`{ items: [...], next_cursor: "..." | null, has_more: boolean, total?: number }`.
+SDKs **reject** any other shape — surfaces hidden behind that uniformity
 must not vary across endpoints.
+
+**`has_more` is the truncation signal, and it is the ONLY honest one.** It is
+not derivable from `items`: a page that fills exactly to the limit may or may
+not be the last, and `total` is an estimate on some endpoints. A caller asking
+"was this list cut short?" reads `has_more`, never `len(items)` and never
+`total`. It is also the PAGER'S TERMINATOR, ahead of `next_cursor` — a server
+answering a stale non-empty cursor alongside `has_more: false` has said stop,
+and every SDK's page walk honours that.
+
+`has_more` is **newer than the envelope itself**. Where a server omits the key
+the SDKs derive it from `next_cursor` (non-empty ⇒ more), which is exactly right
+for every pre-`has_more` endpoint: they emit a cursor precisely when another
+page exists. Absent is therefore never conflated with `false`.
+
+**A list method returns the PAGER, never a bare array.** A method that returns
+only `items` cannot express truncation at all, so its caller silently sees page
+one and believes it saw everything. Four methods carried that defect through the
+three releases that added real SQL pagination beneath them — `sources.list`,
+`serviceAccounts.list`, `userApiKeys.list` and `apiKeys.list` — and all four now
+return the paginated shape. Adding a `has_more` field would not have been
+enough; the envelope has to reach the caller.
 
 - **TypeScript:** returns an `AsyncIterable<T>`. Idiomatic usage:
   ```ts
@@ -1976,6 +1997,14 @@ must not vary across endpoints.
   ```java
   realm.tenants().list().stream().forEach(t -> { ... });
   ```
+
+**Every SDK carries a decode → RE-ENCODE round-trip test over this envelope.**
+A decode-only assertion ("the field arrived") passes whether or not the field is
+carried onward, and that is not a hypothetical: `go/v0.53.0` deleted
+`credential_methods` from discovery because the BFF decoded an SDK type and
+RE-SERIALISED it, while every layer's own suite stayed green. Any consumer that
+re-emits a page is the same shape of risk, so the guard is a round trip or it is
+nothing.
 
 ## 7.5 Admin surface (`realm.admin.*`)
 

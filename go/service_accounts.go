@@ -76,6 +76,10 @@ type ServiceAccountCreate struct {
 }
 
 // ServiceAccountList is the GET list envelope.
+//
+// Deprecated: superseded by Page[ServiceAccount], which also carries
+// next_cursor/has_more/total. Kept only so an existing type reference still
+// compiles; ServiceAccountsClient.List no longer returns it.
 type ServiceAccountList struct {
 	Items []ServiceAccount `json:"items"`
 }
@@ -99,22 +103,21 @@ func (c *ServiceAccountsClient) Create(ctx ctxpkg.Context, tenantID string, body
 	return &out, nil
 }
 
-// List returns every service account in a tenant.
-func (c *ServiceAccountsClient) List(ctx ctxpkg.Context, tenantID string) ([]ServiceAccount, error) {
-	tok, err := c.realm.platformToken.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out ServiceAccountList
-	if err := c.realm.http.do(ctx, requestOptions{
-		Method: "GET", Path: c.base(tenantID), Bearer: tok,
-	}, &out); err != nil {
-		return nil, mapServiceAccountErr(err)
-	}
-	if out.Items == nil {
-		out.Items = []ServiceAccount{}
-	}
-	return out.Items, nil
+// List paginates a tenant's service accounts.
+//
+// It returns a pager, NOT a slice — the endpoint is paginated server-side, so a
+// slice would silently be page one. Read Page(...).HasMore to detect
+// truncation, or range over All to walk every page.
+//
+//	for sa, err := range realm.ServiceAccounts.List(ctx, tenantID).All(ctx) { ... }
+func (c *ServiceAccountsClient) List(ctx ctxpkg.Context, tenantID string) *Paginated[ServiceAccount] {
+	return newPaginated(func(ctx ctxpkg.Context, opts PageOpts) (*Page[ServiceAccount], error) {
+		pg, err := fetchPage[ServiceAccount](ctx, c.realm, c.base(tenantID), opts)
+		if err != nil {
+			return nil, mapServiceAccountErr(err)
+		}
+		return pg, nil
+	})
 }
 
 // Get returns one service account by id.

@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.realmid.sdk.pagination.PageOpts;
 
 /** SPEC §6.5 — api-key DTO alignment (role/prefix/unix-second timestamps; one-time value). */
 class APIKeysClientTest {
@@ -64,7 +65,7 @@ class APIKeysClientTest {
                         "created_at", 1_700_000_100L, "revoked_at", 1_700_000_900L)));
         envelope.put("next_cursor", null);
         fs.on("GET /platforms/" + REALM_ID + "/api-keys", (ex, body) -> FakeServer.Reply.json(200, envelope));
-        List<APIKey> keys = realm.apiKeys().list();
+        List<APIKey> keys = realm.apiKeys().list().page(PageOpts.empty()).items();
         assertEquals(2, keys.size());
         APIKey k1 = keys.get(0);
         assertEquals("admin", k1.role());

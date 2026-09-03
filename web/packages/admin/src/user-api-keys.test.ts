@@ -29,11 +29,13 @@ describe("UserApiKeysClient via web-admin transport (ADR-084)", () => {
 
   it("list GETs the user-api-keys segment, distinct from platform api-keys", async () => {
     const { http, calls } = makeHttp({ items: [{ id: "k1", prefix: "uk_live_ab" }] });
-    const out = await asClient(http).list("t 1", "u/2");
+    const page = await asClient(http).list("t 1", "u/2").page();
     assert.equal(calls[0]!.opts.method, "GET");
     assert.equal(calls[0]!.opts.path, "/tenants/t%201/users/u%2F2/user-api-keys");
     assert.ok(!calls[0]!.opts.path.includes("/platforms/"));
-    assert.equal(out[0]!.id, "k1");
+    assert.equal(page.items[0]!.id, "k1");
+    // No has_more and no cursor on the wire: not "more pages", not a guess.
+    assert.equal(page.hasMore, false);
   });
 
   it("create POSTs the mint body and returns the one-time value", async () => {

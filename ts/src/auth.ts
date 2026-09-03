@@ -400,11 +400,13 @@ export interface SessionListWire {
  * in an endless loop.
  */
 function readSessionPage(raw: unknown): Page<SessionInfo> {
-  if (Array.isArray(raw)) return { items: raw as SessionInfo[] };
+  // A legacy shape carries no cursor, so hasMore is false by construction —
+  // one round trip and the iterator stops.
+  if (Array.isArray(raw)) return { items: raw as SessionInfo[], hasMore: false };
   if (raw && typeof raw === "object") {
     const obj = raw as SessionListWire;
     if (obj.items === undefined && Array.isArray(obj.sessions)) {
-      return { items: obj.sessions };
+      return { items: obj.sessions, hasMore: false };
     }
   }
   return readPage<SessionInfo>(raw);

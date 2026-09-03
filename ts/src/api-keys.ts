@@ -12,6 +12,7 @@
 
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
+import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 /** Create payload (issuer `APIKey` create). `scope` is required. */
 export interface ApiKeyCreate {
@@ -97,17 +98,24 @@ export class ApiKeysClient {
   }
 
   /**
-   * List every API key for this realm. The issuer returns a paginated
-   * `{ items, next_cursor, total }` envelope; we also accept a flat array
-   * or a legacy `{ api_keys }` envelope for resilience (mirrors Go's
-   * `decodeAPIKeyList`).
+   * Paginate this realm's API keys.
+   *
+   * Returns the PAGER, not an array. The previous signature's own doc comment
+   * already said the issuer answers a paginated
+   * `{ items, next_cursor, total }` envelope — and then discarded it, so a
+   * caller could neither page nor detect truncation. Read `.page().hasMore`,
+   * or `for await` to walk everything.
    */
-  async list(): Promise<ApiKey[]> {
-    const raw = await this.http.request<unknown>({
-      method: "GET",
-      path: `/platforms/${encodeURIComponent(this.realmId)}/api-keys`,
+  list(opts?: PageOpts): Paginated<ApiKey> {
+    const path = `/platforms/${encodeURIComponent(this.realmId)}/api-keys`;
+    return paginate<ApiKey>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path,
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<ApiKey>(raw);
     });
-    return decodeApiKeyList(raw);
   }
 
   /** Soft-delete (sets `revoked_at`). */
@@ -126,19 +134,4 @@ export function isApiKeyRevoked(k: ApiKey): boolean {
   return k.revoked_at != null;
 }
 
-/**
- * Tolerates the issuer `{ items }` envelope, a legacy `{ api_keys }`
- * envelope, or a flat array. Mirrors Go's `decodeAPIKeyList`.
- */
-function decodeApiKeyList(raw: unknown): ApiKey[] {
-  if (Array.isArray(raw)) return raw as ApiKey[];
-  if (raw && typeof raw === "object") {
-    const env = raw as { items?: ApiKey[]; api_keys?: ApiKey[] };
-    if (Array.isArray(env.items)) return env.items;
-    if (Array.isArray(env.api_keys)) return env.api_keys;
-  }
-  throw new RealmError({
-    code: "server_error",
-    message: "api-keys list: unexpected response shape",
-  });
-}
+

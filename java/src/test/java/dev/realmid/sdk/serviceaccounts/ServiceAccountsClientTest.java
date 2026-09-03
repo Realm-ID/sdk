@@ -17,6 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.realmid.sdk.pagination.Page;
+import dev.realmid.sdk.pagination.PageOpts;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class ServiceAccountsClientTest {
     private FakeServer fs;
@@ -84,9 +87,11 @@ class ServiceAccountsClientTest {
                                 "status", "active", "kind", "service"),
                         Map.of("id", "sa-2", "handle", "b@x.test", "role", "member",
                                 "status", "suspended", "kind", "service")))));
-        List<ServiceAccount> items = realm.serviceAccounts().list("t1");
-        assertEquals(2, items.size());
-        assertEquals("suspended", items.get(1).status());
+        Page<ServiceAccount> page = realm.serviceAccounts().list("t1").page(PageOpts.empty());
+        assertEquals(2, page.items().size());
+        assertEquals("suspended", page.items().get(1).status());
+        // No has_more and no cursor on the wire: not "more pages", not a guess.
+        assertFalse(page.hasMore());
     }
 
     @Test

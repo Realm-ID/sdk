@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import dev.realmid.sdk.pagination.PageReader;
+import dev.realmid.sdk.pagination.Paginated;
 
 /**
  * Sources surface — {@code realm.sources()} (ADR-072). Mirrors Go's
@@ -34,18 +36,25 @@ public final class SourcesClient {
         this.realmId = realmId;
     }
 
-    /** GET /sources?platform_id={realmId} — every source (including disabled). */
-    public List<Source> list() {
-        Map<String, Object> q = new LinkedHashMap<>();
-        q.put("platform_id", realmId);
-        JsonNode raw = http.request(HttpTransport.Request.of("GET", "/sources").query(q));
-        List<Source> out = new ArrayList<>();
-        if (raw != null && raw.has("items") && raw.get("items").isArray()) {
-            for (JsonNode n : raw.get("items")) {
-                out.add(http.mapper().convertValue(n, Source.class));
-            }
-        }
-        return out;
+    /**
+     * GET /sources?platform_id={realmId} — the realm's sources, disabled ones
+     * included.
+     *
+     * <p>Returns the PAGER, not a {@code List}: the endpoint is paginated
+     * server-side, so a list could only ever be page one with no way for the
+     * caller to tell it was cut short. {@code stream()} walks every page;
+     * {@code page(opts)} gives one page plus {@code hasMore}/{@code nextCursor}/
+     * {@code total}.
+     */
+    public Paginated<Source> list() {
+        return Paginated.of(opts -> {
+            Map<String, Object> q = new LinkedHashMap<>();
+            q.put("platform_id", realmId);
+            if (opts.cursor() != null) q.put("cursor", opts.cursor());
+            if (opts.limit() != null) q.put("limit", opts.limit());
+            JsonNode raw = http.request(HttpTransport.Request.of("GET", "/sources").query(q));
+            return PageReader.read(http.mapper(), raw, Source.class);
+        });
     }
 
     /** POST /sources — register a new app/source. {@code platformId} defaults to the realm. */

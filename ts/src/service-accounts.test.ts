@@ -75,7 +75,7 @@ test("serviceAccounts.create: 400 invalid_role surfaces on error.code", async ()
   );
 });
 
-test("serviceAccounts.list: unwraps {items}", async () => {
+test("serviceAccounts.list: returns a page over {items}", async () => {
   const fetch = mkFetch((req) => {
     assert.equal(req.method, "GET");
     assert.match(req.url, /\/tenants\/t1\/service-accounts$/);
@@ -87,9 +87,10 @@ test("serviceAccounts.list: unwraps {items}", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const realm = createRealm({ ...cfg, fetch });
-  const items = await realm.serviceAccounts.list("t1");
-  assert.equal(items.length, 2);
-  assert.equal(items[1]!.status, "suspended");
+  const page = await realm.serviceAccounts.list("t1").page();
+  assert.equal(page.items.length, 2);
+  assert.equal(page.items[1]!.status, "suspended");
+  assert.equal(page.hasMore, false);
 });
 
 test("serviceAccounts.get: GETs by id", async () => {

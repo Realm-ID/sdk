@@ -43,10 +43,6 @@ type SourcePatch struct {
 	Enabled        *bool     `json:"enabled,omitempty"`
 }
 
-type sourceList struct {
-	Items []Source `json:"items"`
-}
-
 // Source error sentinels.
 var (
 	// ErrSourceMethodViolatesKind is returned when allowed_methods is
@@ -73,23 +69,22 @@ func mapSourceErr(err error) error {
 	return re
 }
 
-// List returns every source (including disabled) for the realm.
-func (c *SourcesClient) List(ctx ctxpkg.Context) ([]Source, error) {
-	tok, err := c.realm.platformToken.get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var out sourceList
-	if err := c.realm.http.do(ctx, requestOptions{
-		Method: "GET", Path: "/sources", Bearer: tok,
-		Query: map[string]string{"platform_id": c.realm.realmID},
-	}, &out); err != nil {
-		return nil, mapSourceErr(err)
-	}
-	if out.Items == nil {
-		out.Items = []Source{}
-	}
-	return out.Items, nil
+// List paginates the realm's sources, including disabled ones.
+//
+// It returns a pager, NOT a slice: GET /sources is paginated server-side, so a
+// slice could only ever be page one with no way for the caller to tell. Read
+// Page(...).HasMore to detect truncation, or range over All to walk every page.
+//
+//	for src, err := range realm.Sources.List(ctx).All(ctx) { ... }
+func (c *SourcesClient) List(ctx ctxpkg.Context) *Paginated[Source] {
+	return newPaginated(func(ctx ctxpkg.Context, opts PageOpts) (*Page[Source], error) {
+		pg, err := fetchFilteredPage[Source](ctx, c.realm, "/sources", opts,
+			map[string]string{"platform_id": c.realm.realmID})
+		if err != nil {
+			return nil, mapSourceErr(err)
+		}
+		return pg, nil
+	})
 }
 
 // Create registers a new app/source. PlatformID defaults to the realm.

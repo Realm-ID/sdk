@@ -94,7 +94,8 @@ func (c *DriftReviewsClient) List(ctx ctxpkg.Context, tenantID string, opts *Dri
 		if env.Items == nil {
 			return nil, &RealmError{Code: ErrCodeServerError, Message: "list endpoint did not return {items, next_cursor}"}
 		}
-		return &Page[DriftReview]{Items: env.Items, NextCursor: env.NextCursor, Total: env.Total}, nil
+		p := env.page()
+		return &p, nil
 	})
 }
 

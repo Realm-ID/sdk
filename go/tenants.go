@@ -564,5 +564,6 @@ func fetchFilteredPage[T any](ctx context.Context, r *Realm, path string, opts P
 		// Server returned a non-pageable shape — reject per SPEC §7.
 		return nil, &RealmError{Code: ErrCodeServerError, Message: "list endpoint did not return {items, next_cursor}"}
 	}
-	return &Page[T]{Items: env.Items, NextCursor: env.NextCursor, Total: env.Total}, nil
+	p := env.page()
+	return &p, nil
 }

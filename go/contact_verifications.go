@@ -78,7 +78,8 @@ func (c *ContactVerificationsClient) List(ctx ctxpkg.Context, tenantID string, o
 		if env.Items == nil {
 			return nil, &RealmError{Code: ErrCodeServerError, Message: "list endpoint did not return {items, next_cursor}"}
 		}
-		return &Page[ContactVerification]{Items: env.Items, NextCursor: env.NextCursor, Total: env.Total}, nil
+		p := env.page()
+		return &p, nil
 	})
 }
 
