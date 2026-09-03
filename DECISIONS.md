@@ -10,11 +10,11 @@ Newest first.
 
 ## Index
 
-84 entries total — 29 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+85 entries total — 30 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
 - [2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate](#2026-09-03-pagination-later--the-two-input-codes-and-proof-that-a-re-packed-tarball-does-not-propagate)
 - [2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise](#2026-09-03-pagination--four-list-methods-threw-the-envelope-away-and-the-doc-comments-promised-otherwise)
-- [2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins](#2026-09-01-derived-claims-the-handler-ran-on-three-lanes-and-all-three-were-logins)
+- [2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins](#2026-09-01-derived-claims--the-handler-ran-on-three-lanes-and-all-three-were-logins)
 - [2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong](#2026-08-31-adr-102105--login-mints-now-and-the-parity-hole-that-made-it-possible-to-get-wrong)
 - [2026-08-31 (publish, later) — the tags were re-cut after all, and the reason I predicted a red run was wrong](#2026-08-31-publish-later--the-tags-were-re-cut-after-all-and-the-reason-i-predicted-a-red-run-was-wrong)
 - [2026-08-31 (publish) — the changelog gate fired before any registry saw an artifact, and the tags stayed put](#2026-08-31-publish--the-changelog-gate-fired-before-any-registry-saw-an-artifact-and-the-tags-stayed-put)
@@ -97,7 +97,6 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
-
 
 ## 2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate
 
