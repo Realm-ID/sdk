@@ -845,7 +845,13 @@ export class AuthClient {
         ...(req.tenantId ? { tenant_id: req.tenantId } : {}),
       },
     });
-    return mapAuthResp(raw);
+    const session = mapAuthResp(raw);
+    // ADR-102 D10 — an OTP login is a login. This lane was uncovered until the
+    // Go SDK's AST-derived lane guard found it; the defect report that prompted
+    // the guard named only mfaVerify.
+    const otpSettled = settledTenant(session);
+    if (otpSettled) await this.mintOrThrowWithAnchor(session, otpSettled);
+    return session;
   }
 
   /**
@@ -936,7 +942,14 @@ export class AuthClient {
         method: req.method ?? "totp",
       },
     });
-    return mapAuthResp(raw);
+    const session = mapAuthResp(raw);
+    // ADR-102 D10 — a step-up issues the token the user carries for the rest of
+    // the session, so it is the LAST lane that may hand back a claim-blind one.
+    // Without this, a partner who requires MFA has every human denied by their
+    // own ScopePolicy gate immediately after passing the second factor.
+    const mfaSettled = settledTenant(session);
+    if (mfaSettled) await this.mintOrThrowWithAnchor(session, mfaSettled);
+    return session;
   }
 
   /** SPEC §4.4 — revoke the supplied (or current) refresh token.

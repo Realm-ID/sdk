@@ -13,6 +13,33 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — every session-producing lane resolves the derived claims (2026-09-03)
+
+Cross-cutting: all three SDKs, same change. **Prerequisite for ADR-107.**
+
+### Fixed — two lanes handed back a token with no `product_roles` and no `scope`
+
+- **`otpLogin` and `mfaVerify`** (and `mfaVerifyOtp`, which delegates to it)
+  returned the raw session without running the derived-claims mint. For an
+  ADR-097 partner that token reads as **no granted authority**, so their own
+  gate denies the holder everywhere — on the MFA lane, immediately after the
+  user passes a second factor. `login`, `completeLogin` and `passwordLogin`
+  were unaffected.
+- `mfaVerify` also did none of the tenant-id / user-id normalisation the other
+  lanes do, so it had no user id to resolve the handlers against.
+
+### Added — the lane set is derived, not written down
+
+- `go/derived_claims_lanes_test.go` computes the subject list from the package
+  AST: every function returning a `*Session` must reach `mintProductRoles`.
+  A new lane fails the guard on the day it is written.
+- The prose list it replaces (*"three call sites — Login, CompleteLogin,
+  PasswordLogin"*) is how both lanes shipped uncovered, and is deleted rather
+  than corrected. The partner report that prompted this named ONE of the two;
+  the parser found both.
+- Behavioural mirrors in ts (`derived-claims-lanes.test.ts`) and java
+  (`DerivedClaimsLanesTest`), one test per lane.
+
 ## go `0.55.0` · ts `0.48.0` · java `0.45.0` — the pagination envelope (2026-09-03)
 
 Cross-cutting: all three SDKs, same change.

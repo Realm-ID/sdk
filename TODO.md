@@ -49,69 +49,24 @@
 > still reached the wrong conclusion, because it never checked whether the lane it
 > blamed could produce the session the defect needs.
 
-
-> 🔴 **LIVE DEFECT + BLOCKER, filed 2026-09-01 — derived claims are resolved on
-> LOGIN LANES ONLY, so a BFF session loses them at its first refresh.**
+> ✅ **CLOSED 2026-09-03 — the derived-claims seam is complete on EVERY lane in
+> all three SDKs.** This entry described the refresh hole and said "Not started"
+> while `Config.Scopes` and the refresh enrichment were already shipped and
+> tested in go/ts/java (`derived_claims_refresh.go`,
+> `derived-claims-refresh.test.ts`, `DerivedClaimsRefreshTest`). It had gone
+> stale in the direction that costs the most: it would have sent someone to
+> rebuild a shipped seam.
 >
-> ⚠️ **WIDENED the same day, and the widening is the important part.** This was
-> filed as "`scope` has no every-mint seam" (a future blocker). Tracing the fix
-> showed **`product_roles` has the IDENTICAL hole and it is LIVE** — Traide
-> shipped ADR-102 adoption in their `api v0.37.0` on 2026-09-01 and their humans
-> lose the claim one access-TTL into every session.
-> `mintProductRoles` has exactly THREE call sites — `auth.go:557` `Login`,
-> `:618` `CompleteLogin`, `:924` `PasswordLogin` — **all login lanes**, verified
-> byte-identical to the published `go/v0.53.1`. `middleware.go:568` refreshes
-> with `{RefreshToken, TenantID, CustomClaims}` and `Token` forwards only what it
-> is given. **Our own `product_roles.go:30-32` promises the opposite in
-> writing** — *"runs on EVERY mint, refresh included, and nothing caches"* — so
-> the contract is right and the refresh lane does not honour it.
-> Traide's report cited `:924` as being inside `Token`; it is inside
-> `PasswordLogin`, and correcting that citation is what exposed this.
-> **They have NOT been told** — their session ended before the follow-up could
-> be delivered. Outstanding partner notification.
-> Design: `.scratch/scope-hook/SPEC.md`. Fix BOTH claims with ONE mechanism.
+> The half that WAS still open is now done too. The entry's own line —
+> *"`mintProductRoles` has exactly THREE call sites"* — was the hand-maintained
+> list that hid it. The lane set is now DERIVED from the package AST
+> (`go/derived_claims_lanes_test.go`), and it found **two** uncovered lanes,
+> `OTPLogin` and `MFAVerify`/`MFAVerifyOTP`, where the report that prompted the
+> guard had named only the second. Fixed and behaviourally tested in all three
+> languages. Why + RCA: `DECISIONS.md`, 2026-09-03.
 >
-> ~~`scope` has no every-mint seam, so ADR-097 cannot be adopted by a BFF
-> partner.~~ (still true; now the second half of the above)
-> Found by Traide's engineering while designing their ADR-097 cutover; the
-> mechanism is VERIFIED in issuer source at `3954a4c` (live `v0.116.0`), not
-> taken on their word.
->
-> **The issuer does not carry `scope` across a refresh, by design.**
-> `sessionstore.Session` has no scope field and `authsvc/service.go:1613-1616`
-> states why: *"`scope` is never stored on a session, precisely so it cannot go
-> stale."* `MintForTenant` reads `req.Scope` only (`:1328`), and
-> `tokens.Claims.Scope` is `omitempty`, so a `/auth/token` without `scope`
-> mints **no scope claim at all**. `sdk/go/scope.go:50-53` then reads that as
-> "no granted authority" — fail-closed, correctly.
->
-> **The gap is OURS, and it is the same class as the §4.1 guide defect.**
-> `Config` has exactly one handler, `ProductRoles`. There is no scope analogue,
-> so nothing derives scopes from the roles a partner's own handler just
-> resolved. On the LOGIN flow a partner can re-mint via `OnAuthSuccess` (the
-> event carries a live `*Session` and fires before the response is written).
-> **On the REFRESH flow `ev.Session` is nil**, and the middleware's own refresh
-> mints with no `Scope` and no `RolePermissions` — so a BFF-fronted human
-> session loses its authority at the FIRST refresh, and a `ScopePolicy` gate
-> denies everything roughly one access-TTL into every session.
->
-> **Consequence:** for a BFF partner, token scope is stale for the LIFE of the
-> session, not for one TTL. Traide are correctly refusing to ship the cutover
-> until this exists.
->
-> **Shape:** a `Config.Scopes` handler applied at EVERY mint, exactly as
-> `mintProductRoles` already does for ADR-102 (`auth.go:557`/`:618`/`:924`).
-> Needs NO issuer change — the issuer's contract is "requested per mint, never
-> remembered", and a client-side closure satisfies it. Do the same in ts + java,
-> not just go; the ADR-102 seam is the template for all three.
->
-> ⚠️ **Check the partner-integration guide in the same pass.** §4.1 already had
-> to be corrected once for pointing BFF partners at a per-call field instead of
-> the realm-level handler that actually reaches humans. Anything the guide says
-> about `scope` is likely to carry the identical error.
->
-> Not started. Needs a design pass + the user's go-ahead (`discuss features
-> first`) — it is a new SDK surface across three languages, not a fix.
+> ⚠️ **Still owed to Traide:** they reported the MFA lane and have not been told
+> it is fixed, nor that a second lane was found alongside it.
 
 
 Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.

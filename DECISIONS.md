@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-85 entries total — 30 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+86 entries total — 31 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-03 (derived claims, lanes) — the guard that was a COMMENT found three call sites; the guard that is a PARSER found five](#2026-09-03-derived-claims-lanes--the-guard-that-was-a-comment-found-three-call-sites-the-guard-that-is-a-parser-found-five)
 - [2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate](#2026-09-03-pagination-later--the-two-input-codes-and-proof-that-a-re-packed-tarball-does-not-propagate)
 - [2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise](#2026-09-03-pagination--four-list-methods-threw-the-envelope-away-and-the-doc-comments-promised-otherwise)
 - [2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins](#2026-09-01-derived-claims--the-handler-ran-on-three-lanes-and-all-three-were-logins)
@@ -97,6 +98,65 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-03 (derived claims, lanes) — the guard that was a COMMENT found three call sites; the guard that is a PARSER found five
+
+**Context.** ADR-107 (issuer `docs/adr/107`) cannot ship its promotion half
+until every mint carries `product_roles` and `scope`: a forced refresh that
+does not re-resolve them hands back a token exactly as stale as the one it
+replaced. So this was a prerequisite, not a follow-up.
+
+### RCA
+
+**Symptom.** `AuthClient.OTPLogin` and `AuthClient.MFAVerify` (and
+`MFAVerifyOTP` through it) returned a session whose token carried **no
+`product_roles` and no `scope`**. For an ADR-097 partner that token is read as
+"no granted authority" and their own gate denies the holder everywhere — on the
+MFA lane, immediately after the user passes a second factor.
+
+**Root cause.** `mintProductRoles` was called from the lanes someone had
+enumerated, and the enumeration lived in a code comment:
+`middleware_derived_claims_test.go` opened with *"three call sites — Login,
+CompleteLogin, PasswordLogin"*. That sentence was accurate when written. Two
+lanes were added afterwards and the comment was not, so every existing test
+stayed green while the surface it described stopped matching the code.
+
+**Why it wasn't caught.** Every test asserted the CLAIM ("a login carries
+`product_roles`") on a lane that already worked. None asserted the SET. The
+file even warns about this — *"an assertion that a login carries the claim
+passed throughout the entire life of the bug"* — and then pinned the lane list
+in prose two paragraphs above.
+
+**Fix.** `go/derived_claims_lanes_test.go` derives the subject list from the
+package AST: every function returning a `*Session` must REACH
+`mintProductRoles` (reachability, so a delegating lane like `MFAVerifyOTP`
+counts), with an exemption map that is deliberately empty. `OTPLogin` and
+`MFAVerify` now mint; `MFAVerify` also gained the tenant/user normalisation
+every other lane already did, without which the handler would have had no user
+id to resolve against. Ported behaviourally to ts and java, and the prose lane
+list is deleted rather than corrected.
+
+**Prevention.** The set is computed. A sixth lane fails the guard on the day it
+is written. Same rule as the issuer's `TestRoleWriteSitesAreReviewed`.
+
+**The finding worth keeping.** The defect report — written by a partner's
+engineers off a careful reading of the same three-call-sites comment — named
+**one** lane. The parser found **two**. Neither the report nor the comment was
+careless; both were hand-maintained lists, and the second lane was invisible to
+anyone who trusted the first. *That* is the argument for deriving a subject
+list, not tidiness.
+
+**Non-vacuity, checked in both directions.** All four Go tests, all three TS
+tests and all three Java tests were run against the PRE-FIX source and confirmed
+FAILING — on a copy of the tree, never by reverting the shared checkout. The
+guard also refuses to run if it parses no files or finds fewer than four lanes,
+so a broken walk fails as a broken walk rather than as a pass.
+
+**Also corrected here.** `TODO.md` carried this item as "Not started" while the
+refresh half of the same seam was already shipped and tested in all three
+languages. A stale TODO in that direction costs a rebuild of working code; it is
+replaced with its closed state. Traide reported the MFA lane and have not yet
+been told it is fixed, nor that a second lane was found beside it.
 
 ## 2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate
 

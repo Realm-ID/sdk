@@ -820,6 +820,16 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 			}
 		}
 	}
+	// ADR-102 D10 — an OTP login is a login: once the tenant is settled the
+	// derived-claims handlers run and the session is re-minted. Added when the
+	// AST-derived lane guard found this lane uncovered; the defect report that
+	// prompted the guard named only MFAVerify, and a hand-written list had said
+	// "three call sites" for months.
+	if tenantID := settledTenant(&resp); tenantID != "" {
+		if err := a.mintProductRoles(ctx, &resp, tenantID, nil); err != nil {
+			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
+		}
+	}
 	return &resp, nil
 }
 
@@ -980,6 +990,35 @@ func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Sessi
 		Headers: headers,
 	}, &resp); err != nil {
 		return nil, err
+	}
+	// The same normalisation every other session-producing lane does. MFAVerify
+	// did none of it and returned the raw response, which is why the mint below
+	// had no user id to resolve against even once it was added.
+	for i := range resp.Tenants {
+		if resp.Tenants[i].ID == "" && resp.Tenants[i].IDLegacy != "" {
+			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
+		}
+	}
+	if resp.User.ID == "" && resp.AccessToken != "" {
+		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
+			resp.User.ID = sub
+			if resp.User.Email == "" {
+				resp.User.Email = email
+			}
+			if resp.User.DisplayName == "" {
+				resp.User.DisplayName = name
+			}
+		}
+	}
+	// ADR-102 D10 — a step-up is the point at which the token the user carries
+	// for the rest of the session is issued, so it is the LAST lane that may
+	// hand back a claim-blind one. Without this, a partner who requires MFA has
+	// every human denied by their own ScopePolicy gate immediately after
+	// passing the second factor — the worst possible moment for it.
+	if tenantID := settledTenant(&resp); tenantID != "" {
+		if err := a.mintProductRoles(ctx, &resp, tenantID, nil); err != nil {
+			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
+		}
 	}
 	return &resp, nil
 }

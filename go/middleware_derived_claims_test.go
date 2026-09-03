@@ -18,8 +18,7 @@ import (
 //
 // # The defect these guard
 //
-// `mintProductRoles` had three call sites — Login, CompleteLogin, PasswordLogin
-// — and ALL THREE are login lanes. Nothing ran on refresh, and the middleware's
+// `mintProductRoles` ran on login lanes only. Nothing ran on refresh, and the middleware's
 // own refresh minted with `{RefreshToken, TenantID, CustomClaims}` only. So a
 // BFF-fronted session carried `product_roles` at login and lost it roughly one
 // access-TTL later, for the life of the session. `scope` had the identical hole,
@@ -31,6 +30,13 @@ import (
 // ⚠️ THESE TESTS ARE LANE-SPECIFIC ON PURPOSE. An assertion that "a login
 // carries the claim" passed throughout the entire life of the bug. The lane is
 // the subject, not the claim.
+//
+// ⚠️ AND THE LANE SET IS NOT WRITTEN DOWN HERE ANY MORE. This comment used to
+// name "three call sites — Login, CompleteLogin, PasswordLogin". It was true
+// when written, and it is how MFAVerify AND OTPLogin later shipped handing back
+// claim-blind sessions with every test in this file green. The set now comes
+// from the package AST — see derived_claims_lanes_test.go. Do not re-introduce
+// a list here.
 
 // refreshCapture records every /auth/token body the middleware sends.
 type refreshCapture struct {
@@ -238,8 +244,8 @@ func TestDerivedClaims_EmptyResultMintsNoClaim(t *testing.T) {
 // reproduce the exact defect being fixed, pointed the other way — and it would
 // be found the same way: by a partner, in production.
 //
-// mintProductRoles is the shared login-lane mint (Login, CompleteLogin,
-// PasswordLogin), so proving it here proves all three.
+// mintProductRoles is the shared mint for every session-producing lane, so
+// proving it here proves the login side of the seam.
 func TestDerivedClaims_LoginResolvesScopes(t *testing.T) {
 	var got map[string]any
 	var calls int32

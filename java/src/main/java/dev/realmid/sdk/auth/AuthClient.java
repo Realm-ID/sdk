@@ -399,7 +399,16 @@ public final class AuthClient {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/verify").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
-        return http.mapper().convertValue(raw, Session.class);
+        Session session = http.mapper().convertValue(raw, Session.class);
+        // ADR-102 D10 — a step-up issues the token the user carries for the rest
+        // of the session, so it is the LAST lane that may hand back a claim-blind
+        // one. Without this, a partner who requires MFA has every human denied by
+        // their own scope gate immediately after passing the second factor.
+        String settled = settledTenant(session);
+        if (settled != null && !settled.isEmpty()) {
+            return mintOrThrowWithAnchor(session, settled, null, req.origin());
+        }
+        return session;
     }
 
     /**
@@ -422,7 +431,15 @@ public final class AuthClient {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
-        return http.mapper().convertValue(raw, Session.class);
+        Session session = http.mapper().convertValue(raw, Session.class);
+        // ADR-102 D10 — an OTP login is a login. This lane was uncovered until
+        // the Go SDK's AST-derived lane guard found it; the defect report that
+        // prompted the guard named only mfaVerify.
+        String settled = settledTenant(session);
+        if (settled != null && !settled.isEmpty()) {
+            return mintOrThrowWithAnchor(session, settled, null, req.origin());
+        }
+        return session;
     }
 
     /**
