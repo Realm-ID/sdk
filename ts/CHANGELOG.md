@@ -4,6 +4,31 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.48.0 — the pagination envelope, and the two new input-validation codes (2026-09-03)
+
+### Added — the pagination envelope is no longer discarded, and two new error codes
+
+- **Four list methods returned a bare array and threw the envelope away**:
+  `sources.list`, `serviceAccounts.list`, `userApiKeys.list` and
+  `apiKeys.list`. They now return the pager, so a caller can page AND detect
+  truncation. Every field the issuer's S4/S5/S6 releases added was previously
+  discarded before any caller could see it.
+- `has_more` is the terminator, **ahead of** `next_cursor`. **Absent is NOT
+  false** — it is derived from `next_cursor`, which is correct for every
+  endpoint predating the field. Re-encoding pins `has_more: false` as an
+  explicit `false`, not a dropped key.
+- **New error codes `invalid_cursor` and `invalid_limit`** (issuer `v0.118.x`
+  rejects malformed `?cursor=`/`?limit=` with a `400` instead of absorbing it).
+  Registered in the taxonomy AND covered by a test asserting the code ARRIVES
+  on a decoded error — a registry proves the constant exists, only that proves
+  a caller can branch on it.
+- Guarded by a **decode → RE-ENCODE round-trip test**. A decode-only assertion
+  passes whether or not a field is carried onward, which is exactly how
+  `go/v0.53.0` silently deleted `credential_methods`.
+- An unset `limit` is OMITTED from the query string rather than sent as
+  `limit=0`, which the issuer now rejects. Pinned by a test on the serialised
+  URL, not on the intent of the code.
+
 ## 0.47.0 — derived claims are resolved at EVERY mint, refresh included (2026-09-01)
 
 ### Fixed — `product_roles` and `scope` were resolved on LOGIN LANES ONLY

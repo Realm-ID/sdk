@@ -13,6 +13,45 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.55.0` · ts `0.48.0` · java `0.45.0` — the pagination envelope (2026-09-03)
+
+Cross-cutting: all three SDKs, same change.
+
+### Added — the pagination envelope is no longer discarded, and two new error codes
+
+- **Four list methods returned a bare array and threw the envelope away**:
+  `sources.list`, `serviceAccounts.list`, `userApiKeys.list` and
+  `apiKeys.list`. They now return the pager, so a caller can page AND detect
+  truncation. Every field the issuer's S4/S5/S6 releases added was previously
+  discarded before any caller could see it.
+- `has_more` is the terminator, **ahead of** `next_cursor`. **Absent is NOT
+  false** — it is derived from `next_cursor`, which is correct for every
+  endpoint predating the field. Re-encoding pins `has_more: false` as an
+  explicit `false`, not a dropped key.
+- **New error codes `invalid_cursor` and `invalid_limit`** (issuer `v0.118.x`
+  rejects malformed `?cursor=`/`?limit=` with a `400` instead of absorbing it).
+  Registered in the taxonomy AND covered by a test asserting the code ARRIVES
+  on a decoded error — a registry proves the constant exists, only that proves
+  a caller can branch on it.
+- Guarded by a **decode → RE-ENCODE round-trip test**. A decode-only assertion
+  passes whether or not a field is carried onward, which is exactly how
+  `go/v0.53.0` silently deleted `credential_methods`.
+- An unset `limit` is OMITTED from the query string rather than sent as
+  `limit=0`, which the issuer now rejects. Pinned by a test on the serialised
+  URL, not on the intent of the code.
+
+⚠️ **Version numbers were forced, not chosen.** npm already served
+`@realm-id/sdk 0.47.0`, Maven already served `0.44.0`, and `go/v0.54.0` was
+already published — each with DIFFERENT content from the working tree. Re-using
+any of them would have shipped stale bytes under a live version. The same trap
+had just been hit inside `web-admin`, where re-packing `0.14.0` left the STALE
+bundle installed through `npm install`, `--force` and `rm -rf node_modules`,
+because the lockfile pins an `integrity` hash per filename. **"Never published"
+is not an exemption.**
+
+`go/realmid.go`'s `const Version` moves with the tag: `go/v0.51.0` once shipped
+a `Version` that lied.
+
 ## Pagination input error codes — go · ts · java · web-admin `0.15.0` (2026-09-03)
 
 - **`invalid_cursor` and `invalid_limit` added to all three error taxonomies**
