@@ -13,6 +13,23 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Pagination input error codes — go · ts · java · web-admin `0.15.0` (2026-09-03)
+
+- **`invalid_cursor` and `invalid_limit` added to all three error taxonomies**
+  (both `400`). The issuer now refuses malformed pagination input instead of
+  absorbing it. Two codes because the remedy differs: `invalid_cursor` means
+  restart the walk, `invalid_limit` means fix your constant. Unregistered, they
+  would surface as a bare `bad_request` and callers could not branch — the
+  `go/v0.52.0` failure. Each language has a test asserting the code ARRIVES,
+  not just that the constant exists.
+- **Wire check on the pagers shipped earlier today**: an unset `limit`/`cursor`
+  is OMITTED from the query string in Go, TS, Java and web-admin — verified
+  against the serialised URL, with tests now pinning it per language across all
+  four converted methods. `limit=0` would have `400`d every list call.
+- `@realm-id/web-admin` `0.14.0` → `0.15.0` — a new version because re-packing
+  `0.14.0` did NOT reach the consumer (npm honours the lockfile integrity even
+  for an unpublished file: dependency). `0.14.0` was never published.
+
 ## Pagination envelope reaches the caller — go · ts · java · web-admin `0.14.0` (2026-09-03)
 
 **Breaking, and deliberately so** — four list methods returned a bare array and

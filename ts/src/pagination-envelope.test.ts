@@ -11,6 +11,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
+import { RealmError } from "./errors.js";
 import { readPage, writePage, type Page } from "./pagination.js";
 
 interface Captured { method: string; url: string; body?: unknown }
@@ -144,4 +145,73 @@ test("the pager stops on has_more:false even with a non-empty next_cursor", asyn
     if (++n > 5) throw new Error("pager did not terminate on has_more:false");
   }
   assert.equal(calls, 1, "has_more:false is the terminator, not next_cursor");
+});
+
+// --- the serialised query string, not the intent of the code ----------------
+//
+// The issuer now answers `400 invalid_limit` to `limit=0` and
+// `400 invalid_cursor` to a malformed cursor, where both were previously
+// absorbed into the defaults. So an UNSET limit must be absent from the URL,
+// not sent as `limit=0` — otherwise every list call in the SDK 400s against a
+// real server while passing every unit test. This asserts the raw URL for that
+// reason: a value-level assertion cannot see it.
+
+test("an unset limit and cursor are OMITTED from the query string", async () => {
+  const urls: string[] = [];
+  const fetch = mkFetch((req) => {
+    urls.push(req.url);
+    return new Response(JSON.stringify({ items: [], next_cursor: null, has_more: false }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  });
+  const realm = createRealm({ ...cfg, fetch });
+
+  await realm.sources.list().page();
+  await realm.serviceAccounts.list("t1").page();
+  await realm.userApiKeys.list("t1", "u1").page();
+  await realm.apiKeys.list().page();
+
+  assert.equal(urls.length, 4, "all four paged lists must have been called");
+  for (const u of urls) {
+    const q = new URL(u).searchParams;
+    assert.ok(!q.has("limit"), `${u} sends limit — an unset limit must be absent (400 invalid_limit)`);
+    assert.ok(!q.has("cursor"), `${u} sends cursor — an unset cursor must be absent (400 invalid_cursor)`);
+  }
+  // The sources call carries its own required param, so the assertions above
+  // are not passing merely because no query was built at all.
+  assert.equal(new URL(urls[0]!).searchParams.get("platform_id"), "r");
+});
+
+test("a set limit and cursor ARE sent — the omission is a guard, not a dropped field", async () => {
+  let seen = "";
+  const fetch = mkFetch((req) => {
+    seen = req.url;
+    return new Response(JSON.stringify({ items: [], next_cursor: null, has_more: false }), {
+      status: 200, headers: { "content-type": "application/json" },
+    });
+  });
+  const realm = createRealm({ ...cfg, fetch });
+  await realm.apiKeys.list().page({ cursor: "c1", limit: 25 });
+  const q = new URL(seen).searchParams;
+  assert.equal(q.get("limit"), "25");
+  assert.equal(q.get("cursor"), "c1");
+});
+
+// --- pagination input errors reach `code` -----------------------------------
+
+test("a 400 invalid_limit / invalid_cursor surfaces on error.code, not bad_request", async () => {
+  for (const code of ["invalid_limit", "invalid_cursor"]) {
+    const fetch = mkFetch(() =>
+      new Response(JSON.stringify({ error: "bad pagination input", code }), {
+        status: 400, headers: { "content-type": "application/json" },
+      }));
+    const realm = createRealm({ ...cfg, fetch });
+    await assert.rejects(
+      () => realm.sources.list().page(),
+      (e: Error) =>
+        e instanceof RealmError && e.code === code
+          ? true
+          : (() => { throw new Error(`code = ${(e as RealmError).code}, want ${code} — an unregistered code collapses and cannot be branched on`); })(),
+    );
+  }
 });

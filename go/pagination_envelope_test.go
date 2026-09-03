@@ -3,6 +3,7 @@ package realmid
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"testing"
@@ -260,5 +261,165 @@ func TestPagerStopsOnHasMoreFalse(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("server called %d times, want 1 — has_more:false is the terminator", calls)
+	}
+}
+
+// TestUnsetLimitAndCursorAreOMITTEDFromTheQuery asserts the SERIALISED URL, not
+// the intent of the code above it.
+//
+// The issuer now answers 400 invalid_limit to `limit=0` and 400 invalid_cursor
+// to a malformed cursor, where both were previously absorbed into the defaults.
+// Go's PageOpts.Limit is an int, so an omitted limit IS the zero value — if the
+// query builder serialised that as `limit=0`, every list call in the SDK would
+// 400 against a real server while passing every unit test here. That is exactly
+// the shape of bug a wire-level assertion catches and a value-level one does
+// not, so this reads the raw query string.
+func TestUnsetLimitAndCursorAreOMITTEDFromTheQuery(t *testing.T) {
+	var gotQuery string
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/sources": func(w http.ResponseWriter, r *http.Request) {
+			gotQuery = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{}, "next_cursor": nil, "has_more": false,
+			})
+		},
+	})
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+
+	// A bare .Page(ctx, nil): PageOpts is the zero value throughout.
+	if _, err := r.Sources.List(context.Background()).Page(context.Background(), nil); err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	q, err := url.ParseQuery(gotQuery)
+	if err != nil {
+		t.Fatalf("parse query %q: %v", gotQuery, err)
+	}
+	if _, present := q["limit"]; present {
+		t.Errorf("query = %q — an unset limit must be ABSENT, not limit=0 (400 invalid_limit)", gotQuery)
+	}
+	if _, present := q["cursor"]; present {
+		t.Errorf("query = %q — an unset cursor must be ABSENT, not cursor= (400 invalid_cursor)", gotQuery)
+	}
+	// The endpoint's own required param is still there — proof the query was
+	// built at all, so the assertions above are not passing on an empty string.
+	if q.Get("platform_id") != testRealmID {
+		t.Errorf("query = %q — expected platform_id, so this test is not vacuous", gotQuery)
+	}
+
+	// An explicitly-zero limit is the same wire outcome: Go cannot distinguish
+	// it from unset, and 0 is not a limit a caller can mean.
+	if _, err := r.Sources.List(context.Background()).Page(context.Background(), &PageOpts{Limit: 0}); err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	if q, _ := url.ParseQuery(gotQuery); q.Has("limit") {
+		t.Errorf("query = %q — PageOpts{Limit: 0} must not serialise limit=0", gotQuery)
+	}
+
+	// A real limit IS sent — the omission above is a guard, not a dropped field.
+	if _, err := r.Sources.List(context.Background()).Page(context.Background(), &PageOpts{Limit: 25, Cursor: "c1"}); err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	q, _ = url.ParseQuery(gotQuery)
+	if q.Get("limit") != "25" || q.Get("cursor") != "c1" {
+		t.Errorf("query = %q — a set limit/cursor must be sent", gotQuery)
+	}
+}
+
+// TestEveryPagedListOmitsAnUnsetLimit is the same assertion across all four
+// methods this change converted, because each builds its own query map and a
+// per-method regression would otherwise only show against a live server.
+func TestEveryPagedListOmitsAnUnsetLimit(t *testing.T) {
+	queries := map[string]string{}
+	empty := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			queries[name] = r.URL.RawQuery
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"items": []any{}, "next_cursor": nil, "has_more": false,
+			})
+		}
+	}
+	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/sources":                                empty("sources"),
+		"/tenants/t1/service-accounts":            empty("service-accounts"),
+		"/tenants/t1/users/u1/user-api-keys":      empty("user-api-keys"),
+		"/platforms/" + testRealmID + "/api-keys": empty("api-keys"),
+	})
+	defer srv.Close()
+
+	ctx := context.Background()
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+
+	if _, err := r.Sources.List(ctx).Page(ctx, nil); err != nil {
+		t.Fatalf("sources: %v", err)
+	}
+	if _, err := r.ServiceAccounts.List(ctx, "t1").Page(ctx, nil); err != nil {
+		t.Fatalf("service-accounts: %v", err)
+	}
+	if _, err := r.UserAPIKeys.List(ctx, "t1", "u1").Page(ctx, nil); err != nil {
+		t.Fatalf("user-api-keys: %v", err)
+	}
+	if _, err := r.APIKeys.List(ctx).Page(ctx, nil); err != nil {
+		t.Fatalf("api-keys: %v", err)
+	}
+
+	if len(queries) != 4 {
+		t.Fatalf("only %d of 4 endpoints were called: %v", len(queries), queries)
+	}
+	for name, raw := range queries {
+		q, err := url.ParseQuery(raw)
+		if err != nil {
+			t.Fatalf("%s: parse %q: %v", name, raw, err)
+		}
+		if q.Has("limit") {
+			t.Errorf("%s: query %q sends limit — an unset limit must be omitted", name, raw)
+		}
+		if q.Has("cursor") {
+			t.Errorf("%s: query %q sends cursor — an unset cursor must be omitted", name, raw)
+		}
+	}
+}
+
+// TestPaginationInputErrorsReachCode asserts the caller-visible claim, not the
+// registry entry: a 400 invalid_limit / invalid_cursor must surface on
+// RealmError.Code so a caller can BRANCH on it.
+//
+// This is the assertion go/v0.52.0 lacked — it shipped four ADR-101 codes
+// missing from the taxonomy, and an unregistered code collapses to a bare
+// `bad_request` on Code while ts and Java see the precise string. The taxonomy
+// test proves the constant exists; only this proves it arrives.
+func TestPaginationInputErrorsReachCode(t *testing.T) {
+	for _, tc := range []struct {
+		code string
+		want ErrorCode
+	}{
+		{"invalid_limit", ErrCodeInvalidLimit},
+		{"invalid_cursor", ErrCodeInvalidCursor},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			srv := authTestServer(t, map[string]http.HandlerFunc{
+				"/sources": func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusBadRequest)
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"error": "bad pagination input", "code": tc.code,
+					})
+				},
+			})
+			defer srv.Close()
+
+			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			_, err := r.Sources.List(context.Background()).Page(context.Background(), nil)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			var re *RealmError
+			if !errors.As(err, &re) {
+				t.Fatalf("not a RealmError: %v", err)
+			}
+			if re.Code != tc.want {
+				t.Errorf("Code = %q, want %q — an unregistered code collapses to bad_request and cannot be branched on", re.Code, tc.want)
+			}
+		})
 	}
 }

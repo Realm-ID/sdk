@@ -1,5 +1,19 @@
 # @realm-id/web-admin — changelog
 
+## 0.15.0 — the two pagination-input error codes (2026-09-03)
+
+- Bundles `@realm-id/sdk` with `invalid_cursor` and `invalid_limit` registered
+  in the error taxonomy. The issuer now answers `400` with these instead of
+  absorbing bad pagination input; unregistered, they would collapse to a bare
+  `bad_request` in `error.code` and a console could not branch on them.
+- **A separate version from `0.14.0` on purpose.** `0.14.0` was never published
+  and re-packing it under the same filename looked like the cheaper fix — but
+  `ui/web` pins the tarball by filename AND npm honours the lockfile
+  `integrity`, so the rebuilt tarball was silently ignored: the installed
+  bundle still lacked both codes after a forced reinstall. A content change
+  needs a NEW version number or the pin masks it. Verified this time by
+  grepping the INSTALLED `dist`, not the packed one.
+
 ## 0.14.0 — BREAKING: `apiKeys.list` returns the pager, not an array (2026-09-03)
 
 - **`apiKeys.list(platformId)` now returns `Paginated<ApiKeyListItem>`.** It

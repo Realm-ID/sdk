@@ -160,6 +160,26 @@ const (
 	ErrCodePermissionsExceedGrantor ErrorCode = "permissions_exceed_grantor"
 	ErrCodeInstallGrantsNothing     ErrorCode = "install_grants_nothing"
 
+	// Pagination input validation (issuer, 2026-09-03). Both 400, and
+	// deliberately TWO codes rather than one because the caller's correction
+	// differs: invalid_cursor means RESTART THE WALK (the cursor is
+	// non-numeric, signed, or past the max offset), invalid_limit means FIX
+	// YOUR CONSTANT (non-numeric or <= 0).
+	//
+	// Neither fires on the ordinary cases: a well-formed cursor past the end
+	// still returns an empty last page (rows can be deleted mid-walk), and a
+	// limit ABOVE the maximum still CLAMPS rather than rejecting. So an
+	// invalid_cursor a caller did not construct by hand is a bug in the
+	// caller's cursor handling, not a race.
+	//
+	// Registered here for the reason the ADR-101 block above records: an
+	// unregistered code reaches RealmError.Code only via the envelope siblings,
+	// so a Go caller reading re.Code would see a bare `bad_request` while ts
+	// and Java see the precise string. go/v0.52.0 shipped four codes missing
+	// from this taxonomy and callers could not branch on them.
+	ErrCodeInvalidCursor ErrorCode = "invalid_cursor"
+	ErrCodeInvalidLimit  ErrorCode = "invalid_limit"
+
 	// Membership self-service (ADR-092 D5). Registered so the flat envelope's
 	// specific code reaches RealmError.Code instead of collapsing into the
 	// generic 409 `conflict` — every one of these has a distinct remedy the
@@ -315,6 +335,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeIntegrationKeyClassMisfit: {},
 	ErrCodePermissionsRequired:       {}, ErrCodeUnknownPermission: {},
 	ErrCodePermissionsExceedGrantor: {}, ErrCodeInstallGrantsNothing: {},
+	ErrCodeInvalidCursor: {}, ErrCodeInvalidLimit: {},
 	ErrCodeOwnerCannotBeRevoked: {}, ErrCodeSingleTenantNotReqd: {},
 	ErrCodeNotInvited: {}, ErrCodeNotPending: {},
 	ErrCodeInvitationsUnavailable: {}, ErrCodeOwnerCannotLeave: {},

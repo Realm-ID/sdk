@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import dev.realmid.sdk.ErrorCode;
+import dev.realmid.sdk.RealmException;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * The pagination envelope must survive a ROUND TRIP, and every list method must
@@ -214,5 +217,89 @@ class PageEnvelopeTest {
         assertEquals(1L, n);
         assertEquals(1, calls.get(),
                 "has_more:false is the terminator, not next_cursor");
+    }
+
+    // --- the serialised query string, not the intent of the code ------------
+    //
+    // The issuer now answers 400 invalid_limit to `limit=0` and 400
+    // invalid_cursor to a malformed cursor, where both were previously absorbed
+    // into the defaults. An UNSET limit must therefore be ABSENT from the URL,
+    // not sent as `limit=0` — otherwise every list call 400s against a real
+    // server while passing every unit test here. A value-level assertion cannot
+    // see that; this reads the raw query.
+
+    @Test
+    void unsetLimitAndCursorAreOmittedFromTheQuery() {
+        Map<String, String> seen = new LinkedHashMap<>();
+        for (String route : List.of(
+                "GET /sources",
+                "GET /tenants/t1/service-accounts",
+                "GET /tenants/t1/users/u1/user-api-keys",
+                "GET /platforms/01HREALM/api-keys")) {
+            fs.on(route, (ex, body) -> {
+                seen.put(ex.getRequestURI().getPath(),
+                        ex.getRequestURI().getRawQuery() == null ? "" : ex.getRequestURI().getRawQuery());
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("items", List.of());
+                m.put("next_cursor", null);
+                m.put("has_more", false);
+                return FakeServer.Reply.json(200, m);
+            });
+        }
+
+        realm.sources().list().page(PageOpts.empty());
+        realm.serviceAccounts().list("t1").page(PageOpts.empty());
+        realm.userApiKeys().list("t1", "u1").page(PageOpts.empty());
+        realm.apiKeys().list().page(PageOpts.empty());
+
+        assertEquals(4, seen.size(), "all four paged lists must have been called");
+        for (Map.Entry<String, String> e : seen.entrySet()) {
+            assertFalse(e.getValue().contains("limit="),
+                    e.getKey() + " query \"" + e.getValue() + "\" sends limit — an unset limit must be absent");
+            assertFalse(e.getValue().contains("cursor="),
+                    e.getKey() + " query \"" + e.getValue() + "\" sends cursor — an unset cursor must be absent");
+        }
+        // The sources call carries its own required param, so the assertions
+        // above are not passing merely because no query was built at all.
+        assertTrue(seen.get("/sources").contains("platform_id=01HREALM"),
+                "expected platform_id on /sources, so this test is not vacuous");
+    }
+
+    @Test
+    void aSetLimitAndCursorAreSent() {
+        StringBuilder q = new StringBuilder();
+        fs.on("GET /platforms/01HREALM/api-keys", (ex, body) -> {
+            q.setLength(0);
+            q.append(ex.getRequestURI().getRawQuery());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("items", List.of());
+            m.put("next_cursor", null);
+            m.put("has_more", false);
+            return FakeServer.Reply.json(200, m);
+        });
+        realm.apiKeys().list().page(new PageOpts("c1", 25));
+        assertTrue(q.toString().contains("limit=25"), q.toString());
+        assertTrue(q.toString().contains("cursor=c1"), q.toString());
+    }
+
+    // --- pagination input errors reach the ErrorCode -------------------------
+    //
+    // The caller-visible claim, not the enum entry: a 400 invalid_limit /
+    // invalid_cursor must surface as that code so a caller can BRANCH on it.
+    // The Go twin of this test exists because go/v0.52.0 shipped four codes
+    // missing from its taxonomy and they collapsed to a bare bad_request.
+
+    @Test
+    void paginationInputErrorsReachTheErrorCode() {
+        for (String[] tc : List.of(
+                new String[]{"invalid_limit", ErrorCode.INVALID_LIMIT.name()},
+                new String[]{"invalid_cursor", ErrorCode.INVALID_CURSOR.name()})) {
+            fs.on("GET /sources", (ex, body) -> FakeServer.Reply.json(400,
+                    Map.of("error", "bad pagination input", "code", tc[0])));
+            RealmException e = assertThrows(RealmException.class,
+                    () -> realm.sources().list().page(PageOpts.empty()));
+            assertEquals(tc[1], e.getCode().name(),
+                    "code " + tc[0] + " must reach ErrorCode, not collapse to BAD_REQUEST");
+        }
     }
 }

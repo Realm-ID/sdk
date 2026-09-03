@@ -99,3 +99,44 @@ describe("ApiKeysClient.list", () => {
     assert.deepEqual(ids, ["k1", "k2"]);
   });
 });
+
+// --- the serialised query string, not the intent of the code ----------------
+//
+// The issuer now answers `400 invalid_limit` to `limit=0`, where it was
+// previously absorbed into the default. This package builds its own query in
+// `transport.ts`, so `@realm-id/sdk`'s guarantee does not cover it — the
+// assertion has to be made here too, against a real URL.
+
+describe("query serialisation", () => {
+  function urlCapturingAdmin() {
+    const urls: string[] = [];
+    const http: HttpLike = {
+      async request<T>(opts: RequestOptions): Promise<T> {
+        const params = new URLSearchParams();
+        for (const [k, v] of Object.entries(opts.query ?? {})) {
+          if (v === undefined || v === null || v === "") continue;
+          params.set(k, String(v));
+        }
+        const qs = params.toString();
+        urls.push(opts.path + (qs ? `?${qs}` : ""));
+        return { items: [], next_cursor: null, has_more: false } as T;
+      },
+    };
+    return { http, urls };
+  }
+
+  it("omits an unset limit and cursor entirely", async () => {
+    const { http, urls } = urlCapturingAdmin();
+    await new ApiKeysClient(http).list("p1").page();
+    assert.equal(urls[0], "/platforms/p1/api-keys",
+      "an unset limit/cursor must produce no query string at all (400 invalid_limit)");
+  });
+
+  it("sends a limit and cursor that were actually supplied", async () => {
+    const { http, urls } = urlCapturingAdmin();
+    await new ApiKeysClient(http).list("p1").page({ cursor: "c1", limit: 25 });
+    const q = new URLSearchParams(urls[0]!.split("?")[1]);
+    assert.equal(q.get("limit"), "25");
+    assert.equal(q.get("cursor"), "c1");
+  });
+});

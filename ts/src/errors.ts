@@ -124,6 +124,14 @@ export type ErrorCode =
   // `install_grants_nothing` (403) is raised at MINT, not install: the
   // installation row states no permissions and can authorise nothing.
   | "install_grants_nothing"
+  // Pagination input validation (400). Deliberately TWO codes: the caller's
+  // correction differs — `invalid_cursor` means RESTART THE WALK (non-numeric,
+  // signed, or past the max offset), `invalid_limit` means FIX YOUR CONSTANT
+  // (non-numeric or <= 0). Neither fires on the ordinary cases: a well-formed
+  // cursor past the end still returns an empty last page, and a limit ABOVE the
+  // maximum CLAMPS rather than rejecting.
+  | "invalid_cursor"
+  | "invalid_limit"
   | "installation_not_found"
   | "installation_revoked"
   | "role_unavailable"
@@ -214,6 +222,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "role_not_service_typed", "role_not_installable",
   "permissions_required", "unknown_permission", "permissions_exceed_grantor",
   "install_grants_nothing",
+  "invalid_cursor", "invalid_limit",
   "installation_not_found",
   "installation_revoked", "role_unavailable", "key_class_mismatch",
   "owner_cannot_be_revoked", "single_tenant_not_required", "not_invited",

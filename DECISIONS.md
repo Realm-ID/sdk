@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-83 entries total — 28 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+84 entries total — 29 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate](#2026-09-03-pagination-later--the-two-input-codes-and-proof-that-a-re-packed-tarball-does-not-propagate)
 - [2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise](#2026-09-03-pagination--four-list-methods-threw-the-envelope-away-and-the-doc-comments-promised-otherwise)
 - [2026-09-01 (derived claims) — the handler ran on three lanes and all three were logins](#2026-09-01-derived-claims-the-handler-ran-on-three-lanes-and-all-three-were-logins)
 - [2026-08-31 (ADR-102/105) — `login` mints now, and the parity hole that made it possible to get wrong](#2026-08-31-adr-102105--login-mints-now-and-the-parity-hole-that-made-it-possible-to-get-wrong)
@@ -97,6 +98,59 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
+
+## 2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate
+
+**Follow-on to the entry below**, once the issuer's stricter pagination
+validation landed.
+
+**Two codes, not one, and they are registered.** `invalid_cursor` and
+`invalid_limit` (both `400`) are now in all three taxonomies. Two rather than
+one because the caller's correction differs — `invalid_cursor` means RESTART THE
+WALK, `invalid_limit` means FIX YOUR CONSTANT — and the repo's taxonomy is
+already per-cause. Registration is the whole point: an unregistered code reaches
+`RealmError.Code` only via the envelope siblings, so a Go caller would read a
+bare `bad_request` while ts and Java saw the precise string. `go/v0.52.0` shipped
+four ADR-101 codes missing from the taxonomy and callers could not branch on
+them; each language now also has a test asserting the code ARRIVES, not merely
+that the constant exists. `scripts/taxonomy-parity.py` holds at 73/72/73 with
+its one pre-existing reviewed exception.
+
+**The `limit=0` hazard was checked at the WIRE, and all four languages were
+already safe.** The concern was real: `limit=0` is now a `400` where it was
+previously absorbed into the default of 50, and Go's `PageOpts.Limit` is an
+`int` whose unset value IS zero. But every transport guards it — Go on
+`opts.Limit > 0`, TS and web-admin on `v !== undefined && v !== null && v !==
+""`, Java on `e.getValue() == null` plus an empty-string check. Verified by
+capturing the actual serialised URL rather than reading the code: a bare
+`.page()` produces `/sources?platform_id=…`, `/tenants/t1/service-accounts`,
+`/tenants/t1/users/u1/user-api-keys` and `/platforms/…/api-keys` — no `limit`,
+no `cursor`. Tests now pin this per language across all four converted methods,
+and each includes a non-vacuity assertion (the `platform_id` that IS sent), so
+"no limit in the query" cannot pass because no query was built at all.
+
+*An explicitly-supplied `limit: 0` still goes on the wire in TS and Java and
+will now `400 invalid_limit`.* That is deliberate and left alone: the caller
+asked for something meaningless and gets a coded refusal naming the fix. Go
+cannot distinguish it from unset and omits it, which is the only thing an `int`
+field allows.
+
+**The correction worth recording: re-packing a tarball at the same filename does
+NOT propagate, and I proved it the hard way.** `@realm-id/web-admin` `0.14.0`
+had not been published anywhere, so re-packing it with the new codes looked
+safe. It was not. `ui/web` pins by filename AND npm honours the lockfile
+`integrity`, so after `npm install`, `npm install --force`, and deleting
+`node_modules/@realm-id/web-admin` entirely, the INSTALLED bundle still lacked
+both codes — npm kept serving the old content from its content-addressed cache.
+This is `reference_vendored_sdk_drift` reproducing exactly, and "the version was
+never published" is not an exemption: the pin is enforced against the FILENAME
+and the hash, not against a registry. The fix is the rule as written — bump to
+`0.15.0`, new filename, re-vendor.
+
+The verification method changed as a result: the check is now `grep` of the
+INSTALLED `node_modules/.../dist`, not of the packed tarball. The packed tarball
+was correct at every point above while the installed one was stale, so checking
+the artifact you just built proves nothing about what the app compiles against.
 
 ## 2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise
 

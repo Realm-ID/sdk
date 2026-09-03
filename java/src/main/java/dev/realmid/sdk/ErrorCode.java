@@ -170,6 +170,26 @@ public enum ErrorCode {
     PERMISSIONS_EXCEED_GRANTOR("permissions_exceed_grantor"),
 
     /**
+     * {@code 400} — the cursor is non-numeric, signed, or beyond the maximum
+     * offset. Caller correction: RESTART THE WALK.
+     *
+     * <p>Does NOT fire for a well-formed cursor past the end — that still
+     * returns an empty last page, because rows can be deleted mid-walk. So an
+     * {@code invalid_cursor} on a cursor the caller did not hand-construct is a
+     * bug in its cursor handling, not a race.
+     */
+    INVALID_CURSOR("invalid_cursor"),
+    /**
+     * {@code 400} — the limit is non-numeric or {@code <= 0}. Caller
+     * correction: FIX YOUR CONSTANT.
+     *
+     * <p>A limit ABOVE the maximum still CLAMPS rather than rejecting, so this
+     * only ever means the value was not a usable page size. Two codes rather
+     * than one because the remedy differs from {@link #INVALID_CURSOR}.
+     */
+    INVALID_LIMIT("invalid_limit"),
+
+    /**
      * {@code 403} at MINT, not install: the installation row states no
      * permissions, so the token it would produce could authorise nothing.
      */
