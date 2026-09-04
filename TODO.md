@@ -325,66 +325,6 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > both directions before and after. RCA: `DECISIONS.md` 2026-08-25.
 
 
-## Java has no `RevocationCache` — ADR-041 was never implemented there
-
-Found 2026-09-04 while building ADR-107, measured with `/usr/bin/grep` over
-`java/src/main`, not inferred: **there is no `RevocationCache` interface, no
-`MemRevocationCache`, and no cache hook on the Java `Verifier` at all.** go and
-ts have carried all three since ADR-041.
-
-`TokensClient.isRevoked` is a DIFFERENT thing and is why this reads as present
-at a glance — it is the SPEC §6.7 local access-token cache keyed on the token
-the caller already holds, not the partner-pluggable jti denylist the verifier
-consults.
-
-Two consequences, and the second is the one that matters:
-
-1. **ADR-107 D2 over-claims.** It argues that widening `RevocationCache` would
-   break "ts and Java at runtime, silently". For Java that is vacuous — there is
-   nothing to widen. The ADR's conclusion still stands on its other legs (two
-   keys, two lifetimes, two questions), but the sentence names a language it had
-   not checked. Recorded in `DECISIONS.md`, 2026-09-04.
-2. **Java partners have no stop-the-bleed on logout.** A stolen access token
-   stays valid until `exp` — up to 900s — with no way to deny it, and no
-   language-level signal that the capability is missing. ADR-107's
-   `AuthorityCache` does NOT close this: it is subject-keyed and deliberately
-   does not evict a session (D11), so it answers demotion, not theft.
-
-Fixing it is a straight port of `go/platform_token.go:315-382` plus the verifier
-hook. Not done here because it is ADR-041 work, not ADR-107 work, and folding it
-in would have shipped an untested second surface under an unrelated release.
-
-**Do not close this by adding the interface alone.** The Java verifier must
-actually consult it, with a test that fails when the consultation is removed —
-otherwise it is a published interface that denies nothing, which is worse than
-the current honest absence.
-
-## `last_owner` is documented but registered in NO SDK, so it arrives as `conflict`
-
-Found 2026-09-04, reported by a partner whose own error mapper "had no
-`last_owner` case" — because the SDK never gave them one.
-
-The issuer emits `409 last_owner` on TWO paths, both fail-closed:
-`internal/httpapi/tenants.go:1715` (change the owner's role) and `:1767`
-(deactivate the owner). Two SDK doc comments promise the code by name —
-`go/tenants_role.go:11` and `ts/src/tenants.ts:574`, both saying *"Demoting the
-last owner returns RealmError(last_owner)"*.
-
-It is in **none** of the three taxonomies: not Go's `knownCodes`, not ts's
-`KNOWN_CODES`, not `ErrorCode.java`. So `mapErrorResponse` falls back to the
-HTTP status and every caller in every language receives a generic `conflict`.
-The doc comment describes a code the SDK then flattens — worse than silence,
-because a partner writes the branch, tests it against a mock, and it never fires
-in production.
-
-`scripts/taxonomy-parity.py` cannot catch this class: it checks the three
-languages against EACH OTHER, and all three are equally missing it. Agreement is
-what a shared oversight looks like — the gate says so in its own header.
-
-Fix: register it in all three, plus a `TestRegisteredCodesSurviveMapping` case.
-While there, sweep the doc comments for other codes named in prose and absent
-from the taxonomy; this one was found by accident.
-
 ## Cross-language parity gaps
 
 > **An SDK↔issuer E2E suite now exists: `tests/sdk-e2e/` in the umbrella repo**

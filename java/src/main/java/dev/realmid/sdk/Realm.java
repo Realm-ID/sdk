@@ -94,6 +94,7 @@ public final class Realm {
     private final PlatformTokenManager platformTokens;
     private final Clock clock;
     private final dev.realmid.sdk.authority.AuthorityCache authority;
+    private final dev.realmid.sdk.revocation.RevocationCache revocation;
 
     private Realm(Builder b) {
         if (b.realmId == null || b.realmId.isEmpty()) {
@@ -137,9 +138,11 @@ public final class Realm {
                     return i == null ? null : i.audience();
                 }),
                 httpClient, mapper,
-                b.cacheTtl, b.leeway, clock, this.logger, b.authority);
+                b.cacheTtl, b.leeway, clock, this.logger, b.authority, b.revocation);
         this.authority = b.authority;
+        this.revocation = b.revocation;
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
+        this.auth.setRevocationCache(this.revocation);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -182,12 +185,14 @@ public final class Realm {
         this.scopes = parent.scopes;
         this.clock = parent.clock;
         this.authority = parent.authority;
+        this.revocation = parent.revocation;
         this.platformTokens = parent.platformTokens;
         this.info = parent.info;
         this.verifier = parent.verifier;
         this.http = parent.http.withUserToken(userToken);
 
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
+        this.auth.setRevocationCache(this.revocation);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -283,6 +288,13 @@ public final class Realm {
     public OriginsClient origins() { return origins; }
     /** SPEC §6.7 — access-token revocation cache. */
     public TokensClient tokens() { return tokens; }
+
+    /**
+     * The configured ADR-041 jti denylist, or {@code null} when not wired.
+     * Partner code can push directly (e.g. on detected token theft outside the
+     * normal logout path) by calling {@code revocation().revoke(jti, exp)}.
+     */
+    public dev.realmid.sdk.revocation.RevocationCache revocation() { return revocation; }
 
     /** The configured ADR-107 authority cache, or {@code null} when not wired. */
     public dev.realmid.sdk.authority.AuthorityCache authority() { return authority; }
@@ -411,6 +423,7 @@ public final class Realm {
         private Duration leeway;
         private Duration refreshSkew;
         private dev.realmid.sdk.authority.AuthorityCache authority;
+        private dev.realmid.sdk.revocation.RevocationCache revocation;
         private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
         private dev.realmid.sdk.auth.ScopesHandler scopes;
 
@@ -444,6 +457,26 @@ public final class Realm {
          */
         public Builder authority(dev.realmid.sdk.authority.AuthorityCache v) {
             this.authority = v;
+            return this;
+        }
+
+        /**
+         * ADR-041 — registers the jti denylist the verifier consults after
+         * signature and claim checks. A hit rejects the token as
+         * {@code unauthorized}, closing the window between "the user clicked
+         * logout" and the access token's stateless natural expiry (up to
+         * {@code access_ttl_seconds}, 900s by default).
+         *
+         * <p>go and ts have carried this since ADR-041; Java did not until
+         * 2026-09-04, so a Java partner had no stop-the-bleed on logout at all.
+         *
+         * <p>Optional. Unset → no-op. Pass a
+         * {@link dev.realmid.sdk.revocation.MemRevocationCache} for a
+         * single-process default, or a shared backend for multi-replica deploys
+         * — where the in-memory default is silently wrong.
+         */
+        public Builder revocation(dev.realmid.sdk.revocation.RevocationCache v) {
+            this.revocation = v;
             return this;
         }
 

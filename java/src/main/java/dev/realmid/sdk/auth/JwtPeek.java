@@ -25,6 +25,32 @@ final class JwtPeek {
 
     private JwtPeek() {}
 
+    /** The {@code jti} and {@code exp} of a JWT, for the ADR-041 revocation
+     *  push. {@code jti} is null and {@code exp} is null when unreadable. */
+    record RevokeFields(String jti, java.time.Instant exp) {}
+
+    /** Decodes {@code jti} + {@code exp} without verifying the signature. Used
+     *  ONLY to push a jti the caller already holds into the revocation cache;
+     *  authorization is never decided from this. */
+    static RevokeFields revokeFields(String jwt) {
+        if (jwt == null) return new RevokeFields(null, null);
+        String[] parts = jwt.split("\\.");
+        if (parts.length != 3) return new RevokeFields(null, null);
+        try {
+            byte[] raw = Base64.getUrlDecoder().decode(parts[1]);
+            JsonNode payload = MAPPER.readTree(new String(raw, StandardCharsets.UTF_8));
+            if (payload == null) return new RevokeFields(null, null);
+            JsonNode j = payload.get("jti");
+            JsonNode e = payload.get("exp");
+            String jti = j != null && j.isTextual() && !j.asText().isEmpty() ? j.asText() : null;
+            java.time.Instant exp = e != null && e.isNumber() && e.asLong() > 0
+                    ? java.time.Instant.ofEpochSecond(e.asLong()) : null;
+            return new RevokeFields(jti, exp);
+        } catch (RuntimeException | java.io.IOException ex) {
+            return new RevokeFields(null, null);
+        }
+    }
+
     /** The {@code sub} claim, or {@code null} when the token is not a decodable
      *  JWT or carries no textual subject. */
     static String subject(String jwt) {

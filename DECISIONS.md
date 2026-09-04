@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-87 entries total — 32 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+88 entries total — 33 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not](#2026-09-04-gaps--three-things-were-missing-in-the-one-way-nothing-detects-the-code-was-correct-and-the-description-was-not)
 - [2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"](#2026-09-04-adr-107--the-cache-could-only-say-this-token-is-dead-and-the-question-was-this-person-changed)
 - [2026-09-03 (derived claims, lanes) — the guard that was a COMMENT found three call sites; the guard that is a PARSER found five](#2026-09-03-derived-claims-lanes--the-guard-that-was-a-comment-found-three-call-sites-the-guard-that-is-a-parser-found-five)
 - [2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate](#2026-09-03-pagination-later--the-two-input-codes-and-proof-that-a-re-packed-tarball-does-not-propagate)
@@ -99,6 +100,80 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not
+
+**Context.** Building ADR-107 and answering an integrator's questions turned up
+three defects that share a shape. None is a bug in behaviour. In each, the code
+does exactly what it says, and what it says is either absent or describes a
+property the caller does not get. Every one passed every test anyone had.
+
+**1. Java never had ADR-041's `RevocationCache`.** go and ts shipped it with
+that ADR; Java shipped nothing. So a Java partner had no stop-the-bleed between
+logout and the access token's stateless expiry — 900s by default — and no
+signal that the capability was absent.
+
+What makes this worth recording is *why it stayed invisible for that long*.
+Nothing failed. No interface was missing from a place anyone looked, because the
+interface was missing from every place. And `TokensClient.isRevoked` sits one
+package away doing a different job (the SPEC §6.7 cache of a token the caller
+already holds), so a glance at the Java surface reads as "revocation: present".
+It surfaced only because ADR-107's D2 argued that widening this interface would
+"break ts and Java at runtime, silently" — an argument about a thing that was
+not there. **A rationale asserting a fact about a language nobody had checked is
+how the gap survived its own review.**
+
+Decision: port it, and assert the CONSULTATION rather than the cache. The tests
+were mutation-checked — stubbing the verifier's branch to `false` fails
+`revokedJtiIsRejected` and `revocationCacheOutageFailsClosed`. A published
+interface the verifier never reads would be **worse** than the honest absence,
+because absence at least does not read as protection.
+
+**2. `last_owner` was promised by doc comments and declared by no taxonomy.**
+The issuer returns it on both owner-protection paths. Two SDK doc comments name
+it. `knownCodes` / `KNOWN_CODES` / `ErrorCode.java` did not, so
+`mapErrorResponse` fell back to the status and every caller got a generic
+`conflict`.
+
+Found because a partner said their handler "had no `last_owner` case", and had
+recorded it as evidence of a MISSING upstream protection. The protection exists
+and fails closed (`httpapi/tenants.go:1715` and `:1767`). What was missing was
+any way to know — and a doc comment describing a code the SDK then flattens is
+worse than silence, because you write the branch, test it against a mock, and it
+never fires in production.
+
+⚠️ **`scripts/taxonomy-parity.py` structurally cannot catch this class.** It
+compares the three languages to each other, and all three were equally missing
+it. That gate's own header says agreement is what a shared oversight looks like;
+this is the first case where its own blind spot was the thing that bit. A gate
+against the ISSUER's emitted codes would catch it, and does not exist.
+
+**3. Three ways to hold a correct API wrong.** All from the same integrator,
+all where the signature is right and the documentation oversells it:
+`LivePermissionResolver` keyed off the token's own claims (two operands, the
+second a function of the first's source); `capAllows` being a ONE-operand check
+on human sessions, since `permissions_cap` is minted in exactly one place and a
+non-key session never carries one; and an ADR-097 compatibility ramp keyed on
+"is `scope` empty", which is dead code until the day it decides everything.
+
+The `capAllows` one is the sharpest. Its doc comment leads with "BOTH operands
+must say yes" — true of key-derived tokens and false of the human sessions most
+partners point it at. The required-parameter trick makes the insecure
+one-operand form inexpressible and does nothing about the second operand's
+provenance; that is a real limit of the design, now written down as one rather
+than left to be discovered.
+
+**Tradeoff accepted.** All three shipped in the ADR-107 release rather than
+waiting, because two of them are corrections to text a partner is reading right
+now, and the third closes a security capability Java never had. The cost is a
+release carrying work from two unrelated efforts, which the changelog separates
+into two entries rather than blurring.
+
+**What did NOT get fixed.** The suspension carve-out stands: only `deactivated`
+is guarded, so suspending the sole owner still succeeds and can leave a tenant
+with no administrator. It is now documented in the served spec instead of being
+silently reachable. Changing it is a behaviour change and belongs to whoever
+owns that decision, not to a documentation pass.
 
 ## 2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"
 

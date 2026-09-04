@@ -75,6 +75,22 @@ const (
 	// just widened their access. Branch on this code BEFORE IsUnauthorized,
 	// which is also true of it (it is a 401).
 	ErrCodeTokenStale ErrorCode = "token_stale"
+	// ErrCodeLastOwner (409) is returned by BOTH owner-protection paths on the
+	// issuer: changing the owner's role, and DEACTIVATING the owner. The remedy
+	// is to transfer ownership first (ADR-076).
+	//
+	// Registered 2026-09-04 after a partner reported that their error mapper
+	// "had no last_owner case" — because the SDK never gave them one. Two doc
+	// comments promised the code BY NAME while no taxonomy declared it, so
+	// mapErrorResponse fell back to the status and every caller in every
+	// language received a generic `conflict`. A doc comment describing a code
+	// the SDK then flattens is worse than silence: a partner writes the branch,
+	// tests it against a mock, and it never fires in production.
+	//
+	// ⚠️ Only `deactivated` is guarded. SUSPENDING the sole owner succeeds by
+	// design — suspension is reversible and needs no ownership handover — so a
+	// tenant CAN be left with a suspended owner and no administrator.
+	ErrCodeLastOwner ErrorCode = "last_owner"
 
 	// ADR-097 — the `scope` intake on POST /auth/token (SPEC §11).
 	//
@@ -351,7 +367,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeRealmOriginMismatch: {},
 	ErrCodeRealmMismatch:       {},
 	ErrCodeMissingOrigin:       {}, ErrCodeRefreshInvalid: {},
-	ErrCodeTokenStale:   {},
+	ErrCodeTokenStale: {}, ErrCodeLastOwner: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},

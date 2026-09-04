@@ -29,6 +29,8 @@ public final class AuthClient {
      * for a principal in one org. null means the claim is simply omitted.
      */
     private final ScopesHandler scopes;
+    /** ADR-041: where logout pushes the access token's jti. Null → no push. */
+    private dev.realmid.sdk.revocation.RevocationCache revocation;
 
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver) {
         this(http, realmId, originResolver, null, null);
@@ -47,6 +49,15 @@ public final class AuthClient {
         this.originResolver = originResolver;
         this.productRoles = productRoles;
         this.scopes = scopes;
+    }
+
+    /**
+     * Registers the ADR-041 denylist {@link #logout} pushes to. Package-visible
+     * wiring called by {@code Realm}; partners configure it through
+     * {@code Realm.builder().revocation(...)}, never here.
+     */
+    public void setRevocationCache(dev.realmid.sdk.revocation.RevocationCache c) {
+        this.revocation = c;
     }
 
     /**
@@ -507,6 +518,21 @@ public final class AuthClient {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/logout").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
+        // ADR-041: deny the access token locally now that the refresh side is
+        // revoked server-side. Best-effort BY DESIGN — the server-side
+        // revocation above is the load-bearing operation and has already
+        // happened, so a cache that throws must not turn a successful logout
+        // into a failed one.
+        if (revocation != null && req.accessToken() != null && !req.accessToken().isEmpty()) {
+            JwtPeek.RevokeFields f = JwtPeek.revokeFields(req.accessToken());
+            if (f.jti() != null) {
+                try {
+                    revocation.revoke(f.jti(), f.exp());
+                } catch (RuntimeException ignored) {
+                    // see above: the logout already succeeded
+                }
+            }
+        }
         @SuppressWarnings("unchecked")
         Map<String, Object> out = http.mapper().convertValue(raw, Map.class);
         return out == null ? Map.of("status", "ok") : out;

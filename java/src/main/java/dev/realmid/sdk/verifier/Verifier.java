@@ -51,6 +51,7 @@ public final class Verifier {
     private final Clock clock;
     private final Logger logger;
     private final dev.realmid.sdk.authority.AuthorityCache authority;
+    private final dev.realmid.sdk.revocation.RevocationCache revocation;
 
     private final ConcurrentHashMap<String, CachedJwks> cache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> audienceCache = new ConcurrentHashMap<>();
@@ -59,7 +60,7 @@ public final class Verifier {
                     Function<String, String> audienceResolver,
                     HttpClient http, ObjectMapper mapper,
                     Duration cacheTtl, Duration leeway, Clock clock, Logger logger) {
-        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger, null);
+        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger, null, null);
     }
 
     /**
@@ -72,7 +73,24 @@ public final class Verifier {
                     HttpClient http, ObjectMapper mapper,
                     Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
                     dev.realmid.sdk.authority.AuthorityCache authority) {
+        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger,
+                authority, null);
+    }
+
+    /**
+     * @param authority  optional ADR-107 subject-keyed staleness marker
+     * @param revocation optional ADR-041 jti denylist consulted before it. Both
+     *                   are {@code null} → no-op; the verifier behaves as it did
+     *                   before either existed.
+     */
+    public Verifier(String baseUrl, String pinnedAudience,
+                    Function<String, String> audienceResolver,
+                    HttpClient http, ObjectMapper mapper,
+                    Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
+                    dev.realmid.sdk.authority.AuthorityCache authority,
+                    dev.realmid.sdk.revocation.RevocationCache revocation) {
         this.authority = authority;
+        this.revocation = revocation;
         if (baseUrl == null || baseUrl.isEmpty()) {
             throw new IllegalArgumentException("realmid: baseUrl required");
         }
@@ -181,6 +199,23 @@ public final class Verifier {
             throw new RealmException(ErrorCode.NOT_YET_VALID, "token not yet valid");
         }
 
+        // ADR-041: jti denylist. Runs AFTER signature + claim verification so a
+        // junk jti never reaches the cache, and BEFORE the ADR-107 authority
+        // check because a revoked token needs no further questions asked of it.
+        // Opt-in: no cache → no-op. Fails closed on a cache error.
+        String jti = strOrNull(payload, "jti");
+        if (revocation != null && jti != null && !jti.isEmpty()) {
+            boolean revoked;
+            try {
+                revoked = revocation.isRevoked(jti);
+            } catch (RuntimeException e) {
+                throw new RealmException(ErrorCode.UNAUTHORIZED, "revocation cache: " + e.getMessage());
+            }
+            if (revoked) {
+                throw new RealmException(ErrorCode.UNAUTHORIZED, "token revoked");
+            }
+        }
+
         // ADR-107: subject-keyed authority check, under the same fail-closed
         // posture as the rest of the verifier. Opt-in: no cache → no-op.
         //
@@ -233,7 +268,7 @@ public final class Verifier {
                 longOrZero(payload, "iat"),
                 nbf,
                 exp,
-                strOrNull(payload, "jti"),
+                jti,
                 strOrNull(payload, "azp"),
                 strOrNull(payload, "tenant_id"),
                 strOrNull(payload, "role"),

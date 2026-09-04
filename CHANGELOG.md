@@ -13,6 +13,73 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — Java gets ADR-041's revocation cache, and two codes stop being invisible (2026-09-04)
+
+go `0.57.0` · ts `0.50.0` · java `0.47.0`. Three fixes found while building
+ADR-107 and while answering a partner; none of them is ADR-107 work.
+
+### Added — `RevocationCache` in Java
+
+go and ts have carried the ADR-041 jti denylist since that ADR. **Java had no
+equivalent at all**, so a Java partner had no stop-the-bleed between "the user
+clicked logout" and the access token's stateless natural expiry — up to
+`access_ttl_seconds`, 900s by default — and nothing in the API said so.
+
+The absence was invisible for the usual reasons: nothing failed, no interface
+was missing from anywhere anyone looked, and `TokensClient.isRevoked` sits next
+door doing a different job, which is why the capability read as present at a
+glance. It surfaced only because ADR-107's own D2 rationale asserted that
+widening this interface "breaks ts and Java at runtime, silently" — an argument
+about a thing that was not there.
+
+`dev.realmid.sdk.revocation.{RevocationCache, MemRevocationCache}`, consulted by
+the verifier after signature and claim checks and BEFORE the ADR-107 authority
+check (a revoked token needs no further questions asked of it). Fails closed on
+a cache error. `Realm.builder().revocation(...)`, and `logout` pushes the access
+token's jti when `LogoutRequest.accessToken` is set — best-effort by design,
+since the server-side refresh revocation is the load-bearing operation and has
+already happened.
+
+**The tests assert the CONSULTATION, not the cache**, and that was verified by
+mutation: stubbing the verifier's check to `false` makes `revokedJtiIsRejected`
+and `revocationCacheOutageFailsClosed` both fail. A published interface the
+verifier never reads would be worse than the honest absence it replaces, because
+it would read as protection.
+
+### Fixed — `last_owner` was promised by doc comments and declared by nothing
+
+The issuer returns `409 last_owner` on BOTH owner-protection paths (change the
+owner's role; deactivate the owner). Two SDK doc comments named the code. **No
+taxonomy declared it**, so `mapErrorResponse` fell back to the status and every
+caller in every language received a generic `conflict`.
+
+Found because a partner reported their handler "had no `last_owner` case" — the
+SDK had never given them one. A doc comment describing a code the SDK then
+flattens is worse than silence: you write the branch, test it against a mock,
+and it never fires in production.
+
+`scripts/taxonomy-parity.py` structurally cannot catch this class — it checks
+the three languages against each other, and all three were equally missing it.
+Agreement is exactly what a shared oversight looks like, which is what that
+gate's own header already says.
+
+### Documented — three ways to hold a correct API wrong
+
+All reported by one integrator, all cases where the code does what it says and
+the documentation describes a safety property the caller is not getting:
+
+- **`LivePermissionResolver` must not derive its answer from the token's own
+  claims.** A resolver returning `permsByRole[claims.role]` satisfies the
+  two-operand contract while making the live operand a function of the stale
+  one — live with respect to what a ROLE can do, stale with respect to WHICH
+  role the person holds.
+- **`capAllows` is a ONE-operand check on human sessions.** `permissions_cap` is
+  minted in exactly one place in the issuer, so a non-key session never carries
+  one and the cap contributes nothing.
+- **An ADR-097 compatibility ramp keyed on "is `scope` empty" is a silent
+  authority-model switch**, and it is dead code until the day it decides
+  everything. The SDK's own gate fails closed; the ramp is what degrades.
+
 ## Unreleased — logout, demotion and promotion propagate inside the SDK (ADR-107, 2026-09-04)
 
 Cross-cutting: go `0.56.0` · ts `0.49.0` · java `0.46.0` · `@realm-id/web`

@@ -30,6 +30,10 @@ func TestRegisteredCodesSurviveMapping(t *testing.T) {
 		{"handle_taken", 409, "handle_taken", ErrCodeHandleTaken},
 		{"invalid_role", 400, "invalid_role", ErrCodeInvalidRole},
 		{"method_violates_kind", 400, "method_violates_kind", ErrCodeMethodViolatesKind},
+		// Registered 2026-09-04. Before this a partner could not tell "you are
+		// about to strand this tenant" from any other 409 on the request, on
+		// EITHER the role path or the deactivate path.
+		{"last_owner", 409, "last_owner", ErrCodeLastOwner},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -66,6 +70,9 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeRefreshInvalid,
 		// ADR-107: the verifier's staleness refusal.
 		ErrCodeTokenStale,
+		// The owner-protection conflict, promised by doc comments since ADR-076
+		// and declared by nothing until 2026-09-04.
+		ErrCodeLastOwner,
 		ErrCodeInvalidOTP, ErrCodeOTPExpired, ErrCodeOTPLocked, ErrCodeOTPNotFound,
 		ErrCodeInvalidPurpose, ErrCodeInvalidSubjectRef,
 		ErrCodeHandleTaken, ErrCodeInvalidRole, ErrCodeMethodViolatesKind,

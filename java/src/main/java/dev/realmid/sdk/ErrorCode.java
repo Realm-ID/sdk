@@ -120,6 +120,22 @@ public enum ErrorCode {
      */
     TOKEN_STALE("token_stale"),
 
+    /**
+     * {@code last_owner} (409) is returned by BOTH owner-protection paths:
+     * changing the owner's role, and DEACTIVATING the owner. Transfer ownership
+     * first (ADR-076).
+     *
+     * <p>Registered 2026-09-04 after a partner reported their error mapper "had
+     * no {@code last_owner} case" — because the SDK never gave them one. Two doc
+     * comments promised the code by name while no taxonomy declared it, so it
+     * arrived as a generic {@code conflict} in every language.
+     *
+     * <p><b>⚠️ Only {@code deactivated} is guarded.</b> SUSPENDING the sole
+     * owner succeeds by design — suspension is reversible — so a tenant can be
+     * left with a suspended owner and no administrator.
+     */
+    LAST_OWNER("last_owner"),
+
     // partner OTP primitive (SPEC §X)
     INVALID_OTP("invalid_otp"),
     OTP_EXPIRED("otp_expired"),

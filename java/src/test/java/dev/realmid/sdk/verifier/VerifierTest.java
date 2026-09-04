@@ -75,6 +75,76 @@ class VerifierTest {
         return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, authority);
     }
 
+    private Verifier newVerifier(dev.realmid.sdk.revocation.RevocationCache revocation) {
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, null, revocation);
+    }
+
+    // ---- ADR-041: the jti denylist Java did not have until 2026-09-04 --------
+    //
+    // These assert the CONSULTATION, not the cache. A published interface the
+    // verifier never reads would satisfy any test that only exercised
+    // MemRevocationCache — and would be worse than the honest absence it
+    // replaced, because it would read as protection.
+
+    @Test
+    void revokedJtiIsRejected() throws Exception {
+        dev.realmid.sdk.revocation.MemRevocationCache cache =
+                new dev.realmid.sdk.revocation.MemRevocationCache();
+        Verifier v = newVerifier(cache);
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("jti", "01HJTI");
+        String token = signToken(claims, kid);
+
+        // Pre-condition: it verifies before the revoke. Without this the test
+        // would pass on a verifier that rejected everything.
+        assertEquals("01HUSER", v.verify(token).subject());
+
+        cache.revoke("01HJTI", Instant.now().plusSeconds(900));
+
+        RealmException ex = assertThrows(RealmException.class, () -> v.verify(token));
+        assertEquals(ErrorCode.UNAUTHORIZED, ex.getCode());
+    }
+
+    @Test
+    void revocationCacheOutageFailsClosed() throws Exception {
+        dev.realmid.sdk.revocation.RevocationCache broken =
+                new dev.realmid.sdk.revocation.RevocationCache() {
+                    @Override
+                    public void revoke(String jti, Instant expiresAt) {
+                        throw new IllegalStateException("backend down");
+                    }
+
+                    @Override
+                    public boolean isRevoked(String jti) {
+                        throw new IllegalStateException("backend down");
+                    }
+                };
+        Map<String, Object> claims = baseClaims();
+        claims.put("jti", "01HJTI");
+        RealmException ex = assertThrows(RealmException.class,
+                () -> newVerifier(broken).verify(signToken(claims, kid)));
+        assertEquals(ErrorCode.UNAUTHORIZED, ex.getCode());
+    }
+
+    @Test
+    void aTokenWithNoJtiIsNotConsultedAndStillVerifies() throws Exception {
+        // The issuer mints jti on session tokens; this is the fail-open branch
+        // for a token that carries none, and it is deliberate: a denylist keyed
+        // on a claim that is absent has nothing to say about the token.
+        dev.realmid.sdk.revocation.MemRevocationCache cache =
+                new dev.realmid.sdk.revocation.MemRevocationCache();
+        cache.revoke("01HJTI", Instant.now().plusSeconds(900));
+        assertEquals("01HUSER", newVerifier(cache).verify(signToken(baseClaims(), kid)).subject());
+    }
+
+    @Test
+    void noRevocationCacheIsANoOp() throws Exception {
+        Map<String, Object> claims = baseClaims();
+        claims.put("jti", "01HJTI");
+        assertEquals("01HUSER", newVerifier().verify(signToken(claims, kid)).subject());
+    }
+
     // ---- ADR-107: the subject-keyed authority check --------------------------
     //
     // The hazard here is NOT the demotion window. It is the refresh LOOP in C5:

@@ -86,6 +86,18 @@ export type ErrorCode =
   // just widened their access. Branch on this code BEFORE any generic 401
   // handling.
   | "token_stale"
+  // `last_owner` (409) comes from BOTH owner-protection paths: changing the
+  // owner's role, and DEACTIVATING the owner. Transfer ownership first
+  // (ADR-076).
+  //
+  // Registered 2026-09-04 after a partner reported their error mapper "had no
+  // last_owner case" — because the SDK never gave them one. Two doc comments
+  // promised it by name while no taxonomy declared it, so it arrived as a
+  // generic `conflict` in every language.
+  //
+  // ⚠️ Only `deactivated` is guarded. SUSPENDING the sole owner succeeds by
+  // design, so a tenant can be left with a suspended owner and no admin.
+  | "last_owner"
   // partner OTP primitive
   | "invalid_otp"
   | "otp_expired"
@@ -234,7 +246,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "tenant_required", "tenant_invalid", "account_suspended",
   "account_deactivated", "contact_admin_required",
   "realm_origin_mismatch", "realm_mismatch",
-  "missing_origin", "refresh_invalid", "token_stale",
+  "missing_origin", "refresh_invalid", "token_stale", "last_owner",
   "invalid_scope", "too_many_scopes", "scope_too_long", "scope_not_supported",
   "reserved_claim_key", "realmid_audience_immutable", "invalid_rename",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",
