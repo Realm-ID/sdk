@@ -13,6 +13,27 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.57.1` — the changelog entry `0.57.0` shipped without (2026-09-04)
+
+**No code change. `0.57.0` and `0.57.1` are the same module**, byte-for-byte
+apart from `const Version` and this heading.
+
+`go/v0.57.0` was pushed before its changelog entries existed, so
+`changelog-hygiene.sh` refused the release — correctly. The Go module proxy
+serves a tag directly, which makes a `go/v*` tag immutable the moment anything
+fetches it, and `v0.57.0` was already live (`proxy.golang.org` answers 200). So
+the tag cannot be re-pointed and the gate on it can never go green.
+
+The documented recovery is the next patch version, and this is it. `v0.57.0`
+stays published and works; it is simply the version whose release verification
+failed. **Prefer `v0.57.1`.**
+
+The ts/java/web tags were re-cut instead, which is sanctioned and was safe here
+for a reason worth stating: their gate runs BEFORE the publisher, so npm and
+Maven had seen nothing (verified against both registries — npm still on
+`0.48.0`, Maven on `0.45.0`). Go is the odd one out precisely because the tag
+IS the release.
+
 ## go `0.57.0` · ts `0.50.0` · java `0.47.0` — Java gets ADR-041's revocation cache, and two codes stop being invisible (2026-09-04)
 
 go `0.57.0` · ts `0.50.0` · java `0.47.0` · `@realm-id/web-admin` `0.17.0`
