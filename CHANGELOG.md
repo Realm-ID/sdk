@@ -13,10 +13,12 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased — Java gets ADR-041's revocation cache, and two codes stop being invisible (2026-09-04)
+## go `0.57.0` · ts `0.50.0` · java `0.47.0` — Java gets ADR-041's revocation cache, and two codes stop being invisible (2026-09-04)
 
-go `0.57.0` · ts `0.50.0` · java `0.47.0`. Three fixes found while building
-ADR-107 and while answering a partner; none of them is ADR-107 work.
+go `0.57.0` · ts `0.50.0` · java `0.47.0` · `@realm-id/web-admin` `0.17.0`
+(it bundles `@realm-id/sdk`, so it has to carry the `last_owner` code).
+Three fixes found while building ADR-107 and while answering a partner; none of
+them is ADR-107 work, and they ship in the same release as it.
 
 ### Added — `RevocationCache` in Java
 
@@ -80,11 +82,14 @@ the documentation describes a safety property the caller is not getting:
   authority-model switch**, and it is dead code until the day it decides
   everything. The SDK's own gate fails closed; the ramp is what degrades.
 
-## Unreleased — logout, demotion and promotion propagate inside the SDK (ADR-107, 2026-09-04)
+## go `0.57.0` · ts `0.50.0` · java `0.47.0` · web `0.7.0` — logout, demotion and promotion propagate inside the SDK (ADR-107, 2026-09-04)
 
-Cross-cutting: go `0.56.0` · ts `0.49.0` · java `0.46.0` · `@realm-id/web`
-`0.7.0` · `@realm-id/web-react` `0.5.1`. All four surfaces ship together — a
-partial roll puts a code on the wire that some clients read as a hard 401.
+Cross-cutting. **Ships in the same release as the entry above** — go `0.57.0` ·
+ts `0.50.0` · java `0.47.0` · `@realm-id/web` `0.7.0` · `@realm-id/web-react`
+`0.5.1` · `@realm-id/web-admin` `0.17.0`. (`0.56.0`/`0.49.0`/`0.46.0` were
+committed while this was being built and never tagged; those numbers do not
+exist as releases.) All four surfaces ship together — a partial roll puts a
+code on the wire that some clients read as a hard 401.
 **Nothing in the issuer changes.** Spec §3.1 + new §5.3.
 
 Builds on the `Unreleased` entry below, which is its stated prerequisite: for an

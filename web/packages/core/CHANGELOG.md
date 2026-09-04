@@ -14,6 +14,30 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.7.0 — `token_stale` is a 401 that must never end the session (ADR-107) (2026-09-04)
+
+### Changed — a demoted or promoted user is no longer signed out
+
+`classifyHttpStatus` reads the `token_stale` wire code off the body BY NAME.
+Deliberately not a blanket "trust the body's code" rule — `.code` stays a
+classification and `.body.code` stays the fact — but this one code cannot be
+inferred from a 401 whose message is prose, and misreading it as `unauthorized`
+signs the user out on PROMOTION, on a grant that just widened their access.
+
+`restore()` no longer drops the session to anonymous on it. Demotion narrows the
+token; it does not end the session (ADR-107 D11).
+
+### Added — the forced refresh is capped at once per token
+
+`realm.fetch` refreshes once on `token_stale` and replays. A second
+`token_stale` on a token that forced refresh itself produced surfaces the 401
+instead of minting again — otherwise a marker sitting ahead of the issuer's
+clock puts every tab into an unbounded refresh loop against the mint endpoint,
+which ADR-107 C5 calls a worse outcome than the window it closes.
+
+The cap is `token_stale`-specific: ordinary 401s still refresh as before, and a
+test asserts that so the cap cannot silently widen.
+
 ## 0.6.0 — the credential grant reaches the browser core (ADR-103/104) (2026-09-01)
 
 - `LoginRequest` gains `identifier` and `presented`, the handle and secret of a

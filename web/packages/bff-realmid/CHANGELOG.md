@@ -16,6 +16,12 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.6.0 — peer range accepts `@realm-id/web@^0.7.0` (2026-09-04)
+
+No source change. `@realm-id/web` 0.7.0 carries the ADR-107 `token_stale`
+handling, and a published peer range bakes in at pack time — so the previous
+tarball would refuse the core this package is meant to be used with.
+
 ## 0.5.0 — the BFF adapter carries the credential grant (ADR-103/104) (2026-09-01)
 
 - Maps `credential_methods` off the discovery response into

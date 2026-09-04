@@ -4,6 +4,53 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.50.0 — ADR-107 authority propagation, and `last_owner` stops arriving as `conflict` (2026-09-04)
+
+### Added — `AuthorityCache`, a SECOND cache beside the jti denylist (ADR-107)
+
+`RevocationCache` is a jti denylist and can only deny a token the SDK is
+HOLDING. An admin demoting a colleague holds neither that colleague's token nor
+its jti, so demotion was structurally inexpressible on that key — not merely
+missing.
+
+`AuthorityCache` is keyed by `sub` and stores a `notBefore` TIMESTAMP, never a
+flag: a flag could not self-heal, and would reject the REFRESHED token too,
+locking the user out for the entry's whole TTL. Separate interface rather than a
+widened one — adding a method to `RevocationCache` breaks a partner's
+implementation SILENTLY at runtime in TypeScript, where a duck-typed object just
+lacks the method and demotion never fires.
+
+`realm.notifyAuthorityChanged({subject, intent})` is the one method a partner
+calls. `subject` is the `sub` claim — the PER-MEMBERSHIP users-row id, not a
+person. `intent` is required and never inferred, since demotion does NOT evict
+the session. Calling it with no cache configured is an error, not a no-op.
+
+### Added — `token_stale`, a new 401, and the refresh cap that makes it safe
+
+Distinct from `unauthorized` for the same reason `refresh_invalid` is: a client
+that collapses every 401 into "sign the user out" signs people out on
+PROMOTION. `isTokenStale(err)` is exported.
+
+The real hazard is a refresh LOOP, not the staleness window: a marker stamped
+from the partner's clock against an `iat` from the issuer's turns two seconds of
+skew into refresh-fail-refresh from every replica. Two guards — the marker is
+stamped 30s early, and `TokenManager.handleStale` refuses to refresh twice for a
+token a forced refresh itself produced.
+
+### Fixed — `last_owner` was promised by doc comments and declared by nothing
+
+The issuer returns `409 last_owner` on both owner-protection paths, and two doc
+comments named the code. No taxonomy declared it, so it arrived as a generic
+`conflict`. Found because a partner's handler "had no `last_owner` case" — the
+SDK had never given them one.
+
+### Documented — `LivePermissionResolver` and `capAllows`
+
+A resolver keyed off the token's own claims satisfies the two-operand contract
+while making the live operand a function of the stale one. And `capAllows` is a
+ONE-operand check on human sessions: `permissions_cap` is minted in exactly one
+place in the issuer, so a non-key session never carries one.
+
 ## 0.48.0 — the pagination envelope, and the two new input-validation codes (2026-09-03)
 
 ### Added — the pagination envelope is no longer discarded, and two new error codes

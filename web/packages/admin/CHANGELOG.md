@@ -1,5 +1,22 @@
 # @realm-id/web-admin — changelog
 
+## 0.17.0 — the bundled SDK carries `last_owner` (2026-09-04)
+
+No source change. This package bundles `@realm-id/sdk`, and the previous
+bundle predated `last_owner` entering the error taxonomy — so the console would
+have kept rendering "you are about to strand this tenant" as a generic
+`conflict`, which is the exact defect that fix exists to close, surviving inside
+the bundle.
+
+Bundled `@realm-id/sdk` is now `0.50.0`. Verified against the INSTALLED tree,
+not the packed tarball.
+
+⚠️ `0.16.0` was never published: it was packed without its bundled dependency
+(a workspace-root install hoists `@realm-id/sdk` out of
+`packages/admin/node_modules`, so `bundledDependencies` packs nothing and the
+tarball comes out at ~41kB instead of ~196kB **with no error**). The version is
+skipped rather than reused.
+
 ## 0.15.0 — the two pagination-input error codes (2026-09-03)
 
 - Bundles `@realm-id/sdk` with `invalid_cursor` and `invalid_limit` registered

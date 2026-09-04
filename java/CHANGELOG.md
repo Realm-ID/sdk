@@ -4,6 +4,43 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.47.0 — ADR-041's revocation cache finally lands in Java, plus ADR-107 (2026-09-04)
+
+### Added — `RevocationCache`, which Java never had
+
+go and ts shipped ADR-041's jti denylist with that ADR. **Java shipped
+nothing**, so a Java partner had no stop-the-bleed between "the user clicked
+logout" and the access token's stateless natural expiry — up to
+`access_ttl_seconds`, 900s by default — and nothing in the API said so.
+
+It stayed invisible because nothing failed, the interface was absent from every
+place rather than one, and `TokensClient.isRevoked` sits one package away doing a
+different job. It surfaced only because ADR-107's rationale asserted that
+widening this interface would break Java silently — an argument about a thing
+that was not there.
+
+`dev.realmid.sdk.revocation.{RevocationCache, MemRevocationCache}`, consulted by
+the verifier after signature and claim checks and BEFORE the ADR-107 authority
+check. Fails closed. `Realm.builder().revocation(...)`; `logout` pushes the jti
+when `LogoutRequest.accessToken` is set, best-effort by design.
+
+The tests assert the CONSULTATION, not the cache, verified by mutation: stubbing
+the verifier's branch fails them. A published interface the verifier never reads
+would be worse than the honest absence.
+
+### Added — `AuthorityCache` + `token_stale` (ADR-107)
+
+Subject-keyed staleness marker storing a `notBefore` timestamp, beside the jti
+denylist rather than replacing it. `Realm.builder().authority(...)`,
+`realm.notifyAuthorityChanged(new AuthorityChange(sub, Intent.DEMOTED))`, and
+`ErrorCode.TOKEN_STALE`. `TokenManager.handleStale` caps the forced refresh at
+once per token — the loop-breaker.
+
+### Fixed — `ErrorCode.LAST_OWNER`
+
+The issuer's `409 last_owner` was named by doc comments and declared by no
+taxonomy, so it reached callers as a generic `conflict`.
+
 ## 0.45.0 — the pagination envelope, and the two new input-validation codes (2026-09-03)
 
 ### Added — the pagination envelope is no longer discarded, and two new error codes

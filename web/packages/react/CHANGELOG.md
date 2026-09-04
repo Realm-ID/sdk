@@ -13,6 +13,12 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.1 — peer range accepts `@realm-id/web@^0.7.0` (2026-09-04)
+
+No source change. This package has no error-code or 401 logic of its own; the
+ADR-107 `token_stale` behaviour reaches consumers entirely through
+`@realm-id/web` 0.7.0. The peer range is widened so it can.
+
 ## 0.5.0 — peer range accepts `@realm-id/web@^0.6.0` (2026-09-01)
 
 Metadata only; no code change. `@realm-id/web` 0.6.0 adds the ADR-103/104
