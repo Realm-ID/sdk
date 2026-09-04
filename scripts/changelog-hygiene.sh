@@ -132,7 +132,12 @@ has_entry() {
   # must be written under it, not merely a heading with nothing beneath it
   # before the next one. A bare rename (e.g. `## Unreleased` retitled to
   # `## 0.9.0` with no further edit) must not pass.
-  next_line=$(fenced_headings "$changelog" | awk -F: -v start="$heading_line" '$1>start{print $1; exit}')
+  # NO `exit` in this awk, deliberately. `exit` closes the pipe while
+  # fenced_headings is still scanning, the writer takes SIGPIPE, and `pipefail`
+  # turns that into rc=141 -- which killed the v0.120.0 promotion. It is
+  # platform-dependent: it passes on macOS and dies on Linux, so it cannot be
+  # caught by running this script locally. Read the whole stream instead.
+  next_line=$(fenced_headings "$changelog" | awk -F: -v start="$heading_line" '$1>start && !f {print $1; f=1}')
   if [ -z "$next_line" ]; then
     body_nonblank=$(awk -v start="$heading_line" 'NR>start && NF{c++} END{print c+0}' "$changelog")
   else
