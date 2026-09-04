@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
-import { RealmError } from "./errors.js";
+import { RealmError, isTokenStale } from "./errors.js";
 
 const REALM_ID = "01HREALM";
 const API_KEY = "rk_live_test123";
@@ -142,4 +142,43 @@ test("TokenManager: concurrent accessToken calls collapse to one /auth/token", a
     assert.equal(tok, "atok-user-1", "all callers see the single refreshed token");
   }
   assert.equal(tokenCalls(), 1, "single-flight: exactly one /auth/token call");
+});
+
+// ---- ADR-107 D13, the loop-breaker -----------------------------------------
+//
+// A forced refresh is honoured at most ONCE per token. D8 makes the C5 loop
+// very unlikely by stamping the marker early; D13 makes it impossible, and it
+// lives in the client SDK because that is where the retry decision is made.
+
+test("TokenManager: handleStale refreshes ONCE per token, then hard-fails (D13)", async () => {
+  const { fetch, tokenCalls } = tmFetch(rotatingToken);
+  const mgr = makeRealm(fetch).auth.newTokenManager("rtok-seed", { tenantId: "tnt-1" });
+
+  const fresh = await mgr.handleStale("atok-stale");
+  assert.equal(fresh, "atok-user-1");
+  assert.equal(tokenCalls(), 1);
+
+  // The replay came back token_stale AGAIN, on a token minted AFTER the
+  // refresh. That is a hard failure, not another refresh — otherwise every
+  // replica loops against the mint endpoint for as long as the marker stands.
+  await assert.rejects(
+    () => mgr.handleStale(fresh),
+    (e: Error) => isTokenStale(e),
+    "a second token_stale on a post-refresh token refreshed again — the unbounded loop",
+  );
+  assert.equal(tokenCalls(), 1, "the hard failure still hit the issuer");
+});
+
+test("TokenManager: handleStale on an already-superseded token spends no mint", async () => {
+  const { fetch, tokenCalls } = tmFetch(rotatingToken);
+  const mgr = makeRealm(fetch).auth.newTokenManager("rtok-seed", { tenantId: "tnt-1" });
+
+  const current = await mgr.accessToken();
+  assert.equal(tokenCalls(), 1);
+
+  // Another caller's in-flight request failed on an OLDER token. We already
+  // hold a newer one, so replay with it rather than minting again.
+  const got = await mgr.handleStale("atok-from-two-minutes-ago");
+  assert.equal(got, current);
+  assert.equal(tokenCalls(), 1);
 });

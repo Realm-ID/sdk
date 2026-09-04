@@ -28,10 +28,12 @@ export type { VerifierConfig, VerifyOptions } from "./verifier.js";
 
 export { MemRevocationCache } from "./revocation.js";
 export type { RevocationCache } from "./revocation.js";
+export { MemAuthorityCache, AUTHORITY_STALE_SKEW_MS, DEFAULT_ACCESS_TTL_MS } from "./authority.js";
+export type { AuthorityCache, AuthorityChange, AuthorityChangeIntent } from "./authority.js";
 
 export { TokensClient, TokenRevokedError } from "./tokens.js";
 
-export { RealmError } from "./errors.js";
+export { RealmError, isTokenStale } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";

@@ -71,6 +71,86 @@ class VerifierTest {
         return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null);
     }
 
+    private Verifier newVerifier(dev.realmid.sdk.authority.AuthorityCache authority) {
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, authority);
+    }
+
+    // ---- ADR-107: the subject-keyed authority check --------------------------
+    //
+    // The hazard here is NOT the demotion window. It is the refresh LOOP in C5:
+    // a marker stamped from the partner's clock, compared against an `iat`
+    // stamped by the issuer's. Two seconds of forward skew and every
+    // freshly-minted token fails the same check — refresh, fail, refresh, from
+    // every replica, aimed at the mint endpoint.
+
+    @Test
+    void tokenMintedBeforeTheChangeIsStale() throws Exception {
+        dev.realmid.sdk.authority.MemAuthorityCache cache =
+                new dev.realmid.sdk.authority.MemAuthorityCache();
+        Verifier v = newVerifier(cache);
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("iat", Instant.now().minusSeconds(600).getEpochSecond());
+        String token = signToken(claims, kid);
+
+        // Pre-condition: it verifies before the change.
+        assertEquals("01HUSER", v.verify(token).subject());
+
+        cache.markStale("01HUSER", Instant.now().minusSeconds(60), Instant.now().plusSeconds(900));
+
+        RealmException ex = assertThrows(RealmException.class, () -> v.verify(token));
+        // D10: a NEW code, distinct from UNAUTHORIZED. Without it a client that
+        // treats every 401 as "sign the user out" signs people out on PROMOTION.
+        assertEquals(ErrorCode.TOKEN_STALE, ex.getCode());
+        assertEquals(401, ex.getHttpStatus());
+    }
+
+    @Test
+    void refreshedTokenPassesTheSameMarker() throws Exception {
+        dev.realmid.sdk.authority.MemAuthorityCache cache =
+                new dev.realmid.sdk.authority.MemAuthorityCache();
+        cache.markStale("01HUSER", Instant.now().minusSeconds(30), Instant.now().plusSeconds(900));
+        Verifier v = newVerifier(cache);
+
+        // The single most important assertion in this file. D3 stores a
+        // TIMESTAMP precisely so the REFRESHED token passes: a flag would reject
+        // this one too, locking the user out for the entry's whole TTL and
+        // turning a demotion into an outage — and an unbounded refresh loop,
+        // which ADR-107 C5 calls a worse outcome than the 900s window it closes.
+        assertEquals("01HUSER", v.verify(signToken(baseClaims(), kid)).subject());
+    }
+
+    @Test
+    void authorityCacheOutageFailsClosedAsUnauthorized() throws Exception {
+        dev.realmid.sdk.authority.AuthorityCache broken =
+                new dev.realmid.sdk.authority.AuthorityCache() {
+                    @Override
+                    public void markStale(String sub, Instant notBefore, Instant expiresAt) {
+                        throw new IllegalStateException("backend down");
+                    }
+
+                    @Override
+                    public Instant staleSince(String sub) {
+                        throw new IllegalStateException("backend down");
+                    }
+                };
+        Verifier v = newVerifier(broken);
+
+        RealmException ex = assertThrows(RealmException.class, () -> v.verify(signToken(baseClaims(), kid)));
+        // Fail closed — but NOT as TOKEN_STALE. Answering token_stale on a cache
+        // OUTAGE would tell every client to refresh at once, which is C5's loop
+        // with an unrelated dependency as the trigger.
+        assertEquals(ErrorCode.UNAUTHORIZED, ex.getCode());
+    }
+
+    @Test
+    void noAuthorityCacheIsANoOp() throws Exception {
+        Verifier v = newVerifier();
+        Map<String, Object> claims = baseClaims();
+        claims.put("iat", Instant.now().minusSeconds(3600).getEpochSecond());
+        assertEquals("01HUSER", v.verify(signToken(claims, kid)).subject());
+    }
+
     @Test
     void happyPath() throws Exception {
         Verifier v = newVerifier();

@@ -37,6 +37,12 @@ export interface VerifierConfig {
    * as `unauthorized`. Nil → no-op.
    */
   revocation?: import("./revocation.js").RevocationCache;
+  /**
+   * Optional SUBJECT-keyed authority cache consulted after the jti denylist
+   * (ADR-107). A token whose `iat` predates the subject's marker is rejected
+   * as `token_stale`. Undefined → no-op.
+   */
+  authority?: import("./authority.js").AuthorityCache;
 }
 
 export interface VerifyOptions {
@@ -61,6 +67,7 @@ export class Verifier {
   private readonly audCache = new Map<string, string>();
   private readonly logger: Logger;
   private readonly revocation?: import("./revocation.js").RevocationCache;
+  private readonly authority?: import("./authority.js").AuthorityCache;
 
   constructor(cfg: VerifierConfig) {
     if (!cfg.baseUrl) throw new Error("realmid: baseUrl required");
@@ -76,6 +83,7 @@ export class Verifier {
     this.now = cfg.now ?? (() => new Date());
     this.logger = cfg.logger ?? NOOP_LOGGER;
     this.revocation = cfg.revocation;
+    this.authority = cfg.authority;
   }
 
   async verify(token: string, opts?: VerifyOptions): Promise<Claims> {
@@ -142,6 +150,45 @@ export class Verifier {
       }
       if (revoked) {
         throw rerr("unauthorized", "token revoked");
+      }
+    }
+
+    // ADR-107: subject-keyed authority check. Runs after the jti denylist and
+    // under the same fail-closed posture. Opt-in: no cache → no-op.
+    //
+    // `iat` is compared, never `exp`: exp moves with the realm's
+    // access_ttl_seconds, so a realm that changed its token lifetime would have
+    // the comparison silently misjudge which tokens predate the change.
+    if (this.authority && typeof claims.sub === "string" && claims.sub) {
+      let notBeforeMs: number | null = null;
+      try {
+        notBeforeMs = await this.authority.staleSince(claims.sub);
+      } catch (e) {
+        // Fail closed — but as `unauthorized`, deliberately NOT as
+        // token_stale. Answering token_stale on a cache OUTAGE would tell every
+        // client to refresh at once, which is C5's loop with an unrelated
+        // dependency as the trigger.
+        throw rerr("unauthorized", "authority cache: " + (e as Error).message);
+      }
+      if (notBeforeMs !== null) {
+        const notBefore = Math.floor(notBeforeMs / 1000);
+        // D9: the same leeway exp/nbf already carry, so the verifier tells ONE
+        // skew story rather than inventing a second one here.
+        //
+        // A token with no `iat` cannot be shown to postdate the marker, so it
+        // is refused for as long as one stands. The issuer always mints `iat`;
+        // this is the fail-closed branch, not a live path.
+        const iat = typeof claims.iat === "number" ? claims.iat : null;
+        if (iat === null || iat + leeway < notBefore) {
+          // The 401 is set HERE rather than left to the middleware's default,
+          // so a partner verifying tokens by hand (no SDK middleware in the
+          // path) still gets the status the ADR-107 D10 contract promises.
+          throw new RealmError({
+            code: "token_stale",
+            message: "token minted before the subject's authority changed",
+            httpStatus: 401,
+          });
+        }
       }
     }
 

@@ -557,6 +557,59 @@ one-operand version is not expressible:
 Use them. If you decode the JWT yourself, you are responsible for the
 intersection, and the wrong version is three lines away.
 
+### First, check whether you have the intersection at all
+
+`capAllows` is named for the cap, and the cap only exists on **key-derived**
+tokens. `permissions_cap` is minted in exactly one place in the issuer — the
+`grant_type=user_api_key` exchange — so **a plain user session never carries
+one.**
+
+On a human session `capAllows` therefore reduces to *"does the live set allow
+it?"* — a **one-operand check**. The cap contributes nothing, and the
+"both operands must say yes" safety property described below is not the one you
+are getting. Your resolver is the entire decision and has to be correct on its
+own. That is fine and intended; what is not fine is believing otherwise, which
+is easy to do because the function is the same one either way.
+
+### The second way to get it wrong, and it passes the same tests
+
+Reported by an integrator on 2026-09-04, who wrote it, shipped it, and found it
+themselves. The signature makes the insecure ONE-operand form inexpressible —
+you cannot ask "does the cap list this permission?" by accident. But nothing
+stops the *second* operand from being derived from the first's source:
+
+```js
+// ❌ WRONG in a way that looks compliant. Do not ship this either.
+const live = () => PERMS_BY_ROLE[claims.role];   // ← the token's own claim
+if (capAllows(claims, "reports:read", live)) return serveReport();
+```
+
+Two operands, correct shape, every test green. And it re-introduces exactly the
+staleness the two-operand contract exists to remove, because **`claims.role` is
+on the token.** A demoted admin's token still says `admin`, so the resolver
+hands back admin permissions and `capAllows` correctly allows them.
+
+The distinction is subtle enough to be worth spelling out: the lookup above is
+live with respect to *what a role can do*, and stale with respect to *which role
+the person holds*. Change a role's permission set and it updates on the next
+request. Change **who holds the role** and it changes nothing at all — which is
+the case you actually care about.
+
+**Rule: the resolver must not derive its answer from the token's own claims.**
+Key it off `claims.sub` — an identifier — and read the authority from your
+database:
+
+```js
+// ✅ RIGHT — the identity comes from the token, the authority does not.
+const live = () => yourDb.permissionsFor(claims.sub);
+```
+
+This is the same staleness class as §4.1.1: authority resolved at mint time and
+not re-checked. If you cannot make a per-request read cheap enough, ADR-107's
+`notifyAuthorityChanged` closes it from the other end — but note that it closes
+it for tokens, not for a resolver that is reading the wrong thing. Fix the
+resolver first.
+
 ### Why RealmID cannot do this for you
 
 The second operand — what the user may do *right now* — lives in your database.
@@ -581,6 +634,81 @@ does not help you: for a key minted in *your* realm, the enforcement is yours.
 
 Every failure mode narrows authority. If you ever find one that widens it, that
 is a bug — report it.
+
+## 4.1.1 When you change someone's authority mid-session (ADR-107)
+
+Everything above resolves at **mint** time. So when you demote someone, their
+access token keeps the authority it was minted with until it expires — up to
+your realm's `access_ttl_seconds`, **900 seconds** unless you set it. Inside
+that window a just-demoted admin can still call the admin routes, including the
+one that re-promotes them.
+
+The SDK closes this. **You call one method; the SDK owns the rest.**
+
+### Wire a cache, then announce the change
+
+```ts
+const realm = createRealm({
+  realmId, apiKey,
+  authority: new MemAuthorityCache(),   // single process ONLY — see below
+});
+
+// wherever your app changes someone's role
+await realm.notifyAuthorityChanged({ subject: theirSub, intent: "demoted" });
+```
+
+That is the whole partner-side surface. There is no index to build, no jti to
+capture, no `OnAuthSuccess` hook to wire — and nothing in the issuer changes.
+
+### Four things you have to get right
+
+**1. `subject` is the `sub` claim, and on this platform `sub` is a MEMBERSHIP,
+not a person.** Every org a human belongs to gives them a different `sub`.
+Demoting them in org A therefore leaves their org B token alone — which is the
+correct blast radius — but it also means **passing an identity id here
+propagates nothing at all, silently.** To cut someone off everywhere, call it
+once per membership.
+
+**2. Multi-instance? You need a shared cache.** `MemAuthorityCache` is
+per-process. A marker written on one replica is invisible to the others, so the
+demotion reaches only whichever replica happens to serve the next request. The
+SDK **cannot detect** that you are running more than one, so it cannot warn you.
+Implement the two-method interface over Redis (or equivalent) and pass that
+instead.
+
+**3. Handle `token_stale` as a REFRESH, never as a sign-out.** Your API will
+start answering `401` with `"code": "token_stale"` on tokens minted before the
+change. Branch on the **code**, before any generic 401 handling:
+
+| code | meaning | your move |
+|---|---|---|
+| `token_stale` | authority changed | refresh once, replay |
+| `refresh_invalid` | session is dead | re-authenticate |
+| `unauthorized` | not allowed | show the error |
+
+If you collapse every 401 into "sign the user out", you will sign people out on
+**promotion** — on a grant that just widened their access. The browser SDK
+already does the right thing; if you hand-roll the client, use
+`isTokenStale(err)` and `tokenManager.handleStale(tok)`, which refuses to
+refresh twice for the same token.
+
+**4. Demotion does not log them out.** The user stays signed in and refreshes
+into a narrower token. If you want them signed out, that is
+`sessions.revokeUser` — a different call, on purpose, so a routine role edit
+can never end someone's session by accident.
+
+### The limit, stated plainly
+
+**A change made anywhere that does not call `notifyAuthorityChanged` stays
+stale for up to your realm's `access_ttl_seconds`.** That includes the RealmID
+console, the CLI, a database edit, and any of your own back-office tooling that
+skips the call. This is the accepted cost of a cache that lives in your process
+rather than behind an issuer round-trip on every request.
+
+**900 seconds is the number to plan against**, not the ~0 you get on the paths
+you do instrument. To check your realm's actual value, read
+`access_ttl_seconds` from `GET /platforms/{id}/config` — **`0` there means
+"never set", so the 900s default applies; it does not mean zero.**
 
 ## 4.2 Route authorization: `scope` on the token (ADR-097)
 
@@ -633,6 +761,33 @@ why it never touches role `permissions`.
 > different system, different vocabulary — which is also why the scope rename
 > below does not touch role permissions. Your role → scope map belongs in your
 > database, next to your roles.
+
+### If you kept a pre-cutover decider, its ramp is the branch nobody tests
+
+Migrating onto ADR-097 usually means keeping the old authorization path around
+and choosing between them on whether `scope` is populated:
+
+```js
+const scopes = ScopesFrom(claims);
+if (scopes.length === 0) return legacyDecider(claims);   // ⚠️ the ramp
+return scopeAllowsAny(claims, ...required);
+```
+
+In normal operation `scope` is always populated, so the ramp is dead code from
+the day you write it — and it is dead code that decides authorization. The day a
+mint lane hands back a token with no `scope`, every request takes that branch at
+once, and you are running an authorization model you stopped testing months ago.
+This is not hypothetical: it is exactly what a partner hit when two login lanes
+minted no `scope`.
+
+Note that the SDK's own gate **fails closed** here — `ScopeAllowsAny` returns
+false on an empty scope set, and `ScopesFrom` returns nothing for an absent
+claim. The degradation is never the SDK's; it is the ramp catching that refusal.
+
+**Treat an empty `scope` as an incident signal, not as a fallback condition.**
+Log it loudly, alarm on a sustained rate, and prefer failing closed to deciding
+by another route. If you must keep a ramp, put an expiry date on it and make
+sure it is exercised by a test that runs on every build.
 
 ### How you get a scoped token
 

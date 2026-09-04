@@ -178,4 +178,45 @@ class TokenManagerTest {
         assertTrue(failure.get() == null, "concurrent accessToken failed: " + failure.get());
         assertEquals(1, tokenCalls.get(), "single-flight: exactly one /auth/token call");
     }
+
+    // ---- ADR-107 D13, the loop-breaker --------------------------------------
+    //
+    // A forced refresh is honoured at most ONCE per token. D8 makes the C5 loop
+    // very unlikely by stamping the marker early; D13 makes it impossible, and
+    // it lives in the client SDK because that is where the retry decision is
+    // actually made.
+
+    @Test
+    void handleStaleRefreshesOncePerTokenThenHardFails() {
+        rotatingTokenHandler();
+        TokenManager mgr = realm.auth().newTokenManager("rtok-seed",
+                new TokenManagerOptions().tenantId("tnt-1"));
+
+        String fresh = mgr.handleStale("atok-stale");
+        assertEquals("atok-user-1", fresh);
+        assertEquals(1, tokenCalls.get());
+
+        // The replay came back token_stale AGAIN, on a token minted AFTER the
+        // refresh. That is a hard failure, not another refresh — otherwise every
+        // replica loops against the mint endpoint for as long as the marker
+        // stands, which ADR-107 C5 calls worse than the window it closes.
+        RealmException ex = assertThrows(RealmException.class, () -> mgr.handleStale(fresh));
+        assertEquals(ErrorCode.TOKEN_STALE, ex.getCode());
+        assertEquals(1, tokenCalls.get(), "the hard failure still hit the issuer");
+    }
+
+    @Test
+    void handleStaleOnASupersededTokenSpendsNoMint() {
+        rotatingTokenHandler();
+        TokenManager mgr = realm.auth().newTokenManager("rtok-seed",
+                new TokenManagerOptions().tenantId("tnt-1"));
+
+        String current = mgr.accessToken();
+        assertEquals(1, tokenCalls.get());
+
+        // Another caller's in-flight request failed on an OLDER token. We
+        // already hold a newer one, so replay with it rather than minting again.
+        assertEquals(current, mgr.handleStale("atok-from-two-minutes-ago"));
+        assertEquals(1, tokenCalls.get());
+    }
 }

@@ -67,6 +67,14 @@ export class TokenManager {
   private cachedAccessToken = "";
   private accessExpiresAtMs = 0;
   private inflight: InFlight | null = null;
+  /**
+   * The access token the LAST forced refresh produced. The whole of D13's
+   * bookkeeping: a `token_stale` on this exact token means the refresh already
+   * happened and did not help, so refreshing again would be the loop. One
+   * string, not a set — the cap is per token, and the only token that can be
+   * "already refreshed for" is the one we just minted.
+   */
+  private forcedToken = "";
 
   constructor(auth: AuthClient, refreshToken: string, opts: TokenManagerOptions = {}) {
     this.auth = auth;
@@ -99,6 +107,56 @@ export class TokenManager {
     });
     this.inflight = { promise };
     return promise;
+  }
+
+  /**
+   * Answers an ADR-107 `token_stale` 401 by forcing ONE refresh and returning
+   * the token to replay the original request with.
+   *
+   * D13, the loop-breaker. D8 makes the C5 loop very unlikely by stamping the
+   * marker early; this makes it impossible, and it lives in the client SDK
+   * because that is where the retry decision is actually made. A second
+   * `token_stale` on a token this method already produced is a HARD failure —
+   * rejected as `token_stale` so the caller can surface it, never retried.
+   *
+   * `staleToken` is the token the failing request carried. Passing one that is
+   * no longer current is not an error: another caller already refreshed, and
+   * you simply get the newer token to replay with, costing the issuer nothing.
+   *
+   * ```ts
+   * let tok = await tm.accessToken();
+   * try {
+   *   return await call(tok);
+   * } catch (e) {
+   *   if (!isTokenStale(e)) throw e;
+   *   tok = await tm.handleStale(tok);   // hard-rejects on the second try
+   *   return await call(tok);            // surface a rejection; do NOT loop
+   * }
+   * ```
+   */
+  async handleStale(staleToken: string): Promise<string> {
+    if (staleToken !== "" && staleToken === this.forcedToken) {
+      throw new RealmError({
+        code: "token_stale",
+        httpStatus: 401,
+        message:
+          "realmid: token_stale on a token minted by the previous forced refresh — " +
+          "refusing to refresh again (ADR-107 D13). The authority marker is ahead of " +
+          "the issuer's clock, or the subject is being re-marked faster than a token " +
+          "can be used.",
+      });
+    }
+    // Someone else already refreshed past the failing token — replay with what
+    // we hold rather than spending a mint.
+    if (staleToken !== "" && this.cachedAccessToken !== "" && staleToken !== this.cachedAccessToken) {
+      return this.cachedAccessToken;
+    }
+    // Drop the cached token so accessToken() cannot hand back the stale one.
+    this.cachedAccessToken = "";
+    this.accessExpiresAtMs = 0;
+    const tok = await this.accessToken();
+    this.forcedToken = tok;
+    return tok;
   }
 
   /**

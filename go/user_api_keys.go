@@ -235,12 +235,35 @@ func (c *UserAPIKeysClient) Revoke(ctx ctxpkg.Context, tenantID, userID, id stri
 
 // LivePermissionResolver returns the permissions a principal holds RIGHT NOW,
 // from the caller's own store. It is the second operand of the cap intersection.
+//
+// ⚠️ It must NOT derive its answer from the token's own claims. A resolver like
+//
+//	func(ctx) ([]string, error) { return permsByRole[claims.Role], nil }
+//
+// has the right SHAPE — two operands, required parameter satisfied — and
+// re-introduces exactly the staleness this signature exists to remove, because
+// `claims.Role` is on the token. A demoted admin's token still says `admin`, so
+// the resolver returns admin permissions and CapAllows correctly allows them.
+// Such a resolver is live with respect to what a ROLE can do and stale with
+// respect to WHICH role the person holds, which is the case that matters.
+//
+// Key it off `claims.Subject` — an identifier — and read the authority from
+// your store. Reported by an integrator who shipped the wrong version; it
+// passed every test they had.
 type LivePermissionResolver func(ctxpkg.Context) ([]string, error)
 
 // CapAllows reports whether `permission` is allowed for a key-derived token.
 //
-// Effective authority is `permissions_cap ∩ live permissions`, so BOTH operands
-// must say yes. The live resolver is a REQUIRED parameter, not an option, and
+// ⚠️ READ THIS FIRST: the intersection only exists for KEY-DERIVED tokens.
+// `permissions_cap` is minted in exactly one place in the issuer — the
+// `grant_type=user_api_key` exchange — so a PLAIN USER SESSION never carries
+// one. On such a token this function reduces to "does the live set allow it?",
+// a ONE-operand check, and the cap contributes nothing. If you are gating human
+// sessions, the safety property below is not the one you are getting: your
+// resolver is the whole of the decision, so it must be correct on its own.
+//
+// For a key-derived token, effective authority is
+// `permissions_cap ∩ live permissions`, so BOTH operands must say yes. The live resolver is a REQUIRED parameter, not an option, and
 // that is the entire design of this signature: the insecure one-operand form —
 // "does the cap list this permission?" — is not expressible through this API, so
 // a partner cannot implement the stale-scope semantics ADR-084 rejected by

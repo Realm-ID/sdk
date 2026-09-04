@@ -27,6 +27,15 @@ export class TokenManager {
   private tokens = new Map<string, TokenEntry>();
   private inflight = new Map<string, Promise<string>>();
   private currentTenantId: string | null = null;
+  /**
+   * Per tenant, the access token the LAST forced (token_stale) refresh
+   * produced — ADR-107 D13's whole bookkeeping. A `token_stale` on that exact
+   * token means the refresh already happened and did not help, so refreshing
+   * again would be the loop C5 warns about. One string per tenant, not a set:
+   * the cap is per token, and the only token that can be "already refreshed
+   * for" is the one we just minted.
+   */
+  private forcedByTenant = new Map<string, string>();
 
   constructor(
     private transport: Transport,
@@ -47,6 +56,16 @@ export class TokenManager {
 
   getCurrentTenant(): string | null {
     return this.currentTenantId;
+  }
+
+  /** True when `accessToken` was itself minted by a forced refresh (ADR-107 D13). */
+  wasForcedFor(tenantId: string, accessToken: string): boolean {
+    return accessToken !== "" && this.forcedByTenant.get(tenantId) === accessToken;
+  }
+
+  /** Records the token a forced refresh produced, so the next `token_stale` on it hard-fails. */
+  markForced(tenantId: string, accessToken: string): void {
+    if (accessToken) this.forcedByTenant.set(tenantId, accessToken);
   }
 
   /** Stash a token for a tenant. `expiresInSec` accepts either an `expiresIn` or a derived value from `expiresAt`. */

@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -182,7 +183,46 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 			return nil, v.fail(ErrCodeUnauthorized, "token revoked")
 		}
 	}
+	// ADR-107: subject-keyed authority check. Runs after the jti denylist and
+	// under the same fail-closed posture. Opt-in: nil cache → no-op.
+	//
+	// `iat` is compared, never `exp`: exp moves with the realm's
+	// access_ttl_seconds, so a realm that changed its token lifetime would have
+	// the comparison silently misjudge which tokens predate the change.
+	if v.realm.authority != nil && claims.Subject != "" {
+		notBefore, found, aerr := v.realm.authority.StaleSince(ctx, claims.Subject)
+		if aerr != nil {
+			// Fail closed — but as `unauthorized`, deliberately NOT as
+			// token_stale. Answering token_stale on a cache OUTAGE would tell
+			// every client to refresh at once, which is C5's loop with an
+			// unrelated dependency as the trigger.
+			return nil, v.fail(ErrCodeUnauthorized, "authority cache: %v", aerr)
+		}
+		// D9: the same leeway exp/nbf already carry, so the verifier tells ONE
+		// skew story rather than inventing a second one here.
+		if found && claims.IssuedAt+leeway < notBefore.Unix() {
+			return nil, v.failStale()
+		}
+		// A token with no `iat` cannot be shown to postdate the marker, so it
+		// is refused for as long as one stands. The issuer always mints `iat`;
+		// this is the fail-closed branch, not a live path.
+		if found && claims.IssuedAt == 0 {
+			return nil, v.failStale()
+		}
+	}
 	return claims, nil
+}
+
+// failStale builds the ADR-107 D10 refusal. The HTTP status is set HERE rather
+// than left to the middleware's default, so a partner verifying tokens by hand
+// (no SDK middleware in the path) still gets the 401 the contract promises.
+func (v *verifier) failStale() error {
+	err := v.fail(ErrCodeTokenStale, "token minted before the subject's authority changed")
+	var re *RealmError
+	if errors.As(err, &re) {
+		re.HTTPStatus = http.StatusUnauthorized
+	}
+	return err
 }
 
 func (v *verifier) fail(code ErrorCode, format string, args ...any) error {

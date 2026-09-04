@@ -75,6 +75,17 @@ export type ErrorCode =
   // expiry/revocation/reuse: all three collapse to `refresh_invalid`
   // (the issuer does not distinguish them on the wire). SPEC §3.1.
   | "refresh_invalid"
+  // `token_stale` (401, ADR-107 D10) comes from the VERIFIER, not the issuer:
+  // the access token was minted before the subject's authority changed, so its
+  // `role`/`scope`/`product_roles` no longer describe them. The remedy is a
+  // SINGLE refresh, which the client SDK performs transparently.
+  //
+  // Distinct from `unauthorized` and `refresh_invalid` for the reason
+  // `refresh_invalid` itself exists: a client that collapses every 401 into
+  // "sign the user out" would sign people out on PROMOTION — on a grant that
+  // just widened their access. Branch on this code BEFORE any generic 401
+  // handling.
+  | "token_stale"
   // partner OTP primitive
   | "invalid_otp"
   | "otp_expired"
@@ -184,6 +195,21 @@ export class RealmError extends Error {
 }
 
 /**
+ * True when `e` is the ADR-107 staleness refusal: the token was minted before
+ * its subject's authority changed. The caller's move is ONE refresh + replay —
+ * and, if the replay fails the same way on a token minted after that refresh, a
+ * hard failure rather than a second refresh (D13).
+ *
+ * Check this BEFORE any generic 401 handling. `token_stale` carries a 401, so a
+ * caller that tests the general condition first will tear down a session that
+ * only needed a refresh — and on PROMOTION it would sign the user out of a
+ * grant that just widened their access.
+ */
+export function isTokenStale(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "token_stale";
+}
+
+/**
  * Map an HTTP status code to a fallback ErrorCode when the server response
  * does not carry an explicit `code` field.
  */
@@ -208,7 +234,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "tenant_required", "tenant_invalid", "account_suspended",
   "account_deactivated", "contact_admin_required",
   "realm_origin_mismatch", "realm_mismatch",
-  "missing_origin", "refresh_invalid",
+  "missing_origin", "refresh_invalid", "token_stale",
   "invalid_scope", "too_many_scopes", "scope_too_long", "scope_not_supported",
   "reserved_claim_key", "realmid_audience_immutable", "invalid_rename",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",

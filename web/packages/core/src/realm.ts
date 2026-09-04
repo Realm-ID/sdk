@@ -327,6 +327,15 @@ export class Realm {
       this.applyMe(adapted);
     } catch (err) {
       if (err instanceof RealmError) {
+        // ADR-107 D11: `token_stale` is a 401 that must NOT tear the session
+        // down. The user stays signed in and refreshes into a token that
+        // describes their new authority — and on a PROMOTION, signing them out
+        // here would end the session on a grant that just widened their access.
+        // It is listed before the blanket `status === 401` because that blanket
+        // is exactly what would swallow it.
+        if (err.code === "token_stale") {
+          return;
+        }
         if (err.status === 401 || err.code === "unauthorized" || err.code === "session_expired" || err.code === "session_replaced" || err.code === "session_revoked") {
           this.tokens.clear();
           this.setAnonymous();
@@ -531,8 +540,22 @@ export class Realm {
     const res = await this.doFetch(input, rest, access);
     if (res.status !== 401) return res;
 
+    // ADR-107: is this the authority-staleness 401, or an ordinary one? The
+    // body is read from a CLONE — a Response body is single-use, and the caller
+    // gets the original back on the hard-failure path below.
+    const stale = await isTokenStaleResponse(res);
+
+    // D13, the loop-breaker. A `token_stale` on a token that a forced refresh
+    // ALREADY produced means refreshing again cannot help: the marker is ahead
+    // of the issuer's clock, or the subject is being re-marked faster than a
+    // token can be used. Surface the 401 rather than minting again — every
+    // replica looping against the mint endpoint is what C5 calls a worse
+    // outcome than the window it closes.
+    if (stale && this.tokens.wasForcedFor(tid, access)) return res;
+
     const fresh = await this.tokens.refresh(tid);
     if (fresh === access) return res;
+    if (stale) this.tokens.markForced(tid, fresh);
     return this.doFetch(input, rest, fresh);
   }
 
@@ -753,3 +776,23 @@ function extractTenants(raw: unknown): TenantRef[] | undefined {
 
 // Re-export user-facing types for convenience.
 export type { UserSummary, TenantRef };
+
+/**
+ * True when a 401 Response carries the ADR-107 `token_stale` wire code.
+ *
+ * Reads a CLONE so the caller still gets an unconsumed body — a Response body
+ * is single-use, and handing back a drained one would turn a diagnostic read
+ * into a broken response.
+ */
+async function isTokenStaleResponse(res: Response): Promise<boolean> {
+  try {
+    const body = (await res.clone().json()) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") return false;
+    if (body.code === "token_stale") return true;
+    const nested = body.error as Record<string, unknown> | undefined;
+    return !!nested && typeof nested === "object" && nested.code === "token_stale";
+  } catch {
+    // A non-JSON or already-consumed 401 is simply not a staleness signal.
+    return false;
+  }
+}

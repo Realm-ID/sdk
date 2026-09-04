@@ -93,6 +93,7 @@ public final class Realm {
     private final StatsClient stats;
     private final PlatformTokenManager platformTokens;
     private final Clock clock;
+    private final dev.realmid.sdk.authority.AuthorityCache authority;
 
     private Realm(Builder b) {
         if (b.realmId == null || b.realmId.isEmpty()) {
@@ -136,7 +137,8 @@ public final class Realm {
                     return i == null ? null : i.audience();
                 }),
                 httpClient, mapper,
-                b.cacheTtl, b.leeway, clock, this.logger);
+                b.cacheTtl, b.leeway, clock, this.logger, b.authority);
+        this.authority = b.authority;
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
@@ -179,6 +181,7 @@ public final class Realm {
         this.productRoles = parent.productRoles;
         this.scopes = parent.scopes;
         this.clock = parent.clock;
+        this.authority = parent.authority;
         this.platformTokens = parent.platformTokens;
         this.info = parent.info;
         this.verifier = parent.verifier;
@@ -280,6 +283,65 @@ public final class Realm {
     public OriginsClient origins() { return origins; }
     /** SPEC §6.7 — access-token revocation cache. */
     public TokensClient tokens() { return tokens; }
+
+    /** The configured ADR-107 authority cache, or {@code null} when not wired. */
+    public dev.realmid.sdk.authority.AuthorityCache authority() { return authority; }
+
+    /**
+     * Announces that a principal's authority changed, so tokens minted before
+     * now stop being trusted to describe it (ADR-107 D7).
+     *
+     * <p>This is the ONE method a partner calls. The SDK owns everything after
+     * it: storage, TTLs, the verifier check, the wire code, and the client-side
+     * retry cap. Nothing in the issuer changes.
+     *
+     * <p>The change reaches tokens presented from now on; the user's next API
+     * call answers {@code 401 token_stale} and their client refreshes once,
+     * transparently. A user idle at the moment of the change is caught the
+     * instant they do anything.
+     *
+     * <p><b>⚠️ Out-of-band changes are NOT covered</b> (D14). A role edited from
+     * the RealmID console, the CLI, or a back-office that does not call this
+     * method stays stale for up to the realm's {@code access_ttl_seconds}. That
+     * is the accepted cost of a partner-local cache, and it is the number to
+     * quote publicly — not the ~0 on notified paths.
+     *
+     * @throws RealmException when no authority cache is configured (D15 — a
+     *         silent no-op there means a partner believes demotion is
+     *         propagating while nothing is stored), when {@code subject} is
+     *         blank, or when {@code intent} is absent.
+     */
+    public void notifyAuthorityChanged(dev.realmid.sdk.authority.AuthorityChange change) {
+        if (authority == null) {
+            throw new RealmException(ErrorCode.BAD_REQUEST,
+                    "realmid: notifyAuthorityChanged called with no AuthorityCache configured — "
+                            + "set Realm.builder().authority(...) (ADR-107 D15); nothing was recorded");
+        }
+        if (change == null || change.subject() == null || change.subject().isEmpty()) {
+            throw new RealmException(ErrorCode.BAD_REQUEST,
+                    "realmid: AuthorityChange.subject is required — pass the `sub` claim "
+                            + "(the per-membership users-row id, ADR-107 D4)");
+        }
+        if (change.intent() == null) {
+            throw new RealmException(ErrorCode.BAD_REQUEST,
+                    "realmid: AuthorityChange.intent must be DEMOTED or PROMOTED — the SDK will "
+                            + "not infer it (ADR-107 D11). To sign the principal out, use sessions().revokeUser(...).");
+        }
+
+        java.time.Duration ttl = change.accessTokenTtl();
+        if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+            ttl = dev.realmid.sdk.authority.AuthorityChange.DEFAULT_ACCESS_TTL;
+        }
+        java.time.Instant now = java.time.Instant.now(clock);
+        // D8: stamped EARLY, never as bare now. D6: the entry outlives every
+        // token that could still carry the old authority — the access-token
+        // lifetime plus the same skew allowance, so a token minted just before
+        // the marker cannot outlive the marker itself.
+        authority.markStale(
+                change.subject(),
+                now.minus(dev.realmid.sdk.authority.AuthorityChange.SKEW_ALLOWANCE),
+                now.plus(ttl).plus(dev.realmid.sdk.authority.AuthorityChange.SKEW_ALLOWANCE));
+    }
     /** SPEC §7.5 — admin aggregates surface (ADR-048). */
     public AdminClient admin() { return admin; }
     /** SPEC §7.6 — partner audit-event feed (ADR-055). */
@@ -348,6 +410,7 @@ public final class Realm {
         private Duration cacheTtl;
         private Duration leeway;
         private Duration refreshSkew;
+        private dev.realmid.sdk.authority.AuthorityCache authority;
         private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
         private dev.realmid.sdk.auth.ScopesHandler scopes;
 
@@ -365,6 +428,24 @@ public final class Realm {
         public Builder cacheTtl(Duration v) { this.cacheTtl = v; return this; }
         public Builder leeway(Duration v) { this.leeway = v; return this; }
         public Builder refreshSkew(Duration v) { this.refreshSkew = v; return this; }
+
+        /**
+         * ADR-107 — registers the SUBJECT-keyed staleness marker the verifier
+         * consults after its standard claim checks. It is what makes demotion
+         * and promotion expressible at all: a jti denylist can only deny a token
+         * the SDK is HOLDING, and an admin demoting a colleague holds neither
+         * that colleague's token nor its jti.
+         *
+         * <p>Optional. Unset → no-op; the verifier behaves exactly as it did
+         * before ADR-107. Pass a {@link dev.realmid.sdk.authority.MemAuthorityCache}
+         * for a single-process default, or a shared backend for multi-replica
+         * deploys — where the in-memory default is silently wrong, since a
+         * marker written on one replica is invisible to the others.
+         */
+        public Builder authority(dev.realmid.sdk.authority.AuthorityCache v) {
+            this.authority = v;
+            return this;
+        }
 
         /**
          * ADR-102 — registers the handler that resolves the PARTNER's own role

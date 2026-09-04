@@ -34,6 +34,12 @@ type TokenManager struct {
 	accessToken     string
 	accessExpiresAt time.Time
 	inflight        *tokenCall
+	// forcedToken is the access token the LAST forced refresh produced. It is
+	// the whole of D13's bookkeeping: a token_stale on this exact token means
+	// the refresh already happened and did not help, so refreshing again would
+	// be the loop. One string, not a set — the cap is per token, and the only
+	// token that can be "already refreshed for" is the one we just minted.
+	forcedToken string
 }
 
 // RefreshSink durably persists a rotated refresh token. The manager calls
@@ -173,4 +179,61 @@ func (m *TokenManager) fetch(ctx ctxpkg.Context, refresh string) (string, error)
 	m.accessExpiresAt = exp
 	m.mu.Unlock()
 	return mr.AccessToken, nil
+}
+
+// HandleStale answers an ADR-107 `token_stale` 401 by forcing ONE refresh and
+// returning the token to replay the original request with.
+//
+// D13, the loop-breaker. D8 makes the C5 loop very unlikely by stamping the
+// marker early; this makes it impossible, and it lives in the client SDK
+// because that is where the retry decision is actually made. A second
+// token_stale on a token this method already produced is a HARD failure —
+// returned as token_stale so the caller can surface it, never retried.
+//
+// staleToken is the token the failing request carried. Passing a token that is
+// no longer the manager's current one is not an error: another goroutine
+// already refreshed, and the caller simply gets the newer token to replay with,
+// costing the issuer nothing.
+//
+// Usage:
+//
+//	tok, err := tm.AccessToken(ctx)
+//	res, err := call(tok)
+//	if realmid.IsTokenStale(err) {
+//	    tok, err = tm.HandleStale(ctx, tok)   // hard-fails on the second try
+//	    if err != nil { return err }          // surface it; do NOT loop
+//	    res, err = call(tok)
+//	}
+func (m *TokenManager) HandleStale(ctx ctxpkg.Context, staleToken string) (string, error) {
+	m.mu.Lock()
+	if staleToken != "" && staleToken == m.forcedToken {
+		m.mu.Unlock()
+		return "", &RealmError{
+			Code:       ErrCodeTokenStale,
+			HTTPStatus: 401,
+			Message: "realmid: token_stale on a token minted by the previous forced refresh — " +
+				"refusing to refresh again (ADR-107 D13). The authority marker is ahead of the " +
+				"issuer's clock, or the subject is being re-marked faster than a token can be used.",
+		}
+	}
+	// Someone else already refreshed past the failing token — replay with what
+	// we hold rather than spending a mint.
+	if staleToken != "" && m.accessToken != "" && staleToken != m.accessToken {
+		tok := m.accessToken
+		m.mu.Unlock()
+		return tok, nil
+	}
+	// Drop the cached token so AccessToken cannot hand back the stale one.
+	m.accessToken = ""
+	m.accessExpiresAt = time.Time{}
+	m.mu.Unlock()
+
+	tok, err := m.AccessToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	m.forcedToken = tok
+	m.mu.Unlock()
+	return tok, nil
 }

@@ -50,6 +50,7 @@ public final class Verifier {
     private final Duration leeway;
     private final Clock clock;
     private final Logger logger;
+    private final dev.realmid.sdk.authority.AuthorityCache authority;
 
     private final ConcurrentHashMap<String, CachedJwks> cache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> audienceCache = new ConcurrentHashMap<>();
@@ -58,6 +59,20 @@ public final class Verifier {
                     Function<String, String> audienceResolver,
                     HttpClient http, ObjectMapper mapper,
                     Duration cacheTtl, Duration leeway, Clock clock, Logger logger) {
+        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger, null);
+    }
+
+    /**
+     * @param authority optional ADR-107 subject-keyed staleness marker consulted
+     *                  after the standard claim checks. {@code null} → no-op;
+     *                  the verifier behaves exactly as it did before ADR-107.
+     */
+    public Verifier(String baseUrl, String pinnedAudience,
+                    Function<String, String> audienceResolver,
+                    HttpClient http, ObjectMapper mapper,
+                    Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
+                    dev.realmid.sdk.authority.AuthorityCache authority) {
+        this.authority = authority;
         if (baseUrl == null || baseUrl.isEmpty()) {
             throw new IllegalArgumentException("realmid: baseUrl required");
         }
@@ -164,6 +179,43 @@ public final class Verifier {
         }
         if (nbf != 0 && now + lw < nbf) {
             throw new RealmException(ErrorCode.NOT_YET_VALID, "token not yet valid");
+        }
+
+        // ADR-107: subject-keyed authority check, under the same fail-closed
+        // posture as the rest of the verifier. Opt-in: no cache → no-op.
+        //
+        // `iat` is compared, never `exp`: exp moves with the realm's
+        // access_ttl_seconds, so a realm that changed its token lifetime would
+        // have the comparison silently misjudge which tokens predate the change.
+        String sub = strOrNull(payload, "sub");
+        if (authority != null && sub != null && !sub.isEmpty()) {
+            Instant notBefore;
+            try {
+                notBefore = authority.staleSince(sub);
+            } catch (RuntimeException e) {
+                // Fail closed — but as UNAUTHORIZED, deliberately NOT as
+                // TOKEN_STALE. Answering token_stale on a cache OUTAGE would
+                // tell every client to refresh at once, which is C5's loop with
+                // an unrelated dependency as the trigger.
+                throw new RealmException(ErrorCode.UNAUTHORIZED, "authority cache: " + e.getMessage());
+            }
+            if (notBefore != null) {
+                long iat = longOrZero(payload, "iat");
+                // D9: the same leeway exp/nbf already carry, so the verifier
+                // tells ONE skew story rather than inventing a second one here.
+                //
+                // A token with no `iat` cannot be shown to postdate the marker,
+                // so it is refused for as long as one stands. The issuer always
+                // mints `iat`; this is the fail-closed branch, not a live path.
+                if (iat == 0 || iat + lw < notBefore.getEpochSecond()) {
+                    // The 401 is set HERE rather than left to a filter's
+                    // default, so a partner verifying tokens by hand (no SDK
+                    // filter in the path) still gets the status the ADR-107 D10
+                    // contract promises.
+                    throw new RealmException(ErrorCode.TOKEN_STALE,
+                            "token minted before the subject's authority changed", 401, null);
+                }
+            }
         }
 
         Map<String, Object> extra = new HashMap<>();

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-86 entries total — 31 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+87 entries total — 32 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"](#2026-09-04-adr-107--the-cache-could-only-say-this-token-is-dead-and-the-question-was-this-person-changed)
 - [2026-09-03 (derived claims, lanes) — the guard that was a COMMENT found three call sites; the guard that is a PARSER found five](#2026-09-03-derived-claims-lanes--the-guard-that-was-a-comment-found-three-call-sites-the-guard-that-is-a-parser-found-five)
 - [2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate](#2026-09-03-pagination-later--the-two-input-codes-and-proof-that-a-re-packed-tarball-does-not-propagate)
 - [2026-09-03 (pagination) — four list methods threw the envelope away, and the doc comments promised otherwise](#2026-09-03-pagination--four-list-methods-threw-the-envelope-away-and-the-doc-comments-promised-otherwise)
@@ -98,6 +99,93 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"
+
+**Context.** Three partners have asked for the same thing and each built the
+same workaround: a hand-rolled `user → live jtis` index in Redis, so a demoted
+admin's access token can be killed before it expires. The window is
+`access_ttl_seconds`, **900s** by default, and inside it a just-demoted admin
+can call `POST /users/{id}/role` and re-promote themselves.
+
+The SDK already ships `RevocationCache` (ADR-041). It looked like the answer and
+is not: it is a **jti denylist**, and it serves logout for exactly one reason —
+the user presents their own token, so the SDK holds the jti at the moment it
+needs to deny it. An admin demoting a colleague holds neither that colleague's
+token nor its jti. **Demotion is not a missing feature of that cache; it is
+structurally inexpressible on a jti key**, whatever the interface is called.
+
+**Options.**
+
+1. *Widen `RevocationCache` with a subject method.* Rejected. Partners have
+   their own implementations behind it. Adding a method breaks Go at compile
+   time — loud, and recoverable — and breaks **ts and Java at runtime,
+   silently**: a duck-typed object simply lacks the method, demotion never
+   fires, and nothing is observable. A cache that reports nothing is a failure
+   this workspace has now recorded three times.
+2. *Publish a revocation feed from the issuer.* Rejected for v1: an issuer
+   round-trip on the hot path of every authenticated request, to close a window
+   that a local marker closes just as well.
+3. *A second, subject-keyed cache beside the first.* **Chosen.**
+
+**Decision.** A new `AuthorityCache`, keyed by `sub`, storing a `notBefore`
+timestamp; `RevocationCache` untouched and still serving logout. One partner
+method, `notifyAuthorityChanged({subject, intent})`. A new `token_stale` 401.
+The client refreshes once and replays.
+
+**What the design is actually built against, and it is not the 900s window.**
+The obvious implementation stamps "stale as of now" from the *partner's* clock
+and compares it against `iat`, stamped by the *issuer's*. Two seconds of forward
+skew and the freshly-minted token fails the same check → refresh → fail →
+refresh, from every replica, aimed at the mint endpoint. **That loop is a worse
+outcome than the window it closes.** So two guards, and they are the
+load-bearing part of the change rather than a hardening pass: the marker is
+stamped at `now − 30s` (erring early costs one harmless extra refresh and can
+never put the marker in the issuer's future), and a forced refresh is honoured
+**at most once per token** — a second `token_stale` on a token that refresh
+itself produced is a hard failure. Every SDK carries both, with a test that
+reproduces the loop and asserts the second mint does not happen.
+
+**Tradeoffs accepted.**
+
+- **A timestamp, not a flag**, because a flag cannot self-heal: it would reject
+  the REFRESHED token too, locking the user out for the entry's whole TTL and
+  turning a routine demotion into an outage. The test that matters most in this
+  change is the one asserting the refreshed token passes the marker that caused
+  the refresh.
+- **`sub` is per-MEMBERSHIP on this platform, not per-person.** That is a
+  feature — demoting someone in org A leaves their org B token alone, the right
+  blast radius, for free — but it now leaks into an API a partner calls by hand,
+  and a partner passing an identity id propagates nothing at all. Docs say it in
+  the same breath; "disable this human everywhere" is out of scope for v1 and is
+  one call per membership.
+- **Demotion does not evict the session**, so the notify method takes an
+  explicit intent rather than inferring one. A method that guessed would
+  eventually guess "log them out" on a routine role edit.
+- **Out-of-band changes stay stale for up to `access_ttl_seconds`** — the
+  console, the CLI, a partner's own back-office. Stated as a limit rather than
+  left to be discovered, and **that** is the number to quote publicly, not the
+  ~0 on notified paths.
+- **Multi-replica partners must run a shared backend.** Unavoidable given a
+  partner-local cache, and it cannot even be made loud: the SDK cannot detect a
+  second replica. The in-memory default is silently wrong there.
+- **A new 401 enters the wire contract.** Old clients that collapse every 401 to
+  "sign out" will sign users out on *promotion* until they upgrade — which is
+  why all four surfaces ship together and why the code is announced before
+  release, not after.
+
+**A premise of the ADR was wrong, and it is recorded rather than quietly
+fixed.** D2 argues the widening would break "ts and Java at runtime, silently".
+Measured with `/usr/bin/grep` over `java/src/main`: **Java has no
+`RevocationCache` at all** — it was never implemented there, so there was
+nothing to widen and nothing to break. The conclusion survives (two keys, two
+lifetimes, two questions), but the argument over-claimed by naming a language it
+had not checked. The finding is worse than a bad citation: Java partners have no
+stop-the-bleed on logout either, which ADR-107 does not close. Filed in
+`TODO.md`.
+
+**Nothing in the issuer changes.** That is the point of the shape: the partner
+platform implements none of the mechanism.
 
 ## 2026-09-03 (derived claims, lanes) — the guard that was a COMMENT found three call sites; the guard that is a PARSER found five
 

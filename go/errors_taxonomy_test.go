@@ -64,6 +64,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeAccountSuspended, ErrCodeAccountDeactivated, ErrCodeContactAdminRequired,
 		ErrCodeRealmOriginMismatch, ErrCodeRealmMismatch, ErrCodeMissingOrigin,
 		ErrCodeRefreshInvalid,
+		// ADR-107: the verifier's staleness refusal.
+		ErrCodeTokenStale,
 		ErrCodeInvalidOTP, ErrCodeOTPExpired, ErrCodeOTPLocked, ErrCodeOTPNotFound,
 		ErrCodeInvalidPurpose, ErrCodeInvalidSubjectRef,
 		ErrCodeHandleTaken, ErrCodeInvalidRole, ErrCodeMethodViolatesKind,

@@ -1,6 +1,6 @@
 {
   "name": "@realm-id/web-google",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Google Identity Services adapter for @realm-id/web \u2014 direct GIS popup/redirect (no Firebase).",
   "type": "module",
@@ -22,10 +22,10 @@
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts"
   },
   "peerDependencies": {
-    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0"
+    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0 || ^0.7.0"
   },
   "devDependencies": {
-    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0",
+    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0 || ^0.7.0",
     "typescript": "^5.5.0"
   },
   "engines": {

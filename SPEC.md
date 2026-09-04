@@ -120,7 +120,7 @@ SDK failure. It carries:
 `provider_token_invalid`, `mfa_required`, `mfa_registration_required`,
 `session_limit_reached`, `tenant_required`, `tenant_invalid`,
 `account_suspended`, `account_deactivated`, `realm_origin_mismatch`,
-`realm_mismatch`, `missing_origin`, `refresh_invalid`.
+`realm_mismatch`, `missing_origin`, `refresh_invalid`, `token_stale`.
 
 > `mfa_registration_required` (412) is the first-factor-ENROLLMENT variant of
 > `mfa_required`: the realm or tenant requires MFA and the user has no
@@ -152,6 +152,28 @@ SDK failure. It carries:
 > required" versus a transient 401. The SDK does **not** subdivide
 > expiry / revocation / reuse: all three collapse to `refresh_invalid`
 > (the issuer does not distinguish them on the wire).
+
+> `token_stale` (401, ADR-107) is a **verifier** code that appears in the
+> auth-flow list because the caller's remedy is an auth-flow one. The presented
+> access token was minted before the subject's authority changed, so its
+> `role` / `scope` / `product_roles` no longer describe them. The remedy is a
+> SINGLE refresh, which the client SDK performs transparently before replaying
+> the original request.
+>
+> It exists as its own code for the same reason `refresh_invalid` does, in the
+> opposite direction: a client that collapses every 401 into "sign the user
+> out" would sign people out on **promotion** — on a grant that just widened
+> their access. Callers MUST branch on `token_stale` **before** any generic 401
+> handling, since it is also a 401.
+>
+> **A forced refresh is honoured at most ONCE per token.** A second
+> `token_stale` on a token minted *by* that refresh is a hard failure, not
+> another refresh (ADR-107 D13): a marker stamped ahead of the issuer's clock
+> would otherwise put every replica into an unbounded refresh loop against the
+> mint endpoint, which is a worse outcome than the window it closes.
+>
+> The issuer emits this code **nowhere**. It is produced by `verify()` when an
+> `AuthorityCache` is configured (§5.3) and by nothing else.
 
 **Membership self-service codes** (used by `realm.me.*`, §6.15, ADR-092):
 
@@ -1068,6 +1090,98 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
   override.
 - `exp` / `nbf` checked with leeway (default 30s).
 - JWKS fetched per-realm, cached 10m, unknown-kid forces refetch.
+
+### 5.3 Authority-change propagation — the `AuthorityCache` (ADR-107)
+
+The ADR-041 `RevocationCache` is a **jti denylist**, and that is the whole of
+what it can express. It serves logout for exactly one reason: the user presents
+their own token, so the SDK holds the jti at the moment it needs to deny it.
+
+An admin demoting a colleague holds neither that colleague's access token nor
+its jti, and the SDK has no `user → live jtis` index. **Demotion is therefore
+structurally inexpressible on a jti key**, whatever the interface is called. The
+`AuthorityCache` is a SECOND, subject-keyed cache that sits beside it; the
+revocation cache is unchanged and keeps serving logout.
+
+| | `RevocationCache` (ADR-041) | `AuthorityCache` (ADR-107) |
+|---|---|---|
+| key | `jti` | `sub` |
+| value | presence (a denylist) | a `notBefore` **timestamp** |
+| answers | logout | demotion + promotion |
+| verdict | `unauthorized` | `token_stale` |
+| session | ended | **continues** |
+
+**Two interfaces, not one widened one.** Partners run their own backends behind
+`RevocationCache`; adding a method to it breaks Go at compile time (loud) and
+ts/Java at runtime, SILENTLY — a duck-typed object simply lacks the method and
+demotion never fires, with nothing to observe.
+
+```ts
+interface AuthorityCache {
+  markStale(sub, notBefore, expiresAt): void;   // marker + TTL
+  staleSince(sub): notBefore | null;            // null ≠ epoch 0
+}
+```
+
+Wired through the realm config (`Config.Authority` / `authority` /
+`.authority(...)`). **Opt-in: unset → the verifier behaves exactly as before.**
+
+**The check**, immediately after the jti denylist, same fail-closed posture:
+
+> reject as `token_stale` iff a marker exists and `iat + leeway < notBefore`.
+
+`iat` is compared, never `exp` — `exp` moves with the realm's
+`access_ttl_seconds`, so a realm that changed its token lifetime would have the
+comparison silently misjudge which tokens predate the change. A cache **error**
+fails closed as `unauthorized`, deliberately NOT as `token_stale`: answering
+`token_stale` on an outage would tell every client to refresh at once.
+
+**The value is a timestamp, never a flag.** A boolean cannot self-heal — it
+would reject the REFRESHED token too, locking the user out for the entry's whole
+TTL and turning a demotion into an outage.
+
+**The key is `sub`, verbatim — the PER-MEMBERSHIP users-row id, not a person.**
+Demoting someone in org A leaves their org B token untouched, which is the
+correct blast radius. A partner that notifies with an identity id silently
+propagates nothing. "Disable this human everywhere" is one call per membership.
+
+**Announcing a change** — one method, and the partner implements none of the
+mechanism:
+
+```ts
+await realm.notifyAuthorityChanged({ subject, intent: "demoted" | "promoted" });
+```
+
+`intent` is REQUIRED and never inferred: demotion does **not** evict the session
+(the user stays signed in and refreshes into a narrower token), and a method
+that guessed would eventually guess "log them out" on a routine role edit. To
+sign the principal out, use `sessions.revokeUser` (ADR-080) — a different intent
+with a different consequence. Calling this with **no cache configured is an
+error, not a no-op**: silence there means a partner believes demotion is
+propagating while nothing is stored.
+
+The marker is stamped at `now − 30s`, never at bare `now`. Erring early
+over-rejects a handful of very recently minted tokens — one harmless extra
+refresh each — and can never place the marker in the ISSUER's future, which is
+the only way the refresh loop starts. The entry's TTL is the access-token
+lifetime plus that same allowance, after which no token minted before the change
+can still verify.
+
+**Multi-replica partners MUST supply a shared backend.** The bundled
+`MemAuthorityCache` is single-process: a marker written on one replica is
+invisible to the others, so a demotion reaches only whichever replica serves the
+next request. The SDK cannot detect the second replica, so this cannot be made
+loud — it is a deployment requirement.
+
+**⚠️ Out-of-band changes are a stated limit, not a defect.** A role edited from
+the RealmID console, the CLI, or a partner back-office that does not call
+`notifyAuthorityChanged` stays stale for up to the realm's
+`access_ttl_seconds` (**900s** when unset — `0` from
+`GET /platforms/{id}/config` means unset, not zero). That is the accepted cost
+of a partner-local cache, and **it is the number to quote publicly**, not the
+~0 on notified paths.
+
+Nothing in the issuer changes. This is entirely an SDK-side contract.
 
 ## 6. Management surface
 

@@ -43,6 +43,12 @@ import { NOOP_LOGGER } from "./logger.js";
 import type { ProductRolesHandler } from "./product-roles.js";
 import type { ScopesHandler } from "./scopes-handler.js";
 import type { RevocationCache } from "./revocation.js";
+import {
+  AUTHORITY_STALE_SKEW_MS,
+  DEFAULT_ACCESS_TTL_MS,
+  type AuthorityCache,
+  type AuthorityChange,
+} from "./authority.js";
 
 export interface RealmConfig {
   /** Your realm's id (UUID-ish string). Required. */
@@ -92,6 +98,25 @@ export interface RealmConfig {
    * a Redis/memcached-backed implementation for multi-replica deploys.
    */
   revocation?: RevocationCache;
+
+  /**
+   * Optional SUBJECT-keyed staleness marker consulted by `verify()` after the
+   * jti denylist (ADR-107). It is what makes demotion and promotion expressible
+   * at all: the jti cache can only deny a token the SDK is HOLDING, and an
+   * admin demoting a colleague holds neither that colleague's token nor its
+   * jti.
+   *
+   * A separate field and a separate interface, on purpose (D1/D2). Widening
+   * `RevocationCache` would break a partner's existing implementation — and in
+   * TypeScript it would break SILENTLY at runtime, where a duck-typed object
+   * simply lacks the method and demotion never fires with nothing to observe.
+   *
+   * Undefined → no-op; the verifier behaves exactly as it did before ADR-107.
+   * Pass `new MemAuthorityCache()` for a single-process default, or a shared
+   * backend for multi-replica deploys — where the in-memory default is silently
+   * wrong, since a marker written on one replica is invisible to the others.
+   */
+  authority?: AuthorityCache;
 
   /**
    * ADR-102 — resolves the PARTNER's own role names for a principal in one org,
@@ -187,6 +212,32 @@ export interface Realm {
   readonly tokenDelivery: "cookie" | "body";
   /** Configured RevocationCache, or undefined when not wired. */
   readonly revocation?: RevocationCache;
+  /** Configured AuthorityCache, or undefined when not wired (ADR-107). */
+  readonly authority?: AuthorityCache;
+  /**
+   * Announce that a principal's authority changed, so tokens minted before now
+   * stop being trusted to describe it (ADR-107 D7).
+   *
+   * This is the ONE method a partner calls. The SDK owns everything after it:
+   * storage, TTLs, the verifier check, the wire code, and the client-side retry
+   * cap. Nothing in the issuer changes.
+   *
+   * The change reaches tokens presented from now on; the user's next API call
+   * answers `401 token_stale` and their client refreshes once, transparently. A
+   * user idle at the moment of the change is caught the instant they do
+   * anything.
+   *
+   * ⚠️ Out-of-band changes are NOT covered (D14). A role edited from the
+   * RealmID console, the CLI, or a back-office that does not call this method
+   * stays stale for up to the realm's `access_ttl_seconds`. That is the
+   * accepted cost of a partner-local cache, and it is the number to quote
+   * publicly — not the ~0 on notified paths.
+   *
+   * Rejects (never silently no-ops) when no `authority` cache is configured:
+   * silence there means a partner believes demotion is propagating while
+   * nothing is stored (D15).
+   */
+  notifyAuthorityChanged(change: AuthorityChange): Promise<void>;
   info(): Promise<RealmInfo>;
   verify(token: string, opts?: VerifyOptions): Promise<Claims>;
   middleware(cfg?: MiddlewareConfig): ConnectMiddleware;
@@ -266,6 +317,7 @@ export function createRealm(cfg: RealmConfig): Realm {
     baseUrl,
     audience: cfg.audience,
     revocation: cfg.revocation,
+    authority: cfg.authority,
     audienceResolver: cfg.audience
       ? undefined
       : async (_realmId) => {
@@ -296,6 +348,9 @@ export function createRealm(cfg: RealmConfig): Realm {
       baseUrl,
       tokenDelivery: cfg.tokenDelivery ?? "cookie",
       revocation: cfg.revocation,
+      authority: cfg.authority,
+      notifyAuthorityChanged: (change: AuthorityChange) =>
+        notifyAuthorityChanged(cfg.authority, cfg.clock, change),
       auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation, cfg.productRoles, cfg.scopes),
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),
@@ -329,4 +384,57 @@ export function createRealm(cfg: RealmConfig): Realm {
   };
 
   return build(http);
+}
+
+/**
+ * Implementation behind `realm.notifyAuthorityChanged` (ADR-107 D7/D11/D15).
+ * Free function rather than a closure over the handle so the validation is
+ * testable on its own and identical across every derived handle.
+ */
+async function notifyAuthorityChanged(
+  cache: AuthorityCache | undefined,
+  clock: (() => Date) | undefined,
+  change: AuthorityChange,
+): Promise<void> {
+  // D15: an unconfigured cache is an ERROR, never a no-op. Silence here means a
+  // partner believes demotion is propagating while nothing is stored — the
+  // "cache that reports nothing" failure this workspace has recorded before.
+  if (!cache) {
+    throw new RealmError({
+      code: "bad_request",
+      message:
+        "realmid: notifyAuthorityChanged called with no AuthorityCache configured — " +
+        "set `authority` on createRealm (ADR-107 D15); nothing was recorded",
+    });
+  }
+  if (!change || !change.subject) {
+    throw new RealmError({
+      code: "bad_request",
+      message:
+        "realmid: AuthorityChange.subject is required — pass the `sub` claim " +
+        "(the per-membership users-row id, ADR-107 D4)",
+    });
+  }
+  if (change.intent !== "demoted" && change.intent !== "promoted") {
+    throw new RealmError({
+      code: "bad_request",
+      message:
+        'realmid: AuthorityChange.intent must be "demoted" or "promoted" — the SDK will ' +
+        "not infer it (ADR-107 D11). To sign the principal out, use sessions.revokeUser.",
+    });
+  }
+
+  const ttl = change.accessTokenTtlMs && change.accessTokenTtlMs > 0
+    ? change.accessTokenTtlMs
+    : DEFAULT_ACCESS_TTL_MS;
+  const nowMs = (clock ? clock() : new Date()).getTime();
+  // D8: stamped EARLY, never as bare now. D6: the entry outlives every token
+  // that could still carry the old authority — the access-token lifetime plus
+  // the same skew allowance, so a token minted just before the marker cannot
+  // outlive the marker itself.
+  await cache.markStale(
+    change.subject,
+    nowMs - AUTHORITY_STALE_SKEW_MS,
+    nowMs + ttl + AUTHORITY_STALE_SKEW_MS,
+  );
 }

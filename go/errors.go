@@ -63,6 +63,18 @@ const (
 	// the generic ErrCodeUnauthorized so long-lived clients (TokenManager)
 	// can branch on "re-auth required" vs a transient 401. SPEC §3.1.
 	ErrCodeRefreshInvalid ErrorCode = "refresh_invalid"
+	// ErrCodeTokenStale (401, ADR-107 D10) is emitted by the VERIFIER, not the
+	// issuer: the presented access token was minted before the subject's
+	// authority changed, so its `role`/`scope`/`product_roles` no longer
+	// describe them. The remedy is a single refresh, and the client SDK
+	// performs it transparently.
+	//
+	// Distinct from `unauthorized` and `refresh_invalid` for the reason
+	// `refresh_invalid` itself exists: a client that collapses every 401 into
+	// "sign the user out" would sign people out on PROMOTION — on a grant that
+	// just widened their access. Branch on this code BEFORE IsUnauthorized,
+	// which is also true of it (it is a 401).
+	ErrCodeTokenStale ErrorCode = "token_stale"
 
 	// ADR-097 — the `scope` intake on POST /auth/token (SPEC §11).
 	//
@@ -270,6 +282,22 @@ func IsUnauthorized(err error) bool {
 	return re.HTTPStatus == 401 || re.Code == ErrCodeUnauthorized
 }
 
+// IsTokenStale reports whether err is the ADR-107 staleness refusal: the token
+// was minted before its subject's authority changed. The caller's move is ONE
+// refresh + replay — and, if the replay fails the same way on a token minted
+// after that refresh, a hard failure rather than a second refresh (D13).
+//
+// Check this BEFORE IsUnauthorized. token_stale carries a 401, so
+// IsUnauthorized is true of it too, and a caller that tests the general
+// predicate first will tear down a session that only needed a refresh.
+func IsTokenStale(err error) bool {
+	var re *RealmError
+	if !errors.As(err, &re) {
+		return false
+	}
+	return re.Code == ErrCodeTokenStale
+}
+
 // IsTimeout reports whether err originated from a context cancellation
 // or deadline (the request context was cut before the issuer replied),
 // regardless of how many layers of *RealmError wrap it. Callers map
@@ -323,6 +351,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeRealmOriginMismatch: {},
 	ErrCodeRealmMismatch:       {},
 	ErrCodeMissingOrigin:       {}, ErrCodeRefreshInvalid: {},
+	ErrCodeTokenStale:   {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},

@@ -17,6 +17,17 @@ public final class CapCheck {
     /**
      * Returns the permissions a principal holds RIGHT NOW, from the caller's own
      * store. The second operand of the intersection.
+     *
+     * <p><b>⚠️ It must NOT derive its answer from the token's own claims.</b> A
+     * resolver like {@code () -> PERMS_BY_ROLE.get(claims.role())} has the right
+     * SHAPE — two operands, required parameter satisfied — and re-introduces
+     * exactly the staleness this signature exists to remove, because
+     * {@code role} is on the token. A demoted admin's token still says
+     * {@code admin}, so the resolver returns admin permissions and
+     * {@code capAllows} correctly allows them. Such a resolver is live with
+     * respect to what a ROLE can do and stale with respect to WHICH role the
+     * person holds — the case that matters. Key it off {@code claims.subject()}
+     * and read the authority from your store.
      */
     @FunctionalInterface
     public interface LivePermissionResolver {
@@ -25,6 +36,15 @@ public final class CapCheck {
 
     /**
      * Reports whether {@code permission} is allowed for a key-derived token.
+     *
+     * <p><b>⚠️ READ THIS FIRST: the intersection only exists for KEY-DERIVED
+     * tokens.</b> {@code permissions_cap} is minted in exactly one place in the
+     * issuer — the {@code grant_type=user_api_key} exchange — so a PLAIN USER
+     * SESSION never carries one. On such a token this reduces to "does the live
+     * set allow it?", a ONE-operand check, and the cap contributes nothing. If
+     * you are gating human sessions, the safety property below is not the one
+     * you are getting: your resolver is the whole of the decision and must be
+     * correct on its own.
      *
      * <p><b>{@code resolveLive} is a required parameter, not an option</b>, and
      * that is the entire design of this signature: the insecure one-operand form —

@@ -82,6 +82,24 @@ type Config struct {
 	// a Redis/memcached-backed implementation for multi-replica deploys.
 	Revocation RevocationCache
 
+	// Authority is an optional SUBJECT-keyed staleness marker consulted by
+	// Verify after the jti denylist (ADR-107). It is what makes demotion and
+	// promotion expressible at all: the jti cache can only deny a token the
+	// SDK is holding, and an admin demoting a colleague holds neither that
+	// colleague's token nor its jti.
+	//
+	// Separate field, separate interface, on purpose (D1/D2). Widening
+	// RevocationCache would break a partner's existing implementation — loudly
+	// in Go, and SILENTLY at runtime in ts/Java, where a duck-typed object
+	// simply lacks the method and demotion never fires with nothing to observe.
+	//
+	// Nil → no-op; the verifier behaves exactly as it did before ADR-107. Pass
+	// NewMemAuthorityCache(nil) for a single-process default, or a shared
+	// backend for multi-replica deploys — where the in-memory default is
+	// silently wrong, since a marker written on one replica is invisible to
+	// the others.
+	Authority AuthorityCache
+
 	// ProductRoles resolves the PARTNER's own role names for a principal in one
 	// org, and the SDK mints them onto the access token as the ADR-102
 	// `product_roles` claim.
@@ -125,6 +143,7 @@ type Realm struct {
 	info          *infoClient
 	verifier      *verifier
 	revocation    RevocationCache
+	authority     AuthorityCache
 
 	Auth    *AuthClient
 	Tenants *TenantsClient
@@ -199,7 +218,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.55.0"
+const Version = "0.56.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -234,6 +253,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.http = newHTTPClient(cfg.BaseURL, cfg.HTTPClient, cfg.Logger)
 	r.platformToken = newSessionManager(cred, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
 	r.revocation = cfg.Revocation
+	r.authority = cfg.Authority
 	r.info = &infoClient{realm: r}
 	r.verifier = newVerifier(r)
 
@@ -271,6 +291,21 @@ func (r *Realm) RealmID() string { return r.realmID }
 // the cache (e.g., on detected token theft outside the normal Logout
 // path) by calling cache.Revoke(ctx, jti, exp).
 func (r *Realm) Revocation() RevocationCache { return r.revocation }
+
+// Authority returns the configured subject-keyed authority cache, or nil when
+// the SDK was constructed without one (ADR-107). Partner code can read markers
+// directly for diagnostics; to RECORD a change, call NotifyAuthorityChanged
+// rather than writing to the cache by hand — it stamps D8's skew allowance and
+// D6's TTL, and getting either wrong is how the C5 refresh loop starts.
+func (r *Realm) Authority() AuthorityCache { return r.authority }
+
+// clock is the SDK's single source of "now", honouring Config.Clock.
+func (r *Realm) clock() time.Time {
+	if r.cfg.Clock != nil {
+		return r.cfg.Clock()
+	}
+	return time.Now()
+}
 
 // BaseURL returns the configured issuer host.
 func (r *Realm) BaseURL() string { return r.baseURL }

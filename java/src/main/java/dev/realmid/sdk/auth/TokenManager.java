@@ -48,6 +48,14 @@ public final class TokenManager {
     private String refreshTokenValue;
     private String cachedAccessToken = "";
     private long accessExpiresAtMs;
+    /**
+     * The access token the LAST forced refresh produced. The whole of ADR-107
+     * D13's bookkeeping: a {@code token_stale} on this exact token means the
+     * refresh already happened and did not help, so refreshing again would be
+     * the loop. One string, not a set — the cap is per token, and the only token
+     * that can be "already refreshed for" is the one we just minted.
+     */
+    private String forcedToken = "";
     /** Non-null while an acquisition is in flight; followers wait on it. */
     private TokenCall inflight;
 
@@ -104,6 +112,60 @@ public final class TokenManager {
                 inflight = null;
             }
         }
+    }
+
+    /**
+     * Answers an ADR-107 {@code token_stale} 401 by forcing ONE refresh and
+     * returning the token to replay the original request with.
+     *
+     * <p>D13, the loop-breaker. D8 makes the C5 loop very unlikely by stamping
+     * the marker early; this makes it impossible, and it lives in the client SDK
+     * because that is where the retry decision is actually made. A second
+     * {@code token_stale} on a token this method already produced is a HARD
+     * failure — thrown as {@link ErrorCode#TOKEN_STALE} so the caller can
+     * surface it, never retried.
+     *
+     * <p>{@code staleToken} is the token the failing request carried. Passing
+     * one that is no longer current is not an error: another thread already
+     * refreshed, and the caller simply gets the newer token to replay with,
+     * costing the issuer nothing.
+     *
+     * <pre>{@code
+     * String tok = tm.accessToken();
+     * try {
+     *     return call(tok);
+     * } catch (RealmException e) {
+     *     if (e.getCode() != ErrorCode.TOKEN_STALE) throw e;
+     *     tok = tm.handleStale(tok);   // throws on the second try
+     *     return call(tok);            // surface the throw; do NOT loop
+     * }
+     * }</pre>
+     */
+    public String handleStale(String staleToken) {
+        synchronized (lock) {
+            if (staleToken != null && !staleToken.isEmpty() && staleToken.equals(forcedToken)) {
+                throw new RealmException(ErrorCode.TOKEN_STALE,
+                        "realmid: token_stale on a token minted by the previous forced refresh — "
+                                + "refusing to refresh again (ADR-107 D13). The authority marker is "
+                                + "ahead of the issuer's clock, or the subject is being re-marked "
+                                + "faster than a token can be used.",
+                        401, null);
+            }
+            // Someone else already refreshed past the failing token — replay
+            // with what we hold rather than spending a mint.
+            if (staleToken != null && !staleToken.isEmpty()
+                    && !cachedAccessToken.isEmpty() && !staleToken.equals(cachedAccessToken)) {
+                return cachedAccessToken;
+            }
+            // Drop the cached token so accessToken() cannot hand back the stale one.
+            cachedAccessToken = "";
+            accessExpiresAtMs = 0;
+        }
+        String tok = accessToken();
+        synchronized (lock) {
+            forcedToken = tok;
+        }
+        return tok;
     }
 
     /**

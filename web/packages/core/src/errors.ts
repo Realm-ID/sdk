@@ -5,6 +5,15 @@ export type ErrorCode =
   | "session_expired"
   | "session_replaced"
   | "session_revoked"
+  // ADR-107 D10 — the access token was minted before the subject's authority
+  // changed. NOT a session failure: the remedy is one refresh, and the session
+  // continues (D11 is explicit that demotion does not evict it).
+  //
+  // It has to be its own code precisely because it arrives as a 401. Collapsed
+  // into `unauthorized` it would be swept into the sign-out branch, and the
+  // user would be signed out on PROMOTION — on a grant that just widened their
+  // access.
+  | "token_stale"
   | "mfa_required"
   | "mfa_registration_required"
   | "mfa_failed"
@@ -41,6 +50,15 @@ export class RealmError extends Error {
 
 export function classifyHttpStatus(status: number, body?: unknown): ErrorCode {
   if (status === 401) {
+    // The ONE wire code this classifier reads from the body rather than
+    // inferring from the message. It is deliberately not a general "trust the
+    // body's code" rule: the classifier's contract is a CLASSIFICATION, and
+    // `.body.code` stays the fact. But `token_stale` cannot be inferred — it is
+    // a plain 401 whose message is prose — and misreading it as `unauthorized`
+    // signs the user out on promotion (ADR-107 D10).
+    for (const path of DEFAULT_CODE_PATHS) {
+      if (pluckPath(body, path) === "token_stale") return "token_stale";
+    }
     const msg = extractMessage(body);
     if (/replaced|invalidated/i.test(msg)) return "session_replaced";
     if (/revoked/i.test(msg)) return "session_revoked";

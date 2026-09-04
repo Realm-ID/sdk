@@ -13,9 +13,114 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — logout, demotion and promotion propagate inside the SDK (ADR-107, 2026-09-04)
+
+Cross-cutting: go `0.56.0` · ts `0.49.0` · java `0.46.0` · `@realm-id/web`
+`0.7.0` · `@realm-id/web-react` `0.5.1`. All four surfaces ship together — a
+partial roll puts a code on the wire that some clients read as a hard 401.
+**Nothing in the issuer changes.** Spec §3.1 + new §5.3.
+
+Builds on the `Unreleased` entry below, which is its stated prerequisite: for an
+ADR-097/102 partner, a forced refresh that does not re-resolve `scope` and
+`product_roles` returns a token exactly as stale as the one it replaced.
+
+### Added — `AuthorityCache`, a SECOND cache beside the jti denylist
+
+- `RevocationCache` is a **jti denylist**, and that is the whole of what it can
+  express. It serves logout for one reason: the user presents their own token,
+  so the SDK holds the jti when it needs it. An admin demoting a colleague holds
+  neither that colleague's token nor its jti, and there is no `user → live jtis`
+  index — so demotion was **structurally inexpressible**, not merely missing.
+- `AuthorityCache` is keyed by `sub` and stores a `notBefore` **timestamp**. A
+  boolean could not self-heal: it would reject the REFRESHED token too, locking
+  the user out for the entry's whole TTL and turning a demotion into an outage.
+- A **separate interface**, not a widened one. Partners run their own backends
+  behind `RevocationCache`; adding a method breaks Go at compile time (loud) and
+  ts/Java at runtime, silently — a duck-typed object just lacks the method and
+  demotion never fires, with nothing to observe.
+- `MemAuthorityCache` ships as the single-process default. **Multi-replica
+  partners must supply a shared backend**; a marker written on one replica is
+  invisible to the others, and the SDK cannot detect the second replica to warn.
+- Opt-in everywhere. Unset → the verifier behaves exactly as it did before.
+
+### Added — `notifyAuthorityChanged`, the one method a partner calls
+
+- `realm.notifyAuthorityChanged({subject, intent})` in all three server SDKs.
+  The SDK owns everything after it: storage, TTLs, the check, the wire code and
+  the client-side retry cap.
+- `subject` is the `sub` claim — **the per-membership users-row id, not a
+  person**. Demoting someone in org A deliberately leaves their org B token
+  alone. A partner passing an identity id silently propagates nothing.
+- `intent` is required and never inferred. Demotion does NOT evict the session,
+  so a method that guessed would eventually guess "log them out" on a routine
+  role edit. Signing someone out stays `sessions.revokeUser` (ADR-080).
+- Calling it with **no cache configured is an error, not a no-op** — silence
+  there means a partner believes demotion is propagating while nothing is
+  stored.
+
+### Added — `token_stale`, a new 401 in the taxonomy
+
+- Emitted by `verify()` and by nothing else; **no issuer handler produces it.**
+- Distinct from `unauthorized` for the same reason `refresh_invalid` is: a
+  client that collapses every 401 into "sign the user out" would sign people out
+  on **promotion** — on a grant that just widened their access.
+- The 401 status is set at the throw site, so a partner verifying by hand (no
+  SDK middleware in the path) still gets the status the contract promises.
+- `IsTokenStale` / `isTokenStale` / `ErrorCode.TOKEN_STALE`. Registered in all
+  three taxonomies in the same change; `scripts/taxonomy-parity.py` is the gate.
+
+### Added — the refresh is capped at ONCE per token (the loop-breaker)
+
+- The real hazard was never the 900s window. Stamp `notBefore` from the
+  partner's clock, compare it to an `iat` from the issuer's, and two seconds of
+  forward skew makes every freshly-minted token stale: refresh, fail, refresh,
+  from every replica, aimed at the mint endpoint.
+- Two guards. The marker is stamped at `now − 30s`, never bare `now` — erring
+  early costs one harmless extra refresh and can never place the marker in the
+  issuer's future. And `TokenManager.handleStale` refuses to refresh a second
+  time for a token that a forced refresh itself produced.
+- `@realm-id/web` carries the same cap in `realm.fetch`, per tenant.
+
+### Changed — the browser SDK no longer signs users out on a `token_stale` 401
+
+- `classifyHttpStatus` reads `token_stale` off the body **by name**. It is
+  deliberately not a blanket "trust the body's code" rule — `.code` stays a
+  classification and `.body.code` stays the fact — but this one code cannot be
+  inferred from a 401 whose message is prose.
+- `restore()` no longer drops the session to anonymous on it. The session
+  continues; only the access token is replaced.
+
+### Stated limit — out-of-band changes (ADR-107 D14)
+
+A role edited from the RealmID console, the CLI, or a partner back-office that
+does not call `notifyAuthorityChanged` stays stale for up to the realm's
+`access_ttl_seconds` — **900s when unset**, and `0` from
+`GET /platforms/{id}/config` means unset, not zero. That is the accepted cost of
+a partner-local cache, and it is the number to quote publicly, not the ~0 on
+notified paths.
+
+### Note — Java never had `RevocationCache` at all
+
+Measured, not assumed: there is no `RevocationCache` anywhere in
+`java/src/main`. So ADR-107 D2's "widening breaks ts/Java silently at runtime"
+is **vacuous for Java** — there was nothing to widen. The separate interface
+still stands on its own merits (two keys, two lifetimes, two questions), but the
+argument as written over-claims. Filed in `TODO.md`: Java partners have no
+stop-the-bleed on logout either, which is a real gap ADR-107 does not close.
+
 ## Unreleased — every session-producing lane resolves the derived claims (2026-09-03)
 
 Cross-cutting: all three SDKs, same change. **Prerequisite for ADR-107.**
+
+⚠️ **This is worse than "a lane missing a claim", and the ADR-107 entry above is
+the other half of the same issue.** A partner migrating onto ADR-097 keeps their
+pre-cutover authorization path and ramps between the two on whether `scope` is
+populated. A token minted with no `scope` therefore does not merely lose the
+claim — it **routes every request onto the legacy decider**, a branch that is
+dead code in normal operation and so is the branch nobody tests. One integrator
+found their ramp landed on a resolver keyed off the token's own `role`, i.e. a
+stale one. If you run a ramp, treat an empty `scope` as an incident signal
+rather than a fallback condition (partner guide §4.2).
 
 ### Fixed — two lanes handed back a token with no `product_roles` and no `scope`
 

@@ -1,6 +1,6 @@
 {
   "name": "@realm-id/web-firebase",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "description": "Firebase Auth provider adapter for @realm-id/web \u2014 popup + redirect kickoff for Google/email/phone.",
   "type": "module",
@@ -21,11 +21,11 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0",
+    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0 || ^0.7.0",
     "firebase": ">=10"
   },
   "devDependencies": {
-    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0",
+    "@realm-id/web": "^0.4.0 || ^0.5.0 || ^0.6.0 || ^0.7.0",
     "firebase": "^12.0.0",
     "typescript": "^5.5.0"
   },

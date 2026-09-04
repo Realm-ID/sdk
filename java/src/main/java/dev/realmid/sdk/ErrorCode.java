@@ -105,6 +105,21 @@ public enum ErrorCode {
      */
     REFRESH_INVALID("refresh_invalid"),
 
+    /**
+     * {@code token_stale} (401, ADR-107 D10) comes from the VERIFIER, not the
+     * issuer: the access token was minted before the subject's authority
+     * changed, so its {@code role}/{@code scope}/{@code product_roles} no
+     * longer describe them. The remedy is a SINGLE refresh, which the client
+     * SDK performs transparently.
+     *
+     * <p>Distinct from {@link #UNAUTHORIZED} and {@link #REFRESH_INVALID} for
+     * the reason {@code refresh_invalid} itself exists: a client that collapses
+     * every 401 into "sign the user out" would sign people out on PROMOTION —
+     * on a grant that just widened their access. Branch on this code BEFORE any
+     * generic 401 handling.
+     */
+    TOKEN_STALE("token_stale"),
+
     // partner OTP primitive (SPEC §X)
     INVALID_OTP("invalid_otp"),
     OTP_EXPIRED("otp_expired"),
