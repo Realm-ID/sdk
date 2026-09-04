@@ -43,18 +43,26 @@
 # `## Unreleased (0.46.0) — …` (ts/java pre-release) and `## java-v0.35.0`
 # (java) are all live conventions and all correct.
 #
-# THE VERSION MUST ALSO OPEN A TOKEN, and that is not the same requirement.
-# Until 2026-09-01 the rule accepted the version ANYWHERE in the heading, so
-# `@realm-id/web-react` `0.5.0` was reported present on the strength of
+# THE VERSION MUST BE THE HEADING'S OWN SUBJECT, and that is not the same
+# requirement as "the version appears in the heading". Until 2026-09-01 the
+# rule accepted the version ANYWHERE in the heading (any whitespace- or
+# `(`-preceded occurrence), so
 #
-#     ## 0.4.1 — peer range accepts `@realm-id/web@^0.5.0` (2026-08-30)
+#     ## v0.10.0 — bump the web SDK to 0.9.0
 #
-# — the PREVIOUS release's heading, which merely mentions the version in prose.
-# A dependency range naming a version is the single most likely thing to appear
-# in a changelog heading, so this was not a remote corner: react shipped 0.5.0
-# with no entry and the gate said ✅. The version must now be preceded by the
-# start of the heading, whitespace, or `(`, which admits every convention above
-# and rejects `@^0.5.0`, `web@0.5.0` and `>=0.5.0`.
+# satisfied `has_entry … 0.9.0` — the PREVIOUS release's version, merely
+# mentioned in prose describing what v0.10.0 did. A dependency/peer bump
+# naming a version is one of the single most likely things to appear in a
+# changelog heading's prose, so this was not a remote corner. The version must
+# now be either (a) the FIRST token in the heading, optionally behind a
+# `java-v`/`ts-v`/`v` prefix — `## 0.50.0 — …`, `## java-v0.42.0 — …`,
+# `## 0.8.19` (bare) — or (b) parenthesized immediately after `Unreleased`,
+# the pre-release convention this repo has actually used
+# (`## Unreleased (0.46.0) — …`, later renamed to `## 0.46.0 — …` at release).
+# Anywhere else in the heading — including right after a dash, which is
+# exactly where a prose mention of a sibling package's version lives in this
+# monorepo's headings — no longer counts. This still rejects `@^0.5.0`,
+# `web@0.5.0` and `>=0.5.0`, because none of them is the heading's subject.
 #
 # ORDERING. Every mode runs BEFORE its publish step, where the remedy is simply
 # "write the entry" — except `go`, which cannot: that module publishes by tag
@@ -94,12 +102,45 @@ json_field() {
   sed -nE "s/^  \"$key\": \"?([^\",]*)\"?,?$/\1/p" "$file"
 }
 
-# The whole rule, in one place: does <changelog> carry a `## ` heading naming
-# <version> as a whole token?
+# fenced_headings <file> — `line:text` for every `^## ` heading OUTSIDE a
+# ``` fenced code block, same shape as `grep -n '^## '`. Without this, a
+# changelog that ever quotes a `## ` line inside a fence (this repo's own
+# CHANGELOG.md documents its own heading grammar in prose — see the "Write the
+# heading from `git tag`" entry) reads that quoted line as a second real
+# heading.
+fenced_headings() {
+  awk '
+    /^```/ { infence = !infence; next }
+    !infence && /^## / { print NR ":" $0 }
+  ' "$1"
+}
+
+# The whole rule, in one place: does <changelog> carry a `## ` heading whose
+# OWN SUBJECT is <version>, with at least one line of content beneath it
+# before the next heading? Sets HEADING_LINE as a side channel for callers
+# that want to report where.
 has_entry() {
-  local changelog="$1" version="$2" escaped
+  local changelog="$1" version="$2" escaped heading_line next_line body_nonblank
   escaped=$(printf '%s' "$version" | sed 's/\./\\./g')
-  grep -qE "^## ([^#]*[[:space:](])?v?${escaped}([^0-9.]|\$)" "$changelog"
+  heading_line=$(fenced_headings "$changelog" \
+    | grep -E ":## ((java-v|ts-v|v)?${escaped}([^0-9.]|\$)|Unreleased \(${escaped}([^0-9.]))" \
+    | head -1 | cut -d: -f1 || true)
+  HEADING_LINE="$heading_line"
+  [ -n "$heading_line" ] || return 1
+
+  # A heading naming the version is not an entry — the version's OWN changes
+  # must be written under it, not merely a heading with nothing beneath it
+  # before the next one. A bare rename (e.g. `## Unreleased` retitled to
+  # `## 0.9.0` with no further edit) must not pass.
+  next_line=$(fenced_headings "$changelog" | awk -F: -v start="$heading_line" '$1>start{print $1; exit}')
+  if [ -z "$next_line" ]; then
+    body_nonblank=$(awk -v start="$heading_line" 'NR>start && NF{c++} END{print c+0}' "$changelog")
+  else
+    body_nonblank=$(awk -v start="$heading_line" -v end="$next_line" 'NR>start && NR<end && NF{c++} END{print c+0}' "$changelog")
+  fi
+  HEADING_EMPTY=0
+  [ "${body_nonblank:-0}" != "0" ] || { HEADING_EMPTY=1; return 1; }
+  return 0
 }
 
 report() {
@@ -111,7 +152,13 @@ report() {
     return
   fi
   if has_entry "$changelog" "$version"; then
-    say "- ✅ \`$label\` \`$version\` — entry present in \`$changelog\`."
+    say "- ✅ \`$label\` \`$version\` — entry present in \`$changelog\` (\`$changelog:$HEADING_LINE\`)."
+  elif [ "${HEADING_EMPTY:-0}" = "1" ]; then
+    say "- ❌ **\`$label\` \`$version\`** — \`$changelog:$HEADING_LINE\` names \`$version\` but has NO"
+    say "  content beneath it before the next heading. A heading that names a"
+    say "  version is not an entry for it; describe what shipped."
+    echo "::error file=$changelog,line=$HEADING_LINE::$label $version's heading has no body — a heading is not an entry" >&2
+    FAILED=1
   else
     say "- ❌ **\`$label\` \`$version\`** — no \`## $version\` heading in \`$changelog\`."
     echo "::error::$label $version has no entry in $changelog" >&2
@@ -299,7 +346,7 @@ check_order() {
         fi
       fi
       prev="$ver"; prev_line="$no"
-    done < <(grep -nE '^## ' "$f" || true)
+    done < <(fenced_headings "$f")
     [ "$bad" = "0" ] && say "- ✅ \`$f\` — in descending order."
     count=$((count + 1))
   done

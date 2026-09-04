@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-88 entries total — 33 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+89 entries total — 34 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject](#2026-09-04-changelog-gate--has_entry-matched-a-version-anywhere-in-a-headings-prose-not-as-its-own-subject)
 - [2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not](#2026-09-04-gaps--three-things-were-missing-in-the-one-way-nothing-detects-the-code-was-correct-and-the-description-was-not)
 - [2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"](#2026-09-04-adr-107--the-cache-could-only-say-this-token-is-dead-and-the-question-was-this-person-changed)
 - [2026-09-03 (derived claims, lanes) — the guard that was a COMMENT found three call sites; the guard that is a PARSER found five](#2026-09-03-derived-claims-lanes--the-guard-that-was-a-comment-found-three-call-sites-the-guard-that-is-a-parser-found-five)
@@ -100,6 +101,32 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject
+
+**Problem.** `sdk/scripts/changelog-hygiene.sh`'s `has_entry` (the check the
+app-repo changelog gate's own filing had described as "handles this
+honestly") used an unanchored pattern, so `## v0.10.0 — bump the web SDK to
+0.9.0` satisfied `has_entry … 0.9.0` — the *previous* release's version,
+mentioned only in prose. Found while porting the same fix into the app-repo
+copies of this script (root `DECISIONS.md` 2026-09-04, changelog hygiene) and
+checked directly against this file rather than trusted from that filing's
+claim.
+
+**Fix.** Anchored `has_entry` so the version must be the heading's own
+subject, not merely present in it. Two more defects fixed on inspection, both
+already fixed in the app-repo copies and confirmed genuinely present here too:
+a heading naming a version with no content beneath it before the next heading
+now fails ("heading is not an entry"), and `## ` heading scanning is now
+fence-aware (`fenced_headings()`), since this repo's own `CHANGELOG.md`
+quotes a `## ` line inside a fenced code block documenting its own heading
+grammar.
+
+**Verified.** All 3 publish-gate modes (`npm`, `maven`, `go`) plus `order`
+run green against the current tree (go 0.57.1, ts 0.50.0, java 0.47.0,
+web 0.7.0, web-admin 0.17.0, web-bff-realmid 0.6.0, web-react 0.5.1) — every
+package's entry is its own heading with real content. No changelog gap found;
+nothing edited to make it pass.
 
 ## 2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not
 
