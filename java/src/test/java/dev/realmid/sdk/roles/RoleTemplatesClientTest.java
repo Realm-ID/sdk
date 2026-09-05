@@ -2,6 +2,7 @@ package dev.realmid.sdk.roles;
 
 import dev.realmid.sdk.FakeServer;
 import dev.realmid.sdk.Realm;
+import dev.realmid.sdk.RealmException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import org.junit.jupiter.api.AfterEach;
@@ -18,6 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** ADR-101 D1's write side — RealmID's role VOCABULARY. */
@@ -113,6 +115,46 @@ class RoleTemplatesClientTest {
         assertFalse(body.contains("assignable_to"), body);
         assertFalse(body.contains("is_system"), body);
         assertFalse(body.contains("optional"), body);
+    }
+
+    /**
+     * role_template_seated (409) is RECOVERABLE — the issuer's
+     * override_seated=true query parameter rescues it. Neither code joins the
+     * general ErrorCode union (matching role_authoring_retired and the rest of
+     * this family), so it survives only via details["server_code"], the same
+     * seam ErrorEnvelopeTest exercises for role_owner_only.
+     */
+    @Test
+    void updateRefusesWithSeatedSentinelWhenPrincipalsAreSeated() {
+        fs.on("PATCH /platforms/01HREALM/role-templates/tpl1", (ex, body) ->
+                FakeServer.Reply.json(409, Map.of("error", Map.of(
+                        "code", "role_template_seated",
+                        "message", "principals are seated at this template"))));
+        RealmException e = assertThrows(
+                RealmException.class,
+                () -> realm.roleTemplates().update("tpl1", RoleTemplatePatch.displayName("x")));
+        assertEquals(409, e.getHttpStatus());
+        assertEquals("role_template_seated", e.getDetails().get("server_code"),
+                "the specific code vanished: " + e.getDetails());
+    }
+
+    /**
+     * role_template_seat_check_failed (503) is UNCONDITIONAL — unlike
+     * role_template_seated, override_seated=true does NOT rescue it, because
+     * there is no seat count to override, only an inability to compute one.
+     */
+    @Test
+    void deleteRefusesWithSeatCheckFailedSentinelWhenCountCannotBeTaken() {
+        fs.on("DELETE /platforms/01HREALM/role-templates/tpl1", (ex, body) ->
+                FakeServer.Reply.json(503, Map.of("error", Map.of(
+                        "code", "role_template_seat_check_failed",
+                        "message", "seat count could not be taken"))));
+        RealmException e = assertThrows(
+                RealmException.class,
+                () -> realm.roleTemplates().delete("tpl1"));
+        assertEquals(503, e.getHttpStatus());
+        assertEquals("role_template_seat_check_failed", e.getDetails().get("server_code"),
+                "the specific code vanished: " + e.getDetails());
     }
 
     /** Deleting the recipe leaves the stamped roles standing; the count says so. */

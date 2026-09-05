@@ -156,6 +156,11 @@ before adding them), full suite green. `go/0.57.1` → `0.57.2` per the
 "first PR touching `go/` after a release bumps the const" rule (`0.57.1` was
 already tagged). ts: two new tests in `role-templates.test.ts`, full suite
 330/330 green, `tsc --noEmit` clean; `@realm-id/sdk` `0.50.0` → `0.50.1`.
+java: same treatment as ts (Javadoc on `RoleTemplatesClient.update`/`.delete`,
+two new tests in `RoleTemplatesClientTest` reading
+`getDetails().get("server_code")` — the exact seam `ErrorEnvelopeTest` already
+exercises for `role_owner_only`), full suite green (320 tests);
+`dev.realmid:sdk` `0.47.0` → `0.47.1`.
 Neither tagged nor published — CHANGELOG entries only, so a later release
 carries real history instead of a gap.
 

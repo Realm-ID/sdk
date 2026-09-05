@@ -91,6 +91,21 @@ public final class RoleTemplatesClient {
      * {@link RoleTemplatePatched#driftedRealms()}, and note that -1 there means
      * "could not count", not "none" (see
      * {@link RoleTemplatePatched#driftUnknown()}).
+     *
+     * <p>May throw a {@link dev.realmid.sdk.RealmException} carrying, via
+     * {@code getDetails().get("server_code")} (the same fallback
+     * {@code role_authoring_retired} uses — this family is not in the general
+     * {@link dev.realmid.sdk.ErrorCode} union):
+     * <ul>
+     *   <li>{@code role_template_seated} (409) — principals are currently
+     *       seated at this template; the write was refused. RECOVERABLE: retry
+     *       with {@code ?override_seated=true} (audited).</li>
+     *   <li>{@code role_template_seat_check_failed} (503) — the seat count
+     *       could not be TAKEN at all ("could not tell" must not read as
+     *       "none"). ⚠️ UNCONDITIONAL — {@code override_seated=true} does NOT
+     *       rescue this one; there is no count to override, only an inability
+     *       to compute one. Do not build a retry loop around it.</li>
+     * </ul>
      */
     public RoleTemplatePatched update(String templateId, RoleTemplatePatch patch) {
         Map<String, Object> b = new LinkedHashMap<>();
@@ -113,6 +128,12 @@ public final class RoleTemplatesClient {
      * removing a role from a realm is a membership change, not a side effect of
      * tidying a vocabulary row.
      * {@link RoleTemplateDeleted#realmsStillHolding()} reports the orphans.
+     *
+     * <p>May throw the same two refusals documented on {@link
+     * #update(String, RoleTemplatePatch)}: {@code role_template_seated} (409,
+     * recoverable via {@code ?override_seated=true}) and {@code
+     * role_template_seat_check_failed} (503, unconditional — no parameter
+     * rescues it).
      */
     public RoleTemplateDeleted delete(String templateId) {
         JsonNode raw = http.request(HttpTransport.Request.of(
