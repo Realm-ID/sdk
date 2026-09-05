@@ -1014,3 +1014,21 @@ in the same repo.
       package's actual surface (React hooks/context; the Firebase ID-token
       adapter) or explicitly decide "thin enough to skip" and record why.
       *(Filed 2026-09-06, W1-A — sdk/ci.yml gains a `web` job.)*
+
+- [ ] `sdk/.github/workflows/ci.yml` — wire `scripts/contract-parity.py` (+ its
+      `scripts/contract-parity.test.py` suite) into CI. It runs today only in
+      `make check`/`make self-test`, because it needs a sibling `issuer/`
+      checkout (`../issuer/docs/swagger.yaml`) that a plain `actions/checkout`
+      on `Realm-ID/sdk` alone does not have — either a composite checkout of
+      both repos, or copying the spec file in as a build artifact. Left
+      unwired this pass because `ci.yml` had a concurrent, unrelated edit live
+      (W1-A's `web` job) and this was not that task.
+      *(Filed 2026-09-06, W1-B.)*
+- [ ] `sdk/scripts/contract-parity.py` — CONTRACTS covers 5 flat-object
+      operations (`integrations.install`/`register`, `auth.listSessions`,
+      `roleTemplates.create`, `userApiKeys.create`). Widen it one entry at a
+      time; it deliberately does NOT attempt `/auth/login`'s grant-type
+      `oneOf` or `RealmConfigPatch`'s nested JSONB knob groups — see the
+      script's own header for why forcing those through the hand-rolled
+      indentation reader would risk inventing drift rather than finding it.
+      *(Filed 2026-09-06, W1-B.)*

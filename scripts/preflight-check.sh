@@ -59,6 +59,20 @@ gate "workflow/Makefile command parity" ./scripts/preflight-parity.sh
 # ci.yml `taxonomy` job, "The three taxonomies agree" step.
 gate "taxonomy parity" python3 scripts/taxonomy-parity.py
 
+# ── contract parity (SDK vs issuer/docs/swagger.yaml) ───────────────────────
+# NOT a ci.yml step yet — this is a repo-local gate, filed in sdk/TODO.md to
+# wire into CI once it has run clean for a while. taxonomy-parity.py above
+# compares the three SDKs against EACH OTHER, which cannot catch all three
+# agreeing and being wrong about the server (see contract-parity.py's own
+# header for the two documented defects that shape covers).
+#
+# The self-test runs FIRST, per the checker-tests rule
+# (scripts/contract-parity.test.py's header cites the same precedent as
+# scripts/release-check.test.sh): a verdict-rendering script must fail as a
+# broken checker, never silently pass as a clean one.
+gate "contract parity: self-test" python3 scripts/contract-parity.test.py
+gate "contract parity (SDK vs swagger.yaml)" python3 scripts/contract-parity.py
+
 # ── changelogs job ──────────────────────────────────────────────────────────
 # ci.yml `changelogs` job, "Every per-package changelog is in descending order".
 gate "changelog order" ./scripts/changelog-hygiene.sh order

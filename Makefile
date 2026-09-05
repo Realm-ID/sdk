@@ -95,7 +95,13 @@ install-hooks:
 # scripts (tag-hygiene.sh, changelog-hygiene.sh, taxonomy-parity.py) predate
 # this pass and have no test files of their own; they are exercised directly
 # by `make check` against this repo's real tree instead.
+#
+# scripts/contract-parity.py is the same "new verdict-rendering script" case —
+# scripts/contract-parity.test.py is its suite, and it runs here AND again
+# (first) as its own gate inside `make check`, since that checker itself runs
+# inside `check`, not only via this target.
 
 .PHONY: self-test
 self-test:
 	@bash scripts/release-check.test.sh
+	@python3 scripts/contract-parity.test.py

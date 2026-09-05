@@ -2591,3 +2591,73 @@ to match the job it sits beside. The new job is appended after `ts` and before
 lands PR #2 second will need to also pin the `web` job's two action refs, or
 the pinning sweep will have missed a job that did not exist when it was
 authored.
+
+## 2026-09-06 — a swagger.yaml contract-parity gate, and why the taxonomy gate could never be one (W1-B)
+
+**What.** New `scripts/contract-parity.py` (+ `scripts/contract-parity.test.py`,
+run first, per the checker-tests rule) checks request/response field names and
+required-ness for five HTTP operations, all three languages, against
+`../issuer/docs/swagger.yaml` — the sibling checkout this umbrella workspace
+treats as the authoritative HTTP contract. Wired into `make check`
+(`scripts/preflight-check.sh`) and `make self-test` (`Makefile`). **NOT**
+wired into `.github/workflows/ci.yml` — a different task (W1-A) is live on
+that file this session, and this gate needs a sibling `issuer/` checkout that
+plain CI (`actions/checkout` on `Realm-ID/sdk` alone) does not have; wiring it
+into CI is filed in `sdk/TODO.md` as its own step (composite checkout of both
+repos, or a spec artifact copied in).
+
+**Why an across-SDK taxonomy check is not a contract check.**
+`scripts/taxonomy-parity.py` compares the three SDKs' error-code lists AGAINST
+EACH OTHER. That is a REAL and different question from "do the SDKs match the
+server" — it can only ever catch one language drifting from its siblings, by
+construction. It cannot catch all three SDKs sharing the same wrong belief
+about the server, because there is nothing outside the three for that
+agreement to be checked against. That is exactly what happened twice, per
+`tests/sdk-e2e/README.md`: every SDK sent a retired `role_id` on
+`integrations.install` (issuer required `permissions` since ADR-101 D7 —
+every real call 400'd) and TS `listSessions` decoded `{sessions: []}` while
+the issuer answers `{items, next_cursor, total}`. Three-way agreement was
+maintained the whole time; it was agreement on the wrong thing. Closing that
+gap needs a FOURTH party in the comparison — the spec — which is what this
+gate adds.
+
+**Scope, deliberately narrow.** Five flat-object contracts: the two the
+documented defects touched (`integrations.install`, `integrations.register`),
+`auth.listSessions`' response envelope, and two ADR-driven write bodies
+(`roleTemplates.create` — ADR-101; `userApiKeys.create` — ADR-100, the
+"absent cap meant no restriction" surface). Deliberately does NOT cover
+`/auth/login`'s grant-type `oneOf` or `RealmConfigPatch`'s nested JSONB knob
+groups — the hand-rolled indentation-based YAML reader (stdlib only, no
+PyYAML, matching `taxonomy-parity.py`'s own no-new-dependency shape) can read
+a flat `required: [...]` + `properties:` block correctly; forcing it through
+a `oneOf` or a multi-level nested object without a real schema library would
+either miss real drift or invent it. Widening the contract list one entry at
+a time is `sdk/TODO.md`'s job, not a one-shot rewrite into a general parser.
+
+**A missing spec fails LOUDLY (exit 2), never silently.** The spec lives in a
+different repo (`issuer/docs/swagger.yaml`, a sibling checkout, not vendored)
+— this workspace has repeatedly shipped a gate that went green by not
+running (`sdk/TODO.md`'s guards-that-report-nothing lesson;
+`todo-ranking-hygiene.py`'s "closure that had not happened"). `check` is
+offline by the Makefile's own contract, so the checked-out file is the
+source of truth, never the live `GET /.well-known/openapi.json`.
+
+**Verified, not assumed — first run found NO drift** in the five contracts
+checked: `python3 scripts/contract-parity.py` exits 0 against the real tree
+(`ts`/`go`/`java` all match `swagger.yaml`'s required fields and property
+sets, including the two previously-documented defects, which are already
+fixed in all three languages). This is a real, checked finding, not an
+assumption that the SDKs are clean — the negative test below proves the
+mechanism would have caught it had it still been broken.
+`scripts/contract-parity.test.py` — 11 assertions, including the load-bearing
+negative case: a throwaway fixture reproducing the exact ADR-101 D7 shape
+(spec requires `permissions`, a planted TS fixture sends `role_id` instead)
+is asserted to report `drift=True` naming that field. A checker that always
+says "PARITY" is a scarier bug than the drift it exists to catch.
+
+**No baseline mechanism added.** The brief asked for one only if the first
+run's true-finding volume were large enough to need triage; it was not (zero
+findings), so none was built. If a future contract addition finds real drift
+that cannot be fixed in the same pass, add `EXTRA_OK`-style documented
+exceptions (see `taxonomy-parity.py`'s own `EXCEPTIONS` dict for the pattern:
+printed every run, never silent) rather than skipping the contract.
