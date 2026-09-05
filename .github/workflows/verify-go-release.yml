@@ -56,13 +56,24 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # GitHub's implicit default omits pipefail
+    shell: bash
+
+concurrency:
+  # NOT cancel-in-progress: a cancelled run of this workflow can leave
+  # half-applied state behind. Queue instead.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     name: tag hygiene + const Version == tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Tags are needed for the workflow_dispatch path, which resolves the
           # newest go/v* itself.
@@ -85,7 +96,7 @@ jobs:
           echo "ref=$REF"                     >> "$GITHUB_OUTPUT"
           echo "want=${REF#go/v}"             >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         if: github.event_name == 'push'
         with:
           go-version: '1.26'
