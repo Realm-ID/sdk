@@ -13,6 +13,29 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.58.1` — doc-only: a collision that cannot happen (2026-09-05)
+
+### Fixed — `IdentityResolvedEvent.UserID`'s doc comment described an impossible failure
+
+The comment told partners that keying a mirror on `UserID` alone "silently
+splits or collides humans across orgs". Only the SPLIT is possible: `sub` is
+the per-tenant `users` row id, so one human in two orgs has two of them. A
+COLLISION is unrepresentable — the issuer's `users` is one global table with
+`id UUID PRIMARY KEY` and a row id is never rewritten, so no two principals
+can share a `sub`. The comment now names the failure that can occur and says
+why the other cannot, so nobody writes de-duplication they will never need.
+
+**No behaviour change; this is a comment.** It is a release only because the
+Go module tag IS the release: `go/v0.58.0` is immutable and already resolved
+by the proxy, so any change under `go/` — a comment included — must answer to
+a new version rather than re-point an old one. `scripts/tag-hygiene.sh
+unreleased-go` is what makes that a build failure instead of a convention.
+
+The same correction lands in `ts/src/identity-resolved.ts`,
+`java/.../IdentityResolvedEvent.java`, `SPEC.md` §4.1.7 and
+`docs/design/pre-mint-hook.md` with no version bump — neither of those
+languages publishes from an immutable tag.
+
 ## go `0.58.0` — `OnIdentityResolved`, the seam before the derived claims (2026-09-05)
 
 ### Added — `Config.OnIdentityResolved`
