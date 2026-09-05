@@ -571,6 +571,14 @@ export class AuthClient {
      * close.
      */
     private readonly scopes?: ScopesHandler,
+    /**
+     * The post-identity, pre-derived-claims hook (design doc:
+     * `../docs/design/pre-mint-hook.md`). Fires immediately before
+     * `productRoles` / `scopes` are resolved, on every lane that resolves
+     * them — see {@link IdentityResolvedHandler} for the full contract,
+     * including why it is NOT retried and MUST be idempotent.
+     */
+    private readonly onIdentityResolved?: IdentityResolvedHandler,
   ) {}
 
   /**
