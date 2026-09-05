@@ -42,6 +42,7 @@ import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
 import type { ProductRolesHandler } from "./product-roles.js";
 import type { ScopesHandler } from "./scopes-handler.js";
+import type { IdentityResolvedHandler } from "./identity-resolved.js";
 import type { RevocationCache } from "./revocation.js";
 import {
   AUTHORITY_STALE_SKEW_MS,
@@ -145,6 +146,29 @@ export interface RealmConfig {
    * a config hook; that is a management resource.
    */
   scopes?: ScopesHandler;
+
+  /**
+   * The post-identity, pre-derived-claims hook (design doc:
+   * `../docs/design/pre-mint-hook.md`). Fires immediately before
+   * `productRoles` / `scopes` are resolved, on every lane where they are
+   * resolved — login, otp, password, mfa_verify, tenant_choice (including a
+   * later tenant SWITCH) and refresh. Typically used to seed the row those two
+   * handlers read, closing the gap where a brand-new user's first login
+   * resolves against a mirror that does not exist yet.
+   *
+   * Optional. Undefined means no-op — existing consumers are unaffected.
+   *
+   * ⚠️ Unlike `productRoles`/`scopes`, this handler is called EXACTLY ONCE per
+   * derived-claims resolution — never retried — because it is expected to have
+   * side effects. It MUST be idempotent (upsert, don't insert): a user can
+   * retry a failed login, and a tenant switch re-fires it for a second tenant.
+   *
+   * ⚠️ Throwing REFUSES THE MINT, unconditionally — there is no fail-open
+   * knob. A partner who wants best-effort behaviour returns normally after
+   * handling their own error. See {@link IdentityResolvedHandler} for the
+   * full contract.
+   */
+  onIdentityResolved?: IdentityResolvedHandler;
 }
 
 export interface Realm {
@@ -351,7 +375,15 @@ export function createRealm(cfg: RealmConfig): Realm {
       authority: cfg.authority,
       notifyAuthorityChanged: (change: AuthorityChange) =>
         notifyAuthorityChanged(cfg.authority, cfg.clock, change),
-      auth: new AuthClient(client, cfg.realmId, originResolver, cfg.revocation, cfg.productRoles, cfg.scopes),
+      auth: new AuthClient(
+        client,
+        cfg.realmId,
+        originResolver,
+        cfg.revocation,
+        cfg.productRoles,
+        cfg.scopes,
+        cfg.onIdentityResolved,
+      ),
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),
       apiKeys: new ApiKeysClient(client, cfg.realmId),

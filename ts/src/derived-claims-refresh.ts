@@ -36,6 +36,7 @@
 
 import { resolveProductRoles, type ProductRolesHandler } from "./product-roles.js";
 import { resolveScopes, type ScopesHandler } from "./scopes-handler.js";
+import { fireIdentityResolved, type IdentityResolvedHandler } from "./identity-resolved.js";
 
 /** The subset of a minted token this module reads and rewrites in place. */
 export interface RefreshMintResult {
@@ -52,6 +53,16 @@ export interface RefreshMintResult {
 export interface RefreshMintDeps {
   productRoles?: ProductRolesHandler;
   scopes?: ScopesHandler;
+  /**
+   * The post-identity, pre-derived-claims hook (design doc:
+   * `../docs/design/pre-mint-hook.md`, OQ-1). Fires on this lane too — a
+   * BFF's refresh route is the ONLY tenant-choice route it has, since every
+   * middleware requires `tenant_id` on refresh, so skipping this lane would
+   * leave the exact deployment class that asked for this hook uncovered.
+   */
+  onIdentityResolved?: IdentityResolvedHandler;
+  /** Needed only to populate {@link IdentityResolvedEvent.realmId}. */
+  realmId: string;
   mint(req: {
     refreshToken: string;
     tenantId: string;
@@ -80,7 +91,9 @@ export async function enrichRefreshMint(
   out: RefreshMintResult | undefined,
   tenantId: string,
 ): Promise<void> {
-  if (!deps.productRoles && !deps.scopes) return;
+  // The hook must be consulted here too — a hook-only consumer (no
+  // productRoles, no scopes) would otherwise never fire on refresh at all.
+  if (!deps.productRoles && !deps.scopes && !deps.onIdentityResolved) return;
   if (!out || !out.refreshToken) {
     // Nothing to re-mint against. A credential-bootstrapped session gets no
     // refresh token at all (ADR-089), so this is a legitimate shape and not an
@@ -91,15 +104,38 @@ export async function enrichRefreshMint(
   // on a tenant switch they differ, and resolving for the requested tenant while
   // the token is minted for another is a silent wrong answer.
   const effectiveTenant = out.tenantId || tenantId;
-  const userId = peekJwtSubject(out.accessToken);
-  if (!userId) {
-    // Deliberately NOT an error. The peek is a convenience over a token the
-    // issuer signed; if its shape ever changes we degrade to the old behaviour
-    // (the claim is omitted) rather than breaking every refresh. The regression
-    // tests assert the subject reaches the handler, so this branch cannot
-    // silently become the normal path without turning them red.
+  const fields = peekJwtUserFields(out.accessToken);
+  if (!fields.sub) {
+    // Deliberately NOT an error for everyone else. The peek is a convenience
+    // over a token the issuer signed; if its shape ever changes we degrade to
+    // the old behaviour (the claim is omitted) rather than breaking every
+    // refresh. The regression tests assert the subject reaches the handler, so
+    // this branch cannot silently become the normal path without turning them
+    // red.
+    //
+    // ⚠️ EXCEPT when onIdentityResolved is configured: its contract is
+    // "identity is known", and silently not firing here is exactly the
+    // failure Traide came to us with. Refuse the refresh instead. This
+    // reaches zero current consumers — nobody can have configured a handler
+    // that does not exist yet.
+    if (deps.onIdentityResolved) {
+      throw new Error(
+        "onIdentityResolved is configured but the refreshed token's subject could not be read",
+      );
+    }
     return;
   }
+  const userId = fields.sub;
+
+  await fireIdentityResolved(deps.onIdentityResolved, {
+    flow: "refresh",
+    realmId: deps.realmId,
+    tenantId: effectiveTenant,
+    userId,
+    role: "",
+    email: fields.email,
+    displayName: fields.name,
+  });
 
   const roles = await resolveProductRoles(deps.productRoles, effectiveTenant, userId);
   const scopes = await resolveScopes(deps.scopes, effectiveTenant, userId);
@@ -138,16 +174,37 @@ export async function enrichRefreshMint(
  * regardless.
  */
 export function peekJwtSubject(jwt: string): string {
+  return decodeJwtPayload(jwt)?.sub ?? "";
+}
+
+/**
+ * Decodes a JWT payload WITHOUT verifying it and returns its `sub`, `email`,
+ * and `name` claims (each `""` on anything malformed or absent) — the `email`
+ * / `displayName` source for {@link IdentityResolvedEvent} on the refresh
+ * lane, where the wire response carries neither directly (unlike the login
+ * lanes, whose `user` object already has them). Same non-verification
+ * rationale as {@link peekJwtSubject}.
+ */
+export function peekJwtUserFields(jwt: string): { sub: string; email: string; name: string } {
+  const c = decodeJwtPayload(jwt);
+  return { sub: c?.sub ?? "", email: c?.email ?? "", name: c?.name ?? "" };
+}
+
+function decodeJwtPayload(jwt: string): { sub?: string; email?: string; name?: string } | undefined {
   const parts = (jwt ?? "").split(".");
-  if (parts.length !== 3) return "";
+  if (parts.length !== 3) return undefined;
   const payload = parts[1];
-  if (payload === undefined) return "";
+  if (payload === undefined) return undefined;
   try {
     const padded = payload.replace(/-/g, "+").replace(/_/g, "/");
     const json = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-    const c = JSON.parse(json) as { sub?: unknown };
-    return typeof c.sub === "string" ? c.sub : "";
+    const c = JSON.parse(json) as { sub?: unknown; email?: unknown; name?: unknown };
+    return {
+      sub: typeof c.sub === "string" ? c.sub : undefined,
+      email: typeof c.email === "string" ? c.email : undefined,
+      name: typeof c.name === "string" ? c.name : undefined,
+    };
   } catch {
-    return "";
+    return undefined;
   }
 }

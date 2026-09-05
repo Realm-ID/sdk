@@ -23,6 +23,7 @@ import {
   type ProductRolesHandler,
 } from "./product-roles.js";
 import { resolveScopes, type ScopesHandler } from "./scopes-handler.js";
+import { fireIdentityResolved, type AuthFlow, type IdentityResolvedHandler } from "./identity-resolved.js";
 import { enrichRefreshMint } from "./derived-claims-refresh.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
 import { paginate, readPage, type Paginated, type Page, type PageOpts } from "./pagination.js";
@@ -645,7 +646,7 @@ export class AuthClient {
     // ADR-102 D10 — mint once the tenant is settled. See the doc comment.
     const settled = settledTenant(session);
     if (settled) {
-      await this.mintOrThrowWithAnchor(session, settled, req.rolePermissions);
+      await this.mintOrThrowWithAnchor(session, settled, "login", req.rolePermissions);
     }
     return session;
   }
@@ -661,10 +662,11 @@ export class AuthClient {
   private async mintOrThrowWithAnchor(
     session: LoginResponse,
     tenantId: string,
+    flow: AuthFlow,
     rolePermissions?: string[],
   ): Promise<void> {
     try {
-      await this.mintProductRoles(session, tenantId, rolePermissions);
+      await this.mintProductRoles(session, tenantId, rolePermissions, flow);
     } catch (err) {
       throw new LoginMintError(session, tenantId, err);
     }
@@ -700,7 +702,7 @@ export class AuthClient {
     if (!known) {
       throw new Error(`tenant ${tenantId} is not one of this session's memberships`);
     }
-    await this.mintProductRoles(session, tenantId, rolePermissions);
+    await this.mintProductRoles(session, tenantId, rolePermissions, "tenant_choice");
   }
 
   /**
@@ -723,7 +725,29 @@ export class AuthClient {
     session: LoginResponse,
     tenantId: string,
     rolePermissions?: string[],
+    flow: AuthFlow = "login",
   ): Promise<void> {
+    // The post-identity, pre-derived-claims hook — first statement of the
+    // body, ABOVE the round-trip short-circuit below, so it fires on every
+    // call regardless of whether productRoles/scopes are configured. See
+    // identity-resolved.ts's module doc for why the guarantee is stated this
+    // way rather than "once per authentication".
+    let roleForTenant: string | undefined;
+    for (const t of session.tenants ?? []) {
+      if (t.id === tenantId) {
+        roleForTenant = t.role;
+        break;
+      }
+    }
+    await fireIdentityResolved(this.onIdentityResolved, {
+      flow,
+      realmId: this.realmId,
+      tenantId,
+      userId: session.user?.id ?? "",
+      role: roleForTenant ?? "",
+      email: session.user?.email ?? "",
+      displayName: session.user?.displayName ?? "",
+    });
     if (!this.productRoles && !this.scopes && session.accessToken) return;
     // The handler's error surfaces as a ProductRolesError and is NOT mapped
     // into a RealmError. The session stays intact so the caller can recover.
@@ -771,6 +795,8 @@ export class AuthClient {
       {
         productRoles: this.productRoles,
         scopes: this.scopes,
+        onIdentityResolved: this.onIdentityResolved,
+        realmId: this.realmId,
         mint: (req) => this.token(req),
       },
       out,
@@ -858,7 +884,7 @@ export class AuthClient {
     // Go SDK's AST-derived lane guard found it; the defect report that prompted
     // the guard named only mfaVerify.
     const otpSettled = settledTenant(session);
-    if (otpSettled) await this.mintOrThrowWithAnchor(session, otpSettled);
+    if (otpSettled) await this.mintOrThrowWithAnchor(session, otpSettled, "otp");
     return session;
   }
 
@@ -913,7 +939,7 @@ export class AuthClient {
     // product-roles handler runs and the session is re-minted. A password login
     // is a login, so it must not be the one lane returning a role-blind token.
     const settled = settledTenant(session);
-    if (settled) await this.mintOrThrowWithAnchor(session, settled);
+    if (settled) await this.mintOrThrowWithAnchor(session, settled, "password");
     return session;
   }
 
@@ -956,7 +982,7 @@ export class AuthClient {
     // Without this, a partner who requires MFA has every human denied by their
     // own ScopePolicy gate immediately after passing the second factor.
     const mfaSettled = settledTenant(session);
-    if (mfaSettled) await this.mintOrThrowWithAnchor(session, mfaSettled);
+    if (mfaSettled) await this.mintOrThrowWithAnchor(session, mfaSettled, "mfa_verify");
     return session;
   }
 

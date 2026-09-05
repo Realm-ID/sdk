@@ -335,12 +335,15 @@ test("refresh lane: a failing hook refuses the re-mint", async () => {
   });
 
   await assert.rejects(() => rig.drive(), IdentityResolvedError);
-  assert.equal(rig.mints.length, 0, "the re-mint must never be sent once the hook has refused it");
+  // rig.mints already carries the FIRST /auth/token call `drive()` makes
+  // before `enrichRefresh` ever runs; the assertion is that the hook's
+  // failure prevents a SECOND one (the re-mint), not that the count is zero.
+  assert.equal(rig.mints.length, 1, "the re-mint must never be sent once the hook has refused it");
 });
 
 test("refresh lane: an unreadable subject REFUSES the refresh when the hook is configured", async () => {
   const rig = refreshRig({ onIdentityResolved: () => {}, refreshSub: "" });
 
   await assert.rejects(() => rig.drive());
-  assert.equal(rig.mints.length, 0, "no re-mint is attempted once the subject cannot be read");
+  assert.equal(rig.mints.length, 1, "no re-mint is attempted once the subject cannot be read");
 });

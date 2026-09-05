@@ -336,3 +336,8 @@ export type { ProductRolesHandler } from "./product-roles.js";
 export { ScopesError } from "./scopes-handler.js";
 export type { ScopesHandler } from "./scopes-handler.js";
 export { needsTenantChoice, selectTenant } from "./auth.js";
+// The post-identity, pre-derived-claims hook (design doc:
+// `../docs/design/pre-mint-hook.md`). Configure it as `onIdentityResolved` on
+// `createRealm`, alongside `productRoles` and `scopes`.
+export { IdentityResolvedError } from "./identity-resolved.js";
+export type { AuthFlow, IdentityResolvedEvent, IdentityResolvedHandler } from "./identity-resolved.js";

@@ -4,6 +4,51 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.51.0 — `onIdentityResolved`, the post-identity, pre-derived-claims hook (2026-09-05)
+
+Design doc: `../docs/design/pre-mint-hook.md` (all six open questions
+resolved by the owner, §11a).
+
+### Added — `RealmConfig.onIdentityResolved`
+
+Closes a gap in `productRoles` / `scopes`: a partner resolving either handler
+by reading their own local mirror of the user gets a claim-blind token on a
+brand-new user's first login, because the mint runs before their post-auth
+reconciler has ever written that row — and the resolvers cannot seed it
+themselves, because side-effect freedom is their contract and the SDK
+retries them up to three times per mint.
+
+`onIdentityResolved` is the seam immediately before `productRoles` / `scopes`
+are resolved. Configured on `RealmConfig` (never on middleware options), so a
+direct-client caller and a middleware caller both get it through the same
+code path — no `middleware.ts` changes.
+
+- **Fires** on every lane that resolves the derived claims: `login`, `otp`,
+  `password`, `mfa_verify`, `tenant_choice` (`completeLogin`, including a
+  later tenant SWITCH) **and refresh** (owner ruling, OQ-1 — in a BFF
+  deployment the refresh route is the ONLY tenant-choice route, since every
+  middleware requires `tenant_id` on it). Does NOT fire on a direct
+  `auth.token()` call or on a credential-bootstrapped session — there is no
+  identity to resolve.
+- **Its error refuses the mint, unconditionally — no fail-open knob** (OQ-2).
+  The identical veto already exists via `Config.Scopes` today; a partner who
+  wants best-effort behaviour returns normally after handling their own
+  error. On the login lanes the session rides the existing
+  `LoginMintError` anchor, exactly as a `ScopesError` does today.
+- **No synthetic deadline, no `Promise.race`** (OQ-3) — the SDK cannot bound
+  `productRoles` / `scopes` today either, so bounding only the new hook would
+  be theatre.
+- **Not retried. Must be idempotent** — upsert, don't insert. A retried
+  login re-fires it from the top; a tenant switch re-fires it for the new
+  tenant.
+- On the refresh lane, an unreadable JWT subject now REFUSES the refresh
+  **only when `onIdentityResolved` is configured** — reaches zero current
+  consumers, since nobody can have configured a handler that does not exist
+  yet.
+- ts does **not** gain `OnAuthSuccess` in this change (OQ-4, deferred).
+
+Non-breaking: `RealmConfig` gains one optional property.
+
 ## 0.50.1 — issuer v0.121.0's two role-template seat-check codes, plus `overrideSeated` (2026-09-05)
 
 ### Documented — `role_template_seated` / `role_template_seat_check_failed`
