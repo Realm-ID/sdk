@@ -50,6 +50,8 @@ PAIRS=(
   "go: unit tests|go test ./..."
   "ts: typecheck|npm run typecheck"
   "ts: unit tests|npm test"
+  "web: typecheck|npm run typecheck"
+  "web: unit tests|npm test"
   "go: unreleased-go|./scripts/tag-hygiene.sh unreleased-go"
   "changelogs: order|./scripts/changelog-hygiene.sh order"
   "taxonomy|scripts/taxonomy-parity.py"

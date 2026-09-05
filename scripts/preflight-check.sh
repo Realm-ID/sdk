@@ -98,6 +98,19 @@ else
   skip "ts: unit tests" "ts/node_modules is missing — run 'cd ts && npm ci' once (needs network), then re-run make check"
 fi
 
+# ── web job ─────────────────────────────────────────────────────────────────
+# ci.yml `web` job's typecheck + test steps. Same loud-skip shape as ts above
+# (no npm ci here — no network in `check`). `npm test` here runs only the 4
+# packages that define a `test` script (core, admin, bff-realmid, google) via
+# `--workspaces --if-present`; react and firebase have none — see sdk/TODO.md.
+if [ -d web/node_modules ]; then
+  gate "web: typecheck (all packages)" bash -c 'cd web && npm run typecheck'
+  gate "web: unit tests (core, admin, bff-realmid, google)" bash -c 'cd web && npm test'
+else
+  skip "web: typecheck (all packages)" "web/node_modules is missing — run 'cd web && npm ci' once (needs network), then re-run make check"
+  skip "web: unit tests (core, admin, bff-realmid, google)" "web/node_modules is missing — run 'cd web && npm ci' once (needs network), then re-run make check"
+fi
+
 # java/'s gradle job is intentionally absent — see Makefile header.
 
 ELAPSED=$(( $(date +%s) - START ))

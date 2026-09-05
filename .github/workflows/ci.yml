@@ -172,6 +172,44 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  # `sdk/web/packages/{core,admin,bff-realmid,google}` each define a `test`
+  # script (`node --test --import tsx ...`) and were run NOWHERE — not here,
+  # not locally — despite every one of them shipping to npm. `react` and
+  # `firebase` have no `test` script at all; `--workspaces --if-present`
+  # quietly skips those two rather than failing, which is why they are called
+  # out below instead of relied on to fail loudly like the ts/go gates do.
+  web:
+    name: Web (tsc + node --test, per package)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      # Same ordering rationale as the `ts` job above: typecheck before the
+      # suite, because node --test runs each file through tsx (transpile
+      # only, no typecheck). Runs across all 6 packages via
+      # `--workspaces --if-present`.
+      - name: Typecheck (all packages)
+        run: npm run typecheck
+
+      # `--workspaces --if-present` runs the 4 packages that define `test`
+      # (core, admin, bff-realmid, google) and silently no-ops on the 2 that
+      # don't (react, firebase) — see sdk/TODO.md for that gap; it is a known
+      # absence, not a passing gate.
+      - name: Unit tests (core, admin, bff-realmid, google)
+        run: npm test
+
   java:
     name: Java (gradle test)
     runs-on: ubuntu-latest

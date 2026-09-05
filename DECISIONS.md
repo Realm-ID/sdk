@@ -2543,3 +2543,51 @@ nothing is tagged under it.
 
 `actionlint` and `shellcheck` clean; every mode exercised locally against the
 real repository, since Actions is still down.
+
+## 2026-09-06 — `sdk/web/packages/*` gain a CI runner (W1-A)
+
+**What.** `.github/workflows/ci.yml` gains a `web` job: checkout, Node 20 (npm
+cache keyed on `web/package-lock.json`), `npm ci` in `web/`, `npm run
+typecheck` then `npm test`, both via the workspace root's existing
+`--workspaces --if-present` scripts — same shape as the `ts` job (typecheck
+before the suite, since `node --test` runs each file through `tsx`, transpile
+only, no typecheck). `scripts/preflight-check.sh` gained the matching local
+gate (loud-skip on missing `web/node_modules`, per the `ts` gate's own
+pattern — a skip is not a pass) and `scripts/preflight-parity.sh` gained the
+`web:` command pairs so a drift between the workflow and the local script is
+caught the same way it already is for `ts`.
+
+**Why.** `sdk/web/packages/{core,admin,bff-realmid,google}` each define a
+`test` script and ran NOWHERE — not in CI, not in `make check` — despite
+shipping to npm. `react` and `firebase` define no `test` script at all.
+
+**Verified, not assumed.** Ran the new local path for real: `cd web && rm -rf
+node_modules && npm ci` (this host's prior `web/node_modules` had a
+linux-arm64 esbuild binary left over from an earlier Docker-bound session —
+darwin-arm64 tsx/esbuild failed until reinstalled clean, the same class of
+trap as the `ui/web` rollup-native-binary issue), then `bash
+scripts/preflight-check.sh`: 209 tests across the 4 gated packages (core 90,
+admin 96, bff-realmid 11, google 12), all green, typecheck clean across all 6
+packages. Also verified fresh in `node:20-bookworm-slim` (mirrors
+`ubuntu-latest`) to rule out any host-specific pass. `admin`'s `pretest`
+(`npm --prefix ../../../ts run build`) resolves `tsc` even when `ts/`'s own
+`node_modules` is absent, because `npm run`'s ancestor-`node_modules/.bin`
+PATH augmentation reaches `web/node_modules/.bin/tsc` (hoisted by the `web/`
+workspace) — confirmed by moving `ts/node_modules` aside and re-running; the
+`web` job therefore needs only `web/`'s own `npm ci`, not a second one in
+`ts/`.
+
+**react/firebase — reported, not invented.** Per the plan's own instruction,
+no placeholder tests were written for either package. Filed in `sdk/TODO.md`:
+both ship to npm gated by nothing.
+
+**Known conflict, left for a human.** `Realm-ID/sdk` PR #2
+(`ci/workflow-hygiene-clean`) SHA-pins every action reference in `ci.yml`
+(`actions/checkout@v7` → a pinned SHA, etc.) and adds a repo-wide
+`defaults.run.shell: bash`. This change adds the `web` job using the
+CURRENT unpinned `main` style (`actions/checkout@v7`, `actions/setup-node@v5`)
+to match the job it sits beside. The new job is appended after `ts` and before
+`java`, so the diffs should not textually conflict on merge — but whoever
+lands PR #2 second will need to also pin the `web` job's two action refs, or
+the pinning sweep will have missed a job that did not exist when it was
+authored.

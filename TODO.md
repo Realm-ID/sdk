@@ -1002,3 +1002,15 @@ in the same repo.
       authorize on this" warning attached and must not weaken the malformed-input
       behaviour, which differs per call site today (null vs "" vs null).
       *(Filed 2026-09-01, java `0.44.0`.)*
+
+- [ ] `web/packages/react/package.json`, `web/packages/firebase/package.json`
+      — these two browser packages define NO `test` script at all (every other
+      web package does). The new `web` CI job (`.github/workflows/ci.yml`) and
+      `make check` run `npm test --workspaces --if-present` across
+      `web/packages/*`, which silently no-ops on these two rather than
+      failing — they are published to npm (`@realm-id/web-react`,
+      `@realm-id/web-firebase`) completely ungated by any test. Do not paper
+      over this with a placeholder test; write real coverage for each
+      package's actual surface (React hooks/context; the Firebase ID-token
+      adapter) or explicitly decide "thin enough to skip" and record why.
+      *(Filed 2026-09-06, W1-A — sdk/ci.yml gains a `web` job.)*
