@@ -607,7 +607,7 @@ re-open them, and do not treat §11's phrasing as still-open where it conflicts.
 - **OQ-4 — do ts/java also gain `OnAuthSuccess`? NO, deferred** to `sdk/TODO.md`
   as its own item. Out of scope here.
 - **OQ-5 — `SPEC.md` §4.1.2 vs the code.** CORRECT THE SPEC. Root `CLAUDE.md`'s
-  "when prose and code disagree, code wins" governs; add §4.1.5 for this hook
+  "when prose and code disagree, code wins" governs; add §4.1.7 for this hook
   and record the correction in `sdk/DECISIONS.md`. ⚠️ Do NOT "fix the SDK to
   match SPEC.md" — that inverts the rule.
 - **OQ-6 — a distinct middleware tenant-choice route?** FILE in `sdk/TODO.md`,
@@ -701,7 +701,7 @@ in TS (`ts/src/realm.ts:129`), with a written rationale
 (`go/realmid.go:112-116`). `sdk/TODO.md:71` says the SPEC is law and the SDK
 must be fixed; root `CLAUDE.md` says code wins.
 
-- **OPTION A (recommended): correct the SPEC**, add a §4.1.5 for
+- **OPTION A (recommended): correct the SPEC**, add a §4.1.7 for
   `onIdentityResolved` describing the Config-field wiring, and note the
   §4.1.2 correction in `sdk/DECISIONS.md`. The code's rationale is written down
   and is right; the SPEC sentence was a prediction, not a decision.
@@ -750,7 +750,7 @@ is hard at all. Recommend: **file in `sdk/TODO.md`**, do not build here.
   immutable and can never go green (root `CLAUDE.md` § SDK row).
 - A dated `sdk/DECISIONS.md` entry in the same turn, recording the §5 ruling
   and the OQ resolutions.
-- `SPEC.md` §4.1.5 per OQ-5.
+- `SPEC.md` §4.1.7 per OQ-5 (NOT §4.1.5 — that number was already taken by "`login` is not the only lane that mints"; the new section sits after §4.1.6).
 - `docs/integration-guide.md` and `docs/partner-integration-guide.md` need the
   hook documented next to the resolvers; the partner guide is the one Traide
   can actually read (`issuer/docs/` is private).

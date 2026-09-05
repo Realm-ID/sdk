@@ -325,6 +325,32 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > both directions before and after. RCA: `DECISIONS.md` 2026-08-25.
 
 
+## `onAuthSuccess` exists only in Go, and only in middleware (OQ-4, deferred 2026-09-05)
+
+`OnAuthSuccess` is a field on Go's `MiddlewareOptions` (`go/middleware.go:186`).
+It has **no ts or java equivalent at all** — `grep -rin authsuccess ts/src
+java/src web` returns zero hits; `ts/src/middleware.ts:71` has only
+`onAuthFailure` and `java/.../MiddlewareConfig.java:67-80` exposes no hook
+accessor. It is also absent from Go's own DIRECT-client path.
+
+Deliberately NOT addressed by the `OnIdentityResolved` work (spec OQ-4): that
+hook is configured on `Config`/`RealmConfig`/`Realm.Builder` and therefore
+needed no middleware surface in any language. Whether ts and java should also
+gain a post-auth hook is a separate question with its own consumers.
+
+## The middleware has no tenant-choice route (OQ-6, filed 2026-09-05)
+
+All three middlewares route only Login/Logout/Refresh/MFAVerify
+(`go/middleware.go:368-390` and its ts/java analogues). `CompleteLogin` — the
+tenant-choice mint — is a direct-API call the middleware never sees.
+
+Consequence, and the reason this is filed rather than merely noted: all three
+middlewares REQUIRE `tenant_id` on the refresh route, so in a BFF deployment
+**the refresh route is doing the tenant-choice job**. That is what forced
+`OnIdentityResolved` to fire on the refresh lane (OQ-1) — the alternative was a
+known hole in exactly the deployment class that asked for the hook. A real
+tenant-choice route would let the two concerns separate.
+
 ## Cross-language parity gaps
 
 > **An SDK↔issuer E2E suite now exists: `tests/sdk-e2e/` in the umbrella repo**

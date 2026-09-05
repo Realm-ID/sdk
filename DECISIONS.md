@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-91 entries total — 36 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+92 entries total — 37 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false](#2026-09-05-onidentityresolved-the-hook-a-partner-could-not-build-for-themselves-and-the-two-things-everyone-called-it-that-were-false)
 - [2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it](#2026-09-05-role-template-seat-checks-override_seated--owner-ruling-an-sdk-must-not-report-an-error-whose-stated-remedy-is-unreachable-through-it)
 - [2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join](#2026-09-05-role-template-seat-checks--two-new-refusals-stayed-out-of-the-general-taxonomy-on-purpose-matching-the-family-they-join)
 - [2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject](#2026-09-04-changelog-gate--has_entry-matched-a-version-anywhere-in-a-headings-prose-not-as-its-own-subject)
@@ -103,6 +104,106 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false
+
+**Problem.** A partner (Traide) resolves their authorization claim inside
+`Config.Scopes` by reading their own local `users` row, which their reconciler
+writes inside `OnAuthSuccess`. The mint runs first, so a brand-new user's first
+login resolves against a row that does not exist yet and receives a
+**scope-less token**. They repaired it with an extra `/auth/token` round trip
+after the reconciler — on every login, permanently, in their auth path.
+
+**The cause is OUR contract, which is why they could not fix it.**
+`ScopeResolver.Resolve` is documented side-effect-free (`go/scopes_handler.go:28-33`)
+*because* we retry it — `productRolesAttempts = 3`, backoff `{50ms, 150ms}`
+(`go/product_roles.go:74,76`). Seeding from `Resolve` would run their write up
+to three times per mint. They owned no earlier seam.
+
+**Two false beliefs were removed before anything was designed, and both would
+have produced worse work.**
+
+1. **"Just document a guarantee that `Config.Scopes` runs after `OnAuthSuccess`."**
+   Investigated first, on the owner's instruction, precisely because it would
+   have been nearly free if true. **It is false on every lane, in all three
+   SDKs.** On login/OTP/password/MFA-verify the mint happens *inside* `Auth.*`,
+   which returns before the middleware fires the hook; on refresh the
+   scope-resolving re-mint is an explicit statement *above* the hook block
+   (`go/middleware.go:590` then `:598`). Had we written that guarantee on the
+   assumption it "probably already holds", the partner would have deleted a
+   working repair and shipped scope-less tokens to production.
+2. **"A pre-mint hook."** The partner's name, and ours until the design pass.
+   **The first mint IS `POST /auth/login`**, and identity and tenant are only
+   knowable from its response. There is no seam before the first mint on any
+   lane. The real seam is before the DERIVED-CLAIMS mint, which is what
+   `OnIdentityResolved` names. Shipping the partner's name would have baked a
+   factually false claim into a public API in three languages.
+
+A third correction, smaller but the same shape: **`OnAuthSuccess` is Go-only
+AND middleware-only** (zero hits for `authsuccess` in `ts/src`, `java/src`,
+`web`; absent from Go's own direct-client path). So this was never "extend an
+existing hook to two more languages" — it is a new three-language surface, and
+it had to work without the middleware.
+
+**Decision — the seam, and what it buys.** `mintProductRoles` and
+`enrichRefreshMint`, configured on `Config` / `RealmConfig` / `Realm.Builder`,
+**never on middleware options**. That single choice means **zero middleware
+changes in any language** and direct-client support for free.
+
+**THE CRUX: the hook's error refuses the mint, unconditionally, with no
+fail-open knob.** The objection to weigh was real — this looks like handing a
+relying party a veto over authentication for a whole realm. Two verified facts
+dissolved it:
+
+- **The veto already exists.** A failing `Config.Scopes` already fails every
+  login on that realm (`go/scopes_handler.go:114` → `go/auth.go:658` →
+  `go/auth.go:561`). This adds no new class of failure.
+- **It cannot fail an authentication, only the DELIVERY of a session.**
+  `LoginMintError` hands the session back rather than discarding it
+  (`go/auth.go:562-565`); the issuer-side session already exists.
+
+Against the two house precedents: the **seat-guard** shape applies (do not
+proceed on an unknown), and the **revocation fail-open** shape does not — both
+of its arguments fail here, because this is not "never worse than the status
+quo" (there is no status quo to preserve) and it makes no datastore a hard
+dependency of anything that did not already depend on it.
+
+Owner rulings, 2026-09-05: **fires on refresh as well as login** — all three
+middlewares require `tenant_id` on the refresh route and none has a
+tenant-choice route, so in a BFF deployment the refresh route IS the
+tenant-choice route, and login-only would have shipped a known hole in exactly
+the deployment class that asked for this. **No fail-open knob** — a partner
+expresses fail-open by returning nil, and adding a knob later is additive while
+removing one is breaking. **No SDK-imposed deadline** — we do not bound
+`ScopesHandler` today, so bounding only the new hook would be theatre.
+
+**The guarantee is stated as what it is.** "Once per derived-claims resolution",
+never "once per authentication": it is **vacuous on the credential-bootstrapped
+and token-exchange lanes**, which resolve no derived claims at all, and the
+spec says so rather than implying coverage it lacks.
+
+**Tests — the defect that let this ship is a testing defect, and it is closed.**
+No Go test configured both `Scopes:` and `OnAuthSuccess:`; the two features were
+exercised in disjoint universes, so their relative ORDER was untested in both
+directions. All three languages now carry a causal test that fails when the fire
+site moves below scope resolution, and **all three were mutation-verified** by
+actually moving it. Go additionally demonstrated the limit of the static guard:
+under that same mutation the AST co-occurrence check **stayed green**. It proves
+both things are called; it can never prove which ran first. Keep both; neither
+substitutes for the other.
+
+**Corrections to the record made here.**
+- `SPEC.md` §4.1.2 claimed the handlers are wired as a Go functional option and
+  a TS `TokenManagerOptions` field. The code has never done that — `Config` in
+  Go (rationale at `go/realmid.go:112-116`), `RealmConfig` in TS. `sdk/TODO.md`
+  says "SPEC.md is law" and root `CLAUDE.md` says "code wins"; they collide
+  exactly here, and **the SPEC was corrected to match the code**, not the
+  reverse. The new section is **§4.1.7**, not §4.1.5 — that number was already
+  taken, and a first attempt at this edit created a duplicate.
+- A build agent inferred that the branch this work was committed on was the
+  dispatcher's coordination choice for the feature. **It was not.** The branch
+  belonged to an unrelated CI-hardening effort running across 17 repos; the
+  reconciliation onto `main` is recorded in that commit's own message.
 
 ## 2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it
 

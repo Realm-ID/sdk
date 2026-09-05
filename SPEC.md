@@ -588,8 +588,18 @@ A caller-supplied resolver, wired at construction:
 ```
 
 Wired per language, following the existing hook precedent in each — Go a
-functional option alongside `WithRefreshSink`, TS a field on
-`TokenManagerOptions` alongside `refreshSink`, Java a `Realm.Builder` method.
+**`Config` field**, TS a field on **`RealmConfig`**, Java a `Realm.Builder`
+method.
+
+> **Corrected 2026-09-05.** This paragraph previously said "Go a functional
+> option alongside `WithRefreshSink`, TS a field on `TokenManagerOptions`". The
+> code has never done that: it is a `Config` field in Go, with a written
+> rationale at `go/realmid.go:112-116`, and `RealmConfig` in TS. Root
+> `CLAUDE.md`'s "when prose and code disagree, code wins" governs, so the SPEC
+> was corrected to match the code rather than the SDKs changed to match the
+> SPEC. This matters because `sdk/TODO.md` records "SPEC.md is law", and the two
+> rules collide exactly here — see `DECISIONS.md`, 2026-09-05
+> (`OnIdentityResolved`).
 
 Four rules:
 
@@ -702,6 +712,49 @@ are exactly the ones those affordances exist for.
 The residual risk (a partner whose role DB is down for every tenant burning
 ADR-092 session slots) is bounded by D11's retries and by the sessions' own
 expiry, and is the cheaper failure of the two.
+
+#### 4.1.7 The `onIdentityResolved` handler — the seam before the derived claims
+
+A caller-supplied hook, wired at construction on the same object as §4.1.2's
+resolver (Go `Config.OnIdentityResolved`, TS `RealmConfig.onIdentityResolved`,
+Java `Realm.Builder.onIdentityResolved`), **never on middleware options** — it
+must work for direct-client callers, and no middleware file changes in any
+language.
+
+It fires after the principal's identity and tenant are known and **before the
+derived claims are resolved**, so a relying party may write its own local
+mirror and have §4.1.2's `productRoles` resolver and the scopes resolver read
+what it just wrote.
+
+> **It is NOT a "pre-mint" hook, and must not be documented as one.** The first
+> mint IS `POST /auth/login`, and identity and tenant are only knowable from its
+> response. The seam is before the DERIVED-CLAIMS mint. The name reflects the
+> guarantee that actually exists.
+
+Rules:
+
+1. **Fires on the login lanes AND on refresh.** All three middlewares require
+   `tenant_id` on the refresh route and none has a tenant-choice route, so in a
+   BFF deployment the refresh route IS the tenant-choice route; login-only would
+   leave that deployment class uncovered.
+2. **Its error refuses the mint, unconditionally. There is no fail-open knob.**
+   A relying party expresses fail-open by returning without doing anything. This
+   is not a new veto: a failing §4.1.2 resolver already fails the same mints. On
+   the login lanes the session rides back on the error rather than being
+   discarded, so what fails is the DELIVERY of a session, never an
+   authentication — the issuer-side session already exists.
+3. **Not retried, and must be idempotent.** This is the whole reason the hook
+   exists: §4.1.2's resolver is contractually side-effect-free BECAUSE the SDK
+   retries it, so it could never be used for seeding.
+4. **No SDK-imposed deadline.** The caller's own context/timeout is the bound.
+   The SDK does not bound §4.1.2's resolver either, so bounding only this hook
+   would be theatre.
+5. **The guarantee is "once per derived-claims resolution", not "once per
+   authentication".** It is vacuous on the credential-bootstrapped and token
+   exchange lanes, which resolve no derived claims at all — and this document
+   says so rather than implying coverage it does not have.
+
+Design and the full reasoning: `docs/design/pre-mint-hook.md`.
 
 ### 4.2 `token(req)`
 
