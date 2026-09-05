@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-90 entries total — 35 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+91 entries total — 36 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it](#2026-09-05-role-template-seat-checks-override_seated--owner-ruling-an-sdk-must-not-report-an-error-whose-stated-remedy-is-unreachable-through-it)
 - [2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join](#2026-09-05-role-template-seat-checks--two-new-refusals-stayed-out-of-the-general-taxonomy-on-purpose-matching-the-family-they-join)
 - [2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject](#2026-09-04-changelog-gate--has_entry-matched-a-version-anywhere-in-a-headings-prose-not-as-its-own-subject)
 - [2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not](#2026-09-04-gaps--three-things-were-missing-in-the-one-way-nothing-detects-the-code-was-correct-and-the-description-was-not)
@@ -103,7 +104,92 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
-## 2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join
+## 2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it
+
+Follow-up to the entry directly below. That work scoped OUT sending the
+issuer's `?override_seated=true` query parameter, on the grounds that it is a
+new parameter surface, not error-taxonomy registration. Flagged rather than
+silently added.
+
+**Owner's ruling: add it to all three SDKs.** Rationale for the record: client
+parity with a shipped endpoint — an SDK that surfaces `role_template_seated`
+and describes its remedy in a doc comment, while giving the caller no way to
+send that remedy, is worse than not documenting the remedy at all (the same
+shape as the `last_owner` and permission-doc-comment defects catalogued
+2026-09-04 — a promise the SDK itself cannot keep).
+
+### The one thing this must NOT do
+
+`role_template_seat_check_failed` (503) stays UNCONDITIONAL. Adding
+`overrideSeated`/`OverrideSeated` gives the caller a way to ASK for the
+override; it must not read as a way to ESCAPE the 503 — the seat count itself
+could not be taken, so retrying with the flag set changes nothing server-side.
+Every doc comment added below says so explicitly, right next to the flag,
+not only in the original error registration.
+
+### Convention per language — followed each client's own existing pattern, not a new one
+
+- **go**: `RolesClient.Delete` already takes a trailing `opts ...RoleDeleteOpts`
+  variadic for exactly this shape (`migrate_to`). `RoleTemplatesClient.Update`
+  and `.Delete` gained the identical convention — a new `RoleTemplateWriteOpts`
+  struct with one field, `OverrideSeated bool`, appended as a variadic
+  parameter. **Non-breaking**: every existing two-argument call to `Update`
+  and every one-argument call to `Delete` still compiles unchanged, because a
+  trailing variadic accepts zero arguments.
+- **ts**: `RolesClient.delete` already takes a trailing `opts?: { migrateTo?:
+  string }`. `RoleTemplatesClient.update` and `.delete` gained a trailing
+  `opts?: { overrideSeated?: boolean }` in the same shape. **This DOES change
+  `update`'s signature** (it had no opts parameter before), but additively —
+  a third optional parameter breaks no existing two-argument call.
+- **java**: `RolesClient.delete(String)` delegates to
+  `delete(String, String migrateTo)` with `null` meaning absent.
+  `RoleTemplatesClient` gained `update(String, RoleTemplatePatch, boolean
+  overrideSeated)` and `delete(String, boolean overrideSeated)` overloads; the
+  existing two-arg `update` and one-arg `delete` now delegate to them with
+  `false`. **No existing call site breaks** — both original signatures are
+  still present and unchanged in behavior.
+
+### The wire-value decision: omit, never send `false`
+
+Checked the issuer's parsing before choosing a wire shape (per the brief):
+`override_seated` is accepted ONLY as exactly `true` (case-insensitive,
+trimmed); anything else — `false`, empty, absent — is treated as absent. So
+there is no meaningful "explicit false" to put on the wire, and all three
+SDKs omit the parameter entirely unless the caller passes `true`. This is
+recorded as a comment beside the flag in all three languages, not only here,
+so a future edit does not "helpfully" start sending `override_seated=false`.
+
+### Evidence
+
+Each language's test suite proves both directions — the parameter reaches the
+query string when requested, and is absent (not `=false`) when it is not,
+including the explicit-`false` case in go and ts:
+
+- go: `TestRoleTemplates_UpdateSendsOverrideSeatedOnlyWhenSet` (three subtests:
+  omitted / explicit false / explicit true) and
+  `TestRoleTemplates_Delete{Sends,Omits}OverrideSeated…`. Confirmed RED first
+  (`git stash` on `roletemplates.go` alone → `undefined: RoleTemplateWriteOpts`
+  / non-variadic call errors), then green. Full suite green, `go vet` clean.
+  `go/0.57.2` unchanged — no new tag was cut for this ruling, so the existing
+  bump covers it; the CHANGELOG entry was extended, not reopened.
+- ts: four new tests in `role-templates.test.ts` (`update`/`delete` ×
+  present/absent). Confirmed RED first (stashing `role-templates.ts` alone
+  left the test's regex unmatched against a bare URL). Full suite 334/334
+  green, `tsc --noEmit` clean. `@realm-id/sdk` `0.50.1` unchanged.
+- java: `updateSendsOverrideSeatedOnlyWhenRequested` and
+  `deleteSendsOverrideSeatedOnlyWhenRequested` in `RoleTemplatesClientTest`,
+  reading `HttpExchange.getRequestURI().getQuery()` directly — the same seam
+  `IdentityProviderConfigClientTest` already uses for query assertions.
+  Confirmed RED first (compile failure: "actual and formal argument lists
+  differ in length" against the pre-change 2-arg/1-arg signatures). Full
+  `./gradlew build --offline` green. `dev.realmid:sdk` `0.47.1` unchanged.
+
+No new version was consumed by this ruling in any language — each
+CHANGELOG.md entry already open for today's registration work was extended
+in place, per the brief's instruction not to reopen a version that already
+carries an entry.
+
+
 
 Issuer v0.121.0 added `role_template_seated` (409) and
 `role_template_seat_check_failed` (503) to `PATCH`/`DELETE

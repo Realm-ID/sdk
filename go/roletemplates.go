@@ -31,10 +31,9 @@ var (
 	// ErrRoleTemplateSeated (409) means principals are currently seated at this
 	// role template, and the mutation was refused. Registered 2026-09-05 for
 	// issuer v0.121.0. RECOVERABLE: the caller may retry the same PATCH/DELETE
-	// with the query parameter override_seated=true, which is audited. Neither
-	// Update nor Delete exposes that parameter yet (SDK follow-up, not this
-	// change) — a caller reaching this sentinel today must issue the retry
-	// through its own HTTP client.
+	// with RoleTemplateWriteOpts.OverrideSeated set (client parity added
+	// 2026-09-05 — an SDK must not report an error whose stated remedy is
+	// unreachable through that SDK).
 	ErrRoleTemplateSeated = errors.New("realmid: role template has seated principals")
 	// ErrRoleTemplateSeatCheckFailed (503) means the seat count could not be
 	// TAKEN at all — "could not tell" must not read as "none" — so the write
@@ -126,6 +125,21 @@ type roleTemplateList struct {
 	RoleTemplates []RoleTemplate `json:"role_templates"`
 }
 
+// RoleTemplateWriteOpts are the optional inputs to Update and Delete.
+// Mirrors the RoleDeleteOpts variadic convention on RolesClient.Delete.
+type RoleTemplateWriteOpts struct {
+	// OverrideSeated retries past a 409 ErrRoleTemplateSeated by sending
+	// `?override_seated=true` (audited server-side). Leave false to send
+	// nothing on the wire — the issuer treats anything other than exactly
+	// `true` (case-insensitive, trimmed) as absent, so there is no meaningful
+	// "explicit false" to encode.
+	//
+	// ⚠️ Does NOT rescue ErrRoleTemplateSeatCheckFailed (503). That refusal is
+	// unconditional: the seat count itself could not be taken, so setting this
+	// true and retrying can never succeed against it.
+	OverrideSeated bool
+}
+
 // RoleTemplatesClient is realm.RoleTemplates.
 type RoleTemplatesClient struct {
 	realm *Realm
@@ -183,19 +197,24 @@ func (c *RoleTemplatesClient) Create(ctx ctxpkg.Context, body RoleTemplateCreate
 // template keep what they were stamped with. The returned DriftedRealms is the
 // drift that creates, and -1 there means "could not count", never "none".
 //
-// May fail with ErrRoleTemplateSeated (409, recoverable — the issuer's
-// override_seated=true query parameter rescues it) or
-// ErrRoleTemplateSeatCheckFailed (503, unconditional — no parameter rescues
-// this one; the seat count itself could not be taken).
-func (c *RoleTemplatesClient) Update(ctx ctxpkg.Context, templateID string, patch RoleTemplatePatch) (*RoleTemplatePatched, error) {
+// May fail with ErrRoleTemplateSeated (409, recoverable — set
+// RoleTemplateWriteOpts.OverrideSeated to retry with the audited
+// ?override_seated=true) or ErrRoleTemplateSeatCheckFailed (503,
+// unconditional — OverrideSeated does NOT rescue this one; the seat count
+// itself could not be taken).
+func (c *RoleTemplatesClient) Update(ctx ctxpkg.Context, templateID string, patch RoleTemplatePatch, opts ...RoleTemplateWriteOpts) (*RoleTemplatePatched, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var q map[string]string
+	if len(opts) > 0 && opts[0].OverrideSeated {
+		q = map[string]string{"override_seated": "true"}
+	}
 	var out RoleTemplatePatched
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "PATCH", Path: c.base() + "/" + url.PathEscape(templateID),
-		Bearer: tok, Body: patch,
+		Bearer: tok, Body: patch, Query: q,
 	}, &out); err != nil {
 		return nil, mapRoleTemplateErr(err)
 	}
@@ -208,19 +227,24 @@ func (c *RoleTemplatesClient) Update(ctx ctxpkg.Context, templateID string, patc
 // role from a realm is a membership change, not a side effect of tidying a
 // vocabulary row. RealmsStillHolding reports the orphans this creates.
 //
-// May fail with ErrRoleTemplateSeated (409, recoverable — the issuer's
-// override_seated=true query parameter rescues it) or
-// ErrRoleTemplateSeatCheckFailed (503, unconditional — no parameter rescues
-// this one; the seat count itself could not be taken).
-func (c *RoleTemplatesClient) Delete(ctx ctxpkg.Context, templateID string) (*RoleTemplateDeleted, error) {
+// May fail with ErrRoleTemplateSeated (409, recoverable — set
+// RoleTemplateWriteOpts.OverrideSeated to retry with the audited
+// ?override_seated=true) or ErrRoleTemplateSeatCheckFailed (503,
+// unconditional — OverrideSeated does NOT rescue this one; the seat count
+// itself could not be taken).
+func (c *RoleTemplatesClient) Delete(ctx ctxpkg.Context, templateID string, opts ...RoleTemplateWriteOpts) (*RoleTemplateDeleted, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
 	}
+	var q map[string]string
+	if len(opts) > 0 && opts[0].OverrideSeated {
+		q = map[string]string{"override_seated": "true"}
+	}
 	var out RoleTemplateDeleted
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "DELETE", Path: c.base() + "/" + url.PathEscape(templateID),
-		Bearer: tok,
+		Bearer: tok, Query: q,
 	}, &out); err != nil {
 		return nil, mapRoleTemplateErr(err)
 	}

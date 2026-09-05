@@ -35,6 +35,21 @@ red first — `undefined: ErrRoleTemplateSeated`), full suite green, `go vet`
 clean. `0.57.1` was already tagged, so this PR bumps `const Version` per the
 "first `go/` change after a release" rule.
 
+### Added (same-day follow-up, owner ruling) — `RoleTemplateWriteOpts.OverrideSeated`
+
+An SDK must not report an error whose stated remedy is unreachable through
+it: `role_template_seated` names `?override_seated=true` as its remedy, and
+until this addition nothing in the Go SDK could send it. `Update` and
+`Delete` both gained a trailing `opts ...RoleTemplateWriteOpts` — the same
+variadic-opts convention `RolesClient.Delete` already uses for `migrate_to`
+— non-breaking, since a trailing variadic accepts zero arguments. Sent ONLY
+as `override_seated=true`; the issuer accepts no other value as meaningful,
+so an explicit `false` is omitted exactly like an unset default — never
+serialized as `override_seated=false`. Does **not** rescue
+`ErrRoleTemplateSeatCheckFailed` (503) — that refusal stays unconditional,
+and every doc comment says so beside the flag. Tests confirmed red first
+(build failure before the type/param existed), full suite green.
+
 ## go `0.57.1` — the changelog entry `0.57.0` shipped without (2026-09-04)
 
 **No code change. `0.57.0` and `0.57.1` are the same module**, byte-for-byte

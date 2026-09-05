@@ -153,6 +153,89 @@ func TestRoleTemplates_PatchOmitsUnsetFields(t *testing.T) {
 	}
 }
 
+// Client parity, ruled 2026-09-05: the issuer's stated remedy for
+// role_template_seated is ?override_seated=true, so the SDK must be able to
+// send it. Default is OFF and omitted entirely — the issuer only recognizes
+// exactly "true", so there is no meaningful explicit-false to encode.
+func TestRoleTemplates_UpdateSendsOverrideSeatedOnlyWhenSet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		opts []RoleTemplateWriteOpts
+		want string // "" means absent from the query entirely
+	}{
+		{"omitted opts", nil, ""},
+		{"explicit false", []RoleTemplateWriteOpts{{OverrideSeated: false}}, ""},
+		{"explicit true", []RoleTemplateWriteOpts{{OverrideSeated: true}}, "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			mintPlatformToken(mux)
+			mux.HandleFunc(templatesURL()+"/tpl1", func(w http.ResponseWriter, r *http.Request) {
+				got, present := r.URL.Query()["override_seated"]
+				if tc.want == "" {
+					if present {
+						t.Errorf("override_seated=%v present, want absent entirely", got)
+					}
+				} else {
+					if !present || got[0] != tc.want {
+						t.Errorf("override_seated=%v, want %q", got, tc.want)
+					}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"role_template":  map[string]any{"id": "tpl1", "level": "tenant", "name": "x"},
+					"drifted_realms": 0,
+				})
+			})
+			srv := httptest.NewServer(mux)
+			defer srv.Close()
+
+			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			dn := "x"
+			if _, err := r.RoleTemplates.Update(context.Background(), "tpl1",
+				RoleTemplatePatch{DisplayName: &dn}, tc.opts...); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+		})
+	}
+}
+
+func TestRoleTemplates_DeleteSendsOverrideSeatedOnlyWhenSet(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc(templatesURL()+"/tpl1", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("override_seated"); got != "true" {
+			t.Errorf("override_seated=%q, want true", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "deleted", "realms_still_holding": 0})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	if _, err := r.RoleTemplates.Delete(context.Background(), "tpl1",
+		RoleTemplateWriteOpts{OverrideSeated: true}); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+}
+
+func TestRoleTemplates_DeleteOmitsOverrideSeatedByDefault(t *testing.T) {
+	mux := http.NewServeMux()
+	mintPlatformToken(mux)
+	mux.HandleFunc(templatesURL()+"/tpl1", func(w http.ResponseWriter, r *http.Request) {
+		if _, present := r.URL.Query()["override_seated"]; present {
+			t.Errorf("override_seated present, want absent when opts omitted")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "deleted", "realms_still_holding": 0})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	if _, err := r.RoleTemplates.Delete(context.Background(), "tpl1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+}
+
 func TestRoleTemplates_DeleteReportsOrphans(t *testing.T) {
 	mux := http.NewServeMux()
 	mintPlatformToken(mux)
