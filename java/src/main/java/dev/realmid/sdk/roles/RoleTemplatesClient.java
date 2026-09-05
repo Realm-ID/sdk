@@ -98,16 +98,34 @@ public final class RoleTemplatesClient {
      * {@link dev.realmid.sdk.ErrorCode} union):
      * <ul>
      *   <li>{@code role_template_seated} (409) — principals are currently
-     *       seated at this template; the write was refused. RECOVERABLE: retry
-     *       with {@code ?override_seated=true} (audited).</li>
+     *       seated at this template; the write was refused. RECOVERABLE: call
+     *       {@link #update(String, RoleTemplatePatch, boolean)} with
+     *       {@code overrideSeated=true} to retry with {@code
+     *       ?override_seated=true} (audited).</li>
      *   <li>{@code role_template_seat_check_failed} (503) — the seat count
      *       could not be TAKEN at all ("could not tell" must not read as
-     *       "none"). ⚠️ UNCONDITIONAL — {@code override_seated=true} does NOT
-     *       rescue this one; there is no count to override, only an inability
-     *       to compute one. Do not build a retry loop around it.</li>
+     *       "none"). ⚠️ UNCONDITIONAL — {@code overrideSeated} does NOT rescue
+     *       this one; there is no count to override, only an inability to
+     *       compute one. Do not build a retry loop around it.</li>
      * </ul>
      */
     public RoleTemplatePatched update(String templateId, RoleTemplatePatch patch) {
+        return update(templateId, patch, false);
+    }
+
+    /**
+     * As {@link #update(String, RoleTemplatePatch)}, with {@code
+     * overrideSeated} controlling whether the request carries {@code
+     * ?override_seated=true}.
+     *
+     * <p>Leave {@code false} to send nothing on the wire — the issuer accepts
+     * {@code override_seated} ONLY as exactly {@code true} (case-insensitive,
+     * trimmed) and treats anything else, including an explicit {@code false},
+     * as absent, so there is no meaningful "explicit false" to encode. ⚠️ Does
+     * NOT rescue {@code role_template_seat_check_failed} (503) — that refusal
+     * is unconditional.
+     */
+    public RoleTemplatePatched update(String templateId, RoleTemplatePatch patch, boolean overrideSeated) {
         Map<String, Object> b = new LinkedHashMap<>();
         // A null field is OMITTED, not sent as null: absent preserves the stored
         // value, whereas a null would be a decision the caller never made.
@@ -116,8 +134,14 @@ public final class RoleTemplatesClient {
         if (patch.assignableTo() != null) b.put("assignable_to", patch.assignableTo());
         if (patch.system() != null) b.put("is_system", patch.system());
         if (patch.optional() != null) b.put("optional", patch.optional());
-        JsonNode raw = http.request(HttpTransport.Request.of(
-                "PATCH", base() + "/" + enc(templateId)).body(b));
+        HttpTransport.Request req = HttpTransport.Request.of(
+                "PATCH", base() + "/" + enc(templateId)).body(b);
+        if (overrideSeated) {
+            Map<String, Object> q = new LinkedHashMap<>();
+            q.put("override_seated", "true");
+            req = req.query(q);
+        }
+        JsonNode raw = http.request(req);
         return http.mapper().convertValue(raw, RoleTemplatePatched.class);
     }
 
@@ -131,13 +155,29 @@ public final class RoleTemplatesClient {
      *
      * <p>May throw the same two refusals documented on {@link
      * #update(String, RoleTemplatePatch)}: {@code role_template_seated} (409,
-     * recoverable via {@code ?override_seated=true}) and {@code
+     * recoverable via {@link #delete(String, boolean)}) and {@code
      * role_template_seat_check_failed} (503, unconditional — no parameter
      * rescues it).
      */
     public RoleTemplateDeleted delete(String templateId) {
-        JsonNode raw = http.request(HttpTransport.Request.of(
-                "DELETE", base() + "/" + enc(templateId)));
+        return delete(templateId, false);
+    }
+
+    /**
+     * As {@link #delete(String)}, with {@code overrideSeated} controlling
+     * whether the request carries {@code ?override_seated=true}. See {@link
+     * #update(String, RoleTemplatePatch, boolean)} for the wire-value caveat
+     * and the 503 exception.
+     */
+    public RoleTemplateDeleted delete(String templateId, boolean overrideSeated) {
+        HttpTransport.Request req = HttpTransport.Request.of(
+                "DELETE", base() + "/" + enc(templateId));
+        if (overrideSeated) {
+            Map<String, Object> q = new LinkedHashMap<>();
+            q.put("override_seated", "true");
+            req = req.query(q);
+        }
+        JsonNode raw = http.request(req);
         return http.mapper().convertValue(raw, RoleTemplateDeleted.class);
     }
 

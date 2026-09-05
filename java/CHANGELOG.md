@@ -4,7 +4,7 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## 0.47.1 — documents issuer v0.121.0's two role-template seat-check codes (2026-09-05)
+## 0.47.1 — issuer v0.121.0's two role-template seat-check codes, plus `overrideSeated` overloads (2026-09-05)
 
 ### Documented — `role_template_seated` / `role_template_seat_check_failed`
 
@@ -28,6 +28,25 @@ the same seam `ErrorEnvelopeTest` already exercises for `role_owner_only`.
 distinction in Javadoc; two new tests in `RoleTemplatesClientTest` assert the
 codes arrive via that existing fallback. No functional change — the generic
 unknown-code handling already carried them.
+
+### Added (same-day follow-up, owner ruling) — `overrideSeated` overloads
+
+An SDK must not report an error whose stated remedy is unreachable through
+it: `role_template_seated` names `?override_seated=true` as its remedy, and
+until this addition nothing in the Java SDK could send it.
+`update(String, RoleTemplatePatch, boolean)` and `delete(String, boolean)`
+overloads were added, mirroring `RolesClient.delete(String, String
+migrateTo)`'s existing convention of a delegating short overload. The
+existing `update(String, RoleTemplatePatch)` and `delete(String)` signatures
+are unchanged and now delegate to the new overloads with `false` — no
+existing call site breaks. Sent ONLY as `override_seated=true`; the issuer
+accepts no other value as meaningful, so `overrideSeated=false` and the
+delegating short overload both produce the identical wire request (parameter
+absent). Does **not** rescue `role_template_seat_check_failed` (503) — that
+refusal stays unconditional, and the Javadoc says so beside the flag.
+`updateSendsOverrideSeatedOnlyWhenRequested` and
+`deleteSendsOverrideSeatedOnlyWhenRequested` confirmed red first (compile
+failure against the pre-change signatures), full `./gradlew build` green.
 
 ## 0.47.0 — ADR-041's revocation cache finally lands in Java, plus ADR-107 (2026-09-04)
 

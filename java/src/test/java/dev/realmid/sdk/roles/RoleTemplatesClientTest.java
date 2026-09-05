@@ -157,6 +157,54 @@ class RoleTemplatesClientTest {
                 "the specific code vanished: " + e.getDetails());
     }
 
+    /**
+     * Client parity, ruled 2026-09-05: the issuer's stated remedy for
+     * role_template_seated is ?override_seated=true, so the SDK must be able
+     * to send it. Default is OFF and omitted entirely — the issuer only
+     * recognizes exactly "true", so there is no meaningful explicit-false
+     * wire value.
+     */
+    @Test
+    void updateSendsOverrideSeatedOnlyWhenRequested() {
+        AtomicReference<String> query = new AtomicReference<>();
+        fs.on("PATCH /platforms/01HREALM/role-templates/tpl1", (ex, body) -> {
+            query.set(ex.getRequestURI().getQuery());
+            return FakeServer.Reply.json(200, Map.of(
+                    "role_template", Map.of("id", "tpl1", "level", "tenant", "name", "x"),
+                    "drifted_realms", 0));
+        });
+
+        realm.roleTemplates().update("tpl1", RoleTemplatePatch.displayName("x"));
+        assertFalse(query.get() != null && query.get().contains("override_seated"),
+                "override_seated must be absent by default: " + query.get());
+
+        realm.roleTemplates().update("tpl1", RoleTemplatePatch.displayName("x"), false);
+        assertFalse(query.get() != null && query.get().contains("override_seated"),
+                "override_seated must be absent for explicit false: " + query.get());
+
+        realm.roleTemplates().update("tpl1", RoleTemplatePatch.displayName("x"), true);
+        assertTrue(query.get() != null && query.get().contains("override_seated=true"),
+                "override_seated=true expected: " + query.get());
+    }
+
+    /** As above, for delete. */
+    @Test
+    void deleteSendsOverrideSeatedOnlyWhenRequested() {
+        AtomicReference<String> query = new AtomicReference<>();
+        fs.on("DELETE /platforms/01HREALM/role-templates/tpl1", (ex, body) -> {
+            query.set(ex.getRequestURI().getQuery());
+            return FakeServer.Reply.json(200, Map.of("status", "deleted", "realms_still_holding", 0));
+        });
+
+        realm.roleTemplates().delete("tpl1");
+        assertFalse(query.get() != null && query.get().contains("override_seated"),
+                "override_seated must be absent by default: " + query.get());
+
+        realm.roleTemplates().delete("tpl1", true);
+        assertTrue(query.get() != null && query.get().contains("override_seated=true"),
+                "override_seated=true expected: " + query.get());
+    }
+
     /** Deleting the recipe leaves the stamped roles standing; the count says so. */
     @Test
     void deleteReportsOrphans() {
