@@ -191,6 +191,13 @@ func TestRoleTemplates_ErrorsMapToSentinels(t *testing.T) {
 		{"role_template_identity_immutable", 400, ErrRoleTemplateIdentityImmutable},
 		{"role_templates_unavailable", 501, ErrRoleTemplatesUnavailable},
 		{"role_authoring_retired", 403, ErrRoleAuthoringRetired},
+		// Registered 2026-09-05 for issuer v0.121.0. The two are NOT
+		// interchangeable: role_template_seated is a recoverable conflict
+		// (override_seated=true rescues it); role_template_seat_check_failed
+		// is unconditional (no parameter rescues it — the count itself could
+		// not be taken).
+		{"role_template_seated", 409, ErrRoleTemplateSeated},
+		{"role_template_seat_check_failed", 503, ErrRoleTemplateSeatCheckFailed},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			mux := http.NewServeMux()

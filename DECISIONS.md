@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-89 entries total — 34 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+90 entries total — 35 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join](#2026-09-05-role-template-seat-checks--two-new-refusals-stayed-out-of-the-general-taxonomy-on-purpose-matching-the-family-they-join)
 - [2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject](#2026-09-04-changelog-gate--has_entry-matched-a-version-anywhere-in-a-headings-prose-not-as-its-own-subject)
 - [2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not](#2026-09-04-gaps--three-things-were-missing-in-the-one-way-nothing-detects-the-code-was-correct-and-the-description-was-not)
 - [2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"](#2026-09-04-adr-107--the-cache-could-only-say-this-token-is-dead-and-the-question-was-this-person-changed)
@@ -101,6 +102,62 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join
+
+Issuer v0.121.0 added `role_template_seated` (409) and
+`role_template_seat_check_failed` (503) to `PATCH`/`DELETE
+/platforms/{id}/role-templates/{templateId}`. They are not interchangeable:
+the first is a recoverable conflict (`?override_seated=true`, audited); the
+second is unconditional — the seat count itself could not be taken, so no
+parameter rescues it, and building a retry loop around it can never succeed.
+
+The obvious move was to mirror `last_owner`'s 2026-09-04 registration:
+add both codes to each language's general `ErrorCode` union / `knownCodes`
+map, the way `last_owner` now makes `err.code === "last_owner"` work directly
+everywhere. Checked against the tree before doing it, and that would have been
+wrong for THIS pair. `role_template_exists`, `role_template_not_found`,
+`role_template_identity_immutable`, `role_templates_unavailable` and
+`role_authoring_retired` — the entire existing role-template error family —
+are registered in **none** of the three general taxonomies, in any language,
+and that is consistent across go/errors.go, ts/src/errors.ts and
+java/ErrorCode.java, not an oversight in one of them. Instead:
+
+- **Go** has a SECOND, domain-scoped mechanism: `roletemplates.go`'s
+  `mapRoleTemplateErr` wraps the raw code in a sentinel (`errors.Join(ErrSentinel,
+  re)`), so `errors.Is(err, ErrRoleTemplateExists)` works without the code ever
+  reaching the general taxonomy. `ErrRoleTemplateSeated` /
+  `ErrRoleTemplateSeatCheckFailed` were added the same way, alongside the
+  existing sentinels, with a doc comment on each stating the override
+  distinction.
+- **TS and Java have no such mechanism for this family at all.** A caller reads
+  the raw code from `error.details.server_code` (ts) /
+  `exception.getDetails().get("server_code")` (java) — proven by the existing
+  `role_authoring_retired` tests in both languages, which read exactly that
+  path and predate this change. The two new codes were documented in JSDoc /
+  Javadoc on `RoleTemplatesClient.update`/`.delete` with the same override
+  distinction, and covered by new tests asserting they arrive via that same
+  fallback — which they already did, since nothing about the generic
+  unknown-code handling needed to change. **No functional change in ts or
+  java for this reason** — only in Go, which has a sentinel to add to.
+
+**Ruling for a future session**: when a new code joins the
+`role_template_*` family, do not register it in the general `ErrorCode`
+taxonomy in any language. Add a Go sentinel in `roletemplates.go` and document
+the code on the ts/java role-templates clients; that is the established,
+cross-language-consistent treatment for this family, and it differs from how
+`last_owner`, the pagination codes, and the ADR-082/083 integration codes are
+handled — those DO belong in the general taxonomy. The distinguishing question
+is whether the existing siblings of the new code are already there.
+
+Go: `TestRoleTemplates_ErrorsMapToSentinels` extended with both cases (RED
+first — confirmed `undefined: ErrRoleTemplateSeated` / `ErrRoleTemplateSeatCheckFailed`
+before adding them), full suite green. `go/0.57.1` → `0.57.2` per the
+"first PR touching `go/` after a release bumps the const" rule (`0.57.1` was
+already tagged). ts: two new tests in `role-templates.test.ts`, full suite
+330/330 green, `tsc --noEmit` clean; `@realm-id/sdk` `0.50.0` → `0.50.1`.
+Neither tagged nor published — CHANGELOG entries only, so a later release
+carries real history instead of a gap.
 
 ## 2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject
 

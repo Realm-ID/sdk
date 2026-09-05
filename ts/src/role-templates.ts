@@ -153,6 +153,17 @@ export class RoleTemplatesClient {
    * Patch a template's mutable fields. Changes the RECIPE only — realms already
    * holding a stamped role keep what they were stamped with. Read
    * `drifted_realms` on the result, and remember `-1` is "unknown", not "none".
+   *
+   * May reject with a `RealmError` carrying (via `error.details.server_code`,
+   * the same fallback `role_authoring_retired` uses):
+   * - `role_template_seated` (409) — principals are currently seated at this
+   *   template; the write was refused. RECOVERABLE: retry with
+   *   `?override_seated=true` (audited).
+   * - `role_template_seat_check_failed` (503) — the seat count could not be
+   *   TAKEN at all, so the write was refused ("could not tell" must not read as
+   *   "none"). ⚠️ UNCONDITIONAL — `override_seated=true` does NOT rescue this
+   *   one; there is no count to override, only an inability to compute one.
+   *   Do not build a retry loop around it.
    */
   async update(templateId: string, patch: RoleTemplatePatch): Promise<RoleTemplatePatched> {
     const wire: Record<string, unknown> = {};
@@ -172,6 +183,11 @@ export class RoleTemplatesClient {
    * Remove a template from the vocabulary. Roles already stamped from it KEEP
    * their rows and their holders — `realms_still_holding` reports the orphans
    * this creates.
+   *
+   * May reject with the same two codes documented on {@link update}:
+   * `role_template_seated` (409, recoverable via `?override_seated=true`) and
+   * `role_template_seat_check_failed` (503, unconditional — no parameter
+   * rescues it).
    */
   async delete(templateId: string): Promise<RoleTemplateDeleted> {
     return this.http.request<RoleTemplateDeleted>({

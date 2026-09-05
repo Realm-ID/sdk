@@ -4,6 +4,30 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.50.1 — documents issuer v0.121.0's two role-template seat-check codes (2026-09-05)
+
+### Documented — `role_template_seated` / `role_template_seat_check_failed`
+
+Issuer v0.121.0 added two refusals on `PATCH`/`DELETE
+/platforms/{id}/role-templates/{templateId}`, and they are NOT interchangeable:
+
+- `role_template_seated` (409) — principals are currently seated at this
+  template; the write was refused. RECOVERABLE — retry with
+  `?override_seated=true` (audited).
+- `role_template_seat_check_failed` (503) — the seat count could not be TAKEN
+  at all ("could not tell" must not read as "none"). ⚠️ UNCONDITIONAL: unlike
+  `role_template_seated`, `override_seated=true` does NOT rescue it — there is
+  no count to override, only an inability to compute one.
+
+Neither code joins the general `ErrorCode` taxonomy — matching the existing
+`role_template_exists` / `role_template_not_found` / `role_authoring_retired`
+family, none of which is registered there either, in any of the three SDKs.
+A caller reads the raw code from `error.details.server_code`, same as it
+already does for that family. `RoleTemplatesClient.update`/`.delete` document
+both codes and the override distinction in their JSDoc; two tests assert the
+codes arrive via the existing fallback path. No functional change — the
+generic unknown-code handling already carried them.
+
 ## 0.50.0 — ADR-107 authority propagation, and `last_owner` stops arriving as `conflict` (2026-09-04)
 
 ### Added — `AuthorityCache`, a SECOND cache beside the jti denylist (ADR-107)

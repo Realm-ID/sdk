@@ -115,6 +115,51 @@ test("roleTemplates.delete: reports the orphans it creates", async () => {
   assert.equal(out.realms_still_holding, 3);
 });
 
+test("roleTemplates.update: seated principals refuse with role_template_seated (409, recoverable)", async () => {
+  const fetch = mkFetch(() =>
+    new Response(
+      JSON.stringify({
+        error: { code: "role_template_seated", message: "principals are seated at this template" },
+      }),
+      { status: 409, headers: { "content-type": "application/json" } },
+    ),
+  );
+  await assert.rejects(
+    () => mkRealm(fetch).roleTemplates.update("tpl1", { displayName: "x" }),
+    (err: unknown) => {
+      const e = err as { code?: string; details?: { server_code?: string } };
+      const code = e.details?.server_code ?? e.code;
+      assert.equal(code, "role_template_seated");
+      return true;
+    },
+  );
+});
+
+test("roleTemplates.delete: an uncountable seat check refuses with role_template_seat_check_failed (503, unconditional)", async () => {
+  const fetch = mkFetch(() =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: "role_template_seat_check_failed",
+          message: "seat count could not be taken",
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    ),
+  );
+  await assert.rejects(
+    () => mkRealm(fetch).roleTemplates.delete("tpl1"),
+    (err: unknown) => {
+      const e = err as { code?: string; details?: { server_code?: string } };
+      const code = e.details?.server_code ?? e.code;
+      // Unlike role_template_seated, no query parameter rescues this one —
+      // the seat count itself could not be taken, not merely non-zero.
+      assert.equal(code, "role_template_seat_check_failed");
+      return true;
+    },
+  );
+});
+
 test("roleTemplates: a partner realm is refused with role_authoring_retired", async () => {
   const fetch = mkFetch(() =>
     new Response(

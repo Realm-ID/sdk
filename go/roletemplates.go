@@ -28,6 +28,23 @@ var (
 	// ErrRoleTemplatesUnavailable means the deployment wired no writable
 	// vocabulary store (501).
 	ErrRoleTemplatesUnavailable = errors.New("realmid: role templates unavailable in this deployment")
+	// ErrRoleTemplateSeated (409) means principals are currently seated at this
+	// role template, and the mutation was refused. Registered 2026-09-05 for
+	// issuer v0.121.0. RECOVERABLE: the caller may retry the same PATCH/DELETE
+	// with the query parameter override_seated=true, which is audited. Neither
+	// Update nor Delete exposes that parameter yet (SDK follow-up, not this
+	// change) — a caller reaching this sentinel today must issue the retry
+	// through its own HTTP client.
+	ErrRoleTemplateSeated = errors.New("realmid: role template has seated principals")
+	// ErrRoleTemplateSeatCheckFailed (503) means the seat count could not be
+	// TAKEN at all — "could not tell" must not read as "none" — so the write
+	// was refused. Registered 2026-09-05 for issuer v0.121.0.
+	//
+	// ⚠️ UNCONDITIONAL. Unlike ErrRoleTemplateSeated, override_seated=true does
+	// NOT rescue this one: there is no seat count to override, only an
+	// inability to compute one. Do not build a retry loop around it — it can
+	// never succeed until the underlying count becomes takeable again.
+	ErrRoleTemplateSeatCheckFailed = errors.New("realmid: role template seat count could not be taken")
 )
 
 // Role-template levels. (Level, Name) is the identity: the SAME name at both
@@ -165,6 +182,11 @@ func (c *RoleTemplatesClient) Create(ctx ctxpkg.Context, body RoleTemplateCreate
 // It changes the RECIPE only — realms already holding a role stamped from this
 // template keep what they were stamped with. The returned DriftedRealms is the
 // drift that creates, and -1 there means "could not count", never "none".
+//
+// May fail with ErrRoleTemplateSeated (409, recoverable — the issuer's
+// override_seated=true query parameter rescues it) or
+// ErrRoleTemplateSeatCheckFailed (503, unconditional — no parameter rescues
+// this one; the seat count itself could not be taken).
 func (c *RoleTemplatesClient) Update(ctx ctxpkg.Context, templateID string, patch RoleTemplatePatch) (*RoleTemplatePatched, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
@@ -185,6 +207,11 @@ func (c *RoleTemplatesClient) Update(ctx ctxpkg.Context, templateID string, patc
 // Roles already stamped from it KEEP their rows and their holders — removing a
 // role from a realm is a membership change, not a side effect of tidying a
 // vocabulary row. RealmsStillHolding reports the orphans this creates.
+//
+// May fail with ErrRoleTemplateSeated (409, recoverable — the issuer's
+// override_seated=true query parameter rescues it) or
+// ErrRoleTemplateSeatCheckFailed (503, unconditional — no parameter rescues
+// this one; the seat count itself could not be taken).
 func (c *RoleTemplatesClient) Delete(ctx ctxpkg.Context, templateID string) (*RoleTemplateDeleted, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
@@ -219,6 +246,10 @@ func mapRoleTemplateErr(err error) error {
 		return errors.Join(ErrRoleTemplateIdentityImmutable, re)
 	case "role_templates_unavailable":
 		return errors.Join(ErrRoleTemplatesUnavailable, re)
+	case "role_template_seated":
+		return errors.Join(ErrRoleTemplateSeated, re)
+	case "role_template_seat_check_failed":
+		return errors.Join(ErrRoleTemplateSeatCheckFailed, re)
 	case "role_authoring_retired":
 		// The SAME sentinel the role-authoring routes return. A partner reaching
 		// the vocabulary and a partner authoring a role are one refusal with one

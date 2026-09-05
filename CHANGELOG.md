@@ -13,6 +13,28 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.57.2` — two role-template seat-check sentinels (2026-09-05)
+
+Issuer v0.121.0 added `role_template_seated` (409) and
+`role_template_seat_check_failed` (503) on `PATCH`/`DELETE
+/platforms/{id}/role-templates/{templateId}`. Neither joins the general
+`ErrorCode` taxonomy — that family (`role_template_exists`,
+`role_authoring_retired`, etc.) never has, in any of the three SDKs. Instead
+`roletemplates.go` gets two new sentinels, `ErrRoleTemplateSeated` and
+`ErrRoleTemplateSeatCheckFailed`, mapped the same way as their siblings.
+
+**Not interchangeable.** `role_template_seated` is a recoverable conflict —
+retry the same call with `?override_seated=true` (audited). Do NOT read
+`role_template_seat_check_failed` the same way: the seat count itself could
+not be taken, so no parameter rescues it and a retry loop around it can never
+succeed. See `sdk/DECISIONS.md` 2026-09-05 for why the general taxonomy was
+the wrong home for this pair.
+
+`TestRoleTemplates_ErrorsMapToSentinels` extended with both codes (confirmed
+red first — `undefined: ErrRoleTemplateSeated`), full suite green, `go vet`
+clean. `0.57.1` was already tagged, so this PR bumps `const Version` per the
+"first `go/` change after a release" rule.
+
 ## go `0.57.1` — the changelog entry `0.57.0` shipped without (2026-09-04)
 
 **No code change. `0.57.0` and `0.57.1` are the same module**, byte-for-byte
