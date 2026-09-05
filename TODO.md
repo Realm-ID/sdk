@@ -589,9 +589,49 @@ own no earlier seam.
 2. merely a DOCUMENTED GUARANTEE that `Config.Scopes` is called at least once
    AFTER `OnAuthSuccess` on the login lane.
 
-Option 2 is enormously cheaper if the current implementation already happens to
-do it — but a guarantee is a contract, so it needs checking against every mint
-lane, not just the common one, before it can be written down.
+**INVESTIGATED 2026-09-05 — OPTION 2 IS NOT AVAILABLE.** `Config.Scopes` is
+never invoked after `OnAuthSuccess` within a single authentication, on ANY lane,
+in ANY of the three SDKs. There is nothing to document; it would have to be
+BUILT. Verified by reading the call sites, not inferred:
+
+- **Login / OTP / password / MFA-verify** — the mint (and its scope resolution)
+  happens INSIDE `Auth.*`, which returns before the middleware fires the hook:
+  `middleware.go:485` → `auth.go:561` → `auth.go:658` `resolveScopes`, with the
+  hook only at `middleware.go:505`.
+- **Refresh** — the scope-resolving re-mint is an explicit statement ABOVE the
+  hook block: `middleware.go:590` `enrichRefreshMint` →
+  `derived_claims_refresh.go:82`, hook block starts `middleware.go:598`.
+- **Tenant choice / `CompleteLogin`** — the hook NEVER fires: the middleware
+  route table (`middleware.go:368-390`) has only Login/Logout/Refresh/MFAVerify,
+  so `CompleteLogin` (`auth.go:603`) is a direct-API call the middleware never
+  reaches.
+- **ADR-057 token exchange** and **credential-bootstrapped (api key / platform
+  api key)** — neither the hook NOR the resolver runs at all
+  (`credential.go:35,98,150`, `platform_token.go:136-164`). A guarantee worded
+  "after `OnAuthSuccess`" would be both vacuous AND misleading here.
+- **ADR-089 no-refresh sessions** — the resolver is skipped outright,
+  `derived_claims_refresh.go:58-63`, citing ADR-089 by name.
+
+⚠️ **`OnAuthSuccess` is Go-ONLY and middleware-ONLY.** `grep -rin authsuccess
+ts/src java/src web` returns ZERO hits; `ts/src/middleware.ts:71` has only
+`onAuthFailure`, and `java/.../MiddlewareConfig.java:67-80` exposes no hook
+accessor. It is also absent from Go's DIRECT-client path — the field lives on
+`MiddlewareOptions` (`go/middleware.go:186`), so a partner using `AuthClient`
+without the middleware has no hook on any lane. **Any cross-language hook is
+therefore a NEW three-language surface, not an extension of an existing one.**
+
+⚠️ **Their retry constraint is REAL** — `scopes_handler.go:28-33` states
+side-effect freedom as a contract, and `product_roles.go:74,76` implements
+`productRolesAttempts = 3` with `{50ms, 150ms}` backoff. Seeding from `Resolve`
+would run their write up to 3x per mint. They are right that they are stuck.
+
+⚠️ **The refresh ordering is two adjacent statements with nothing enforcing it**
+(`middleware.go:590` then `:598`), and **no test would fail if they were
+reordered** — verified mechanically: no Go test configures both `Scopes:` and
+`OnAuthSuccess:`. `derived_claims_lanes_test.go` and
+`middleware_derived_claims_test.go` set the resolver and not the hook;
+`middleware_hooks_test.go:66,101,150` set the hook and not the resolver. The two
+features are tested in disjoint universes.
 
 **Open questions for the owner before anything is built:**
 - Does such a seam already exist under another name? They asked us to say so
