@@ -13,6 +13,114 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.58.0` — `OnIdentityResolved`, the seam before the derived claims (2026-09-05)
+
+### Added — `Config.OnIdentityResolved`
+
+A partner resolving their ADR-097 `scope` claim in `Config.Scopes` reads their
+own local user row, and that row is written by their reconciler AFTER the
+session exists. A new user's FIRST login therefore resolved against a row that
+did not exist and was minted scope-less — which every gate reads as "no granted
+authority" — and the only repair was an extra `/auth/token` round trip on every
+login, forever. They could not seed the row inside `Scopes`: side-effect freedom
+is a written contract there, backed by a real three-attempt retry loop, so their
+write would have run up to three times per mint.
+
+`Config.OnIdentityResolved` is the side-effecting twin of those two pure,
+retried resolvers. It fires once per DERIVED-CLAIMS RESOLUTION, with the settled
+`(user, tenant)`, immediately before `ProductRoles` and `Scopes` are resolved:
+`Login`, `CompleteLogin`, `OTPLogin`, `PasswordLogin`, `MFAVerify`
+(`MFAVerifyOTP` through it) — **and refresh**. In a BFF deployment the refresh
+route IS the tenant-choice route (the middleware requires `tenant_id` on it and
+has no separate choice route), so a login-only hook would have missed the moment
+a new `(user, tenant)` pair first appears. `if ev.Flow == FlowRefresh { return
+nil }` opts out.
+
+**Not "once per authentication", and it says so.** A multi-tenant login settles
+no tenant and fires nothing; the choice fires it, and a later tenant SWITCH
+fires it again for the new tenant. It does not fire on `Auth.Token` called
+directly (the raw primitive every lane above routes through) and it CANNOT fire
+on the credential-bootstrapped lanes, which produce no user and no tenant.
+
+**Configured on `Config`, deliberately NOT on `MiddlewareOptions`** — the seam
+is `mintProductRoles` + `enrichRefreshMint`, reached from every
+session-producing lane, so a direct client that never touches the middleware
+gets it for free and there is no second code path to drift. **No middleware file
+changed.**
+
+**A non-nil error REFUSES THE MINT, unconditionally, with no fail-open knob.**
+This is not new authority: a failing `Config.Scopes` already fails every login
+on the realm today. Minting past a failed seed would hand back a token whose
+`scope` was resolved against a missing or stale row — a confidently wrong
+authority claim our logs record as a clean 200. Best-effort is one line
+(`return nil`), the idiom `OnAuthSuccess` already prescribes; a knob would only
+be a second way to say it, and adding one later is additive while removing one
+is breaking.
+
+**It cannot fail an AUTHENTICATION — only the DELIVERY of a session.** On the
+login lanes the error rides `*LoginMintError`, which carries the intact session
+and its refresh token (the ADR-102 OQ8 recovery anchor). Through the middleware
+no cookie is written but the issuer-side session is live and orphaned until it
+expires. On refresh the hook necessarily runs after the first `/auth/token`, so
+the presented refresh token has already rotated and the error is an
+UNRECOVERABLE LOGOUT rather than a retryable failure. All three are already true
+of a `*ScopesError` today; they are now written down.
+
+**Not retried — so it must be idempotent. Upsert, do not insert.** The retry is
+the user's (they log in again), and a tenant switch fires it a second time. No
+SDK-side "already fired" memo: that needs an identity key, a TTL and an eviction
+policy, and it would silently stop firing after a partner restored their
+database from a backup. No synthetic deadline and no goroutine race either — the
+SDK cannot bound `ScopesHandler` today, so bounding only the new hook would be
+theatre, and abandoning a handler leaks it while its write lands after the error
+was returned. The caller's context deadline is the bound.
+
+New: `IdentityResolvedHandler`, `IdentityResolvedEvent`, `IdentityResolvedError`,
+and the `AuthFlow` values `FlowOTP`, `FlowPassword`, `FlowTenantChoice`. The
+event carries no tokens by design — the token in hand at that instant is the
+PRE-derived-claims one, so a hook reading it would see absent-scope and conclude
+"no granted authority", the exact misreading this seam exists to prevent — and
+mutating it is inert, because a hook that could rewrite the tenant would
+redirect the resolution away from what the issuer authenticated. `UserID` is the
+JWT `sub`, which is a MEMBERSHIP and not a person: key your mirror on
+`(TenantID, UserID)`.
+
+### Changed — the refresh subject-peek no longer degrades silently
+
+`enrichRefreshMint`'s short-circuit now consults the hook as well as the two
+resolvers, so a hook-only consumer is not silently skipped on refresh. And when
+the freshly-minted access token's `sub` is unreadable, the refresh is REFUSED
+instead of degrading — **only when `OnIdentityResolved` is set**. The hook's
+contract is "identity is known"; silently not firing is precisely the failure
+the partner reported. Resolver-only consumers keep today's degrade path exactly.
+This is the only behaviour change in the release and it reaches zero existing
+consumers — nobody can have configured a handler that did not exist yet.
+
+### Tests
+
+`TestIdentityResolvedRunsBeforeScopeResolution` is the one that matters, and it
+is CAUSAL rather than order-logging: the hook writes into a map, `Scopes`
+returns whatever it finds in that map, and the assertion is on the `scope` the
+mint carried. Confirmed RED first (build failure, then — with the fire site
+moved below `resolveScopes` — `scope on the mint = <nil>`). Until this file NO
+Go test configured `Scopes:` and a hook on one realm; they lived in disjoint
+universes, so their relative order was untested in BOTH directions, which is how
+this shipped. `TestEveryResolverCallSiteAlsoFiresTheHook` extends the AST lane
+walk so no future function may resolve the derived claims without announcing the
+identity first — but it proves CO-OCCURRENCE, NOT ORDER (it stayed green under
+the mutation above), so the two are complements and neither substitutes for the
+other. Plus lane coverage for all five login lanes and refresh, once-per-tenant,
+the mint refusal and its `LoginMintError` anchor, exactly-one-fire-on-failure,
+mutation-inertness, the peek-failure branch in both configurations, and
+`TestAuthFlowValuesAreDistinct` (the three new lane constants are declared
+relative to the last one in `middleware.go`, so a constant appended there would
+collide).
+
+**Non-breaking.** `Config` gains a field, which is additive for every keyed
+struct literal; an unkeyed `Config{...}` composite literal would break, but that
+is neither idiomatic nor used anywhere here, and it was already true of the last
+several fields added to this struct.
+
 ## go `0.57.2` — two role-template seat-check sentinels (2026-09-05)
 
 Issuer v0.121.0 added `role_template_seated` (409) and

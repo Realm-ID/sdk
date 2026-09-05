@@ -43,14 +43,18 @@ import (
 // bearing: it is what keeps the second round trip off every consumer who never
 // adopts either claim. The cost is opt-in with the feature.
 //
-// An error from either handler REFUSES the refresh rather than minting without
-// the claim. Minting anyway would hand back a token that reads as "no granted
+// An error from OnIdentityResolved or from either resolver REFUSES the refresh
+// rather than minting without the claim. Minting anyway would hand back a token that reads as "no granted
 // authority" to every gate — turning a transient blip in the partner's role
 // store into an authorization outage that our own logs record as a clean 200.
 // The same rule ProductRolesError already states, and the same rule the issuer
 // applies to an undelivered OTP.
 func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID string) error {
-	if r.cfg.ProductRoles == nil && r.cfg.Scopes == nil {
+	// The short-circuit CONSULTS THE HOOK as well as the two resolvers. A
+	// hook-only consumer configures neither resolver, and the old guard would
+	// have made this lane silently dead for exactly them — the same rule that
+	// already applies to a scopes-only consumer.
+	if r.cfg.ProductRoles == nil && r.cfg.Scopes == nil && r.cfg.OnIdentityResolved == nil {
 		return nil
 	}
 	if out == nil || out.RefreshToken == "" {
@@ -65,14 +69,32 @@ func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID 
 	if out.TenantID != "" {
 		tenantID = out.TenantID
 	}
-	userID, _, _, err := peekJWTUserFields(out.AccessToken)
+	userID, email, displayName, err := peekJWTUserFields(out.AccessToken)
 	if err != nil || userID == "" {
-		// Deliberately NOT an error. peek is a convenience over a token the
-		// issuer signed; if its shape ever changes we degrade to today's
-		// behaviour (the claim is omitted) rather than breaking every refresh.
-		// The regression tests assert the subject reaches the handler, so this
-		// branch cannot silently become the normal path without turning them red.
-		return nil
+		// WITHOUT OnIdentityResolved this is deliberately NOT an error. peek is
+		// a convenience over a token the issuer signed; if its shape ever
+		// changes we degrade to today's behaviour (the claim is omitted) rather
+		// than breaking every refresh. The regression tests assert the subject
+		// reaches the handler, so this branch cannot silently become the normal
+		// path without turning them red.
+		//
+		// WITH the hook configured it must REFUSE, and fireIdentityResolved is
+		// what makes that one call: the hook's contract is "identity is known",
+		// and a hook that silently does not fire is precisely the failure the
+		// partner brought us. It reaches zero existing consumers — nobody can
+		// have configured a handler that did not exist yet.
+		return r.fireIdentityResolved(ctx, IdentityResolvedEvent{
+			Flow: FlowRefresh, TenantID: tenantID,
+		})
+	}
+
+	// Role is "" on this lane: a refresh carries no membership list, and
+	// inventing one would be worse than the documented best-effort blank.
+	if err := r.fireIdentityResolved(ctx, IdentityResolvedEvent{
+		Flow: FlowRefresh, TenantID: tenantID, UserID: userID,
+		Email: email, DisplayName: displayName,
+	}); err != nil {
+		return err
 	}
 
 	roles, err := r.resolveProductRoles(ctx, tenantID, userID)
