@@ -157,15 +157,20 @@ export class RoleTemplatesClient {
    * May reject with a `RealmError` carrying (via `error.details.server_code`,
    * the same fallback `role_authoring_retired` uses):
    * - `role_template_seated` (409) — principals are currently seated at this
-   *   template; the write was refused. RECOVERABLE: retry with
-   *   `?override_seated=true` (audited).
+   *   template; the write was refused. RECOVERABLE: pass
+   *   `{ overrideSeated: true }` to retry with `?override_seated=true`
+   *   (audited).
    * - `role_template_seat_check_failed` (503) — the seat count could not be
    *   TAKEN at all, so the write was refused ("could not tell" must not read as
-   *   "none"). ⚠️ UNCONDITIONAL — `override_seated=true` does NOT rescue this
-   *   one; there is no count to override, only an inability to compute one.
-   *   Do not build a retry loop around it.
+   *   "none"). ⚠️ UNCONDITIONAL — `overrideSeated` does NOT rescue this one;
+   *   there is no count to override, only an inability to compute one. Do not
+   *   build a retry loop around it.
    */
-  async update(templateId: string, patch: RoleTemplatePatch): Promise<RoleTemplatePatched> {
+  async update(
+    templateId: string,
+    patch: RoleTemplatePatch,
+    opts?: { overrideSeated?: boolean },
+  ): Promise<RoleTemplatePatched> {
     const wire: Record<string, unknown> = {};
     if (patch.displayName !== undefined) wire["display_name"] = patch.displayName;
     if (patch.permissions !== undefined) wire["permissions"] = patch.permissions;
@@ -176,6 +181,11 @@ export class RoleTemplatesClient {
       method: "PATCH",
       path: `${this.base()}/${encodeURIComponent(templateId)}`,
       body: wire,
+      // Sent only when explicitly true — the issuer accepts override_seated
+      // ONLY as exactly "true" (case-insensitive, trimmed) and treats
+      // anything else, including an explicit "false", as absent. So there is
+      // no meaningful wire value for "explicitly off"; omission IS off.
+      query: opts?.overrideSeated ? { override_seated: "true" } : undefined,
     });
   }
 
@@ -185,14 +195,18 @@ export class RoleTemplatesClient {
    * this creates.
    *
    * May reject with the same two codes documented on {@link update}:
-   * `role_template_seated` (409, recoverable via `?override_seated=true`) and
-   * `role_template_seat_check_failed` (503, unconditional — no parameter
+   * `role_template_seated` (409, recoverable — pass `{ overrideSeated: true }`)
+   * and `role_template_seat_check_failed` (503, unconditional — no option
    * rescues it).
    */
-  async delete(templateId: string): Promise<RoleTemplateDeleted> {
+  async delete(
+    templateId: string,
+    opts?: { overrideSeated?: boolean },
+  ): Promise<RoleTemplateDeleted> {
     return this.http.request<RoleTemplateDeleted>({
       method: "DELETE",
       path: `${this.base()}/${encodeURIComponent(templateId)}`,
+      query: opts?.overrideSeated ? { override_seated: "true" } : undefined,
     });
   }
 }

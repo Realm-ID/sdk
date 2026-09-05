@@ -4,7 +4,7 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## 0.50.1 — documents issuer v0.121.0's two role-template seat-check codes (2026-09-05)
+## 0.50.1 — issuer v0.121.0's two role-template seat-check codes, plus `overrideSeated` (2026-09-05)
 
 ### Documented — `role_template_seated` / `role_template_seat_check_failed`
 
@@ -27,6 +27,24 @@ already does for that family. `RoleTemplatesClient.update`/`.delete` document
 both codes and the override distinction in their JSDoc; two tests assert the
 codes arrive via the existing fallback path. No functional change — the
 generic unknown-code handling already carried them.
+
+### Added (same-day follow-up, owner ruling) — `overrideSeated` on `update`/`delete`
+
+An SDK must not report an error whose stated remedy is unreachable through
+it: `role_template_seated` names `?override_seated=true` as its remedy, and
+until this addition nothing in the SDK could send it. `update` and `delete`
+both gained a trailing `opts?: { overrideSeated?: boolean }`, the same shape
+`RolesClient.delete`'s `{ migrateTo?: string }` already uses. `update` did not
+previously take an `opts` parameter at all, so this is a new (additive, not
+breaking) third parameter rather than a widened existing one. Sent ONLY as
+`override_seated=true` — the issuer accepts no other value as meaningful, so
+`{ overrideSeated: false }` and an omitted `opts` both produce the identical
+wire request (parameter absent, never `override_seated=false`). Does **not**
+rescue `role_template_seat_check_failed` (503) — that refusal stays
+unconditional, and the JSDoc says so beside the flag, not only in the
+original error registration. Four new tests (`update`/`delete` ×
+present/absent) confirmed red first, full suite 334/334 green, `tsc
+--noEmit` clean.
 
 ## 0.50.0 — ADR-107 authority propagation, and `last_owner` stops arriving as `conflict` (2026-09-04)
 

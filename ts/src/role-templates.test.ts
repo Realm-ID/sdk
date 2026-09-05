@@ -115,6 +115,61 @@ test("roleTemplates.delete: reports the orphans it creates", async () => {
   assert.equal(out.realms_still_holding, 3);
 });
 
+// Client parity, ruled 2026-09-05: the issuer's stated remedy for
+// role_template_seated is ?override_seated=true, so the SDK must be able to
+// send it. Default is OFF and omitted entirely — the issuer only recognizes
+// exactly "true", so there is no meaningful explicit-false wire value.
+test("roleTemplates.update: overrideSeated reaches the query string only when set", async () => {
+  const fetch = mkFetch((req) => {
+    assert.match(req.url, /override_seated=true/);
+    return new Response(
+      JSON.stringify({
+        role_template: { id: "tpl1", level: "tenant", name: "x" },
+        drifted_realms: 0,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+  await mkRealm(fetch).roleTemplates.update("tpl1", { displayName: "x" }, { overrideSeated: true });
+});
+
+test("roleTemplates.update: overrideSeated is absent when unset (including explicit false)", async () => {
+  const fetch = mkFetch((req) => {
+    assert.doesNotMatch(req.url, /override_seated/);
+    return new Response(
+      JSON.stringify({
+        role_template: { id: "tpl1", level: "tenant", name: "x" },
+        drifted_realms: 0,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+  await mkRealm(fetch).roleTemplates.update("tpl1", { displayName: "x" });
+  await mkRealm(fetch).roleTemplates.update("tpl1", { displayName: "x" }, { overrideSeated: false });
+});
+
+test("roleTemplates.delete: overrideSeated reaches the query string only when set", async () => {
+  const fetch = mkFetch((req) => {
+    assert.match(req.url, /override_seated=true/);
+    return new Response(
+      JSON.stringify({ status: "deleted", realms_still_holding: 0 }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+  await mkRealm(fetch).roleTemplates.delete("tpl1", { overrideSeated: true });
+});
+
+test("roleTemplates.delete: overrideSeated is absent by default", async () => {
+  const fetch = mkFetch((req) => {
+    assert.doesNotMatch(req.url, /override_seated/);
+    return new Response(
+      JSON.stringify({ status: "deleted", realms_still_holding: 0 }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  });
+  await mkRealm(fetch).roleTemplates.delete("tpl1");
+});
+
 test("roleTemplates.update: seated principals refuse with role_template_seated (409, recoverable)", async () => {
   const fetch = mkFetch(() =>
     new Response(
