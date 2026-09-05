@@ -562,6 +562,49 @@ this is the SDK-side work.
   wording to "verifier + admin types only." Also: its verifier tests are mildly
   flaky (1/8 intermittent, timing/JWKS-mock related).
 
+## Partner ask (Traide, 2026-09-05) — a post-identity, PRE-MINT hook
+
+**NOT designed, NOT approved, NOT started.** Recorded verbatim in intent so it
+is not lost; per this workspace's "discuss new features first" rule the model
+and tradeoffs go to the owner before any code.
+
+**Their problem, in their words.** `Config.Scopes` resolves their authorization
+claim at MINT time by reading their local `users` row. On a login the mint
+happens inside the SDK **before `OnAuthSuccess`**, and their local row is
+written by their reconciler INSIDE that hook. So a brand-new user's first login
+resolves against a row that does not exist yet and gets a **scope-less token**.
+They repair it by re-minting after the reconciler — an extra `/auth/token`
+round trip on EVERY login, now a permanent load-bearing piece of their auth
+path, which they would like to delete.
+
+**Why they cannot fix it themselves.** `ScopeResolver.Resolve` is contractually
+side-effect free because the SDK retries it an unspecified number of times per
+mint, so seeding from there would violate that contract N times per login. They
+own no earlier seam.
+
+**What would close it (either is sufficient, per them):**
+1. A hook firing ONCE per authentication, after the principal's identity and
+   tenant are known but BEFORE the first mint, where a relying party may perform
+   side effects (write its local mirror) and whose error can FAIL the login; or
+2. merely a DOCUMENTED GUARANTEE that `Config.Scopes` is called at least once
+   AFTER `OnAuthSuccess` on the login lane.
+
+Option 2 is enormously cheaper if the current implementation already happens to
+do it — but a guarantee is a contract, so it needs checking against every mint
+lane, not just the common one, before it can be written down.
+
+**Open questions for the owner before anything is built:**
+- Does such a seam already exist under another name? They asked us to say so
+  rather than build a second one.
+- Is "its error can fail the login" acceptable? That hands a relying party a
+  veto over authentication, which is a real availability surface.
+- Does this belong in all three SDKs or only the ones with a scope resolver?
+- Retry semantics: fire-once-per-authentication is easy to say and hard to
+  guarantee across refresh, token exchange and the credential-bootstrapped
+  lanes that get no refresh token at all (ADR-089).
+
+They stated explicitly: **no urgency** — they have a working, tested repair.
+
 ## Integration-guide improvements from the Traide exchange (2026-08-31)
 
 Derived from a live partner incident and the two-round exchange that followed,
