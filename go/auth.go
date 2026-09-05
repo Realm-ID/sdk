@@ -558,7 +558,7 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 	}
 	// ADR-102 D10 — mint once the tenant is settled. See the doc comment.
 	if tenantID := settledTenant(&resp); tenantID != "" {
-		if err := a.mintProductRoles(ctx, &resp, tenantID, req.RolePermissions); err != nil {
+		if err := a.mintProductRoles(ctx, &resp, FlowLogin, tenantID, req.RolePermissions); err != nil {
 			// The session is HANDED BACK on the error, not discarded — see
 			// LoginMintError. It is the ADR-102 OQ8 recovery anchor.
 			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
@@ -619,7 +619,7 @@ func (a *AuthClient) CompleteLogin(ctx ctxpkg.Context, s *Session, tenantID stri
 	if !known {
 		return fmt.Errorf("realmid: tenant %s is not one of this session's memberships", tenantID)
 	}
-	return a.mintProductRoles(ctx, s, tenantID, rolePermissions)
+	return a.mintProductRoles(ctx, s, FlowTenantChoice, tenantID, rolePermissions)
 }
 
 // mintProductRoles runs the handler and re-mints the session through
@@ -640,7 +640,31 @@ func (a *AuthClient) CompleteLogin(ctx ctxpkg.Context, s *Session, tenantID stri
 // consumer. Once Login mints, the guard collapses and the gate surfaces from
 // Login for EVERY consumer, not just the one that knew to go looking — which
 // ADR-102 D10 names as this decision's acceptance test.
-func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, tenantID string, rolePermissions []string) error {
+func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, flow AuthFlow, tenantID string, rolePermissions []string) error {
+	// OnIdentityResolved fires FIRST, and above the short-circuit below on
+	// purpose: a hook-only consumer must still be told, and a hook that fired
+	// after the resolvers would be useless to the partner it exists for — their
+	// Scopes handler reads the row this hook writes.
+	//
+	// The role lookup is HOISTED from the post-mint update further down. Same
+	// read, no second source of truth.
+	role := ""
+	for _, t := range s.Tenants {
+		if t.ID == tenantID {
+			role = t.Role
+			break
+		}
+	}
+	if err := a.realm.fireIdentityResolved(ctx, IdentityResolvedEvent{
+		Flow:        flow,
+		TenantID:    tenantID,
+		UserID:      s.User.ID,
+		Role:        role,
+		Email:       s.User.Email,
+		DisplayName: s.User.DisplayName,
+	}); err != nil {
+		return err
+	}
 	if a.realm.cfg.ProductRoles == nil && a.realm.cfg.Scopes == nil && s.AccessToken != "" {
 		return nil
 	}
@@ -830,7 +854,7 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 	// prompted the guard named only MFAVerify, and a hand-written list had said
 	// "three call sites" for months.
 	if tenantID := settledTenant(&resp); tenantID != "" {
-		if err := a.mintProductRoles(ctx, &resp, tenantID, nil); err != nil {
+		if err := a.mintProductRoles(ctx, &resp, FlowOTP, tenantID, nil); err != nil {
 			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
 		}
 	}
@@ -944,7 +968,7 @@ func (a *AuthClient) PasswordLogin(ctx ctxpkg.Context, req PasswordLoginRequest)
 	// product-roles handler runs and the session is re-minted. A password login
 	// is a login, so it must not be the one lane that returns a role-blind token.
 	if tenantID := settledTenant(&resp); tenantID != "" {
-		if err := a.mintProductRoles(ctx, &resp, tenantID, nil); err != nil {
+		if err := a.mintProductRoles(ctx, &resp, FlowPassword, tenantID, nil); err != nil {
 			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
 		}
 	}
@@ -1020,7 +1044,7 @@ func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Sessi
 	// every human denied by their own ScopePolicy gate immediately after
 	// passing the second factor — the worst possible moment for it.
 	if tenantID := settledTenant(&resp); tenantID != "" {
-		if err := a.mintProductRoles(ctx, &resp, tenantID, nil); err != nil {
+		if err := a.mintProductRoles(ctx, &resp, FlowMFAVerify, tenantID, nil); err != nil {
 			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
 		}
 	}

@@ -128,6 +128,26 @@ type Config struct {
 	// a BFF deployment the middleware builds the request itself, so the
 	// per-call field never reaches the lane humans actually use.
 	Scopes ScopesHandler
+
+	// OnIdentityResolved runs once per derived-claims resolution, with the
+	// authenticated identity and the settled tenant, immediately BEFORE
+	// ProductRoles and Scopes are resolved.
+	//
+	// Optional. Nil means nothing fires and nothing costs anything.
+	//
+	// This is where a partner SEEDS the row their Scopes handler then READS —
+	// the one thing those two handlers may not do themselves, because they are
+	// contractually side-effect-free and retried. See IdentityResolvedHandler
+	// for the full contract: fires on refresh too, is NOT retried, must be
+	// idempotent, and a non-nil error REFUSES THE MINT with no fail-open knob.
+	//
+	// ⚠️ A CONFIG FIELD, on the same reading as ProductRoles above: the
+	// precedent that matters is the one for a REALM-level hook. Deliberately
+	// NOT on MiddlewareOptions — mintProductRoles is reached from every
+	// session-producing lane, so a direct client that never touches the
+	// middleware gets this for free, and a middleware caller gets it through
+	// the same code path rather than a second one that can drift.
+	OnIdentityResolved IdentityResolvedHandler
 }
 
 // Realm is the SDK handle. Construct with NewRealm; safe for concurrent
@@ -218,7 +238,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.57.2"
+const Version = "0.58.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
