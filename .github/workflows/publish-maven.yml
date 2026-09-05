@@ -28,11 +28,24 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # GitHub's implicit default omits pipefail
+    shell: bash
+
+concurrency:
+  # NOT cancel-in-progress: a cancelled run of this workflow can leave
+  # half-applied state behind. Queue instead.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Runaway guard, not an SLA (GitHub's default is 360m).
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0   # the tag OBJECT is needed, not just the commit
 
@@ -54,7 +67,7 @@ jobs:
       - name: The release version has a changelog entry
         run: ./scripts/changelog-hygiene.sh maven
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '17'
