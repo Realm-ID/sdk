@@ -29,6 +29,12 @@ public final class AuthClient {
      * for a principal in one org. null means the claim is simply omitted.
      */
     private final ScopesHandler scopes;
+    /**
+     * The pre-mint-hook design's seam — fires once identity and tenant are
+     * settled, immediately before {@link #productRoles} and {@link #scopes}
+     * resolve. null means the seam is simply not consulted.
+     */
+    private final IdentityResolvedHandler onIdentityResolved;
     /** ADR-041: where logout pushes the access token's jti. Null → no push. */
     private dev.realmid.sdk.revocation.RevocationCache revocation;
 
@@ -42,13 +48,21 @@ public final class AuthClient {
         this(http, realmId, originResolver, productRoles, null);
     }
 
+    /** Pre-onIdentityResolved constructor; registers no identity-resolved hook. */
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver,
                       ProductRolesHandler productRoles, ScopesHandler scopes) {
+        this(http, realmId, originResolver, productRoles, scopes, null);
+    }
+
+    public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver,
+                      ProductRolesHandler productRoles, ScopesHandler scopes,
+                      IdentityResolvedHandler onIdentityResolved) {
         this.http = http;
         this.realmId = realmId;
         this.originResolver = originResolver;
         this.productRoles = productRoles;
         this.scopes = scopes;
+        this.onIdentityResolved = onIdentityResolved;
     }
 
     /**
@@ -129,7 +143,7 @@ public final class AuthClient {
         // ADR-102 D10 — mint once the tenant is settled. See the doc comment.
         String settled = settledTenant(session);
         if (settled != null && !settled.isEmpty()) {
-            return mintOrThrowWithAnchor(session, settled, req.rolePermissions(), req.origin());
+            return mintOrThrowWithAnchor(session, settled, req.rolePermissions(), req.origin(), AuthFlow.LOGIN);
         }
         return session;
     }
@@ -144,9 +158,10 @@ public final class AuthClient {
      * ADR-092's session-limit affordance and ADR-061's enrollment gate exist for.
      */
     private Session mintOrThrowWithAnchor(Session session, String tenantId,
-                                          java.util.List<String> rolePermissions, String origin) {
+                                          java.util.List<String> rolePermissions, String origin,
+                                          AuthFlow flow) {
         try {
-            return mintProductRoles(session, tenantId, rolePermissions, origin);
+            return mintProductRoles(session, tenantId, rolePermissions, origin, flow);
         } catch (RuntimeException e) {
             throw new LoginMintException(session, tenantId, e);
         }
@@ -189,7 +204,7 @@ public final class AuthClient {
             throw new IllegalArgumentException(
                     "tenant " + tenantId + " is not one of this session's memberships");
         }
-        return mintProductRoles(session, tenantId, rolePermissions, null);
+        return mintProductRoles(session, tenantId, rolePermissions, null, AuthFlow.TENANT_CHOICE);
     }
 
     /**
@@ -226,17 +241,26 @@ public final class AuthClient {
      * the gate surfaces for EVERY consumer.
      */
     private Session mintProductRoles(Session session, String tenantId,
-                                     java.util.List<String> rolePermissions, String origin) {
+                                     java.util.List<String> rolePermissions, String origin,
+                                     AuthFlow flow) {
+        String userId = null;
+        if (session.user() != null && session.user().get("id") != null) {
+            userId = String.valueOf(session.user().get("id"));
+        }
+        // The pre-mint-hook design's seam: fires BEFORE the short-circuit below,
+        // so it runs whenever the tenant is settled regardless of whether
+        // productRoles/scopes are configured at all — it is orthogonal to them,
+        // not gated by them. An error here refuses the mint unconditionally and,
+        // via mintOrThrowWithAnchor, rides the same LoginMintException anchor a
+        // ProductRolesException/ScopesException would.
+        fireIdentityResolved(flow, tenantId, userId, roleForTenant(session, tenantId),
+                userField(session, "email"), userField(session, "display_name"));
         // BOTH handlers gate the short-circuit. Consulting productRoles alone
         // would leave a scopes-only consumer silently never minting at all —
         // the mirror of the refresh bug, pointed at the other lane.
         if (productRoles == null && scopes == null
                 && session.accessToken() != null && !session.accessToken().isEmpty()) {
             return session;
-        }
-        String userId = null;
-        if (session.user() != null && session.user().get("id") != null) {
-            userId = String.valueOf(session.user().get("id"));
         }
         // The handler's failure surfaces as a ProductRolesException / a
         // ScopesException and is NOT mapped into a RealmException. The session
@@ -251,6 +275,54 @@ public final class AuthClient {
                 session.refreshToken(), tenantId, null, origin, rolePermissions,
                 grantedScopes, roles));
         return session.withMint(mint, tenantId);
+    }
+
+    /**
+     * Runs {@link #onIdentityResolved}, if configured. NOT retried — exactly
+     * one invocation per derived-claims resolution, unlike
+     * {@link ProductRoles#resolve} / {@link ScopeClaims#resolve} — and an
+     * exception refuses the mint unconditionally, with no fail-open knob (a
+     * partner expresses fail-open by catching their own error and returning).
+     */
+    private void fireIdentityResolved(AuthFlow flow, String tenantId, String userId,
+                                      String role, String email, String displayName) {
+        if (onIdentityResolved == null) return;
+        IdentityResolvedEvent ev = new IdentityResolvedEvent(flow, realmId, tenantId, userId,
+                role == null ? "" : role, email == null ? "" : email,
+                displayName == null ? "" : displayName);
+        try {
+            onIdentityResolved.onIdentityResolved(ev);
+        } catch (Exception e) {
+            throw new IdentityResolvedException(tenantId, userId, flow, e);
+        }
+    }
+
+    /**
+     * The role the SESSION's own {@code tenants[]} list carries for
+     * {@code tenantId} — the same lookup {@link Session#withMint} does AFTER
+     * the mint, hoisted here as a read-only copy so the hook can see it BEFORE
+     * the mint runs.
+     */
+    private static String roleForTenant(Session session, String tenantId) {
+        String r = session.role();
+        if (session.tenants() != null) {
+            for (Session.TenantRef t : session.tenants()) {
+                if (t.id() != null && t.id().equals(tenantId)) {
+                    return t.role();
+                }
+            }
+        }
+        return r;
+    }
+
+    /** Best-effort read of a {@code Session.user()} field. The wire response
+     *  today carries only {@code id} (issuer httpapi.loginUserObj), so this is
+     *  future-proofing more than a live path — {@code null} is the honest,
+     *  common answer. */
+    private static String userField(Session session, String key) {
+        if (session.user() == null) return null;
+        Object v = session.user().get(key);
+        return v == null ? null : String.valueOf(v);
     }
 
     /**
@@ -306,7 +378,11 @@ public final class AuthClient {
      *         second mint's response
      */
     public TokenResponse enrichRefreshMint(TokenResponse minted, String tenantId) {
-        if (productRoles == null && scopes == null) return minted;
+        // The identity-resolved hook (§4.3 of the design doc) is consulted
+        // HERE too, alongside the two resolvers — a hook-only consumer must
+        // fire on refresh exactly as a resolver-only one does, or it would
+        // silently never see a refresh-lane (user, tenant) pair at all.
+        if (productRoles == null && scopes == null && onIdentityResolved == null) return minted;
         if (minted == null
                 || minted.refreshToken() == null || minted.refreshToken().isEmpty()) {
             // Nothing to re-mint against. A credential-bootstrapped session gets
@@ -319,16 +395,32 @@ public final class AuthClient {
         // tenant while the token is minted for another is a silent wrong answer.
         String tenant = minted.tenantId() != null && !minted.tenantId().isEmpty()
                 ? minted.tenantId() : tenantId;
-        String userId = JwtPeek.subject(minted.accessToken());
+        JwtPeek.UserFields uf = JwtPeek.userFields(minted.accessToken());
+        String userId = uf.sub();
         if (userId == null) {
-            // Deliberately NOT an error. The peek is a convenience over a token
-            // the issuer signed; if its shape ever changes we degrade to the old
-            // behaviour (the claim is omitted) rather than breaking every
-            // refresh. The regression tests assert the subject REACHES the
-            // handler, so this branch cannot silently become the normal path
-            // without turning them red.
+            // Deliberately NOT an error for a resolver-only consumer. The peek
+            // is a convenience over a token the issuer signed; if its shape
+            // ever changes we degrade to the old behaviour (the claim is
+            // omitted) rather than breaking every refresh.
+            //
+            // BUT: when the identity-resolved hook is configured, "identity is
+            // known" is its whole contract, and silently not firing is exactly
+            // the failure this hook exists to end. Refuse the refresh instead —
+            // this reaches ZERO current consumers, since nobody can have
+            // configured a handler that did not exist before this change.
+            if (onIdentityResolved != null) {
+                throw new IdentityResolvedException(tenant, null, AuthFlow.REFRESH,
+                        new IllegalStateException(
+                                "identity: could not read the subject from the minted access token"));
+            }
             return minted;
         }
+        // Best-effort fields the wire response has no room for on this lane —
+        // there is no session object on a refresh, only the freshly minted
+        // token the issuer just signed and handed back.
+        fireIdentityResolved(AuthFlow.REFRESH, tenant, userId, "", uf.email(), uf.name());
+
+        if (productRoles == null && scopes == null) return minted;
 
         java.util.List<String> roles = ProductRoles.resolve(productRoles, tenant, userId);
         java.util.List<String> grantedScopes = ScopeClaims.resolve(scopes, tenant, userId);
@@ -417,7 +509,7 @@ public final class AuthClient {
         // their own scope gate immediately after passing the second factor.
         String settled = settledTenant(session);
         if (settled != null && !settled.isEmpty()) {
-            return mintOrThrowWithAnchor(session, settled, null, req.origin());
+            return mintOrThrowWithAnchor(session, settled, null, req.origin(), AuthFlow.MFA_VERIFY);
         }
         return session;
     }
@@ -448,7 +540,7 @@ public final class AuthClient {
         // prompted the guard named only mfaVerify.
         String settled = settledTenant(session);
         if (settled != null && !settled.isEmpty()) {
-            return mintOrThrowWithAnchor(session, settled, null, req.origin());
+            return mintOrThrowWithAnchor(session, settled, null, req.origin(), AuthFlow.OTP);
         }
         return session;
     }
@@ -491,7 +583,7 @@ public final class AuthClient {
         // role-blind token.
         String settled = settledTenant(session);
         if (settled != null && !settled.isEmpty()) {
-            return mintOrThrowWithAnchor(session, settled, null, req.origin());
+            return mintOrThrowWithAnchor(session, settled, null, req.origin(), AuthFlow.PASSWORD);
         }
         return session;
     }

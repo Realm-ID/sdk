@@ -4,6 +4,61 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.48.0 — `onIdentityResolved`, the pre-derived-claims identity hook (2026-09-05)
+
+### Added
+
+`Realm.Builder.onIdentityResolved(IdentityResolvedHandler)` — a new,
+side-effecting hook that fires once identity and tenant are settled,
+immediately before `ProductRolesHandler` and `ScopesHandler` resolve. It
+closes the gap `docs/design/pre-mint-hook.md` documents: a partner who seeds
+their own local user row inside a post-auth reconciler had no seam before the
+resolver ran, so a brand-new user's first login minted a scope-less token.
+
+- **Fires on every lane that resolves the derived claims, refresh included**
+  (design doc §4/§11a OQ-1): `login`, `otpLogin`, `passwordLogin`, `mfaVerify`
+  (`mfaVerifyOtp` delegates and fires once, not twice), `completeLogin` (once
+  per settled tenant — a later tenant switch fires again, for the new
+  tenant), and `AuthClient.enrichRefreshMint`. It does NOT fire on a
+  multi-tenant login that has not yet been settled, on `Auth.token` called
+  directly, or on any credential-bootstrapped (API-key / platform-key /
+  ADR-057) lane, where there is no user identity to resolve at all.
+- **The handler's error refuses the mint, unconditionally — no fail-open
+  configuration knob.** A partner who wants best-effort behaviour catches
+  their own error and returns normally. On the login lanes the error rides
+  the existing `LoginMintException` anchor exactly as a
+  `ProductRolesException`/`ScopesException` would; it can only fail the
+  DELIVERY of a session, never the authentication itself — the issuer has
+  already created the session by the time this runs.
+- **NOT retried** (unlike `ProductRolesHandler`/`ScopesHandler`'s 3-attempt
+  policy) — exactly one invocation per derived-claims resolution. The handler
+  must therefore be idempotent: a retried login, or a tenant switch, re-fires
+  it.
+- **No synthetic timeout or deadline race.** The SDK cannot bound
+  `ScopesHandler`'s execution today either, so bounding only the new hook
+  would be theatre; the hook runs on the caller's own context/thread with no
+  interruption.
+- **One behaviour change, reaching zero current consumers**: on the refresh
+  lane, an unreadable JWT subject now REFUSES the refresh instead of
+  degrading silently — but only when `onIdentityResolved` is configured.
+  Nobody could have configured a handler that did not exist before this
+  release, so no existing integration is affected.
+- `IdentityResolvedEvent` carries `flow`, `realmId`, `tenantId`, `userId`
+  (the JWT `sub` — a per-membership `users` row id, not a person),
+  best-effort `role`/`email`/`displayName`. It carries NO access token, NO
+  refresh token, and no request object — see the Javadoc for why. Being a
+  Java record, it is immutable by construction (no Go-style mutation hazard
+  to guard against).
+- **`Realm.withUserToken`'s copy constructor carries the new handler**,
+  exactly as it already does for `productRoles`/`scopes` — a dedicated test
+  (`IdentityResolvedWithUserTokenTest`) pins this, since a dropped field here
+  produces no compile error and no exception, only a hook that silently never
+  fires on the BFF lane.
+- Purely additive: `Realm.Builder` gains one method, `AuthClient` gains a
+  backward-compatible constructor overload. No middleware file changed —
+  `MiddlewareConfig`/`RealmFilter` are untouched, per the design doc's ruling
+  that this seam belongs on the realm, not the middleware.
+
 ## 0.47.1 — issuer v0.121.0's two role-template seat-check codes, plus `overrideSeated` overloads (2026-09-05)
 
 ### Documented — `role_template_seated` / `role_template_seat_check_failed`

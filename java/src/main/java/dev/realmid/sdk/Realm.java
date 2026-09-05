@@ -64,6 +64,14 @@ public final class Realm {
      * granted authority on exactly the BFF lane the claim exists for.
      */
     private final dev.realmid.sdk.auth.ScopesHandler scopes;
+    /**
+     * Pre-mint-hook design (docs/design/pre-mint-hook.md) — fires once
+     * identity and tenant are settled, before {@link #productRoles} and
+     * {@link #scopes} resolve. Carried for the SAME reason those two are: a
+     * withUserToken copy that dropped it would silently stop firing on
+     * exactly the BFF lane the hook exists for.
+     */
+    private final dev.realmid.sdk.auth.IdentityResolvedHandler onIdentityResolved;
     private final OtpClient otp;
     private final TenantsClient tenants;
     private final DomainsClient domains;
@@ -106,6 +114,7 @@ public final class Realm {
         this.logger = b.logger == null ? Logging.NOOP : b.logger;
         this.productRoles = b.productRoles;
         this.scopes = b.scopes;
+        this.onIdentityResolved = b.onIdentityResolved;
         ObjectMapper mapper = b.mapper == null ? new ObjectMapper() : b.mapper;
         HttpClient httpClient = b.httpClient == null
                 ? HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build()
@@ -141,7 +150,7 @@ public final class Realm {
                 b.cacheTtl, b.leeway, clock, this.logger, b.authority, b.revocation);
         this.authority = b.authority;
         this.revocation = b.revocation;
-        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
         this.auth.setRevocationCache(this.revocation);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
@@ -183,6 +192,7 @@ public final class Realm {
         this.logger = parent.logger;
         this.productRoles = parent.productRoles;
         this.scopes = parent.scopes;
+        this.onIdentityResolved = parent.onIdentityResolved;
         this.clock = parent.clock;
         this.authority = parent.authority;
         this.revocation = parent.revocation;
@@ -191,7 +201,7 @@ public final class Realm {
         this.verifier = parent.verifier;
         this.http = parent.http.withUserToken(userToken);
 
-        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes);
+        this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
         this.auth.setRevocationCache(this.revocation);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
@@ -426,6 +436,7 @@ public final class Realm {
         private dev.realmid.sdk.revocation.RevocationCache revocation;
         private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
         private dev.realmid.sdk.auth.ScopesHandler scopes;
+        private dev.realmid.sdk.auth.IdentityResolvedHandler onIdentityResolved;
 
         public Builder realmId(String v) { this.realmId = v; return this; }
         public Builder apiKey(String v) { this.apiKey = v; return this; }
@@ -511,6 +522,29 @@ public final class Realm {
          */
         public Builder scopes(dev.realmid.sdk.auth.ScopesHandler v) {
             this.scopes = v;
+            return this;
+        }
+
+        /**
+         * Registers the {@code OnIdentityResolved} seam
+         * (docs/design/pre-mint-hook.md): fires once identity and tenant are
+         * settled, immediately before {@link #productRoles} and
+         * {@link #scopes} resolve — the point where a partner can seed the
+         * local row those two handlers read, closing the gap where a
+         * brand-new user's first login mints a scope-less token because the
+         * resolver runs before the partner's own post-auth reconciler.
+         *
+         * <p>Optional. Unset means the seam is simply not consulted — see
+         * {@link dev.realmid.sdk.auth.IdentityResolvedHandler} for the full
+         * contract, including WHY an error here refuses the mint
+         * unconditionally (there is no fail-open configuration knob: a
+         * partner who wants best-effort behaviour catches their own error and
+         * returns normally) and WHY it fires on the refresh lane too (all
+         * three middlewares require {@code tenant_id} on refresh, so in a BFF
+         * deployment the refresh route IS the tenant-choice route).
+         */
+        public Builder onIdentityResolved(dev.realmid.sdk.auth.IdentityResolvedHandler v) {
+            this.onIdentityResolved = v;
             return this;
         }
 

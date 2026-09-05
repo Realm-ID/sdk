@@ -66,4 +66,32 @@ final class JwtPeek {
             return null;
         }
     }
+
+    /** The {@code sub}/{@code email}/{@code name} claims, mirroring Go's
+     *  {@code peekJWTUserFields}. Every field is {@code null} when the token
+     *  is not a decodable JWT or the claim is absent/non-textual — used by
+     *  {@link AuthClient#enrichRefreshMint} to source
+     *  {@link IdentityResolvedEvent}'s best-effort fields on the refresh lane,
+     *  where no wire response carries a user object at all. */
+    record UserFields(String sub, String email, String name) {}
+
+    static UserFields userFields(String jwt) {
+        if (jwt == null) return new UserFields(null, null, null);
+        String[] parts = jwt.split("\\.");
+        if (parts.length != 3) return new UserFields(null, null, null);
+        try {
+            byte[] raw = Base64.getUrlDecoder().decode(parts[1]);
+            JsonNode payload = MAPPER.readTree(new String(raw, StandardCharsets.UTF_8));
+            if (payload == null) return new UserFields(null, null, null);
+            return new UserFields(textOrNull(payload, "sub"), textOrNull(payload, "email"),
+                    textOrNull(payload, "name"));
+        } catch (RuntimeException | java.io.IOException e) {
+            return new UserFields(null, null, null);
+        }
+    }
+
+    private static String textOrNull(JsonNode payload, String field) {
+        JsonNode v = payload.get(field);
+        return v != null && v.isTextual() && !v.asText().isEmpty() ? v.asText() : null;
+    }
 }
