@@ -156,8 +156,13 @@ type IdentityResolvedEvent struct {
 	//
 	// ⚠️ IT IS A MEMBERSHIP, NOT A PERSON. `sub` is the per-tenant `users` row
 	// id, so one human in two orgs has two of them. Key your mirror on
-	// (TenantID, UserID); keying on UserID alone silently splits or collides
-	// humans across orgs.
+	// (TenantID, UserID); keying on UserID alone silently SPLITS one human
+	// into two mirror rows.
+	//
+	// It cannot do the opposite. Two humans can never share a UserID: the
+	// issuer's `users` is one global table with `id UUID PRIMARY KEY`, and a
+	// row id is never rewritten, so a `sub` is unique platform-wide. A mirror
+	// does not need to defend against a collision, only against the split.
 	UserID string
 	// Role is the RealmID role this principal holds in TenantID. BEST EFFORT —
 	// it may be "" (notably on the refresh lane, where no membership list is in

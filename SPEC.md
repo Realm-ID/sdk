@@ -1,13 +1,15 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-08-31 — go `go/v0.52.1` · ts `ts-v0.45.0` · java
-`java-v0.42.0`** (see §12 for the tag matrix).
+**Current as of 2026-09-05 — go `go/v0.58.0` · ts `ts-v0.51.0` · java
+`java-v0.48.0`** (see §12 for the tag matrix).
 
-> ⚠️ **This revision describes an UNRELEASED surface** (ADR-102/103/104/105).
-> `login` MINTS now (§4.1.1) — a behaviour change for every consumer — and
-> `orgScope` / `orgIds` are GONE from the user-API-key surface (§6.6). Both are
-> BREAKING. The tags above are the last RELEASED ones; nothing in §4.1.1,
-> §4.1.2, §4.1.3 or §6.6's ADR-105 block is in them yet.
+> **Every section of this revision is RELEASED.** The header carried an
+> "UNRELEASED surface" warning for ADR-102/103/104/105 (`login` MINTS now,
+> §4.1.1; `orgScope`/`orgIds` gone from §6.6) — those shipped in go `0.53.0` ·
+> ts `0.46.0` · java `0.43.0` on 2026-09-01, and §4.1.7's `onIdentityResolved`
+> shipped in the tags pinned above. A warning left standing after the release it
+> warns about is worse than none: it tells a partner not to plan against a
+> surface they can already install.
 
 > **Every tag named here is a tag that exists.** The previous header pinned
 > `go/v0.46.0` · `ts-v0.38.0` · `java-v0.36.0`, and **none of those three were
@@ -737,6 +739,19 @@ Rules:
    `tenant_id` on the refresh route and none has a tenant-choice route, so in a
    BFF deployment the refresh route IS the tenant-choice route; login-only would
    leave that deployment class uncovered.
+
+   **On refresh it is the MIDDLEWARE's seam, and only that.** The refresh-lane
+   firing lives in the SDK's refresh-enrichment step, whose only caller is the
+   middleware (Go `middleware.go`, TS `middleware.ts`, Java `RealmFilter`). A
+   relying party that brokers the refresh itself — its own endpoint calling
+   §4.2's `token()` directly, with no middleware in the path — gets NO hook on
+   that lane, and no error either: the mint simply carries whatever claims it
+   was passed and the hook never runs. Go makes this structural (the enrichment
+   is unexported); TS and Java expose it on `AuthClient` as an explicitly
+   `@internal` method a caller may invoke, but `token()` alone never does.
+   **The login lanes are NOT so restricted** — that firing is inside `login`,
+   `otpLogin`, `password`, `mfaVerify` and tenant-choice themselves, so a
+   direct client with no middleware still gets it.
 2. **Its error refuses the mint, unconditionally. There is no fail-open knob.**
    A relying party expresses fail-open by returning without doing anything. This
    is not a new veto: a failing §4.1.2 resolver already fails the same mints. On
@@ -753,6 +768,14 @@ Rules:
    authentication".** It is vacuous on the credential-bootstrapped and token
    exchange lanes, which resolve no derived claims at all — and this document
    says so rather than implying coverage it does not have.
+
+   **That vacuity is TOTAL for the identity, not merely for its first mint.**
+   Those lanes are issued no refresh token at all (ADR-089 — the credential is
+   simply re-presented), so there is no later derived-claims mint for the hook
+   to fire on either. Do not read "vacuous at bootstrap" as "it fires on the
+   next mint instead": for a credential-bootstrapped principal the hook never
+   fires, for the whole life of that session and of every session the same
+   credential re-presents into.
 
 Design and the full reasoning: `docs/design/pre-mint-hook.md`.
 
@@ -3054,12 +3077,14 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.49.0`        | slash form; resolved by `go get`. ADR-097 mint half (`TokenRequest.Scope`). |
-| TS       | `ts-v0.42.0`        | `@realm-id/sdk@0.42.0` on npm. Same ADR-097 mint surface. |
-| Java     | `java-v0.39.0`      | `dev.realmid:sdk:0.39.0` on Maven Central. Same ADR-097 mint surface. |
+| Go       | `go/v0.58.0`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`. |
+| TS       | `ts-v0.51.0`        | `@realm-id/sdk@0.51.0` on npm. Same §4.1.7 surface. |
+| Java     | `java-v0.48.0`      | `dev.realmid:sdk:0.48.0` on Maven Central. Same §4.1.7 surface. |
 
 > The three languages ship in lockstep per SPEC change (matching
 > CHANGELOG entries); this matrix drifts between releases — `git tag`
 > in this repo is the source of truth. Browser packages
-> (`@realm-id/web@0.4.5`, `@realm-id/web-admin@0.8.5`, adapters) are
-> versioned per-package under `web/`.
+> (`@realm-id/web@0.7.0`, `@realm-id/web-admin@0.17.0`,
+> `@realm-id/web-bff-realmid@0.6.0`, `@realm-id/web-react@0.5.1`, adapters) are
+> versioned per-package under `web/` — read them off each `package.json`, not
+> off this line, which has drifted before.

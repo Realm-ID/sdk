@@ -13,8 +13,10 @@ package dev.realmid.sdk.auth;
  *
  * <p><b>{@code userId} is the per-membership {@code users} row id (the JWT
  * {@code sub}), not a person.</b> A partner keying a mirror on {@code sub}
- * alone will split or collide humans across orgs; the key is
- * {@code (tenantId, sub)}.
+ * alone silently SPLITS one human into two rows; the key is
+ * {@code (tenantId, sub)}. It cannot collide two humans onto one row — the
+ * issuer's {@code users} is one global table with {@code id UUID PRIMARY KEY},
+ * so a {@code sub} is unique platform-wide.
  *
  * <p>{@code role} / {@code email} / {@code displayName} are best-effort and
  * may be empty; {@code flow}, {@code realmId}, {@code tenantId} and

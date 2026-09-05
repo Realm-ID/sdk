@@ -442,8 +442,11 @@ Sourcing, so the builder does not invent it:
 
 **`UserID` doc comment must state the per-membership rule**: the JWT `sub` is
 the per-tenant `users` row id, not a person. A partner keying a mirror on
-`sub` alone will split or collide humans across orgs; the key is
-`(tenant_id, sub)`.
+`sub` alone silently SPLITS one human into two rows; the key is
+`(tenant_id, sub)`. It cannot collide two humans onto one row — the issuer's
+`users` is one global table with `id UUID PRIMARY KEY` (`internal/migrations/
+baseline.go:217`) and a row id is never rewritten, so a `sub` is unique
+platform-wide.
 
 ### 7.1 What it must NOT receive, and why
 

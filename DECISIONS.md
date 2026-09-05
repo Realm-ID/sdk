@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-92 entries total — 37 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+93 entries total — 38 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner](#2026-09-05-docs-branch-cleanup--a-collision-that-cannot-happen-a-seam-that-is-narrower-than-documented-and-a-stale-unreleased-banner)
 - [2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false](#2026-09-05-onidentityresolved-the-hook-a-partner-could-not-build-for-themselves-and-the-two-things-everyone-called-it-that-were-false)
 - [2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it](#2026-09-05-role-template-seat-checks-override_seated--owner-ruling-an-sdk-must-not-report-an-error-whose-stated-remedy-is-unreachable-through-it)
 - [2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join](#2026-09-05-role-template-seat-checks--two-new-refusals-stayed-out-of-the-general-taxonomy-on-purpose-matching-the-family-they-join)
@@ -104,6 +105,72 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner
+
+Four documentation defects and one branch delete. No behaviour changed; every
+edit is prose over a surface that already shipped.
+
+**1. `userId` cannot COLLIDE two humans — only split one.** The
+`IdentityResolvedEvent.userId` doc comment said a mirror keyed on `sub` alone
+"will split or collide humans across orgs", in all three languages and in
+`docs/design/pre-mint-hook.md`. The split is real: `sub` is the per-tenant
+`users` row id, so one human in two orgs has two. **The collision is
+unrepresentable.** The issuer's `users` is ONE global table with
+`id UUID PRIMARY KEY` (`issuer/internal/migrations/baseline.go:217`) and a row
+id is never rewritten, so no two principals can ever share a `sub`;
+`users_tenant_id_id_uidx` exists only as the composite-FK target, not as a
+partitioning of the id space. The distinction is not pedantry — it decides
+whether a partner writes defensive de-duplication they will never need. The
+comments now say which failure is possible and state why the other is not.
+
+**2. On refresh the hook is the MIDDLEWARE's seam, and SPEC did not say so.**
+§4.1.7 rule 1 read "fires on the login lanes AND on refresh" flatly. The
+refresh-lane firing lives in the refresh-enrichment step, whose ONLY caller is
+the middleware — verified: Go `middleware.go:590` is `enrichRefreshMint`'s sole
+non-test caller, TS is `middleware.ts:288`, Java `RealmFilter.java:319`. A
+partner brokering §4.2's `token()` from its own endpoint gets no hook on that
+lane **and no error** — the mint just carries whatever it was passed. Go makes
+this structural (unexported); TS and Java expose it on `AuthClient` already
+marked `@internal`. The login lanes are genuinely unrestricted, and the rule now
+draws that line. A partner reading only the old sentence would have built a
+refresh-time mirror seeding that silently never runs.
+
+**3. The credential-bootstrapped vacuity is TOTAL, not first-mint-only.**
+Rule 5 said the hook is vacuous on the credential-bootstrapped and
+token-exchange lanes. True, but readable as "so it fires on the NEXT mint
+instead" — and there is no next mint: those lanes are issued no refresh token at
+all (ADR-089, `issuer/internal/authsvc/service.go:529,607,674`). For such a
+principal the hook never fires, ever. Stated explicitly rather than left to be
+inferred correctly.
+
+**4. The SPEC header warned about a release that had already happened.** It
+pinned go `v0.52.1` · ts `v0.45.0` · java `v0.42.0` and carried "⚠️ This
+revision describes an UNRELEASED surface (ADR-102/103/104/105)". Those shipped
+in go `0.53.0` · ts `0.46.0` · java `0.43.0` on 2026-09-01, four days and six
+releases earlier; §12's matrix was staler still (`go/v0.49.0`). A stale
+UNRELEASED banner is worse than none — it tells a partner not to plan against a
+surface they can already `go get`. Header and matrix now read off `git tag`,
+which the header's own rule already demanded, and the browser-package line off
+each `package.json`.
+
+**Branch delete — `origin/ci/workflow-hygiene` (`834fdf7`), recorded here
+before removal.** Its three commits were `834fdf7` (pin gate must not flag
+first-party reusable workflows), `1909625` (`OnIdentityResolved`, superseded on
+`main`) and `acfac43` (SHA-pin/actionlint/pipefail/timeouts/concurrency).
+Nothing is lost: its `.github/workflows` tree is BYTE-IDENTICAL to
+`origin/ci/workflow-hygiene-clean` (`170d434`, what PR #2 points at) — `834fdf7`'s
+pin-gate fix is folded into that commit — and its 52 branch-only lines outside
+`.github/` are all OLDER revisions of what `main` now carries (`version =
+"0.47.1"`, `"version": "0.50.1"`, pre-hook `AuthClient` constructors, the
+`JwtPeek` silent-degrade comment `main` replaced with a refusal, SPEC `§4.1.5`
+vs `§4.1.7`, this log at 91 entries vs 92).
+
+⚠️ **A first pass read the branch as 212 branch-only lines and nearly called it
+unique work.** That count includes `.github/`, which `-clean` preserves
+verbatim; the deletion-relevant figure is the 52 outside it. Diff a branch
+against what SUPERSEDES it, not only against `main`, before concluding anything
+is lost.
 
 ## 2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false
 

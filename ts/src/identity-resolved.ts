@@ -94,8 +94,10 @@ export interface IdentityResolvedEvent {
   readonly realmId: string;
   readonly tenantId: string;
   /** The per-membership `users` row id — the JWT `sub`, not a person. A
-   *  mirror keyed on `sub` alone will split or collide humans across orgs;
-   *  key on `(tenantId, userId)`. */
+   *  mirror keyed on `sub` alone silently SPLITS one human into two rows;
+   *  key on `(tenantId, userId)`. It cannot collide two humans onto one row
+   *  — the issuer's `users` is one global table with `id UUID PRIMARY KEY`,
+   *  so a `sub` is unique platform-wide. */
   readonly userId: string;
   /** Best-effort; `""` on the refresh lane, where the issuer's session
    *  response carries no role. */
