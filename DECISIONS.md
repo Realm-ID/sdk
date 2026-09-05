@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-93 entries total — 38 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+94 entries total — 39 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-06 (preflight) — a `Makefile`, so 61% of this repo's CI failures stop being a push-time surprise](#2026-09-06-preflight--a-makefile-so-61-of-this-repos-ci-failures-stop-being-a-push-time-surprise)
 - [2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner](#2026-09-05-docs-branch-cleanup--a-collision-that-cannot-happen-a-seam-that-is-narrower-than-documented-and-a-stale-unreleased-banner)
 - [2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false](#2026-09-05-onidentityresolved-the-hook-a-partner-could-not-build-for-themselves-and-the-two-things-everyone-called-it-that-were-false)
 - [2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it](#2026-09-05-role-template-seat-checks-override_seated--owner-ruling-an-sdk-must-not-report-an-error-whose-stated-remedy-is-unreachable-through-it)
@@ -105,6 +106,93 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-06 (preflight) — a `Makefile`, so 61% of this repo's CI failures stop being a push-time surprise
+
+**Problem.** `CI-FAILURE-AUDIT-2026-09-05.md` (root of the umbrella repo)
+measured this repo at 35 failed / 169 runs — tied for the worst share in the
+workspace — and found the pattern behind it: 86% of all cross-repo CI failures
+fire on `push`, not `pull_request`, because `.git/hooks/` is empty and there is
+no `Makefile` anywhere. CI is the FIRST place any gate runs, on a repo that
+pushes straight to `main`. This repo's own worst offenders, by failure count:
+`go/ has not changed under a released version` (8), `Publish @realm-id/sdk
+(ts)` (6, needs the network — out of scope here), a changelog missing its
+entry (5 + 3 across npm/maven/go modes), `The three taxonomies agree` (3),
+`Typecheck` (2), `The tag has not been re-pointed since publication` (2,
+release-time, immutable by then), `gofmt` (1). Every one of those except the
+npm publish itself is fully determined by the working tree.
+
+**Decision.** Add `make check` / `make release-check` / `make install-hooks` /
+`make self-test`, a tracked `.githooks/pre-push`, and reuse the three existing
+hygiene scripts (`tag-hygiene.sh`, `changelog-hygiene.sh`,
+`taxonomy-parity.py`) rather than re-implement any of their logic.
+
+- **`make check` mirrors `.github/workflows/ci.yml` ONLY** — the push/PR gate
+  — not the publish workflows, whose gates fire at tag-push time and belong to
+  `release-check` instead. It covers: workflow/Makefile command parity
+  (new, see below), taxonomy parity, changelog order, `tag-hygiene.sh
+  unreleased-go`, `gofmt`, `go build`/`go vet`/`go test`, and ts
+  `typecheck`/`test`. **`java/`'s gradle job is deliberately excluded** — its
+  dependency resolution can need the network on a cold cache and there is no
+  way to tell that apart from a warm one without just trying it, which would
+  violate `check`'s own no-network contract. Run it by hand:
+  `cd java && ./gradlew test --no-daemon`. Runtime measured at 5-8s.
+  `ts/node_modules` missing is a loud SKIP (install needs the network), not a
+  silent pass — `PREFLIGHT_ALLOW_SKIP=1` is required to let a skip through,
+  per the SPEC's skip rule.
+- **`make release-check LANGUAGE={go|ts|java} VERSION=x.y.z`** runs the
+  pre-tag preconditions for ONE language, via a new `scripts/release-check.sh`
+  that itself calls `changelog-hygiene.sh` and `tag-hygiene.sh` rather than
+  duplicating their rules. The three languages are genuinely different checks,
+  not one flattened rule: **Go's tag IS the release** — `proxy.golang.org` may
+  serve it the instant it is pushed, so the sole assertions available
+  beforehand are "the const already reads this version" and "this tag does not
+  already exist, locally or on origin" (the remedy, if it does, is the next
+  patch version — never a re-point; `go/v0.58.0` is burned exactly this way).
+  **ts/java publish from a step AFTER the tag push**, so the same
+  already-exists check is about not wasting a version number, not about an
+  irreversible fact — a lightweight ts/java tag caught before that publish
+  step is still fixable by delete-and-recut.
+  The Makefile variable is named `LANGUAGE`, not `LANG` — this shell already
+  exports `LANG` as a locale (e.g. `en_IN.UTF-8`), and `make`'s command-line
+  assignment overriding the environment means an omitted `LANG=` would
+  silently read the locale string as the argument instead of failing the usage
+  check. Verified against this box's actual `LANG` before naming it.
+- **`scripts/preflight-parity.sh`** — new, wired as the FIRST gate in `check`.
+  Several of `check`'s go/ts steps are not thin wrappers around a script; they
+  replicate command bodies that are written inline in `ci.yml` (the `gofmt`
+  block, "Build + vet", the ts steps). Per the SPEC's anti-duplication rule, a
+  second copy of logic that can drift needs its own drift detector — this
+  workspace has already been burned once by a private second copy of a seed
+  list making tests and prod run different catalogs. The parity script asserts
+  each literal command string appears in both `ci.yml` and
+  `scripts/preflight-check.sh`; it does not assert step order, only that the
+  two files still agree on what each gate actually runs.
+- **`scripts/release-check.test.sh`** — new, run by `make self-test`, per the
+  checker-tests rule (`scripts/todo-ranking-hygiene.py` shipped with a defect
+  that read "file absent" as "item closed" and turned three pushes red on a
+  finding that was not true; a new verdict-rendering script needs tests before
+  anyone relies on its verdict). Sources `release-check.sh`'s functions rather
+  than shelling out, and runs them in a subshell where a failure path calls
+  `exit` — sourcing plus a bare `exit` would otherwise kill the whole test
+  runner instead of failing one assertion. Exercises the field readers
+  (including the "no top-level match, even when a nested field of the same
+  name exists" case) and local tag-existence, against throwaway fixtures, never
+  against this repo's real trees.
+- **Did not touch any `.github/workflows/*.yml`** — a parallel `ci/
+  workflow-hygiene` PR is open across other repos in this pass; a workflow
+  edit here would conflict with it.
+
+**Verified, not merely asserted.** `make check` passes clean on `main` at
+`67b6cf3` in ~5-8s (taxonomy parity, changelog order, `unreleased-go`, gofmt,
+go build/vet/test, ts typecheck + 347 passing unit tests).
+`release-check LANGUAGE=go VERSION=0.58.1` confirms `go/realmid.go`'s current
+const, the absent `go/v0.58.1` tag, and the changelog entry all agree.
+`release-check LANGUAGE=ts VERSION=0.51.0` and `LANGUAGE=java VERSION=0.48.0`
+both correctly REFUSE, because `ts-v0.51.0` and `java-v0.48.0` already exist —
+those are the currently-published versions, not the next release, which is
+exactly the "don't spend an already-spent version number" case the tag check
+exists for.
 
 ## 2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner
 
