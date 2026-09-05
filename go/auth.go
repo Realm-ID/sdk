@@ -175,9 +175,13 @@ type Session struct {
 	InitiatedByUserID string      `json:"initiated_by_user_id,omitempty"`
 	User              UserSummary `json:"user"`
 	Tenants           []TenantRef `json:"tenants"`
-	// TenantChoiceRequired (ADR-092 D5) reports that the caller holds more
-	// than one ACTIVE membership in a realm that requires single-tenant
-	// membership and must give the extras up. The login SUCCEEDED — an access
+	// TenantChoiceRequired (ADR-092 D5, the picker) reports that the caller
+	// holds more than one ACTIVE membership in a realm that requires
+	// single-tenant membership and must give the extras up. The REQUIREMENT
+	// itself is a different decision — ADR-092 D4, the realm config knob
+	// `single_tenant_membership`, default false — and both are cited here
+	// because a reader who follows D5 alone looking for the knob will not
+	// find it there. The login SUCCEEDED — an access
 	// token is minted and the refresh token is issued as usual — so this is a
 	// reconciliation prompt, not an auth failure: refusing the login would
 	// strand exactly the users the drain exists to resolve. Settle it with
