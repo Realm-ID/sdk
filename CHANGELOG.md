@@ -13,6 +13,25 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.59.0` — `ListSessionsRequest.Limit` (2026-09-06)
+
+### Added — a page size on `ListSessions`, closing a three-way parity gap
+
+`ListSessionsRequest` gains `Limit int` — the server page size (SPEC §7), sent
+as `?limit=` on each round trip. ts (`listSessions(jwt, {limit})`) and Java
+(`Paginated` opts) have always taken one; Go had no way to ask for a page, so
+its `next_cursor` loop could only ever be exercised past the server default of
+50 — and that loop is exactly where ts `0.36.0`'s silent first-page truncation
+lived.
+
+**Additive and backward-compatible.** `Limit <= 0` sends nothing and the issuer
+applies its own default, which is what every existing caller gets today. It
+bounds one round trip, **not** the iteration: `ListSessions` still follows
+`next_cursor` to the end.
+
+Why now: it is what the new `tests/sdk-e2e/go/` half needs to force a page
+boundary with two sessions instead of fifty-one. Reasoning in `DECISIONS.md`.
+
 ## go `0.58.1` — doc-only: a collision that cannot happen (2026-09-05)
 
 ### Fixed — `IdentityResolvedEvent.UserID`'s doc comment described an impossible failure

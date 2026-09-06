@@ -27,3 +27,7 @@ out/
 *.jar
 !**/gradle/wrapper/gradle-wrapper.jar
 hs_err_pid*
+
+# Python bytecode from scripts/ (contract-parity, taxonomy-parity).
+__pycache__/
+*.pyc

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-94 entries total — 39 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+95 entries total — 40 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-06 (go, later) — the page size ts and Java always had, and the E2E half Go never had](#2026-09-06-go-later--the-page-size-ts-and-java-always-had-and-the-e2e-half-go-never-had)
 - [2026-09-06 (preflight) — a `Makefile`, so 61% of this repo's CI failures stop being a push-time surprise](#2026-09-06-preflight--a-makefile-so-61-of-this-repos-ci-failures-stop-being-a-push-time-surprise)
 - [2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner](#2026-09-05-docs-branch-cleanup--a-collision-that-cannot-happen-a-seam-that-is-narrower-than-documented-and-a-stale-unreleased-banner)
 - [2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false](#2026-09-05-onidentityresolved-the-hook-a-partner-could-not-build-for-themselves-and-the-two-things-everyone-called-it-that-were-false)
@@ -106,6 +107,47 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-06 (go, later) — the page size ts and Java always had, and the E2E half Go never had
+
+**Problem.** `tests/sdk-e2e/` had a `ts/` half and a `java/` half and no `go/`
+half, so the one SDK whose releases cannot be withdrawn was the one with zero
+coverage against a live issuer. A Go module tag is immutable and
+`proxy.golang.org` serves it the instant it is pushed — the reason `go/v0.57.0`
+is permanently burned — while ts and java both gate BEFORE their publisher runs.
+The suite that found three real wire defects had never once run against Go.
+
+Writing the Go half surfaced a second thing, which is the part worth recording:
+**`ListSessionsRequest` had no page-size field.** ts takes
+`listSessions(jwt, {limit})`; Java takes it through `Paginated` opts; Go took
+only `UserID` / `UserBearer` / `OnBehalfOfIP`. So Go's `next_cursor` loop was
+the only one of the three that could not be exercised below the server default
+of 50 — forcing a page boundary would have cost fifty-one logins — and that loop
+is precisely where ts `0.36.0`'s silent first-page truncation lived.
+
+**Options.** (a) Write the Go paging case with 51 logins. Real, and slow enough
+that it would be the first case someone deletes. (b) Skip the case in Go and
+note the asymmetry. A skip is not a pass, and this suite exists because a green
+half gets read as evidence for both. (c) Add `Limit` to `ListSessionsRequest`.
+
+**Decision — (c).** It is a parity alignment with SPEC §7 ("every list endpoint
+returns a paginated iterator"), not a new capability: the query parameter was
+already the issuer's, and the other two SDKs already sent it. Additive and
+backward-compatible — `Limit <= 0` sends nothing and the server applies its own
+default, which is exactly the behaviour every existing caller gets today. It
+does NOT bound the iteration; `ListSessions` still walks to the end.
+
+**Tradeoff, accepted.** A field added to make a test possible is a smell worth
+naming out loud. It is defensible here because the capability was missing in the
+SDK's own contract, not merely in the test's reach: a Go partner rendering a
+paged session table had no way to ask for a page, and would have discovered that
+the same way the test did.
+
+**The Go half's other deliberate asymmetry** is recorded in
+`tests/sdk-e2e/README.md` rather than repeated here: Go's `IntegrationsClient`
+authenticates every verb with the realm PLATFORM token, so its install cases
+need no ops-owner login, where the ts and java halves must sign one in. Copying
+the ts shape would have tested a code path the Go SDK does not have.
 
 ## 2026-09-06 (preflight) — a `Makefile`, so 61% of this repo's CI failures stop being a push-time surprise
 

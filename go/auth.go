@@ -421,6 +421,20 @@ type ListSessionsRequest struct {
 	UserID       string
 	UserBearer   string
 	OnBehalfOfIP string
+
+	// Limit is the server page size (SPEC §7). Optional; <=0 sends nothing and
+	// the issuer applies its own default of 50.
+	//
+	// It does NOT bound the iteration — ListSessions still follows next_cursor
+	// to the end. What it bounds is one round trip, which is the only reason a
+	// caller would set it and the only way a test can force a page boundary
+	// without creating fifty-one sessions.
+	//
+	// Added for parity: ts (`listSessions(jwt, {limit})`) and Java
+	// (`Paginated` opts) have always taken one, so Go's cursor loop was the
+	// only one that could not be exercised below the server default — which is
+	// exactly the code path the ts 0.37.0 truncation bug lived in.
+	Limit int
 }
 
 // RevokeSessionRequest names the session to revoke and how to attest
@@ -1116,6 +1130,9 @@ func (a *AuthClient) ListSessions(ctx ctxpkg.Context, req ListSessionsRequest) i
 			q := map[string]string{}
 			if cursor != "" {
 				q["cursor"] = cursor
+			}
+			if req.Limit > 0 {
+				q["limit"] = strconv.Itoa(req.Limit)
 			}
 			var raw map[string]any
 			if err := a.realm.http.do(ctx, requestOptions{
