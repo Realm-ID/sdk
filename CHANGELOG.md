@@ -13,6 +13,17 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## CI `web` job — build `ts/` before typechecking (2026-09-06)
+
+No package changes; a build-gate fix. The `web` CI job added on 2026-09-05 was
+**red on every run** with 30 x `TS2307: Cannot find module '@realm-id/sdk'`.
+`web/packages/admin` depends on `@realm-id/sdk` as `file:../../../ts`, whose
+`exports` resolve to `dist/*.d.ts` — and `ts/dist/` is gitignored, `npm ci` only
+symlinks a `file:` dep without building it, and `prepublishOnly` runs on publish
+rather than install. The job now builds `ts/` first, and
+`scripts/preflight-check.sh` does the same so the local gate stops disagreeing
+with CI. See `DECISIONS.md` 2026-09-06.
+
 ## go `0.59.0` — `ListSessionsRequest.Limit` (2026-09-06)
 
 ### Added — a page size on `ListSessions`, closing a three-way parity gap

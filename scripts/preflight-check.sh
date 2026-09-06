@@ -117,7 +117,24 @@ fi
 # (no npm ci here — no network in `check`). `npm test` here runs only the 4
 # packages that define a `test` script (core, admin, bff-realmid, google) via
 # `--workspaces --if-present`; react and firebase have none — see sdk/TODO.md.
+#
+# `ts/dist` MUST exist before the web typecheck: web/packages/admin depends on
+# `@realm-id/sdk` as `file:../../../ts`, whose `exports` resolve to
+# `dist/*.d.ts`. `ts/dist/` is gitignored, `npm ci` only symlinks a `file:` dep
+# without building it, and `prepublishOnly` runs on publish rather than install.
+#
+# This is not hypothetical, and the reason it is checked HERE: on 2026-09-05 the
+# CI `web` job was added and was red on every single run with 30 x TS2307, while
+# THIS gate stayed green — because a developer's tree happens to carry a stale
+# `ts/dist` from an earlier build that a fresh CI checkout never has. A local
+# gate that passes only because of an untracked artifact is worse than no local
+# gate: it actively contradicts CI. So build it, the way CI now does.
 if [ -d web/node_modules ]; then
+  if [ -d ts/node_modules ]; then
+    gate "web: build ts/ (admin's file: dep resolves to ts/dist/*.d.ts)" bash -c 'cd ts && npm run build'
+  elif [ ! -f ts/dist/index.d.ts ]; then
+    skip "web: build ts/ (admin's file: dep resolves to ts/dist/*.d.ts)" "ts/node_modules is missing and ts/dist/index.d.ts does not exist — run 'cd ts && npm ci' once (needs network); without it the web typecheck below reports 30 misleading TS2307s"
+  fi
   gate "web: typecheck (all packages)" bash -c 'cd web && npm run typecheck'
   gate "web: unit tests (core, admin, bff-realmid, google)" bash -c 'cd web && npm test'
 else

@@ -197,7 +197,24 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: |
+            web/package-lock.json
+            ts/package-lock.json
+
+      # `web/packages/admin` depends on `@realm-id/sdk` as `file:../../../ts`,
+      # and that package's `exports` resolve to `dist/index.d.ts` /
+      # `dist/internal.d.ts`. THREE facts combine into a job that can never
+      # pass without this step: `ts/dist/` is gitignored so it is absent from a
+      # fresh checkout; `npm ci` only SYMLINKS a `file:` dependency, it does
+      # not build it; and `prepublishOnly` (which does build) runs on publish,
+      # not on install. So every `@realm-id/sdk` import typechecks as TS2307.
+      #
+      # Measured on a clean tree in node:20: 30 x TS2307 without this step,
+      # exit 0 with it. This job was red on EVERY run from the moment it was
+      # added (2026-09-05) until this step landed — see DECISIONS.md.
+      - name: "Build ts/ — admin's file: dependency resolves to its dist/"
+        working-directory: ts
+        run: npm ci && npm run build
 
       - run: npm ci
 

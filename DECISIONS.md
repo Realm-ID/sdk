@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-95 entries total — 40 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+96 entries total — 41 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-06 (CI, `web`) — RCA: a gate that was red from the day it was written, and a local check that said otherwise](#2026-09-06-ci-web--rca-a-gate-that-was-red-from-the-day-it-was-written-and-a-local-check-that-said-otherwise)
 - [2026-09-06 (go, later) — the page size ts and Java always had, and the E2E half Go never had](#2026-09-06-go-later--the-page-size-ts-and-java-always-had-and-the-e2e-half-go-never-had)
 - [2026-09-06 (preflight) — a `Makefile`, so 61% of this repo's CI failures stop being a push-time surprise](#2026-09-06-preflight--a-makefile-so-61-of-this-repos-ci-failures-stop-being-a-push-time-surprise)
 - [2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner](#2026-09-05-docs-branch-cleanup--a-collision-that-cannot-happen-a-seam-that-is-narrower-than-documented-and-a-stale-unreleased-banner)
@@ -107,6 +108,72 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-06 (CI, `web`) — RCA: a gate that was red from the day it was written, and a local check that said otherwise
+
+**Symptom.** `Realm-ID/sdk`'s CI has been failing on `main` since
+2026-09-05T19:47 — three consecutive runs, every one on the job
+`Web (tsc + node --test, per package)`, every one with the same 30 errors:
+
+```
+src/transport.ts(35,60): error TS2307: Cannot find module '@realm-id/sdk'
+  or its corresponding type declarations.
+```
+
+all in `@realm-id/web-admin`. It has never been green. It was red on the run
+that introduced it.
+
+**Root cause — three facts that are individually fine and jointly fatal.**
+`web/packages/admin` declares `"@realm-id/sdk": "file:../../../ts"`, and that
+package's `exports` resolve `.` to `dist/index.js` / `dist/index.d.ts` and
+`./internal` to `dist/internal.*`. Then:
+
+1. `ts/dist/` is **gitignored**, so it does not exist in a fresh checkout.
+2. `npm ci` **symlinks** a `file:` dependency; it does not build it.
+3. `ts/`'s build runs under **`prepublishOnly`**, which fires on publish — not
+   on install.
+
+So on any clean tree the type declarations `admin` imports simply are not on
+disk, and `tsc` is right to say so. Nothing in `.github/workflows/ci.yml` built
+`ts/` at any point: the `ts` job typechecks in-place with `--noEmit` and emits
+nothing, and the `web` job went straight from `npm ci` to `npm run typecheck`.
+
+**Why it was not caught before it landed.** This is the part worth keeping.
+`make check` ran the *same two commands* (`preflight-parity.sh` even asserts the
+command strings match CI verbatim) and passed — on a developer's machine, where
+`ts/dist/` was sitting there from an earlier build. An **untracked artifact**
+was the entire difference between green and red, and the local gate had no way
+to know it was depending on one. A local gate that passes only because of a
+build output CI never has is worse than no local gate: it does not merely fail
+to catch the bug, it actively asserts the opposite. Command-string parity with
+CI is not environment parity, and this is the second time that gap has bitten
+this workspace.
+
+**Fix.** Build `ts/` before the web typecheck, in both places:
+
+- `.github/workflows/ci.yml`, `web` job: a `Build ts/` step ahead of `npm ci`,
+  with `cache-dependency-path` widened to cover `ts/package-lock.json` too.
+- `scripts/preflight-check.sh`: build `ts/` when `ts/node_modules` is present;
+  when it is not AND `ts/dist/index.d.ts` is absent, **skip with the reason and
+  the exact command**, rather than letting the typecheck emit 30 misleading
+  `TS2307`s that read like a source bug.
+
+**Verified, not assumed.** Reproduced in `node:20` against a tree with
+`ts/dist`, `ts/node_modules` and `web/node_modules` all removed — i.e. exactly
+what CI checks out. As written: exit 2, **30** `TS2307`. With `ts/` built first:
+typecheck exit 0, `npm test` 12 pass / 0 fail. The local gate was then re-run
+with `ts/dist` deleted and now rebuilds it and passes, where before this change
+it would have reproduced CI's failure with CI's confusing message.
+
+**Prevention.** The general rule, not the specific case: *a local gate must not
+be satisfiable by an artifact the repo does not track.* Every `file:` workspace
+dependency whose `exports` point into a gitignored build directory has this
+shape, and `sdk/` has one today (`admin` → `ts`) with `web/` free to grow more.
+The build step is now the thing both gates share, so a future package that
+depends on `ts/` inherits the fix rather than rediscovering the bug.
+
+**Not a regression from the `0.59.0` work.** The `web` job predates it; the
+`0.59.0` commit is simply the newest run to have inherited the failure.
 
 ## 2026-09-06 (go, later) — the page size ts and Java always had, and the E2E half Go never had
 
