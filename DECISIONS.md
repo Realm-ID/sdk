@@ -147,9 +147,29 @@ may be untagged only if its version equals the current `const Version` in
 `go/realmid.go`* — one pending release is allowed, any older untagged entry is a
 hole. It is `go/`-specific, where the tag IS the release; ts and java publish
 through a workflow, so their tags are triggers and the same rule would be
-measuring something else. Filed in the umbrella `TODO.md`, **not built** — a new
-gate is a discussable change and needs a self-test that proves it fails on a
-planted phantom entry, not merely that it passes today.
+measuring something else.
+
+**BUILT the same day** as `changelog-hygiene.sh go-tagged`, wired into the
+`changelogs` CI job beside `order` — whether an entry names a real release is a
+property of the file at all times, not only at publish — and into
+`preflight-check.sh`.
+
+Three design points earn their keep:
+
+- **An acknowledged phantom passes.** A heading saying NEVER RELEASED is the
+  acknowledgement. Without this escape the gate is permanently red on a
+  correctly-handled case, and a permanently red gate gets deleted — or "fixed"
+  by deleting the entry, which is the one remedy the check's own message tells
+  you not to apply.
+- **Zero `go/v*` tags is an ENVIRONMENT error, not a tree of phantoms.**
+  `actions/checkout` fetches no tags by default; without this the gate would
+  invent a violation for every entry at once. The job pins `fetch-depth: 0`, and
+  a regression there now fails loudly instead of silently.
+- **`--self-test` proves it FAILS on a planted phantom**, not merely that it
+  passes today. Six cases, including the shallow-checkout and
+  zero-headings refusals. It found a bug in itself immediately: written as
+  `_run; rc=$?` under `set -e`, the harness died at the first deliberate
+  failure — the only case that mattered.
 
 Cosmetic, found in passing: `tag-hygiene.sh`'s `die_usage` prints
 `usage: $0 {annotated|annotated-prepublish|go-immutable} <tag>` and omits

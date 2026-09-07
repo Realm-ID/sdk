@@ -80,6 +80,8 @@
 
 set -euo pipefail
 
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
 # Emit to stdout and, under Actions, to the job summary. Same shape as
 # tag-hygiene.sh, so a red publish job reads as one document.
 say() {
@@ -366,12 +368,190 @@ check_order() {
   say "Checked $count changelog(s), $headings heading(s)."
 }
 
+# ── go-tagged: the REVERSE direction of check_go ──────────────────────────────
+#
+# check_go asks "does the published version have an entry?". That is the
+# direction that had bitten — three packages silently lost history. The reverse
+# was unguarded, and on 2026-09-07 it showed: CHANGELOG.md carried a full
+# `## go `0.58.1`` section for a version that was NEVER TAGGED. `go/v0.58.1`
+# does not exist and proxy.golang.org 404s it, so a partner following this file
+# would have run `go get github.com/Realm-ID/sdk/go@v0.58.1` into that 404.
+#
+# HOW IT HAPPENED, because it was nobody's mistake: 67b6cf3 bumped const Version
+# to 0.58.1 BECAUSE tag-hygiene.sh unreleased-go correctly refused a doc change
+# under the already-released go/v0.58.0. e9e0e23 then bumped to 0.59.0 the next
+# day and shipped that, superseding 0.58.1 before its tag was ever cut. Two
+# correct gates, and the hole is the seam between them.
+#
+# THE NAIVE RULE IS WRONG, which is the whole reason this needs a comment.
+# "every `## go X.Y.Z` heading has a go/vX.Y.Z tag" fires on every pre-release
+# commit, because writing the entry legitimately PRECEDES cutting the tag. The
+# rule that actually holds:
+#
+#   an entry may be untagged ONLY IF its version equals the current
+#   `const Version` in go/realmid.go — i.e. exactly one pending release is
+#   allowed, and any OLDER untagged entry is a hole.
+#
+# GO-SPECIFIC BY CONSTRUCTION. For go/ the tag IS the release and the proxy
+# serves it instantly. ts and java publish through a workflow, so their tags are
+# triggers and the same rule there would be measuring something else entirely.
+#
+# IT REFUSES TO INSPECT NOTHING: zero go headings is a hard error, not a pass —
+# the derivation silently ceasing to match is exactly how this class of gate
+# reports "all fine" while checking air.
+check_go_tagged() {
+  local version n heading v checked=0 pending_seen=0
+  n=$(grep -c '^const Version = "' go/realmid.go || true)
+  if [ "$n" != "1" ]; then
+    echo "::error::expected exactly 1 'const Version =' declaration in go/realmid.go, found $n" >&2
+    exit 2
+  fi
+  version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' go/realmid.go)
+
+  # A SHALLOW CHECKOUT MUST NOT LOOK LIKE A TREE FULL OF PHANTOMS.
+  # actions/checkout fetches no tags by default, and every `git rev-parse
+  # refs/tags/go/v*` would then miss — turning this gate into a generator of
+  # false violations on every entry at once. Zero go tags is therefore an
+  # ENVIRONMENT error (exit 2), never a run. The job must use
+  # `fetch-depth: 0` and fetch tags.
+  if [ "$(git tag -l 'go/v*' | wc -l | tr -d ' ')" = "0" ]; then
+    echo "::error::changelog-hygiene go-tagged found NO go/v* tags at all — this is a shallow checkout, not a tree of phantom releases. Use fetch-depth: 0 and fetch tags." >&2
+    exit 2
+  fi
+
+  say "## Changelog hygiene — every \`go\` entry names a real release"
+  say ""
+
+  # Headings look like: "## go `0.58.1` — doc-only: …". Take the FIRST
+  # backticked version after the `go` token on a `## ` line.
+  while IFS= read -r heading; do
+    v=$(printf '%s\n' "$heading" | sed -n 's/^## .*go `\([0-9][0-9.]*\)`.*$/\1/p')
+    [ -n "$v" ] || continue
+    checked=$((checked + 1))
+    if git rev-parse -q --verify "refs/tags/go/v$v" >/dev/null; then
+      continue
+    fi
+    # AN ACKNOWLEDGED PHANTOM PASSES. Without this the gate is permanently red
+    # on a correctly-handled case, and a permanently red gate gets deleted — or,
+    # worse, "fixed" by deleting the entry, which is the one remedy this check's
+    # own message tells you not to apply. Saying NEVER RELEASED in the heading
+    # is the acknowledgement: the reader is warned, so the partner-facing harm
+    # is gone, and the history is kept.
+    if printf '%s\n' "$heading" | grep -q 'NEVER RELEASED'; then
+      say "- ✅ \`$v\` — no \`go/v$v\` tag, and the heading says NEVER RELEASED."
+      continue
+    fi
+    if [ "$v" = "$version" ]; then
+      pending_seen=1
+      say "- ⏳ \`$v\` — no \`go/v$v\` tag yet, and it is the current \`const Version\`."
+      say "  That is the ONE allowed untagged entry: the pending release."
+      continue
+    fi
+    say "- ❌ **\`$v\` is documented but was never released.** No \`go/v$v\` tag"
+    say "  exists, and \`const Version\` is \`$version\`, so this is not a pending"
+    say "  release — it is a version that came and went without being cut."
+    say ""
+    say "  A partner reading this entry will run"
+    say "  \`go get github.com/Realm-ID/sdk/go@v$v\` and get a **404**."
+    say ""
+    say "  Fix by RETITLING the entry to say it was never released and naming the"
+    say "  version that actually shipped the change — do NOT delete it, because a"
+    say "  silent hole between two versions is what \`check_go\` exists to prevent."
+    echo "::error::CHANGELOG.md documents go $v but no go/v$v tag exists" >&2
+    FAILED=1
+  done < <(grep '^## .*go `' CHANGELOG.md || true)
+
+  if [ "$checked" = "0" ]; then
+    echo "::error::changelog-hygiene go-tagged found 0 'go \`x.y.z\`' headings in CHANGELOG.md — the heading convention changed; this is a broken derivation, not a clean run" >&2
+    exit 2
+  fi
+
+  say ""
+  say "Checked $checked \`go\` entr(ies); $pending_seen pending."
+}
+
+# ── self-test ────────────────────────────────────────────────────────────────
+#
+# A gate seen only green is a gate not known to work. This proves the check
+# FAILS on a planted phantom entry and PASSES on the pending-release case,
+# against a throwaway git repo — never against the real tree.
+self_test() {
+  local tmp rc pass=0 fail=0
+  tmp=$(mktemp -d)
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" RETURN
+
+  _fixture() { # $1=const Version  $2...=changelog go versions
+    local cv="$1"; shift
+    rm -rf "$tmp/r"; mkdir -p "$tmp/r/go"
+    ( cd "$tmp/r"
+      git init -q .
+      git config user.email t@t; git config user.name t
+      printf 'const Version = "%s"\n' "$cv" > go/realmid.go
+      { echo "# Changelog"; echo; for v in "$@"; do echo "## go \`$v\` — x"; echo; done; } > CHANGELOG.md
+      git add -A; git commit -qm x
+    )
+  }
+  _tag() { ( cd "$tmp/r"; git tag -m "$1" "$1" ); }   # -m: tag.annotate is on globally
+  _run() { ( cd "$tmp/r"; bash "$SELF" go-tagged >/dev/null 2>&1 ); }
+  _case() {
+    local want="$1" name="$2"
+    # `rc=0; _run || rc=$?` and NOT `_run; rc=$?` — this script runs under
+    # `set -e`, so an unguarded call that returns non-zero kills the self-test
+    # at the first DELIBERATE failure case, which is the only case that matters.
+    rc=0; _run || rc=$?
+    if [ "$rc" = "$want" ]; then echo "  ok   $name"; pass=$((pass+1))
+    else echo "  FAIL $name (want rc=$want, got $rc)"; fail=$((fail+1)); fi
+  }
+
+  echo "changelog-hygiene go-tagged self-test"
+
+  _fixture 0.2.0 0.2.0 0.1.0; _tag go/v0.1.0; _tag go/v0.2.0
+  _case 0 "every entry tagged passes"
+
+  _fixture 0.2.0 0.2.0 0.1.0; _tag go/v0.1.0
+  _case 0 "the current const Version may be untagged (pending release)"
+
+  # THE CASE THIS GATE EXISTS FOR — the real 0.58.1 shape.
+  _fixture 0.3.0 0.3.0 0.2.0 0.1.0; _tag go/v0.1.0; _tag go/v0.3.0
+  _case 1 "an OLDER untagged entry FAILS (the phantom-release shape)"
+
+  # The acknowledged-phantom escape. Planted as the REAL 0.58.1 shape plus the
+  # NEVER RELEASED marker, so this proves the escape works on exactly the input
+  # the case above proves fails without it.
+  rm -rf "$tmp/r"; mkdir -p "$tmp/r/go"
+  ( cd "$tmp/r"
+    git init -q .; git config user.email t@t; git config user.name t
+    printf 'const Version = "0.3.0"\n' > go/realmid.go
+    { echo "# Changelog"; echo
+      echo '## go `0.3.0` — x'; echo
+      echo '## go `0.2.0` — NEVER RELEASED; the fix shipped in `0.3.0`'; echo
+      echo '## go `0.1.0` — x'; echo; } > CHANGELOG.md
+    git add -A; git commit -qm x )
+  _tag go/v0.1.0; _tag go/v0.3.0
+  _case 0 "an untagged entry marked NEVER RELEASED is acknowledged and passes"
+
+  # No tags at all == a shallow checkout. Must be an environment error, NOT a
+  # report that every entry is a phantom.
+  _fixture 0.2.0 0.2.0 0.1.0
+  _case 2 "no go/v* tags at all is an environment error, not 2 violations"
+
+  _fixture 0.2.0
+  ( cd "$tmp/r"; : > CHANGELOG.md; git add -A; git commit -qm empty )
+  _case 2 "zero go headings is a hard error, never a pass"
+
+  echo "self-test: $pass passed, $fail failed"
+  [ "$fail" = "0" ] || return 1
+}
+
 case "${1:-}" in
   npm)   check_npm ;;
   maven) check_maven ;;
-  go)    check_go ;;
-  order) check_order ;;
-  *)     echo "usage: $0 {npm|maven|go|order}" >&2; exit 2 ;;
+  go)         check_go ;;
+  go-tagged)  check_go_tagged ;;
+  order)      check_order ;;
+  --self-test) self_test; exit $? ;;
+  *)          echo "usage: $0 {npm|maven|go|go-tagged|order|--self-test}" >&2; exit 2 ;;
 esac
 
 if [ "$FAILED" != "0" ]; then

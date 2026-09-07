@@ -24,6 +24,31 @@ rather than install. The job now builds `ts/` first, and
 `scripts/preflight-check.sh` does the same so the local gate stops disagreeing
 with CI. See `DECISIONS.md` 2026-09-06.
 
+## CI `changelogs` job — an entry must name a release that exists (2026-09-07)
+
+No package changes; a gate. `changelog-hygiene.sh` enforced only that a
+PUBLISHED version has an entry — the direction that had bitten, when three
+packages silently lost history. The reverse was unguarded, and it showed: this
+file carried a full `## go \`0.58.1\`` section for a version that was never
+tagged, which `proxy.golang.org` 404s.
+
+New mode `go-tagged`, wired into the `changelogs` job beside `order` on the same
+argument — whether an entry names a real release is a property of the file at
+all times, not only at publish. **The naive rule would be wrong**: "every
+heading has a tag" fires on every pre-release commit, since writing the entry
+precedes cutting the tag. The rule enforced is *an entry may be untagged only if
+its version equals the current `const Version`* — one pending release allowed,
+any older untagged entry is a hole. An entry whose heading says **NEVER
+RELEASED** is an acknowledged phantom and passes, so the history can be kept
+without the gate going permanently red.
+
+Two ways it refuses to pass vacuously: zero `go` headings is a hard error (the
+derivation stopped matching), and **zero `go/v*` tags is an environment error**
+rather than a report that every entry is a phantom — that is what a shallow
+`actions/checkout` looks like, so the job pins `fetch-depth: 0`.
+`--self-test` covers all six cases, including that it FAILS on a planted
+phantom. See `DECISIONS.md` 2026-09-07.
+
 ## go `0.59.0` — `ListSessionsRequest.Limit` (2026-09-06)
 
 ### Added — a page size on `ListSessions`, closing a three-way parity gap

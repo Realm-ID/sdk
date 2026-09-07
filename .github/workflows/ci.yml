@@ -78,6 +78,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # REQUIRED by the go-tagged step below: it resolves `go/v*` tags, and
+          # checkout fetches none by default. Without this every entry would
+          # look untagged — which go-tagged refuses to report as violations,
+          # exiting 2 instead, so a regression here is loud rather than silent.
+          fetch-depth: 0
       # HERE, not in the publishers, and that placement is the point. The three
       # existing changelog-hygiene modes run at PUBLISH time and ask only
       # whether the version being published has a heading — so java/CHANGELOG.md
@@ -91,6 +97,15 @@ jobs:
       # `0.13.0`'s entry, never numbered.
       - name: Every per-package changelog is in descending order
         run: ./scripts/changelog-hygiene.sh order
+
+      # Same placement argument as `order`: whether an entry names a real
+      # release is a property of the file at ALL times, not only at publish.
+      # The self-test runs FIRST and separately, so a broken checker fails as a
+      # broken checker rather than passing as a clean tree.
+      - name: changelog go-tagged — checker self-test
+        run: ./scripts/changelog-hygiene.sh --self-test
+      - name: Every `go` changelog entry names a release that exists
+        run: ./scripts/changelog-hygiene.sh go-tagged
 
   go:
     name: Go (fmt, vet, test)

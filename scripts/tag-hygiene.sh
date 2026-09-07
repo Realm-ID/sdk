@@ -58,7 +58,7 @@ MODULE_PATH='github.com/Realm-ID/sdk/go'
 # replaced by '!' plus its lowercase form, so Realm-ID becomes !realm-!i!d.
 MODULE_ESCAPED='github.com/!realm-!i!d/sdk/go'
 
-die_usage() { echo "usage: $0 {annotated|annotated-prepublish|go-immutable} <tag>" >&2; exit 2; }
+die_usage() { echo "usage: $0 {annotated|annotated-prepublish|go-immutable} <tag>" >&2; echo "       $0 unreleased-go   (no tag argument)" >&2; exit 2; }
 
 # Emit to stdout and, when running under Actions, to the job summary.
 say() {

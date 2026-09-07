@@ -76,6 +76,8 @@ gate "contract parity (SDK vs swagger.yaml)" python3 scripts/contract-parity.py
 # ── changelogs job ──────────────────────────────────────────────────────────
 # ci.yml `changelogs` job, "Every per-package changelog is in descending order".
 gate "changelog order" ./scripts/changelog-hygiene.sh order
+gate "changelog go-tagged: self-test" ./scripts/changelog-hygiene.sh --self-test
+gate "changelog go-tagged (every go entry names a real release)" ./scripts/changelog-hygiene.sh go-tagged
 
 # ── go job ──────────────────────────────────────────────────────────────────
 # ci.yml `go` job. Order matches the workflow: unreleased-go check, gofmt,
