@@ -10,15 +10,15 @@ Newest first.
 
 ## Index
 
-96 entries total — 41 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+98 entries total — 43 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-07 (changelog) — `go 0.58.1` was documented as a release and never tagged](#2026-09-07-changelog--go-0581-was-documented-as-a-release-and-never-tagged)
 - [2026-09-06 (CI, `web`) — RCA: a gate that was red from the day it was written, and a local check that said otherwise](#2026-09-06-ci-web--rca-a-gate-that-was-red-from-the-day-it-was-written-and-a-local-check-that-said-otherwise)
 - [2026-09-06 (go, later) — the page size ts and Java always had, and the E2E half Go never had](#2026-09-06-go-later--the-page-size-ts-and-java-always-had-and-the-e2e-half-go-never-had)
 - [2026-09-06 (preflight) — a `Makefile`, so 61% of this repo's CI failures stop being a push-time surprise](#2026-09-06-preflight--a-makefile-so-61-of-this-repos-ci-failures-stop-being-a-push-time-surprise)
-- [2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner](#2026-09-05-docs-branch-cleanup--a-collision-that-cannot-happen-a-seam-that-is-narrower-than-documented-and-a-stale-unreleased-banner)
-- [2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false](#2026-09-05-onidentityresolved-the-hook-a-partner-could-not-build-for-themselves-and-the-two-things-everyone-called-it-that-were-false)
+- [2026-09-05 (docs, branch cleanup) — a collision that cannot happen, a seam narrower than documented, and a stale UNRELEASED banner](#2026-09-05-docs-branch-cleanup--a-collision-that-cannot-happen-a-seam-narrower-than-documented-and-a-stale-unreleased-banner)
+- [2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false](#2026-09-05-onidentityresolved--the-hook-a-partner-could-not-build-for-themselves-and-the-two-things-everyone-called-it-that-were-false)
 - [2026-09-05 (role-template seat checks, override_seated) — owner ruling: an SDK must not report an error whose stated remedy is unreachable through it](#2026-09-05-role-template-seat-checks-override_seated--owner-ruling-an-sdk-must-not-report-an-error-whose-stated-remedy-is-unreachable-through-it)
-- [2026-09-05 (role-template seat checks) — two new refusals stayed OUT of the general taxonomy, on purpose, matching the family they join](#2026-09-05-role-template-seat-checks--two-new-refusals-stayed-out-of-the-general-taxonomy-on-purpose-matching-the-family-they-join)
 - [2026-09-04 (changelog gate) — `has_entry` matched a version anywhere in a heading's prose, not as its own subject](#2026-09-04-changelog-gate--has_entry-matched-a-version-anywhere-in-a-headings-prose-not-as-its-own-subject)
 - [2026-09-04 (gaps) — three things were missing in the one way nothing detects: the code was correct and the description was not](#2026-09-04-gaps--three-things-were-missing-in-the-one-way-nothing-detects-the-code-was-correct-and-the-description-was-not)
 - [2026-09-04 (ADR-107) — the cache could only say "this TOKEN is dead", and the question was "this PERSON changed"](#2026-09-04-adr-107--the-cache-could-only-say-this-token-is-dead-and-the-question-was-this-person-changed)
@@ -53,6 +53,8 @@ Newest first.
 - [2026-08-24 — the changelog gate derives its subjects, and refuses to check nothing](#2026-08-24--the-changelog-gate-derives-its-subjects-and-refuses-to-check-nothing)
 - [2026-08-23 (later still) — SPEC §10.4's "backstop" claim is WITHDRAWN (ADR-096 D3)](#2026-08-23-later-still--spec-104s-backstop-claim-is-withdrawn-adr-096-d3)
 - [2026-08-23 (later) — tag hygiene extended to ts/java, and the one check that can actually prevent](#2026-08-23-later--tag-hygiene-extended-to-tsjava-and-the-one-check-that-can-actually-prevent)
+- [2026-09-06 — `sdk/web/packages/*` gain a CI runner (W1-A)](#2026-09-06--sdkwebpackages-gain-a-ci-runner-w1-a)
+- [2026-09-06 — a swagger.yaml contract-parity gate, and why the taxonomy gate could never be one (W1-B)](#2026-09-06--a-swaggeryaml-contract-parity-gate-and-why-the-taxonomy-gate-could-never-be-one-w1-b)
 - [2026-08-23 — the annotated/immutable tag rule was documented for seven weeks and followed by a coin flip](DECISIONS-ARCHIVE.md#2026-08-23--the-annotatedimmutable-tag-rule-was-documented-for-seven-weeks-and-followed-by-a-coin-flip)
 - [2026-08-21 (last) — the SDK monorepo had no CI, which is why "add a gofmt gate" was never ten minutes](DECISIONS-ARCHIVE.md#2026-08-21-last--the-sdk-monorepo-had-no-ci-which-is-why-add-a-gofmt-gate-was-never-ten-minutes)
 - [2026-08-21 (latest) — TS `listSessions` pages, and the break is deliberate](DECISIONS-ARCHIVE.md#2026-08-21-latest--ts-listsessions-pages-and-the-break-is-deliberate)
@@ -108,6 +110,50 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-07 (changelog) — `go 0.58.1` was documented as a release and never tagged
+
+`CHANGELOG.md` carried a full `## go \`0.58.1\`` section for a version that was
+never released. `git tag -l 'go/v0.58*'` returns `go/v0.58.0` alone, and
+`proxy.golang.org` answers **404** for `v0.58.1` — checked against `v0.58.0`
+and `v0.59.0`, both **200**, as positive controls, because an empty proxy
+result is not on its own proof of absence. A partner following this file would
+have run `go get github.com/Realm-ID/sdk/go@v0.58.1` straight into that 404.
+
+**No rule was broken and no gate failed.** `67b6cf3` bumped `const Version` to
+`0.58.1` *because* `scripts/tag-hygiene.sh unreleased-go` correctly refused a
+doc-comment change under the already-released `go/v0.58.0`. `e9e0e23` bumped it
+again to `0.59.0` the next day and shipped that. The intermediate version was
+superseded before its tag was ever cut. Both gates did exactly what they were
+written to do — this is the seam between them, not a failure of either.
+
+**Decision: retitle and keep, do not delete.** The heading now reads NEVER
+RELEASED and points at `0.59.0`, where the doc fix actually shipped. Deleting
+the section would leave a silent hole between `0.58.0` and `0.59.0`, which is
+precisely the shape `scripts/changelog-hygiene.sh` exists to prevent; this file
+records what happened to the tree, including the versions that did not survive.
+
+**The asymmetry, written down so it is not rediscovered.**
+`changelog-hygiene.sh` enforces one direction — a *published* version must have
+an entry. That is the direction that had bitten: three packages silently lost
+history. The reverse — *an entry must name a version that was actually
+released* — is unguarded.
+
+**And the obvious gate for it would be wrong**, which is why the rule is
+recorded rather than a bare "add a check" filed. "Every `## go X.Y.Z` heading
+has a `go/vX.Y.Z` tag" fires on every pre-release commit, because writing the
+entry legitimately precedes cutting the tag. The rule that holds is: *an entry
+may be untagged only if its version equals the current `const Version` in
+`go/realmid.go`* — one pending release is allowed, any older untagged entry is a
+hole. It is `go/`-specific, where the tag IS the release; ts and java publish
+through a workflow, so their tags are triggers and the same rule would be
+measuring something else. Filed in the umbrella `TODO.md`, **not built** — a new
+gate is a discussable change and needs a self-test that proves it fails on a
+planted phantom entry, not merely that it passes today.
+
+Cosmetic, found in passing: `tag-hygiene.sh`'s `die_usage` prints
+`usage: $0 {annotated|annotated-prepublish|go-immutable} <tag>` and omits
+`unreleased-go`, which is a real mode (line 237).
 
 ## 2026-09-06 (CI, `web`) — RCA: a gate that was red from the day it was written, and a local check that said otherwise
 

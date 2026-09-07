@@ -43,7 +43,28 @@ bounds one round trip, **not** the iteration: `ListSessions` still follows
 Why now: it is what the new `tests/sdk-e2e/go/` half needs to force a page
 boundary with two sessions instead of fifty-one. Reasoning in `DECISIONS.md`.
 
-## go `0.58.1` — doc-only: a collision that cannot happen (2026-09-05)
+## go `0.58.1` — NEVER RELEASED; the fix shipped in `0.59.0` (2026-09-05)
+
+> **⚠️ `go/v0.58.1` was never tagged. Do not `go get` it — the proxy 404s.**
+> The version existed in the tree for one day and nowhere else: `67b6cf3`
+> (2026-09-05) bumped `const Version` to `0.58.1` because
+> `scripts/tag-hygiene.sh unreleased-go` correctly refused a content change
+> under the already-released `go/v0.58.0`, and `e9e0e23` (2026-09-06) bumped it
+> again to `0.59.0` before any tag was cut. `git tag -l 'go/v0.58*'` returns
+> `go/v0.58.0` alone.
+>
+> **The fix described below DID ship — inside `go/v0.59.0`.** The entry is kept
+> rather than deleted because this file records what happened to the tree, and
+> a silent hole between `0.58.0` and `0.59.0` is the exact shape
+> `scripts/changelog-hygiene.sh` exists to prevent.
+>
+> **Why no gate caught it.** `changelog-hygiene.sh` enforces one direction: a
+> *published* version must have an entry. The reverse — an entry must name a
+> version that was actually *released* — is unguarded, so a heading for a
+> version that never existed reads as perfectly clean. That asymmetry is filed
+> in root `TODO.md` § *`sdk/CHANGELOG.md` can name a release that never
+> happened*, with the rule worked out.
+
 
 ### Fixed — `IdentityResolvedEvent.UserID`'s doc comment described an impossible failure
 
@@ -55,11 +76,14 @@ COLLISION is unrepresentable — the issuer's `users` is one global table with
 can share a `sub`. The comment now names the failure that can occur and says
 why the other cannot, so nobody writes de-duplication they will never need.
 
-**No behaviour change; this is a comment.** It is a release only because the
-Go module tag IS the release: `go/v0.58.0` is immutable and already resolved
-by the proxy, so any change under `go/` — a comment included — must answer to
-a new version rather than re-point an old one. `scripts/tag-hygiene.sh
-unreleased-go` is what makes that a build failure instead of a convention.
+**No behaviour change; this is a comment.** It needed a version at all only
+because the Go module tag IS the release: `go/v0.58.0` is immutable and already
+resolved by the proxy, so any change under `go/` — a comment included — must
+answer to a new version rather than re-point an old one. `scripts/tag-hygiene.sh
+unreleased-go` is what makes that a build failure instead of a convention, and
+it did fire here; that gate worked exactly as designed. What it does not do —
+because it is not its job — is notice that the version it forced was superseded
+before anyone tagged it.
 
 The same correction lands in `ts/src/identity-resolved.ts`,
 `java/.../IdentityResolvedEvent.java`, `SPEC.md` §4.1.7 and
