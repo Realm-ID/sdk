@@ -414,6 +414,25 @@ Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TO
   indistinguishability is deliberate (issuer `DECISIONS.md` 2026-08-06).
   The staff-side `GET /admin/platforms/{id}` stays OUT of the partner SDK, per
   the `/admin/*` rule below; it belongs in `@realm-id/web-admin`.
+> **The `## Docs` section note, archived 2026-09-13 — and its "Empty" claim
+> was FALSE by the time anyone read it again.** The closure it reports is
+> real and is why it is kept: the `TransferOwnerRequest` schema backfill was
+> verified done on 2026-08-03 and removed. What was wrong is the word
+> *Empty*. The note sat directly under `## Docs` in `TODO.md`, and **25 open
+> items were later appended beneath it** without anyone removing it — so the
+> heading carried a standing "nothing here" for weeks while it held most of
+> the file's unwrapped-surface work.
+>
+> Nobody re-read it, because a parenthetical saying "nothing here" is exactly
+> the line a reader skips. That is the same mechanism as the cli "Broken
+> today" banner (which told sweeps to skip a section for three days after
+> three items were filed under it) and the umbrella's "Release gate —
+> EXECUTED, except §2" heading (whose §2 was in fact closed). **A
+> section-level status claim is a claim with a date on it**, and nothing
+> re-checks one when the section changes underneath it.
+>
+> The original note, verbatim:
+
 *(Empty. The `TransferOwnerRequest` schema backfill was verified done
 2026-08-03 and removed.)*
 > ~~**`go/http.go` — an UNCANONICAL error code nested INSIDE the `error` object**

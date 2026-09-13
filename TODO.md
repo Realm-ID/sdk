@@ -190,8 +190,6 @@ in the same repo.
 
 ## Docs
 
-
-
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
       taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes
       against `ts/src/errors.ts`'s **60** (measured 2026-08-24). So the admin
