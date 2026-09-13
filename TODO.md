@@ -11,8 +11,19 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
-- [ ] **All three SDKs' `integrations.install()` send the retired `role_id`
-  body — a current issuer refuses it.** ADR-101 D7 (issuer `v0.113.0`) replaced
+- [x] ~~**All three SDKs' `integrations.install()` send the retired `role_id`
+  body — a current issuer refuses it.**~~ **CLOSED — the claim is FALSE as of
+  2026-09-13, verified in source here.** `go/integrations.go:85-88` is
+  `InstallRequest{IntegrationID, Permissions []string}` with no `RoleID` field
+  at all, and `go/integrations_test.go:106` actively asserts `role_id` is
+  ABSENT from the body; `ts/src/integrations.ts:49` mentions `role_id` only in
+  a comment explaining what replaced it; java's `InstallRequest` likewise names
+  `roleId` only in migration doc-comments (`:10,23`). All three speak the
+  `permissions` contract. **The fix landed and the entry was never closed** —
+  and it is a bad one to leave standing, because it tells a reader the shipped
+  SDKs are broken against prod when they are not.
+
+  ~~ADR-101 D7 (issuer `v0.113.0`) replaced
   the role-based install with a stated `permissions: []string` grant; the
   issuer's `installReq` has no `role_id` field and an absent/empty
   `permissions` is `400 permissions_required`. `ts/src/integrations.ts:229`
@@ -23,7 +34,16 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   Fix in all three + SPEC, with a drift test against the issuer swagger.
   *(Found 2026-08-31 during the docs audit; the docs now describe the issuer
   contract and warn about this lag — `docs/integration-guide.md` §9.2/§9.3,
-  `docs/error-reference.md`.)*
+  `docs/error-reference.md`.)*~~
+
+  ⚠️ **Residual worth checking when someone next touches this area** (NOT
+  verified in this pass, so it stays a question, not a finding): the entry also
+  claimed the error unions still carry `role_not_service_typed` /
+  `role_not_installable` / `role_unavailable`, which no current issuer emits.
+  The request-body half is definitively fixed; the error-union half was not
+  re-checked. Also re-read `docs/integration-guide.md` §9.2/§9.3 and
+  `docs/error-reference.md` — they were written to WARN about this lag, so
+  those warnings are now themselves stale and will mislead a partner.
 
 - [ ] **CI runs no job for `web/packages/*` at all.** `.github/workflows/ci.yml`
   has `go`, `ts` and `java` jobs and nothing for the browser packages, so
@@ -203,6 +223,15 @@ in the same repo.
       else would have hidden it. `scripts/taxonomy-parity.py` does NOT cover
       this file yet; extending it there is the cheap half, and it should be
       done first so the gap is measured rather than re-discovered.
+
+      ✅ **STILL LIVE — re-verified 2026-09-13.** `/usr/bin/grep -c
+      platform_not_found` returns **0** in
+      `web/packages/admin/src/transport.ts` against **3** in
+      `ts/src/errors.ts`. Published as `@realm-id/web-admin` `0.17.0`, so the
+      drift is in the package the console actually loads. Severity stays
+      low-moderate on the strength of the `details.server_code` mitigation —
+      but note that mitigation only helps a caller who already knows to look,
+      which is precisely the caller who did not need the typed code.
 - [ ] **`not_service` is declared by ts + Java and emitted by NOTHING.** A repo
       sweep of the issuer finds no handler returning it; the only near-match is
       the distinct `role_not_service_typed` (`integration_installations.go:138`).
@@ -250,14 +279,20 @@ in the same repo.
       such form, so the three languages do not agree at that edge. Unreachable
       today (write validation rejects unknown permissions), but it is a partner-
       visible difference between SDKs. *(Filed 2026-08-30.)*
-- [ ] `ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
+- [x] ~~`ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
       `{owner, platform_api}`, but the issuer's `realmrole.NonAssignableRoles`
-      (`internal/realmrole/store.go:131`) is `{owner, platform_api,
-      platform_mgmt_api}`; go and java carry all three. A ts-based picker will
-      offer the key-minting bot role to a human — the credential-issuance path
-      outside the owner pointer that ADR-101 D6 exists to close. The ts drift
-      test does not compare that set.
-      *(Filed 2026-08-30 from the java port; ts/ was owned by another agent.)*
+      is `{owner, platform_api, platform_mgmt_api}`; go and java carry all
+      three. A ts-based picker will offer the key-minting bot role to a
+      human.~~ **CLOSED — the claim is FALSE as of 2026-09-13, verified in
+      source here.** `ts/src/roles.ts:323-331` declares
+      `NON_ASSIGNABLE_ROLES` containing all three, `platform_mgmt_api`
+      included, each with a comment citing the ADR it comes from, and
+      `roles-drift.test.ts` pins the set. Note the entry also had the NAME
+      wrong — the constant is `NON_ASSIGNABLE_ROLES`, not
+      `SYSTEM_UNASSIGNABLE`, so a grep for the name in this entry finds
+      nothing and would read as "the guard is missing entirely".
+      *(Filed 2026-08-30 from the java port; ts/ was owned by another agent —
+      which is the likeliest reason it described a sibling's tree from memory.)*
 - [ ] role predicates — go/java expose ONE `isRoleAssignableTo` that folds in
       the system-name and disabled guards; ts splits them into
       `isRoleAssignableTo` (pure server mirror) + `isRoleSeatable` (the picker
@@ -286,6 +321,17 @@ in the same repo.
       `scripts/taxonomy-parity.py`, which is why it was not done with the
       ADR-092 D5 `MembershipActionCode` type — that union carries the code, the
       SDK taxonomy does not. Three-language change. *(Filed 2026-08-30.)*
+
+      ✅ **STILL LIVE — re-verified 2026-09-13, and it is live in the PUBLISHED
+      packages, not merely in this tree.** `/usr/bin/grep -c
+      membership_not_found` returns **0** for both `ts/src/errors.ts` and
+      `go/errors.go` (java the same), while the issuer emits it from
+      `internal/httpapi/me_memberships.go:62,116,228`. The shipped versions
+      carrying the gap are npm `0.51.0`, Go proxy `go/v0.59.0` and Maven
+      `0.48.0` — i.e. every partner integrating today gets the generic
+      `not_found` and loses the specific remedy. That makes this the
+      highest-value of the SDK items here: it is the only one a partner can hit
+      without doing anything unusual.
 - [ ] `ui/web/src/roleAssignability.ts` — the console mirror never learned
       ADR-091's `is_system` exemption from the §2.3 human-only floor, so it
       filters `platform_api` out of a service-account picker on a rule the
