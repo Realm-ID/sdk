@@ -11,39 +11,39 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
-- [x] ~~**All three SDKs' `integrations.install()` send the retired `role_id`
-  body — a current issuer refuses it.**~~ **CLOSED — the claim is FALSE as of
-  2026-09-13, verified in source here.** `go/integrations.go:85-88` is
-  `InstallRequest{IntegrationID, Permissions []string}` with no `RoleID` field
-  at all, and `go/integrations_test.go:106` actively asserts `role_id` is
-  ABSENT from the body; `ts/src/integrations.ts:49` mentions `role_id` only in
-  a comment explaining what replaced it; java's `InstallRequest` likewise names
-  `roleId` only in migration doc-comments (`:10,23`). All three speak the
-  `permissions` contract. **The fix landed and the entry was never closed** —
-  and it is a bad one to leave standing, because it tells a reader the shipped
-  SDKs are broken against prod when they are not.
-
-  ~~ADR-101 D7 (issuer `v0.113.0`) replaced
-  the role-based install with a stated `permissions: []string` grant; the
-  issuer's `installReq` has no `role_id` field and an absent/empty
-  `permissions` is `400 permissions_required`. `ts/src/integrations.ts:229`
-  (`body: { integration_id, role_id }`), `go/integrations.go:76`
-  (`InstallRequest.RoleID`), and java's equivalent all still speak the old
-  contract, and the error unions still carry `role_not_service_typed` /
-  `role_not_installable` / `role_unavailable`, which no current issuer emits.
-  Fix in all three + SPEC, with a drift test against the issuer swagger.
-  *(Found 2026-08-31 during the docs audit; the docs now describe the issuer
-  contract and warn about this lag — `docs/integration-guide.md` §9.2/§9.3,
-  `docs/error-reference.md`.)*~~
-
-  ⚠️ **Residual worth checking when someone next touches this area** (NOT
-  verified in this pass, so it stays a question, not a finding): the entry also
-  claimed the error unions still carry `role_not_service_typed` /
-  `role_not_installable` / `role_unavailable`, which no current issuer emits.
-  The request-body half is definitively fixed; the error-union half was not
-  re-checked. Also re-read `docs/integration-guide.md` §9.2/§9.3 and
-  `docs/error-reference.md` — they were written to WARN about this lag, so
-  those warnings are now themselves stale and will mislead a partner.
+> ~~**All three SDKs' `integrations.install()` send the retired `role_id`
+> body — a current issuer refuses it.**~~ **CLOSED — the claim is FALSE as of
+> 2026-09-13, verified in source here.** `go/integrations.go:85-88` is
+> `InstallRequest{IntegrationID, Permissions []string}` with no `RoleID` field
+> at all, and `go/integrations_test.go:106` actively asserts `role_id` is
+> ABSENT from the body; `ts/src/integrations.ts:49` mentions `role_id` only in
+> a comment explaining what replaced it; java's `InstallRequest` likewise names
+> `roleId` only in migration doc-comments (`:10,23`). All three speak the
+> `permissions` contract. **The fix landed and the entry was never closed** —
+> and it is a bad one to leave standing, because it tells a reader the shipped
+> SDKs are broken against prod when they are not.
+>
+> ~~ADR-101 D7 (issuer `v0.113.0`) replaced
+> the role-based install with a stated `permissions: []string` grant; the
+> issuer's `installReq` has no `role_id` field and an absent/empty
+> `permissions` is `400 permissions_required`. `ts/src/integrations.ts:229`
+> (`body: { integration_id, role_id }`), `go/integrations.go:76`
+> (`InstallRequest.RoleID`), and java's equivalent all still speak the old
+> contract, and the error unions still carry `role_not_service_typed` /
+> `role_not_installable` / `role_unavailable`, which no current issuer emits.
+> Fix in all three + SPEC, with a drift test against the issuer swagger.
+> *(Found 2026-08-31 during the docs audit; the docs now describe the issuer
+> contract and warn about this lag — `docs/integration-guide.md` §9.2/§9.3,
+> `docs/error-reference.md`.)*~~
+>
+> ⚠️ **Residual worth checking when someone next touches this area** (NOT
+> verified in this pass, so it stays a question, not a finding): the entry also
+> claimed the error unions still carry `role_not_service_typed` /
+> `role_not_installable` / `role_unavailable`, which no current issuer emits.
+> The request-body half is definitively fixed; the error-union half was not
+> re-checked. Also re-read `docs/integration-guide.md` §9.2/§9.3 and
+> `docs/error-reference.md` — they were written to WARN about this lag, so
+> those warnings are now themselves stale and will mislead a partner.
 
 - [ ] **CI runs no job for `web/packages/*` at all.** `.github/workflows/ci.yml`
   has `go`, `ts` and `java` jobs and nothing for the browser packages, so
@@ -279,20 +279,20 @@ in the same repo.
       such form, so the three languages do not agree at that edge. Unreachable
       today (write validation rejects unknown permissions), but it is a partner-
       visible difference between SDKs. *(Filed 2026-08-30.)*
-- [x] ~~`ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
-      `{owner, platform_api}`, but the issuer's `realmrole.NonAssignableRoles`
-      is `{owner, platform_api, platform_mgmt_api}`; go and java carry all
-      three. A ts-based picker will offer the key-minting bot role to a
-      human.~~ **CLOSED — the claim is FALSE as of 2026-09-13, verified in
-      source here.** `ts/src/roles.ts:323-331` declares
-      `NON_ASSIGNABLE_ROLES` containing all three, `platform_mgmt_api`
-      included, each with a comment citing the ADR it comes from, and
-      `roles-drift.test.ts` pins the set. Note the entry also had the NAME
-      wrong — the constant is `NON_ASSIGNABLE_ROLES`, not
-      `SYSTEM_UNASSIGNABLE`, so a grep for the name in this entry finds
-      nothing and would read as "the guard is missing entirely".
-      *(Filed 2026-08-30 from the java port; ts/ was owned by another agent —
-      which is the likeliest reason it described a sibling's tree from memory.)*
+> ~~`ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
+> `{owner, platform_api}`, but the issuer's `realmrole.NonAssignableRoles`
+> is `{owner, platform_api, platform_mgmt_api}`; go and java carry all
+> three. A ts-based picker will offer the key-minting bot role to a
+> human.~~ **CLOSED — the claim is FALSE as of 2026-09-13, verified in
+> source here.** `ts/src/roles.ts:323-331` declares
+> `NON_ASSIGNABLE_ROLES` containing all three, `platform_mgmt_api`
+> included, each with a comment citing the ADR it comes from, and
+> `roles-drift.test.ts` pins the set. Note the entry also had the NAME
+> wrong — the constant is `NON_ASSIGNABLE_ROLES`, not
+> `SYSTEM_UNASSIGNABLE`, so a grep for the name in this entry finds
+> nothing and would read as "the guard is missing entirely".
+> *(Filed 2026-08-30 from the java port; ts/ was owned by another agent —
+> which is the likeliest reason it described a sibling's tree from memory.)*
 - [ ] role predicates — go/java expose ONE `isRoleAssignableTo` that folds in
       the system-name and disabled guards; ts splits them into
       `isRoleAssignableTo` (pure server mirror) + `isRoleSeatable` (the picker
