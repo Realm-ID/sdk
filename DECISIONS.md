@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-98 entries total — 43 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+99 entries total — 44 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-14 (`web-admin` transport) — a `content-type` on a bodyless GET cost a second CORS preflight](#2026-09-14-web-admin-transport--a-content-type-on-a-bodyless-get-cost-a-second-cors-preflight)
 - [2026-09-07 (changelog) — `go 0.58.1` was documented as a release and never tagged](#2026-09-07-changelog--go-0581-was-documented-as-a-release-and-never-tagged)
 - [2026-09-06 (CI, `web`) — RCA: a gate that was red from the day it was written, and a local check that said otherwise](#2026-09-06-ci-web--rca-a-gate-that-was-red-from-the-day-it-was-written-and-a-local-check-that-said-otherwise)
 - [2026-09-06 (go, later) — the page size ts and Java always had, and the E2E half Go never had](#2026-09-06-go-later--the-page-size-ts-and-java-always-had-and-the-e2e-half-go-never-had)
@@ -110,6 +111,35 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-14 (`web-admin` transport) — a `content-type` on a bodyless GET cost a second CORS preflight
+
+`realmFetchAsHttpClient` seeded every request's headers with
+`content-type: application/json`, unconditionally — GETs included, where no
+body is ever serialised. The header described nothing on those requests, and
+the cost was not zero.
+
+**Why it mattered.** A cross-origin GET carrying `content-type` is not a simple
+request: the browser preflights it, and the preflight cache is keyed partly on
+`access-control-request-headers`. `@realm-id/web`'s own transport omits the
+header, so the *same* `GET /me` issued through the two transports could not
+share a cache entry — one console page load paid two preflights for one URL.
+This was found while removing the duplicate `/me` on the `ui/web` side; the
+dedupe there collapses the pair, and this removes the reason the pair was
+doubly expensive even when the two calls are legitimate.
+
+**Decision: emit the header only when `req.body !== undefined`** — keyed on
+*exactly* the expression the body serialisation two lines below already uses
+(`req.body === undefined ? undefined : JSON.stringify(req.body)`), so a later
+change to one cannot silently disagree with the other. The alternative
+considered — keying on the method (`POST`/`PUT`/`PATCH`) — was rejected for
+that reason: it is a second, independent statement of "does this request carry
+a body", and it is wrong for a bodyless POST. The third of the three new tests
+pins that case specifically.
+
+**Blast radius: none for a request that carries a body.** A POST/PUT/PATCH with
+a body is byte-for-byte what it was. The only observable change is a header now
+absent where it previously described nothing.
 
 ## 2026-09-07 (changelog) — `go 0.58.1` was documented as a release and never tagged
 

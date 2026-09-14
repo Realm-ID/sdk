@@ -1,5 +1,19 @@
 # @realm-id/web-admin — changelog
 
+## 0.18.0 — no `content-type` on a bodyless request (2026-09-14)
+
+The transport set `content-type: application/json` on every request, including
+GETs that carry no body. The header described nothing there, and it cost a
+round trip: it widens the CORS preflight's `access-control-request-headers`, so
+an identical GET issued by `@realm-id/web` (whose transport already omits it)
+could not share a preflight cache entry with one issued here. A console page
+load paid two preflights for one `/me`.
+
+The header is now emitted only when `req.body !== undefined` — keyed on exactly
+the condition that decides whether a body is serialised, so the two cannot
+drift apart. Nothing else changes: a POST/PUT/PATCH with a body is byte-for-byte
+what it was.
+
 ## 0.17.0 — the bundled SDK carries `last_owner` (2026-09-04)
 
 No source change. This package bundles `@realm-id/sdk`, and the previous

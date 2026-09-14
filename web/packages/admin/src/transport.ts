@@ -115,9 +115,19 @@ export function realmFetchAsHttpClient(
         if (qs) url += (url.includes("?") ? "&" : "?") + qs;
       }
 
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-      };
+      // `content-type` ONLY when a body is actually sent. The guard is keyed on
+      // exactly the condition the body below is (`req.body === undefined`), so
+      // the two can never disagree.
+      //
+      // On a bodyless request the header describes nothing, and it is not free:
+      // it widens the CORS preflight's `access-control-request-headers`, which
+      // means an identical GET issued by `@realm-id/web` (whose transport omits
+      // it) cannot share a preflight cache entry with one issued here. Two
+      // callers of one URL then pay two preflights.
+      const headers: Record<string, string> = {};
+      if (req.body !== undefined) {
+        headers["content-type"] = "application/json";
+      }
       if (req.headers) {
         for (const [k, v] of Object.entries(req.headers)) {
           if (k.toLowerCase() === VIA_HEADER) continue;

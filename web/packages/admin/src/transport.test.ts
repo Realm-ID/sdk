@@ -296,3 +296,56 @@ describe("realmFetchAsHttpClient", () => {
     assert.equal(calls[0]!.url, "https://api.partner.com/v1/tenants");
   });
 });
+
+/**
+ * A `content-type` on a request with no body describes nothing — and it is not
+ * free: it widens the CORS preflight's `access-control-request-headers`, so a
+ * GET sent from here cannot share a preflight cache entry with the same GET
+ * sent by `@realm-id/web` (whose own transport already omits it). That is one
+ * of the two reasons a console page load paid for `/me` twice.
+ */
+describe("content-type is sent only with a body", () => {
+  it("a GET sends no content-type", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "GET", path: "/me" });
+
+    const headers = calls[0]!.init.headers as Record<string, string>;
+    assert.equal(headers["content-type"], undefined);
+    assert.equal(calls[0]!.init.body, undefined);
+  });
+
+  it("a POST carrying a body still sends content-type", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "POST", path: "/tenants", body: { name: "Acme" } });
+
+    const headers = calls[0]!.init.headers as Record<string, string>;
+    assert.equal(headers["content-type"], "application/json");
+    assert.equal(calls[0]!.init.body, JSON.stringify({ name: "Acme" }));
+  });
+
+  it("a bodyless POST sends no content-type either — the guard is the BODY, not the method", async () => {
+    const { realm, calls } = makeRealm(() =>
+      new Response(JSON.stringify({ data: {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await http.request({ method: "POST", path: "/sessions/revoke-all" });
+
+    const headers = calls[0]!.init.headers as Record<string, string>;
+    assert.equal(headers["content-type"], undefined);
+  });
+});
