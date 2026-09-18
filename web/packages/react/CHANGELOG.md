@@ -13,6 +13,20 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.3 — declare `repository`, `license` and `homepage` (2026-09-18)
+
+No source change. This package.json carried none of them, alone among the five
+published packages — so the npm page showed no repo link and no license.
+
+It is also a PRECONDITION for npm trusted publishing (OIDC), which requires a
+package's `repository.url` to match the GitHub repository exactly. Without this
+the package could not move off a long-lived `NPM_TOKEN`, and the failure would
+have arrived during the OIDC cutover looking like an OIDC problem rather than a
+missing field.
+
+Found by reading all five manifests rather than the one being changed: the gap
+was invisible from inside this package, where nothing referenced the field.
+
 ## 0.5.2 — accept `@realm-id/web` 0.8.x as a peer (2026-09-18)
 
 No source change. `@realm-id/web` 0.8.0 ships the `completeSignIn` OIDC-error

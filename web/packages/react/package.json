@@ -1,7 +1,21 @@
 {
   "name": "@realm-id/web-react",
-  "version": "0.5.2",
-  "description": "React bindings for @realm-id/web \u2014 provider, useRealm, useUser, useTenant.",
+  "version": "0.5.3",
+  "description": "React bindings for @realm-id/web — provider, useRealm, useUser, useTenant.",
+  "homepage": "https://realmid.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Realm-ID/sdk.git",
+    "directory": "web/packages/react"
+  },
+  "license": "MIT",
+  "keywords": [
+    "realmid",
+    "auth",
+    "react",
+    "browser",
+    "sdk"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

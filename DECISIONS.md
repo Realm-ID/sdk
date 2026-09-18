@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-101 entries total — 46 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+102 entries total — 47 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-18 (publish auth) — the npm token did not fail, it EXPIRED, and it will keep doing that](#2026-09-18-publish-auth--the-npm-token-did-not-fail-it-expired-and-it-will-keep-doing-that)
 - [2026-09-18 (local gates) — the hook only ever saw branch pushes, and the releases are cut with tags](#2026-09-18-local-gates--the-hook-only-ever-saw-branch-pushes-and-the-releases-are-cut-with-tags)
 - [2026-09-18 (partner-facing bug batch) — five bugs a partner could hit, and five filed bugs that no longer existed](#2026-09-18-partner-facing-bug-batch--five-bugs-a-partner-could-hit-and-five-filed-bugs-that-no-longer-existed)
 - [2026-09-14 (`web-admin` transport) — a `content-type` on a bodyless GET cost a second CORS preflight](#2026-09-14-web-admin-transport--a-content-type-on-a-bodyless-get-cost-a-second-cors-preflight)
@@ -113,6 +114,75 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-18 (publish auth) — the npm token did not fail, it EXPIRED, and it will keep doing that
+
+`publish-npm.yml` failed mid-release with
+`npm error 404 Not Found - PUT https://registry.npmjs.org/@realm-id%2fsdk`,
+leaving go `v0.60.0` live on the proxy and Maven `0.49.0` live on Central while
+every npm package stayed a version behind. A 404 on a PUT is npm's answer when
+the credential cannot write the scope; it reads like a missing package.
+
+**The cause is structural, not an oversight.** npm removed classic automation
+tokens (creation disabled Nov 2025), granular tokens *require* an expiry, and a
+granular token with publish rights is **capped at 90 days** — there is no
+never-expire option for anything that can publish. `NPM_TOKEN` was set
+2026-06-19 and published fine on 2026-09-14. So this was not someone forgetting
+to rotate a credential: **a token-based publish here fails on a schedule,
+forever, and the schedule lands mid-release.**
+
+**Decision: move to npm trusted publishing (OIDC) and delete the secret.** The
+job mints a short-lived credential from GitHub's OIDC provider and npm validates
+it against a trusted publisher registered per package. There is nothing left to
+expire. Rejected alternative: a calendar reminder to rotate every 90 days —
+that is a process wrapped around a defect, and the failure it prevents is
+exactly the one nobody notices until a release is half-shipped.
+
+**What changed** (`publish-npm.yml`): `id-token: write`, Node 20 → 22 (trusted
+publishing needs Node ≥ 22.14.0 and npm ≥ 11.5.1), and both
+`NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` blocks deleted. The publish loop
+itself is untouched, including `web-admin`'s bundled-dependency staging.
+
+The npm floor is ASSERTED in the workflow rather than assumed. Which npm ships
+inside a given Node line is not a fact this repo controls, and an npm that is
+too old does not announce itself — the publish fails on *authentication*, which
+sends the reader to the token settings for a credential that no longer exists.
+The step prints both versions and upgrades if it must.
+
+**On hardening, and what npm does NOT offer.** The config pins organization,
+repository and workflow filename — as NAME STRINGS. There is **no repository-ID
+field**, and no primary npm or GitHub source states whether the `repository_id`
+OIDC claim is validated internally. (A community commenter has raised the
+rename/transfer/name-reuse hazard and asked for exactly that; there is no
+official response, and this entry does not upgrade that into "npm confirms a
+gap".) There is also no branch/tag/SHA pinning. The consequence that matters
+operationally: **the publisher follows the NAME**, so renaming or transferring
+this repo silently invalidates all five configs and they must be re-registered
+before the next release. That is recorded in the workflow header, not only here.
+
+The two levers npm does provide are the optional **Environment** field (with a
+GitHub environment requiring reviewers — a human approval per publish) and
+**stage-only publish** (a separate reviewed promotion step). Both were
+considered and **deliberately not taken now**: the environment gate is the
+better one and remains available, but this cutover is already changing the
+authentication mechanism, and stacking a second change would make a failure
+ambiguous between the two. `npm publish` stays enabled under Allowed actions,
+because the workflow runs exactly that.
+
+**A precondition found by reading all five manifests rather than the one being
+changed.** npm requires a package's `repository.url` to match the GitHub repo
+exactly, and `@realm-id/web-react` declared no `repository` field at all — alone
+among the five. It had no `license` or `homepage` either. Left alone it would
+have failed the cutover looking like an OIDC problem. Fixed in `0.5.3`, which is
+also the proof payload: one low-risk package publishes first, and `NPM_TOKEN` is
+deleted only once the tarball is served AND the package page shows a provenance
+attestation — provenance is generated automatically under trusted publishing, so
+its presence is the positive evidence that OIDC carried the publish rather than
+a leftover token.
+
+**Keep verifying the registry, not the workflow.** This same release had a green
+`publish-npm` run whose tarballs 404'd for about five minutes afterwards. A
+green run is not publication; a red one is not a rollback.
 
 ## 2026-09-18 (local gates) — the hook only ever saw branch pushes, and the releases are cut with tags
 

@@ -7,8 +7,30 @@ name: publish-npm
 #   @realm-id/web-bff-realmid  (web/packages/bff-realmid)
 #   @realm-id/web-admin        (web/packages/admin) — bundles @realm-id/sdk
 #
-# Auth: repo secret NPM_TOKEN — an npm Automation token (bypasses 2FA)
-# owned by a member of the `realm-id` org.
+# Auth: npm TRUSTED PUBLISHING (OIDC). No NPM_TOKEN, no secret of any kind —
+# the job mints a short-lived credential from GitHub's OIDC provider and npm
+# validates it against a trusted publisher registered on each package.
+#
+# WHY. npm removed classic automation tokens, and a granular token with publish
+# rights is CAPPED AT 90 DAYS with no never-expire option. So a token-based
+# publish does not fail if someone forgets to rotate it — it fails ON A
+# SCHEDULE, forever. It did exactly that on 2026-09-18, mid-release, with a
+# `404 Not Found - PUT` that reads like a missing package rather than a dead
+# credential. OIDC removes the thing that expires.
+#
+# Each package carries its own trusted-publisher config on npm, pinning:
+#   organization Realm-ID · repository sdk · workflow file publish-npm.yml
+# ⚠️ npm pins those as NAME STRINGS. There is no repository-ID field, so the
+# config follows the NAME — rename or transfer this repo and the publisher must
+# be re-registered on all five packages, deliberately, before the next release.
+# The optional Environment field is empty by choice; setting it (plus a GitHub
+# environment with required reviewers) is the available hardening lever if a
+# human approval per publish is ever wanted.
+#
+# ⚠️ `npm publish` must stay enabled under each package's "Allowed actions".
+# npm permits `npm stage publish` always and plain `npm publish` only when
+# explicitly allowed — and refuses with an error that reads like an auth
+# failure, not a permission setting.
 #
 # Trigger: manual (workflow_dispatch) or pushing a release tag. Re-runs are
 # idempotent — an already-published version is treated as a skip, not a failure.
@@ -22,6 +44,9 @@ on:
 
 permissions:
   contents: read
+  # Mints the OIDC token npm exchanges for publish rights. Without it the job
+  # has no credential at all — there is no token to fall back to.
+  id-token: write
 
 defaults:
   run:
@@ -66,13 +91,27 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          # Trusted publishing needs Node >= 22.14.0 AND npm >= 11.5.1.
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      # ASSERT the npm version rather than assume it. Which npm ships inside a
+      # given Node line is not a fact this repo controls, and an npm that is too
+      # old does not say so — the publish fails on authentication, which sends
+      # you to the token settings for a credential that no longer exists.
+      - name: npm must be >= 11.5.1 for trusted publishing
+        run: |
+          need=11.5.1
+          have=$(npm --version)
+          echo "node $(node --version) / npm $have"
+          if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
+            echo "npm $have is older than $need — upgrading"
+            npm install -g "npm@>=$need"
+            echo "npm now $(npm --version)"
+          fi
 
       - name: Publish @realm-id/sdk (ts)
         working-directory: ts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm ci
           # prepublishOnly runs `npm run build`
@@ -86,8 +125,6 @@ jobs:
 
       - name: Publish web packages (core, react, bff-realmid, admin)
         working-directory: web
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm ci
           # web-admin bundles @realm-id/sdk (bundledDependencies) so partners
