@@ -4,6 +4,25 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.49.0 — `membership_not_found` enters the taxonomy (2026-09-18)
+
+### Added — `membership_not_found`
+
+The issuer emits `membership_not_found` (404) at three sites in
+`internal/httpapi/me_memberships.go` — the ADR-092 D5 self-service membership
+routes — and no language's taxonomy declared it, so `mapErrorResponse` fell back
+to the HTTP status and every caller received a generic `not_found`.
+
+Worse, the TypeScript SDK's `MembershipActionCode` union had listed the code by
+NAME for releases. A partner is told to branch on a code the SDK then flattens:
+they write the branch, test it against a mock, and it never fires in production.
+That is the same shape `last_owner` had.
+
+Like `platform_not_found`, it NEVER distinguishes "not yours" from "never
+existed" — both answer identically on purpose, and that is a security property.
+
+`scripts/taxonomy-parity.py` holds the three languages equal.
+
 ## 0.48.0 — `onIdentityResolved`, the pre-derived-claims identity hook (2026-09-05)
 
 ### Added

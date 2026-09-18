@@ -18,7 +18,7 @@ import type {
   RealmConfigPatch,
   RealmConfigResponse,
 } from "./types.js";
-import type { RoleObject, TenantOwner } from "@realm-id/sdk/internal";
+import type { TenantOwner } from "@realm-id/sdk/internal";
 
 export interface PlatformCreate {
   /**
@@ -33,20 +33,14 @@ export interface PlatformCreate {
    */
   slug?: string;
   display_name?: string;
-  /**
-   * Opt into RealmID's starter role templates (issuer v0.54.0). Omit — or send
-   * `[]` — and the realm is created with only the three system roles
-   * (`owner`, `member`, `platform_api`).
-   *
-   * Before v0.54.0 `admin` and `viewer` were seeded unconditionally, which gave
-   * every realm a 23-permission operator role it never asked for. An unknown
-   * name is rejected with 400 `unknown_starter_role`.
-   */
-  starter_roles?: StarterRole[];
+  // `starter_roles` is GONE (ADR-101, issuer v0.113.0). RealmID owns the role
+  // set: `admin` is part of the floor every realm receives and `viewer` no
+  // longer exists, so there is nothing left to opt into. The issuer answers
+  // `400 starter_roles_retired` for ANY non-empty value, which means the field
+  // could not be sent successfully — it was not merely ignored. To run a realm
+  // without an admin role, disable it:
+  // `POST /platforms/{id}/roles/{roleId}/disable`.
 }
-
-/** The role templates RealmID offers; see {@link PlatformCreate.starter_roles}. */
-export type StarterRole = "admin" | "viewer";
 
 export interface PlatformApiKeyCreate {
   scope: string;
@@ -69,30 +63,11 @@ export class PlatformsClient {
     });
   }
 
-  /**
-   * Opt into RealmID's starter role templates after the platform already
-   * exists (issuer v0.54.0) — the post-creation counterpart of
-   * {@link PlatformCreate.starter_roles}. Creates `admin`/`viewer` pre-filled
-   * with their permission sets instead of authoring them by hand.
-   *
-   * Idempotent and never destructive: seeding is ON CONFLICT DO NOTHING, so a
-   * name the realm already holds — including a role the partner authored that
-   * happens to be called `admin` — is left untouched with its own permissions.
-   * The response echoes the rows now present under the requested names, so the
-   * caller can see whether an existing role was preserved.
-   *
-   * Requires realm OWNER (ADR-091 D3 retired `roles:manage`).
-   */
-  async seedStarterRoles(
-    platformId: string,
-    starterRoles: StarterRole[],
-  ): Promise<RoleObject[]> {
-    return this.http.request<RoleObject[]>({
-      method: "POST",
-      path: `/platforms/${encodeURIComponent(platformId)}/starter-roles`,
-      body: { starter_roles: starterRoles },
-    });
-  }
+  // `seedStarterRoles()` is GONE (ADR-101, issuer v0.113.0). The route
+  // `POST /platforms/{id}/starter-roles` was DELETED, not deprecated — the
+  // issuer answers 404 — so every call this method could make was a 404. The
+  // replacement is the RI-owned `role_templates` vocabulary; a realm receives
+  // the set, it does not opt into parts of it.
 
   async listMine(): Promise<Platform[]> {
     const d = await this.http.request<{ items: Platform[] }>({

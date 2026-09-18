@@ -11,29 +11,6 @@ repo's `TODO.md`; design rationale lives in `DECISIONS.md`.
 
 ## Open
 
-- [ ] 🔴 **`Auth.MFAVerify` returns a token with NO `product_roles` and NO
-  `scope` — a fourth mint lane that skips the derived-claims handler.**
-  CONFIRMED against source 2026-09-03 (`go/auth.go:955-985`): `MFAVerify`
-  returns `&resp, nil` with **zero** calls to `mintProductRoles`, while all
-  three login lanes call it — `Login` (`auth.go:557`), `CompleteLogin`
-  (`:618`) and `PasswordLogin` (`:933`). `MFAVerifyOTP` delegates to
-  `MFAVerify`, so it inherits the gap.
-  **Impact**: a post-step-up session is role-blind. A partner who adopts
-  scope-based authorization (ADR-097) is denied everywhere after any MFA
-  challenge. This is the SAME shape as the refresh-lane gap fixed in
-  `go/v0.54.0` — a mint lane that does not run the handler.
-  **Reported by the Traide integration**, who hit it while evaluating step-up
-  MFA on these routes. Verified by us, not taken on report.
-  ⚠️ **Do NOT fix this as a one-off.** `middleware_derived_claims_test.go:21`
-  carries a HAND-MAINTAINED comment reading *"`mintProductRoles` had three call
-  sites"* — that count is how the fourth lane shipped unnoticed, and a fifth
-  will do the same. The fix is a test that DERIVES the set of session-minting
-  lanes from the package AST and fails when one of them does not run the
-  handler, the way the issuer's `TestRoleWriteSitesAreReviewed` derives its
-  seating paths. Fix the class, then the instance.
-  Check `ts/` and `java/` for the same lane before closing — the issuer is
-  authoritative and all three SDKs mirror it.
-
 - [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the
   same `user → jti` index to work around it.** (Traide, 2026-09-03. FEATURE —
   needs an owner decision before any code; do not implement on this note.)
@@ -64,6 +41,28 @@ repo's `TODO.md`; design rationale lives in `DECISIONS.md`.
   re-opens the impersonation question. But leaving it UNDOCUMENTED is the one
   choice with no defence — a missed index write is a token that silently
   survives revocation, and it looks fine until the day it does not.
+
+## Closed
+
+- [x] 🔴 **`Auth.MFAVerify` returns a claim-blind token** — **FIXED AND RELEASED;
+  closed 2026-09-18.** Commit `870d75c` (2026-09-03), *"fix(derived-claims):
+  OTPLogin and MFAVerify handed back claim-blind tokens"*, wires
+  `mintProductRoles` into `MFAVerify` (`go/auth.go:1061`, `FlowMFAVerify`).
+  `git tag --contains 870d75c` puts it in `go/v0.57.0` onward — live in the
+  released `go/v0.59.0`, and in `0.60.0`.
+  Three things about the entry were wrong, which is why this note exists rather
+  than a silent tick:
+  - it named a FOURTH lane; the fix found a **FIFTH** (`OTPLogin`,
+    `auth.go:871`) that the report never mentioned;
+  - every line number in it (`auth.go:955-985`, `:557`, `:618`, `:933`) had
+    moved; and
+  - the "do NOT fix this as a one-off" instruction was FOLLOWED —
+    `go/derived_claims_lanes_test.go` derives the set of session-minting lanes
+    from the package AST and fails when one does not run the handler, replacing
+    the hand-maintained "three call sites" comment that let the fourth lane
+    ship. It also refuses to pass vacuously when it parses no package files.
+  This item sat open for 15 days after it was fixed, in an ORPHANED file no
+  sweep read. A TODO's defect description is a timestamped CLAIM, not a finding.
 
 ## Checked and NOT a defect (do not re-file)
 

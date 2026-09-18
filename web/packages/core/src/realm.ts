@@ -6,6 +6,8 @@ import {
   exchangeCode,
   isOidcProvider,
   readCallback,
+  readCallbackError,
+  describeCallbackError,
   OIDC_STORAGE_KEY,
   type PendingOidc,
 } from "./oidc.js";
@@ -248,10 +250,37 @@ export class Realm {
    * provider callback (`?code&state`), exchanges the code for an id_token and
    * logs in, returning the LoginResponse; otherwise returns null. Cleans the
    * OIDC params from the URL on success.
+   *
+   * An error return (`?error=…` — the user declined, the app is misconfigured,
+   * the provider is down) THROWS a `RealmError` with code
+   * `oidc_provider_error`, whose `message` is a user-facing sentence and whose
+   * `body` carries the raw `{ error, error_description }`. It used to return
+   * `null`, which is the same value as "this is not a callback", so an app
+   * could not tell a refused sign-in from an ordinary page load without
+   * re-parsing the query string itself — and every one of them did.
    */
   async completeSignIn(): Promise<LoginResponse | null> {
     const store = this.oidcStore();
-    if (!store || typeof window === "undefined") return null;
+    if (typeof window === "undefined") return null;
+
+    // BEFORE the readCallback short-circuit: an error return carries no
+    // `code`, so readCallback answers null and the refusal would be
+    // indistinguishable from a normal load.
+    const failed = readCallbackError(window.location.search);
+    if (failed) {
+      // Clear the pending PKCE record even if the app never retries — it is
+      // single-use and a stale one turns the NEXT sign-in into a state
+      // mismatch. Best-effort: a missing store is not a reason to swallow the
+      // refusal.
+      try { store?.removeItem(OIDC_STORAGE_KEY); } catch { /* storage disabled */ }
+      stripOidcParams();
+      throw new RealmError("oidc_provider_error", describeCallbackError(failed), 0, {
+        error: failed.error,
+        error_description: failed.errorDescription,
+      });
+    }
+
+    if (!store) return null;
     const cb = readCallback(window.location.search);
     if (!cb) return null;
     const raw = store.getItem(OIDC_STORAGE_KEY);
@@ -754,7 +783,13 @@ function defaultRedirectUri(): string {
 function stripOidcParams(): void {
   if (typeof window === "undefined" || !window.history?.replaceState) return;
   const url = new URL(window.location.href);
-  for (const k of ["code", "state", "session_state", "nonce"]) url.searchParams.delete(k);
+  // `error`/`error_description`/`error_uri` are stripped too: an error return
+  // is a callback as much as a success is, and leaving it in the address bar
+  // means a reload replays the refusal forever.
+  for (const k of [
+    "code", "state", "session_state", "nonce",
+    "error", "error_description", "error_uri",
+  ]) url.searchParams.delete(k);
   window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : "") + url.hash);
 }
 

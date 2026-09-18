@@ -90,12 +90,26 @@ Lists enabled providers for the realm/tenant scope.
 ```json
 {
   "providers": [
-    { "id": "uuid", "provider": "google", "clientType": "web", "clientId": "…", "allowedOrigins": ["https://app.partner.com"], "enabled": true }
+    { "id": "uuid", "provider": "google", "clientType": "web", "clientId": "…", "allowedOrigins": ["https://app.partner.com"], "enabled": true, "nickname": "Acme SSO" }
   ],
+  "tenantId": "uuid",
   "signupMode": "open",
   "allowedSignupDomains": ["partner.com"]
 }
 ```
+
+**Two OPTIONAL fields the SDK reads and this spec did not name.** Both were
+typed in `@realm-id/web` and absent here, so a BFF author implementing from this
+document alone would have shipped neither.
+
+| Field | Where | Required | Meaning when ABSENT |
+|---|---|---|---|
+| `tenantId` | response root | no | The server did not resolve a tenant — **not** "no tenant". A realm-root origin (`app.realmid.dev`, a partner admin console) legitimately has none, and the subsequent `login` is made WITHOUT a `tenantId`, which the issuer resolves realm-wide. Never substitute a default. |
+| `nickname` | each provider row | no | No operator label is configured; render the raw `provider` name. Where present it is the label to show INSTEAD (ADR-047) — an operator who renamed "microsoft" to "Staff sign-in" expects to see that on the button. |
+
+`tenantId` exists because discovery is anonymous and origin-bound: a login page
+has no session to ask, so the tenant it must carry into `login` can only come
+from this call.
 
 ### `POST /login` — exchange provider credential for session
 

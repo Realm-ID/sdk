@@ -238,6 +238,17 @@ public enum ErrorCode {
     // NULL) on two routes: both are answered by an ADR-076 ownership transfer,
     // never by a retry.
     OWNER_CANNOT_BE_REVOKED("owner_cannot_be_revoked"),
+    /**
+     * (404) The self-service membership routes' refusal when the caller has no
+     * reachable membership in the named org — three sites in the issuer's
+     * {@code me_memberships.go}. It NEVER distinguishes "not yours" from "never
+     * existed": both answer identically on purpose, the same oracle rule
+     * {@link #PLATFORM_NOT_FOUND} carries. Registered because the TypeScript
+     * SDK's {@code MembershipActionCode} already listed it by name while no
+     * taxonomy declared it, so the code a caller was told to branch on arrived
+     * as a generic {@link #NOT_FOUND} in every language.
+     */
+    MEMBERSHIP_NOT_FOUND("membership_not_found"),
     SINGLE_TENANT_NOT_REQUIRED("single_tenant_not_required"),
     NOT_INVITED("not_invited"),
     NOT_PENDING("not_pending"),

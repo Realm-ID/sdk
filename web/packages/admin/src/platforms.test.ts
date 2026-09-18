@@ -5,6 +5,7 @@ import { PlatformsClient } from "./platforms.js";
 import type { HttpLike } from "./transport.js";
 import type { RequestOptions } from "@realm-id/sdk/internal";
 import type { PlatformStats, RealmConfigView } from "./types.js";
+import type { PlatformCreate } from "./platforms.js";
 
 interface Captured {
   opts: RequestOptions;
@@ -143,5 +144,55 @@ describe("PlatformsClient.get — the by-id read (issuer v0.87.0)", () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0]!.opts.body, undefined);
     assert.ok(!calls[0]!.opts.path.includes("mine"));
+  });
+});
+
+// ADR-101 removed the starter-role surface from the ISSUER: `starter_roles` on
+// POST /platforms is a hard `400 starter_roles_retired` for any non-empty
+// value, and POST /platforms/{id}/starter-roles is a deleted route answering
+// 404. The SDK carried both for weeks after that, so the only thing a caller
+// could do with them was fail.
+//
+// Two assertions, because either alone is weak:
+//   - the RUNTIME one proves `create` forwards the caller's body verbatim and
+//     injects no starter-role key of its own;
+//   - the TYPE one (`@ts-expect-error`) proves the field cannot be passed at
+//     all. It is the load-bearing half: re-adding `starter_roles` to
+//     `PlatformCreate` makes the suppression unused, which `tsc` reports as an
+//     error, so this test goes RED the moment the surface comes back.
+describe("PlatformsClient starter roles (removed, ADR-101)", () => {
+  it("create forwards the body verbatim and adds no starter-role key", async () => {
+    const { http, calls } = makeHttp({ id: "p1" });
+    const input = { slug: "acme", display_name: "Acme" };
+
+    await new PlatformsClient(http).create(input);
+
+    assert.equal(calls[0]!.opts.method, "POST");
+    assert.equal(calls[0]!.opts.path, "/platforms");
+    assert.deepEqual(calls[0]!.opts.body, input);
+    assert.deepEqual(Object.keys(calls[0]!.opts.body as object).sort(), [
+      "display_name",
+      "slug",
+    ]);
+  });
+
+  it("does not type a starter_roles field on PlatformCreate", () => {
+    const input: PlatformCreate = {
+      slug: "acme",
+      // @ts-expect-error `starter_roles` was removed with ADR-101; the issuer
+      // answers 400 starter_roles_retired for any non-empty value.
+      starter_roles: ["admin"],
+    };
+    // The assertion is the compile, not this line — but an unused binding is
+    // itself a lint/tsc error, so the value has to be read.
+    assert.equal(input.slug, "acme");
+  });
+
+  it("exposes no seedStarterRoles method", () => {
+    // POST /platforms/{id}/starter-roles is DELETED, not deprecated: the
+    // issuer answers 404. A method that can only 404 is worse than no method,
+    // because it reads as a supported call.
+    const client = new PlatformsClient(makeHttp({}).http) as unknown as Record<string, unknown>;
+    assert.equal(client.seedStarterRoles, undefined);
   });
 });

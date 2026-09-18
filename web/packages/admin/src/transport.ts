@@ -32,7 +32,7 @@
  */
 
 import type { Realm } from "@realm-id/web";
-import { RealmError, unwrapData, parseErrorEnvelope } from "@realm-id/sdk";
+import { RealmError, unwrapData, parseErrorEnvelope, ERROR_CODES } from "@realm-id/sdk";
 import type { ErrorCode } from "@realm-id/sdk";
 import type { RequestOptions } from "@realm-id/sdk/internal";
 
@@ -225,21 +225,29 @@ function mapErrorResponse(status: number, body: unknown, method: string, path: s
   return new RealmError({ code, message, httpStatus: status, details });
 }
 
-const KNOWN_CODES = new Set<ErrorCode>([
-  "malformed", "wrong_algorithm", "bad_signature", "wrong_issuer", "wrong_audience",
-  "expired", "not_yet_valid", "unknown_kid", "jwks_fetch_failed",
-  "provider_token_invalid", "mfa_required", "session_limit_reached",
-  "tenant_required", "tenant_invalid", "account_suspended", "account_deactivated",
-  "realm_origin_mismatch", "realm_mismatch", "missing_origin",
-  "invalid_otp", "otp_expired", "otp_locked", "otp_not_found",
-  "invalid_purpose", "invalid_subject_ref",
-  "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",
-  "bad_request", "network", "server_error",
-]);
+/**
+ * DERIVED from `@realm-id/sdk`, never re-listed here.
+ *
+ * This was a hand-written array of 33 codes against a taxonomy of 76. The 43 it
+ * omitted did not error — `mapErrorResponse` silently fell back to
+ * `statusToCode(status)`, so `last_owner` arrived as `conflict`,
+ * `platform_not_found` as `not_found`, and a partner branching on the code the
+ * SDK documented never saw it fire. It is the workspace's recurring failure
+ * shape: a guard whose SUBJECT LIST is maintained by hand stops covering its
+ * subject with no signal at all. The list had also GROWN stale, from 27 missing
+ * to 43, in the time it sat filed.
+ *
+ * `ERROR_CODES` is the same set `isKnownCode` uses inside `@realm-id/sdk`, so
+ * there is now exactly one list. `errors.test.ts` asserts it is non-empty and
+ * plausibly sized — an empty or unreadable source set must FAIL here, not make
+ * every downstream assertion pass vacuously.
+ */
+const KNOWN_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>(ERROR_CODES);
 
 function isErrorCode(s: string): s is ErrorCode {
   return KNOWN_CODES.has(s as ErrorCode);
 }
+
 
 function statusToCode(status: number): ErrorCode {
   if (status === 400) return "bad_request";

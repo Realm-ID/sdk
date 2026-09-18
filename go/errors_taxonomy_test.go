@@ -87,7 +87,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodePermissionsExceedGrantor, ErrCodeInstallGrantsNothing,
 		// Pagination input validation.
 		ErrCodeInvalidCursor, ErrCodeInvalidLimit,
-		ErrCodeOwnerCannotBeRevoked, ErrCodeSingleTenantNotReqd,
+		ErrCodeOwnerCannotBeRevoked, ErrCodeMembershipNotFound,
+		ErrCodeSingleTenantNotReqd,
 		ErrCodeNotInvited, ErrCodeNotPending, ErrCodeInvitationsUnavailable,
 		ErrCodeOwnerCannotLeave, ErrCodeAlreadyLeft,
 		ErrCodeUnauthorized, ErrCodeForbidden, ErrCodeNotFound, ErrCodeConflict,

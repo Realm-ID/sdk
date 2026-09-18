@@ -111,6 +111,60 @@ export function readCallback(search: string): { code: string; state: string } | 
   return { code, state };
 }
 
+export interface OidcCallbackError {
+  error: string;
+  errorDescription: string;
+}
+
+/**
+ * Read an OIDC error return (`?error=…`), the other way a provider redirect
+ * can come back. Distinct from `readCallback` returning null, which means
+ * "not a callback".
+ */
+export function readCallbackError(search: string): OidcCallbackError | null {
+  const p = new URLSearchParams(search);
+  const error = p.get("error");
+  if (!error) return null;
+  return { error, errorDescription: p.get("error_description") ?? "" };
+}
+
+// Entra (and OIDC generally) hangs a diagnostic tail — "Trace ID: …
+// Correlation ID: … Timestamp: …" — off error_description. Keep the human
+// sentence, drop the operator noise.
+function cleanDescription(d: string): string {
+  if (!d) return "";
+  return d.split(/\s+(?:Trace ID|Correlation ID|Timestamp):/)[0].trim();
+}
+
+/**
+ * Map an OIDC callback error into a user-facing sentence.
+ *
+ * Lives here rather than in each app: every consumer was hand-rolling this
+ * switch off the raw query string because the SDK gave them nothing to catch.
+ * The default falls back to the provider's own description, then to a generic
+ * line — a raw `invalid_request` shown to a person is not a message.
+ */
+export function describeCallbackError(e: OidcCallbackError): string {
+  switch (e.error) {
+    case "access_denied":
+    case "consent_required":
+      return "You declined to grant access, so sign-in was cancelled.";
+    case "login_required":
+    case "interaction_required":
+      return "The identity provider needed another sign-in step that wasn't completed. Please try again.";
+    case "invalid_request":
+    case "invalid_client":
+    case "unauthorized_client":
+    case "invalid_scope":
+      return "Sign-in couldn't be completed due to a configuration issue. Contact your administrator.";
+    case "temporarily_unavailable":
+    case "server_error":
+      return "The identity provider is temporarily unavailable. Please try again shortly.";
+    default:
+      return cleanDescription(e.errorDescription) || "Sign-in failed. Please try again.";
+  }
+}
+
 /** Exchange the authorization code for an id_token (public client, PKCE). */
 export async function exchangeCode(args: {
   type: string;

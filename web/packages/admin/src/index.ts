@@ -182,11 +182,12 @@ export type { HttpLike, RealmFetchHttpOptions } from "./transport.js";
 export { ApiKeysClient } from "./api-keys.js";
 export { IdentityProvidersClient } from "./identity-providers.js";
 export { PlatformsClient } from "./platforms.js";
+// `StarterRole` is deliberately NOT re-exported: the union and the surface it
+// typed were removed with ADR-101 (see platforms.ts).
 export type {
   PlatformCreate,
   PlatformApiKeyCreate,
   PlatformOwnerInvite,
-  StarterRole,
 } from "./platforms.js";
 export { OriginsClient } from "./origins.js";
 export { SigningKeysClient } from "./signing-keys.js";

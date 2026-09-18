@@ -26,6 +26,14 @@ export type ErrorCode =
   | "unsupported_provider"
   | "provider_not_configured"
   | "oidc_state_mismatch"
+  // The IdP came back with `?error=` instead of `?code=` — the user declined
+  // consent, the app is misconfigured, the provider is down. `completeSignIn`
+  // used to return `null` here, which is the same value it returns for "this
+  // is not a callback at all", so every app had to re-parse the query string
+  // itself to tell a refusal from an ordinary page load. `message` is already
+  // the user-facing sentence; `body` carries the raw
+  // `{ error, error_description }` for logging.
+  | "oidc_provider_error"
   | "no_browser"
   | "unknown";
 

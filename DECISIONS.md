@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-99 entries total — 44 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+100 entries total — 45 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-18 (partner-facing bug batch) — five bugs a partner could hit, and five filed bugs that no longer existed](#2026-09-18-partner-facing-bug-batch--five-bugs-a-partner-could-hit-and-five-filed-bugs-that-no-longer-existed)
 - [2026-09-14 (`web-admin` transport) — a `content-type` on a bodyless GET cost a second CORS preflight](#2026-09-14-web-admin-transport--a-content-type-on-a-bodyless-get-cost-a-second-cors-preflight)
 - [2026-09-07 (changelog) — `go 0.58.1` was documented as a release and never tagged](#2026-09-07-changelog--go-0581-was-documented-as-a-release-and-never-tagged)
 - [2026-09-06 (CI, `web`) — RCA: a gate that was red from the day it was written, and a local check that said otherwise](#2026-09-06-ci-web--rca-a-gate-that-was-red-from-the-day-it-was-written-and-a-local-check-that-said-otherwise)
@@ -111,6 +112,188 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-18 (partner-facing bug batch) — five bugs a partner could hit, and five filed bugs that no longer existed
+
+A TODO sweep produced "30 open bugs". That number was classified from TODO
+PROSE, never re-verified against source, and it was materially inflated: of the
+first six candidates, one P1 was already fixed and released, one was a
+documented deliberate design, and one was already guarded. Five survived
+per-item verification and ship here; five entries describing bugs that no longer
+exist are closed in the same batch, because a stale entry costs the next reader
+the whole verification pass again.
+
+Each fix carries its RCA below.
+
+### RCA 1 — `starter_roles` could not be sent, and the SDK still typed it
+
+- **Symptom.** `PlatformCreate.starter_roles` and
+  `platforms.seedStarterRoles()` were on the `web-admin` surface with doc
+  comments describing what they provisioned. Neither could succeed.
+- **Root cause.** ADR-101 (issuer `v0.113.0`) made RealmID own the role set.
+  `admin` became part of the floor, `viewer` was deleted, and nothing was left
+  to opt into. The issuer answers `400 starter_roles_retired` for ANY non-empty
+  `starter_roles` (`internal/httpapi/realm_roles.go`, `validateStarterRoles`),
+  and `POST /platforms/{id}/starter-roles` was DELETED, not deprecated — a 404,
+  pinned by `issuer/test/integration/starter_roles_test.go`.
+- **Why it wasn't caught.** The issuer side was verified; the SDK side was not
+  in the same blast-radius sweep. `platforms.test.ts` had zero starter-role
+  coverage, so no test went red when the surface it exercised stopped existing.
+  A method that can only 404 is invisible to a suite that never calls it.
+- **Fix.** Removed the field, the `StarterRole` union, `seedStarterRoles()` and
+  the `index.ts` re-export. Source-breaking, hence `web-admin 0.19.0`. A
+  removal rather than a deprecation because there is no correct call to make.
+- **Prevention.** Three tests, of which the load-bearing one is a
+  `@ts-expect-error` on `starter_roles`: re-adding the field makes the
+  suppression unused, which `tsc` reports as an error. The gate goes red on the
+  surface coming BACK, not on it being called.
+
+### RCA 2 — `web-admin` discarded 43 of 76 error codes
+
+- **Symptom.** `last_owner` reached a console `catch` as `conflict`;
+  `platform_not_found` as `not_found`. A partner branch written against the
+  documented code never fired.
+- **Root cause.** `transport.ts` carried its own `KNOWN_CODES` — a hand-written
+  array of 33 entries — against an `ErrorCode` union of 76. `mapErrorResponse`
+  silently falls back to `statusToCode(status)` for anything it does not
+  recognise, so the specific remedy was lost with no error anywhere.
+- **Why it wasn't caught.** Nothing FAILS. There is no signal at all: the
+  request succeeds in throwing, the error is a `RealmError`, and only the code
+  is wrong. This is the workspace's recurring shape — a guard whose SUBJECT
+  LIST is maintained by hand stops covering its subject silently. The gap had
+  GROWN while the item sat filed, from 27 missing to 43.
+- **Fix.** `@realm-id/sdk` exports `ERROR_CODES` (values, not just the type)
+  and `web-admin` derives its set from it. One list, not a copy.
+- **Prevention.** A drift test that asserts the EFFECT, not the membership: it
+  drives every code in `ERROR_CODES` through the real transport on HTTP **418**
+  — whose status fallback is `server_error`, so `error.code === code` can only
+  be true because the code was recognised, never because the fallback agreed.
+  It fails when `ERROR_CODES` is empty or implausibly short (the anti-vacuity
+  floor), and it has a negative control on an unregistered code.
+  **Mutation-checked**: planting `.filter(c => c !== "last_owner")` turns it red
+  with `last_owner → server_error`. A gate only ever seen green is a gate not
+  known to work.
+  ts keeps two lists in one file (the union and `KNOWN_CODES`), but they cannot
+  disagree — `scripts/taxonomy-parity.py` reads both from source on every
+  `make check`.
+
+### RCA 3 — `membership_not_found` was in no taxonomy
+
+- **Symptom.** The issuer emits `membership_not_found` (404) at three sites in
+  `internal/httpapi/me_memberships.go`. Every SDK flattened it to `not_found`.
+- **Root cause.** It was never registered in `ts/src/errors.ts`, `go/errors.go`
+  or `ErrorCode.java`.
+- **Why it wasn't caught.** `taxonomy-parity.py` checks the three languages
+  against EACH OTHER. A code missing from all three is perfect parity. The
+  gate's blind spot is exactly a shared omission — which is the same reasoning
+  that script's own header gives for why "all three agree" is not evidence of
+  intent.
+  Worse, ts's `MembershipActionCode` union (`memberships.ts`) listed the code by
+  NAME, so the SDK told partners to branch on something it then discarded — the
+  `last_owner` shape again.
+- **Fix.** Registered in all three (ts `0.52.0`, go `0.60.0`, java `0.49.0`).
+  Documented, like `platform_not_found`, as never distinguishing "not yours"
+  from "never existed".
+- **Prevention.** No new gate closes a three-way shared omission; what would is
+  deriving the taxonomy from the ISSUER's emitted codes, which is filed rather
+  than smuggled in here. The `MembershipActionCode`-names-it-but-`ErrorCode`-
+  does-not asymmetry is now impossible for this code specifically.
+
+### RCA 4 — Go's MFA rule validation failed OPEN
+
+- **Symptom.** `Middleware()` with an unenforceable `MFAProtectedPaths` logged
+  an error and built the middleware anyway. The process comes up healthy and
+  the step-up gate protects nothing.
+- **Root cause.** `Middleware()` returns a single value and cannot report an
+  error, so the check was written as a log-and-continue backstop.
+- **Why it wasn't caught.** `middleware_stepup_test.go` covered all four
+  `ValidateMFARules` cases — the VALIDATOR was correct and tested. Nothing
+  tested what the middleware DOES with the verdict. The tests asserted the
+  call, not the effect.
+- **Fix.** `MiddlewareE(opts) (func(http.Handler) http.Handler, error)` refuses,
+  returning a nil middleware and the error naming the rule's index, method and
+  path. `Middleware()` delegates to a shared builder and keeps its exact
+  behaviour — non-breaking, and a valid rule set produces the same middleware
+  from both. **Not** a breaking signature change on `Middleware()`: that would
+  make every existing caller re-wire to get a fix they may not need, and the
+  fail-open backstop is still strictly better than no check for a caller that
+  cannot take an error.
+- **Prevention.** Four tests, paired: `MiddlewareE` refuses and names the rule /
+  builds a valid set; `Middleware` still builds AND still logs at ERROR /
+  says nothing on a valid set. The last is the control — a log line emitted
+  unconditionally would satisfy the third while telling an operator nothing.
+  **Mutation-checked**: making `MiddlewareE` ignore the verdict turns the
+  refusal test red.
+
+### RCA 5 — `completeSignIn` swallowed an OIDC error return
+
+- **Symptom.** On `?error=access_denied`, `completeSignIn()` returned `null` —
+  the same value it returns for "this page load is not a callback at all".
+- **Root cause.** `readCallback` requires a `code`, so an error return fell
+  through it and out the bottom of the function. The SDK modelled one of the
+  two ways a provider redirect can come back.
+- **Why it wasn't caught.** `null` is a legitimate return. There is no failure
+  to observe from inside the SDK, and the consumers that hit it did not report
+  it — they worked around it. `ui/web/src/AuthGate.tsx` hand-rolled the whole
+  path, with a comment stating that the SDK only knows `?code&state`.
+- **Fix.** Detect the error return BEFORE the short-circuit, clear the pending
+  PKCE record, strip `error`/`error_description`/`error_uri` from the address
+  bar (left in place, a reload replays the refusal forever), and throw a
+  `RealmError` with the new code `oidc_provider_error`: `message` is the
+  user-facing sentence, `body` carries the raw pair for logs.
+  `describeCallbackError` moved into the SDK with it, because leaving the
+  message map in each app is what produced the workaround in the first place —
+  and a bare `AADSTS50011` rendered in a dialog is not a message.
+  The `ui/web` workaround is deleted in the SAME pass. Shipping the SDK fix
+  while the app still pre-empts it would mean the SDK's throw is never reached
+  and the fix reads as working while doing nothing.
+- **Prevention.** Nine tests, including the control that a non-callback load
+  still returns `null` — without it, a `completeSignIn` that refused every load
+  would pass.
+
+### The five stale entries, and why they were closed
+
+Each was checked in source, not in prose:
+
+1. **`sdk/go/TODO.md` 🔴 "`MFAVerify` returns a claim-blind token"** — FIXED and
+   RELEASED. Commit `870d75c` (2026-09-03) wires `mintProductRoles` into
+   `MFAVerify`; `git tag --contains` puts it in `go/v0.57.0` onward, live in
+   `go/v0.59.0`. It also fixed a FIFTH lane (`OTPLogin`) the report never named,
+   and replaced the hand-maintained "three call sites" comment with an
+   AST-derived guard. Every line number in the entry was wrong.
+2. **`sdk/TODO.md` "two envelope unwrappers"** — NOT a bug. `envelope.ts` says
+   in terms that both rules are deliberate and must not be collapsed;
+   `transport.ts` matches BFF-SPEC's sole-key rule; `envelope.test.ts`
+   deliberately pins the divergence. Re-scoped to the real residual:
+   `unwrapData`'s sibling-dropping on paginated bodies is undocumented at its
+   call sites.
+3. **`issuer/TODO.md` "SDKs discard the list envelope"** — FIXED both sides
+   (`sdk/go/pagination.go`, `sdk/ts/src/pagination.ts`, `ui/web/src/Sources.tsx`).
+4. **`issuer/TODO.md` federation `CREATE OR REPLACE`** — already guarded by
+   `internal/migrations/federation_claim_index_guard_test.go`.
+5. **`issuer/TODO.md` `microsoft.go` email preference** — downgraded P1 → P3,
+   not closed. The nOAuth path is blocked at every consumer
+   (`contact_resolver.go` refuses on `!EmailVerified`; `service.go`;
+   `provision_candidates.go`). Defence in depth, not a live takeover.
+
+**The lesson, recorded because it will recur.** A TODO's defect description is a
+timestamped CLAIM, not a finding. Five of the ten items examined here were
+false, and every one of them read as authoritative. Re-verify against source
+before scheduling — and when a claim turns out stale, closing it is part of the
+fix, not follow-up work.
+
+### Also in this batch
+
+`web/BFF-SPEC.md` § `GET /providers` now documents `tenantId` (response root)
+and `nickname` (each provider row) as OPTIONAL, with what ABSENT means — for
+`tenantId`, "the server did not resolve one", never "no tenant", since a
+realm-root origin legitimately has none. Both were typed in `@realm-id/web` and
+named nowhere in the spec, so a BFF author implementing from the document alone
+would have shipped neither. Documentation-shaped, so it rides along as a doc
+change rather than a fix.
+
+**Deliberately NOT in scope:** `issuer/` bugs, which are a separate release
+train — the `users.invitation_id` FK is verified real and stays filed.
 
 ## 2026-09-14 (`web-admin` transport) — a `content-type` on a bodyless GET cost a second CORS preflight
 

@@ -1,5 +1,34 @@
 # @realm-id/web-admin — changelog
 
+## 0.19.0 — the starter-role surface is gone; error codes are derived (2026-09-18)
+
+**BREAKING (source).** `PlatformCreate.starter_roles`, the `StarterRole` union
+and `platforms.seedStarterRoles()` are REMOVED. They were not deprecated, they
+were dead: ADR-101 (issuer `v0.113.0`) made RealmID own the role set, so
+
+  - `starter_roles` on `POST /platforms` is a hard `400 starter_roles_retired`
+    for ANY non-empty value — it could not be sent successfully, and it was
+    never merely ignored; and
+  - `POST /platforms/{id}/starter-roles` is a DELETED route. The issuer
+    answers `404`, so every call `seedStarterRoles()` could make was a 404.
+
+`admin` is now part of the role floor every realm receives and `viewer` no
+longer exists, so there is nothing left to opt into. To run a realm without an
+admin role, disable it: `POST /platforms/{id}/roles/{roleId}/disable`.
+
+**Fixed — 43 of 76 error codes were being discarded.** `transport.ts` carried a
+hand-written `KNOWN_CODES` array of 33 entries against an `ErrorCode` taxonomy
+of 76. The 43 it omitted did not error: `mapErrorResponse` fell back to
+`statusToCode(status)`, so `last_owner` arrived as `conflict`,
+`platform_not_found` as `not_found`, and a partner branching on the code this
+SDK documents never saw it fire. The gap had GROWN while it sat filed — 27
+missing when it was first measured, 43 by the time it was fixed.
+
+The set is now DERIVED from `ERROR_CODES` in `@realm-id/sdk` — one list, not a
+copy of one. A drift test drives every code through the real transport on HTTP
+418 (whose fallback is `server_error`, so agreement cannot be an accident) and
+fails if the source set is empty or implausibly short.
+
 ## 0.18.0 — no `content-type` on a bodyless request (2026-09-14)
 
 The transport set `content-type: application/json` on every request, including

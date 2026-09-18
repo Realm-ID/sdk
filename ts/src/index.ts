@@ -33,7 +33,7 @@ export type { AuthorityCache, AuthorityChange, AuthorityChangeIntent } from "./a
 
 export { TokensClient, TokenRevokedError } from "./tokens.js";
 
-export { RealmError, isTokenStale } from "./errors.js";
+export { RealmError, isTokenStale, isKnownCode, ERROR_CODES } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";

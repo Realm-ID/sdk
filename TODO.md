@@ -51,28 +51,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > `docs/error-reference.md` — they were written to WARN about this lag, so
 > those warnings are now themselves stale and will mislead a partner.
 
-- [ ] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`.**
-  `@realm-id/web-admin` types starter roles as `"admin" | "viewer"` because the
-  menu is closed server-side and an unknown name is a hard 400. But the issuer
-  exposes no endpoint advertising the menu, so adding a template means editing
-  the SDK union (and `ui/web/src/OnboardCreate.tsx`'s `STARTER_ROLE_OPTIONS`) in
-  lockstep. If the menu ever grows beyond these two, add
-  `GET /platforms/starter-roles` and drive both from it.
-  *(Confirmed 2026-08-03: the issuer has `POST /platforms/{id}/starter-roles`
-  (seed) and no GET advertising the menu — `internal/httpapi/routes.go:123`.)*
-
-> **Two empty headings and a dead release note were removed here 2026-09-18.**
-> `## Scope removal (ADR-097 §G)` held nothing once its only item closed
-> (ADR-100 D10 deleted the capability). The stale note under the old
-> `## Cross-language parity gaps` said *"GitHub Actions is down on the
-> `Realm-ID` org (billing), so `java-v0.35.0` and `ts-v0.37.0` are unpublished;
-> Maven Central still serves `0.34.0` and npm `0.36.0`"* — **every clause of
-> that is false**: CI was restored 2026-08-26, Maven serves **0.48.0** and npm
-> **0.51.0**, thirteen and fifteen releases on. A blocker note with no expiry
-> reads as a live blocker forever; the parity gaps now live under their own
-> heading further down.
-
-## HTTP surface not yet wrapped
+- [x] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`** —
+  **CLOSED BY DELETION 2026-09-18, not by reconciliation.** The duplication is gone
+  because the SURFACE is gone: ADR-101 (issuer `v0.113.0`) retired starter roles
+  entirely, so `PlatformCreate.starter_roles`, the `StarterRole` union and
+  `platforms.seedStarterRoles()` were removed in `web-admin 0.19.0`. The field
+  was a hard `400 starter_roles_retired` for any non-empty value and the route
+  a `404`. The proposed fix — a `GET /platforms/starter-roles` discovery
+  endpoint to drive both from one source — is moot: there is no menu.
 
 - [ ] Remaining partner-facing gaps (lower priority): `GET /me` caller identity;
   tenant domain delete (`DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`);
@@ -282,19 +268,27 @@ in the same repo.
       whether core should take `@realm-id/sdk` as a runtime dep (it is itself
       dep-free and browser-safe); the cost is the `ui/web` tarball-vendoring
       chain, which pins by filename. *(Filed 2026-08-30 from W2.)*
-- [ ] `web/packages/core/src/transport.ts` — the package now has TWO envelope
-      unwrappers with DIFFERENT rules: `unwrapEnvelope` (unwraps only when
-      `data` is the SOLE key, used by `Transport`) and `unwrapData` (unwraps
-      whenever `data` holds something, the sdk contract). Both are deliberate
-      and both are documented, but one call site picking the wrong one is a
-      silent data loss. Reconcile, or make the choice explicit at each call.
-      *(Filed 2026-08-30 from W2.)*
-- [ ] `web/packages/core/src/types.ts` — `ProvidersResponse.tenantId` and
-      `IdentityProvider.nickname` are populated ONLY by the
-      `@realm-id/web-bff-realmid` adapter. A partner BFF following BFF-SPEC
-      literally returns neither, so a partner login page reading `tenantId`
-      silently gets `undefined`. BFF-SPEC should name both fields on the
-      discovery response. *(Filed 2026-08-30 from W2.)*
+- [ ] `web/packages/core/src/envelope.ts` — **RE-SCOPED 2026-09-18 after checking
+      source; the original framing was wrong.** It read as "two unwrappers that
+      should be reconciled". They must NOT be: `envelope.ts:26-28` states in
+      terms that *"Both rules are deliberate; do not collapse them"*,
+      `transport.ts` matches BFF-SPEC's sole-key rule
+      (`web/BFF-SPEC.md:33`), and `envelope.test.ts:90` deliberately PINS the
+      divergence. Collapsing them would break the spec and a test written to
+      stop exactly that.
+      The real residual is smaller and is documentation: **`unwrapData` drops
+      envelope SIBLINGS on a paginated body** (`next_cursor`, `has_more`,
+      `total` alongside `data`), and that is not said at its call sites — only
+      in the function's own doc comment. Name it where it is called, or return
+      the siblings. *(Filed 2026-08-30 from W2; re-scoped 2026-09-18.)*
+- [x] `web/packages/core/src/types.ts` — **DONE 2026-09-18.** `web/BFF-SPEC.md`
+      § `GET /providers` now names `tenantId` (response root) and `nickname`
+      (each provider row) as OPTIONAL, in the example AND in a table stating
+      what ABSENT means — for `tenantId`, "the server did not resolve one",
+      never "no tenant", since a realm-root origin legitimately has none.
+      Documentation-shaped, not a code fix: both fields were already typed in
+      `@realm-id/web`; the spec a partner BFF author implements from named
+      neither. *(Filed 2026-08-30 from W2.)*
 - [ ] `web/packages/admin/` — three `ui/web/src/api.ts` shims were NOT in the
       W2 move list and still have no SDK resource: `fetchPlatformAuditEvents`
       (`GET /platforms/{id}/audit-events`, ADR-055 — distinct from the

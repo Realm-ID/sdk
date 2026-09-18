@@ -216,7 +216,16 @@ const (
 	// ErrCodeOwnerCannotBeRevoked / ErrCodeOwnerCannotLeave are the SAME rule
 	// (`tenants.owner_user_id` is NOT NULL) on two routes; both are answered by
 	// transferring ownership (ADR-076) first, not by retrying.
+	//
+	// ErrCodeMembershipNotFound (404) is the self-service routes' refusal when
+	// the caller has no reachable membership in the named org — three sites in
+	// the issuer's me_memberships.go. It NEVER distinguishes "not yours" from
+	// "never existed"; both answer identically on purpose, the same oracle rule
+	// ErrCodePlatformNotFound carries. Registered because MembershipActionCode
+	// in the ts SDK already listed it by name while no taxonomy declared it, so
+	// the code a caller was told to branch on arrived as a generic not_found.
 	ErrCodeOwnerCannotBeRevoked   ErrorCode = "owner_cannot_be_revoked"
+	ErrCodeMembershipNotFound     ErrorCode = "membership_not_found"
 	ErrCodeSingleTenantNotReqd    ErrorCode = "single_tenant_not_required"
 	ErrCodeNotInvited             ErrorCode = "not_invited"
 	ErrCodeNotPending             ErrorCode = "not_pending"
@@ -381,8 +390,9 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodePermissionsRequired:       {}, ErrCodeUnknownPermission: {},
 	ErrCodePermissionsExceedGrantor: {}, ErrCodeInstallGrantsNothing: {},
 	ErrCodeInvalidCursor: {}, ErrCodeInvalidLimit: {},
-	ErrCodeOwnerCannotBeRevoked: {}, ErrCodeSingleTenantNotReqd: {},
-	ErrCodeNotInvited: {}, ErrCodeNotPending: {},
+	ErrCodeOwnerCannotBeRevoked: {}, ErrCodeMembershipNotFound: {},
+	ErrCodeSingleTenantNotReqd: {},
+	ErrCodeNotInvited:          {}, ErrCodeNotPending: {},
 	ErrCodeInvitationsUnavailable: {}, ErrCodeOwnerCannotLeave: {},
 	ErrCodeAlreadyLeft: {},
 	ErrCodeHandleTaken: {}, ErrCodeInvalidRole: {},

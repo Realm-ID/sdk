@@ -13,6 +13,45 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## `membership_not_found` enters the taxonomy — ts `0.52.0`, go `0.60.0`, java `0.49.0` (2026-09-18)
+
+The issuer emits `membership_not_found` (404) at three sites in
+`internal/httpapi/me_memberships.go`, and no language's `ErrorCode` taxonomy
+declared it — so `mapErrorResponse` fell back to the status and every caller in
+every language received a generic `not_found`. The ts SDK's
+`MembershipActionCode` union had listed it by NAME for releases, which is the
+worse shape: a partner is told to branch on a code the SDK then flattens, writes
+the branch, tests it against a mock, and it never fires.
+
+Registered in all three (`ts/src/errors.ts`, `go/errors.go`,
+`java/.../ErrorCode.java`); `scripts/taxonomy-parity.py` holds them equal. Like
+`platform_not_found`, it NEVER distinguishes "not yours" from "never existed" —
+both answer identically on purpose.
+
+## go `0.60.0` — `MiddlewareE`, which refuses an unenforceable MFA rule set (2026-09-18)
+
+`Middleware()` validated `MFAProtectedPaths` and, on an error, LOGGED it and
+built the middleware anyway. That fails open: the process comes up healthy and
+the step-up gate the partner wrote protects nothing. Every case
+`ValidateMFARules` catches — an empty `Path`, `RequireFresh` paired with
+`MaxAge`, a JSON condition that can never match — is a rule that reads as
+protection and is none, so continuing is never the right answer.
+
+`MiddlewareE(opts) (func(http.Handler) http.Handler, error)` returns the error
+instead, naming the offending rule's index, method and path, so `main()` can
+refuse to boot. `Middleware()` is unchanged in signature and in behaviour — it
+delegates to the same builder and keeps the log-and-continue backstop for
+callers that cannot take an error. Non-breaking; a valid rule set produces the
+same middleware from both.
+
+## ts `0.52.0` — `ERROR_CODES` is exported as values (2026-09-18)
+
+The taxonomy was reachable only as a TYPE, so a downstream package that needed
+the set at runtime had to hand-copy it. `@realm-id/web-admin` did exactly that
+and drifted to 33 entries against 76. `ERROR_CODES` exports the same set
+`isKnownCode` uses, so there is one list to maintain instead of one per
+consumer.
+
 ## CI `web` job — build `ts/` before typechecking (2026-09-06)
 
 No package changes; a build-gate fix. The `web` CI job added on 2026-09-05 was

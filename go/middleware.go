@@ -337,21 +337,58 @@ func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (st
 }
 
 // Middleware returns an http.Handler middleware implementing SPEC §10.
+//
+// An invalid MFA rule set is LOGGED and the middleware is built anyway. That is
+// deliberate — this signature cannot report an error and changing it would
+// break every caller — but it fails OPEN: the process starts, serves traffic,
+// and the step-up gate the partner wrote protects nothing. The log line is the
+// only signal, and a startup ERROR line in a healthy-looking boot is exactly
+// the kind of thing nobody reads until the audit.
+//
+// Use [Realm.MiddlewareE] instead and refuse to boot on its error. Every case
+// ValidateMFARules catches is a rule that protects NOTHING while reading as
+// protection, so continuing is never the right answer for a new caller.
 func (r *Realm) Middleware(opts MiddlewareOptions) func(http.Handler) http.Handler {
+	// The backstop for callers that cannot take an error. Kept so existing
+	// wiring keeps its (bad but familiar) behaviour rather than changing shape
+	// under them.
+	if err := ValidateMFARules(opts.MFAProtectedPaths); err != nil {
+		r.logger.Error("realmid mfa rule configuration is invalid",
+			slog.String("error", err.Error()))
+	}
+	return r.buildMiddleware(opts)
+}
+
+// MiddlewareE is [Realm.Middleware] with the MFA rule check as a REFUSAL rather
+// than a log line: an invalid rule set returns a nil middleware and an error
+// naming the offending rule's index, method and path, so the partner's
+// main() can refuse to boot.
+//
+// It is the one to reach for. `ValidateMFARules` exists precisely because every
+// case it catches — an empty Path, RequireFresh paired with MaxAge, a JSON
+// condition that can never match — is a step-up rule that enforces nothing
+// while reading as enforcement. Building the middleware anyway means the
+// process comes up healthy with the gate off.
+//
+// Non-breaking: Middleware keeps its signature and its log-and-continue
+// backstop. A valid rule set produces exactly the same middleware from both.
+func (r *Realm) MiddlewareE(opts MiddlewareOptions) (func(http.Handler) http.Handler, error) {
+	if err := ValidateMFARules(opts.MFAProtectedPaths); err != nil {
+		return nil, err
+	}
+	return r.buildMiddleware(opts), nil
+}
+
+// buildMiddleware is the shared body. It performs NO rule validation — the two
+// exported entry points differ only in what they do with the verdict, and
+// keeping the check out of here is what makes that difference the whole
+// difference.
+func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.Handler {
 	opts.applyDefaults()
 	exempt := compileGlobs(opts.ExemptPaths)
 	mfaRules := compileMFARules(opts.MFAProtectedPaths)
 	mfaNeedBody := mfaRulesNeedBody(mfaRules)
 	defaultMaxAge := opts.MFADefaultMaxAge
-	// A rule that cannot fire looks exactly like a rule that protects
-	// something. Say so LOUDLY at wiring time rather than at the audit that
-	// discovers the gate was never enforced. Partners should call
-	// ValidateMFARules themselves and refuse to boot; this is the backstop for
-	// those who don't.
-	if err := ValidateMFARules(opts.MFAProtectedPaths); err != nil {
-		r.logger.Error("realmid mfa rule configuration is invalid",
-			slog.String("error", err.Error()))
-	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

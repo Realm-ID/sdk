@@ -14,6 +14,31 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.8.0 — `completeSignIn` reports an OIDC error return (2026-09-18)
+
+**Behaviour change.** An identity provider can come back two ways and the SDK
+only knew one. On `?error=access_denied&error_description=…` — the user
+declined, the app is misconfigured, the provider is down — `readCallback` found
+no `code`, so `completeSignIn()` returned `null`: the exact value it returns for
+"this page load is not a callback at all". An app could not tell a refused
+sign-in from an ordinary load without re-parsing `window.location.search`
+itself, and every one of them did, each with its own message map.
+
+It now throws a `RealmError` with the new code `oidc_provider_error`, whose
+`message` is a user-facing sentence and whose `body` carries the raw
+`{ error, error_description }` for logs. The pending PKCE record is cleared
+and the `error`/`error_description`/`error_uri` params are stripped from the
+address bar, so a reload does not replay the refusal forever.
+
+Two helpers are exported for callers that want the pieces:
+`readCallbackError()` and `describeCallbackError()`. The latter maps the codes a
+person can act on and strips Entra's `Trace ID: … Correlation ID: …` tail off
+an unmapped description — a bare `AADSTS50011` in a dialog is not a message.
+
+Callers that treated a `null` return as "not a callback" are unaffected; callers
+that relied on `completeSignIn()` never throwing on a redirect return must now
+catch.
+
 ## 0.7.0 — `token_stale` is a 401 that must never end the session (ADR-107) (2026-09-04)
 
 ### Changed — a demoted or promoted user is no longer signed out

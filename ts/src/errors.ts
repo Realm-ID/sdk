@@ -166,6 +166,16 @@ export type ErrorCode =
   // the same rule (`tenants.owner_user_id` is NOT NULL) on two routes: both
   // are answered by an ADR-076 ownership transfer, never by a retry.
   | "owner_cannot_be_revoked"
+  // `membership_not_found` (404) is the self-service routes' refusal when the
+  // caller has no reachable membership in the named org — emitted at three
+  // sites in the issuer's `me_memberships.go`. It NEVER distinguishes "not
+  // yours" from "never existed"; both answer identically on purpose, the same
+  // oracle rule `platform_not_found` carries.
+  //
+  // Registered because `MembershipActionCode` (memberships.ts) already listed
+  // it while the ErrorCode taxonomy did not, so the code a caller was told to
+  // branch on arrived as a generic `not_found` from every SDK.
+  | "membership_not_found"
   | "single_tenant_not_required"
   | "not_invited"
   | "not_pending"
@@ -263,10 +273,26 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "invalid_cursor", "invalid_limit",
   "installation_not_found",
   "installation_revoked", "role_unavailable", "key_class_mismatch",
-  "owner_cannot_be_revoked", "single_tenant_not_required", "not_invited",
+  "owner_cannot_be_revoked", "membership_not_found",
+  "single_tenant_not_required", "not_invited",
   "not_pending", "invitations_unavailable", "owner_cannot_leave", "already_left",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {
   return typeof s === "string" && KNOWN_CODES.has(s as ErrorCode);
 }
+
+/**
+ * Every code in the SPEC §3.1 taxonomy, as VALUES rather than a type.
+ *
+ * Exists so a downstream package never has to hand-copy the list. `web-admin`
+ * kept its own `KNOWN_CODES` of 33 entries against a union of 76, so 43 server
+ * codes fell through to the HTTP-status fallback and the specific remedy was
+ * lost for exactly the callers the taxonomy exists to serve. A hand-maintained
+ * subject list stops covering its subject silently; this export is the subject.
+ *
+ * `KNOWN_CODES` and the `ErrorCode` union are still two lists in THIS file, but
+ * they cannot disagree: `scripts/taxonomy-parity.py` reads both out of the
+ * source on every `make check` and fails on any difference in either direction.
+ */
+export const ERROR_CODES: readonly ErrorCode[] = Object.freeze([...KNOWN_CODES]);

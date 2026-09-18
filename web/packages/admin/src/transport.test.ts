@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { realmFetchAsHttpClient } from "./transport.js";
-import { RealmError } from "@realm-id/sdk";
+import { RealmError, ERROR_CODES } from "@realm-id/sdk";
 
 interface CapturedCall {
   url: string;
@@ -347,5 +347,90 @@ describe("content-type is sent only with a body", () => {
 
     const headers = calls[0]!.init.headers as Record<string, string>;
     assert.equal(headers["content-type"], undefined);
+  });
+});
+
+// ── error-code drift ─────────────────────────────────────────────────────────
+//
+// The gate this replaces was a hand-written 33-entry array against a 76-entry
+// taxonomy. Nothing failed: `mapErrorResponse` fell back to `statusToCode`, so
+// 43 codes arrived as a generic `conflict`/`not_found`/`server_error` and the
+// partner branch that the SDK documents never fired. The list had grown STALER
+// while it sat filed (27 missing → 43).
+//
+// The assertion is the EFFECT, not the membership: a list test is satisfied by
+// a list nothing reads. Every code is driven through the real transport on
+// status **418**, which maps to `server_error` — so `error.code === code` can
+// only be true because the code was recognised, never because the status
+// fallback happened to agree.
+describe("transport error-code coverage (derived from @realm-id/sdk)", () => {
+  it("is not vacuous — the taxonomy source is present and plausibly sized", () => {
+    // An empty or unreadable ERROR_CODES would make every assertion below pass
+    // over zero iterations. This is the anti-vacuity floor: the taxonomy has
+    // ~76 entries and only ever grows.
+    assert.ok(Array.isArray(ERROR_CODES), "ERROR_CODES is not an array");
+    assert.ok(
+      ERROR_CODES.length >= 60,
+      `ERROR_CODES holds ${ERROR_CODES.length} codes (expected >= 60) — the ` +
+        "source set is truncated or unreadable, so this suite proves nothing",
+    );
+  });
+
+  it("surfaces every code in the taxonomy instead of the status fallback", async () => {
+    const missed: string[] = [];
+    let checked = 0;
+
+    for (const code of ERROR_CODES) {
+      if (code === "server_error") continue; // indistinguishable from the 418 fallback
+      const { realm } = makeRealm(() =>
+        new Response(JSON.stringify({ error: { code, message: "x" } }), {
+          status: 418,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+      try {
+        await http.request({ method: "GET", path: "/tenants" });
+        missed.push(`${code} (no error thrown)`);
+        continue;
+      } catch (e) {
+        assert.ok(e instanceof RealmError, `${code} did not throw a RealmError`);
+        if (e.code !== code) missed.push(`${code} → ${e.code}`);
+      }
+      checked += 1;
+    }
+
+    assert.equal(
+      checked,
+      ERROR_CODES.length - 1,
+      "the loop did not visit every code — it exited early",
+    );
+    assert.deepEqual(
+      missed,
+      [],
+      "these codes collapsed into the HTTP-status fallback: " + missed.join(", "),
+    );
+  });
+
+  it("still stashes an UNREGISTERED server code rather than claiming it", async () => {
+    // The control. Without it the assertion above is satisfied by an
+    // `isErrorCode` that returns true for everything, which would make the
+    // taxonomy it checks irrelevant.
+    const { realm } = makeRealm(() =>
+      new Response(JSON.stringify({ error: { code: "definitely_not_registered", message: "x" } }), {
+        status: 418,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
+    await assert.rejects(
+      () => http.request({ method: "GET", path: "/tenants" }),
+      (e: unknown) => {
+        assert.ok(e instanceof RealmError);
+        assert.equal(e.code, "server_error");
+        assert.equal(e.details?.server_code, "definitely_not_registered");
+        return true;
+      },
+    );
   });
 });
