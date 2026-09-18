@@ -55,6 +55,16 @@ START=$(date +%s)
 # about the next push). See scripts/preflight-parity.sh's header.
 gate "workflow/Makefile command parity" ./scripts/preflight-parity.sh
 
+# ── workflow hygiene ────────────────────────────────────────────────────────
+# workflow-hygiene.yml's "third-party actions are SHA-pinned" job — the SECOND
+# required workflow on this repo, and until 2026-09-18 the only failure class in
+# the last 60 runs that NO local gate could have caught. `make check` mirrors
+# ci.yml, which was an accurate description of the gap rather than a defence of
+# it. Cheap, no network, no secrets. Self-test first: a grep-shaped gate that is
+# never shown to fire is indistinguishable from a clean tree.
+gate "workflow hygiene: self-test" ./scripts/workflow-hygiene.sh --self-test
+gate "workflow hygiene (third-party actions are SHA-pinned)" ./scripts/workflow-hygiene.sh
+
 # ── taxonomy job ────────────────────────────────────────────────────────────
 # ci.yml `taxonomy` job, "The three taxonomies agree" step.
 gate "taxonomy parity" python3 scripts/taxonomy-parity.py

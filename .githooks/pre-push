@@ -1,9 +1,89 @@
 #!/usr/bin/env sh
 # Tracked pre-push gate. Install once: make install-hooks
 # Bypass: git push --no-verify   (or REALMID_SKIP_PREPUSH=1)
+#
+# TWO gates, because there are two kinds of push and only one was covered.
+#
+#   branch push  ->  make check                (mirrors ci.yml)
+#   TAG push     ->  make release-check        (mirrors the publish workflows)
+#
+# WHY THE TAG HALF EXISTS. A CI failure audit over the last 60 runs on this repo
+# (2026-09-18) found 13 failures that a local gate already covered and that were
+# pushed anyway. Most were TAG-time: "go/ has not changed under a released
+# version" and "a release may not publish without a changelog entry". This hook
+# only ever saw branch pushes, and `make release-check` — which asks exactly
+# those questions — was a target a human had to remember to type.
+#
+# It matters most for Go. `go/vX.Y.Z` is not a label on the release, it IS the
+# release: proxy.golang.org serves the tag directly and it is immutable the
+# instant anything fetches it. `go/v0.57.0` is permanently burned this way. The
+# publish workflows' own gates all run AFTER the tag exists, so they can report
+# and never prevent. This hook is the last point at which prevention is possible.
+
 if [ -n "$REALMID_SKIP_PREPUSH" ]; then
   echo "pre-push: SKIPPED via REALMID_SKIP_PREPUSH" >&2
   exit 0
 fi
-echo "pre-push: make check   (bypass: git push --no-verify)" >&2
-make check
+
+# git feeds us "<local ref> <local sha> <remote ref> <remote sha>" per ref.
+# Read it BEFORE anything else consumes stdin.
+refs=$(cat)
+
+status=0
+tag_seen=0
+
+# ── tag refs ────────────────────────────────────────────────────────────────
+# Deletions (local sha all-zero) are not releases and are left alone.
+for remote_ref in $(printf '%s\n' "$refs" | awk '$2 !~ /^0+$/ { print $3 }'); do
+  case "$remote_ref" in
+    refs/tags/*) ;;
+    *) continue ;;
+  esac
+  tag=${remote_ref#refs/tags/}
+  tag_seen=1
+
+  lang=""
+  version=""
+  case "$tag" in
+    go/v*)    lang=go;   version=${tag#go/v} ;;
+    ts-v*)    lang=ts;   version=${tag#ts-v} ;;
+    java-v*)  lang=java; version=${tag#java-v} ;;
+    *)
+      # web-v* and anything else: release-check has no rule for it. Say so
+      # rather than passing silently — an unrecognised release tag is exactly
+      # the shape a NEW publish lane arrives in, and a gate that shrugs at one
+      # is how the next lane ships ungated.
+      echo "pre-push: $tag has no release-check rule — NOT gated. If this is a" >&2
+      echo "          publishable tag, add a case for it here." >&2
+      continue
+      ;;
+  esac
+
+  # An annotated tag is required for all three (tag-hygiene.sh enforces it at
+  # publish time, when a Go tag is already immutable and there is no remedy).
+  # Checking it here is the difference between a rule and a post-mortem.
+  if [ "$(git cat-file -t "$tag" 2>/dev/null)" != "tag" ]; then
+    echo "pre-push: $tag is a LIGHTWEIGHT tag. Re-cut it annotated:" >&2
+    echo "          git tag -d $tag && git tag -a $tag -m \"$lang sdk $version\"" >&2
+    status=1
+    continue
+  fi
+
+  echo "pre-push: make release-check LANGUAGE=$lang VERSION=$version   ($tag)" >&2
+  if ! make release-check LANGUAGE="$lang" VERSION="$version"; then
+    status=1
+  fi
+done
+
+# ── branch refs ─────────────────────────────────────────────────────────────
+# A tag-only push does not need the full ci.yml mirror: the commit it points at
+# was gated when the branch carrying it was pushed. Running it again would add
+# ~20s to every tag push and check nothing new.
+if [ "$tag_seen" -eq 0 ] || printf '%s\n' "$refs" | awk '$2 !~ /^0+$/ { print $3 }' | grep -qv '^refs/tags/'; then
+  echo "pre-push: make check   (bypass: git push --no-verify)" >&2
+  if ! make check; then
+    status=1
+  fi
+fi
+
+exit $status

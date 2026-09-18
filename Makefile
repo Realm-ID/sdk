@@ -9,12 +9,25 @@
 # error-code taxonomies disagreeing (3), a TypeScript type error (2), gofmt (1).
 # None of those need network, secrets or a compose stack.
 #
-# `check` mirrors `.github/workflows/ci.yml` ONLY — the push/PR gate. The
-# publish workflows' own gates (tag-hygiene's annotated/go-immutable modes,
+# `check` mirrors `.github/workflows/ci.yml` plus ONE job from
+# `workflow-hygiene.yml` (third-party actions are SHA-pinned). That second
+# workflow is also required, and until 2026-09-18 nothing local ran it: a CI
+# failure audit over the last 60 runs found it was the only failure class no
+# local gate could have caught. "check mirrors ci.yml" had been an accurate
+# description of a gap rather than a defence of one.
+#
+# The publish workflows' own gates (tag-hygiene's annotated/go-immutable modes,
 # changelog-hygiene's npm/maven/go modes) run at TAG-PUSH time, after which a
 # Go tag is already immutable (proxy.golang.org may have served it —
 # `go/v0.58.0` is burned this way). `release-check` runs those same assertions
 # against the working tree, before any tag exists.
+#
+# ⚠️ `release-check` is no longer a target you have to REMEMBER. `.githooks/pre-push`
+# runs it automatically for a pushed `go/v*` / `ts-v*` / `java-v*` tag, and
+# refuses a lightweight one. The same audit found 13 CI failures that a local
+# gate already covered and that were pushed anyway — mostly at tag time, because
+# the hook only ever saw branch pushes. Prevention is only possible before the
+# tag exists; every gate after it can report and nothing more.
 #
 # Every command below is copied VERBATIM from the workflow step it mirrors —
 # see the comment on each target naming its source. If a step's own command
@@ -105,3 +118,5 @@ install-hooks:
 self-test:
 	@bash scripts/release-check.test.sh
 	@python3 scripts/contract-parity.test.py
+	@bash scripts/workflow-hygiene.sh --self-test
+	@bash scripts/pre-push.test.sh

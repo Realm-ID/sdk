@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-100 entries total — 45 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+101 entries total — 46 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-18 (local gates) — the hook only ever saw branch pushes, and the releases are cut with tags](#2026-09-18-local-gates--the-hook-only-ever-saw-branch-pushes-and-the-releases-are-cut-with-tags)
 - [2026-09-18 (partner-facing bug batch) — five bugs a partner could hit, and five filed bugs that no longer existed](#2026-09-18-partner-facing-bug-batch--five-bugs-a-partner-could-hit-and-five-filed-bugs-that-no-longer-existed)
 - [2026-09-14 (`web-admin` transport) — a `content-type` on a bodyless GET cost a second CORS preflight](#2026-09-14-web-admin-transport--a-content-type-on-a-bodyless-get-cost-a-second-cors-preflight)
 - [2026-09-07 (changelog) — `go 0.58.1` was documented as a release and never tagged](#2026-09-07-changelog--go-0581-was-documented-as-a-release-and-never-tagged)
@@ -112,6 +113,83 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-18 (local gates) — the hook only ever saw branch pushes, and the releases are cut with tags
+
+Audited every FAILED Actions run in the last 60 on this repo, read each one's
+actual error line, and classified it by whether a local gate could have caught
+it. 18 failures:
+
+| class | count | meaning |
+|---|---|---|
+| **A** | 13 | locally determinable AND already covered by `make check` / `make release-check` — pushed anyway |
+| **B** | 1 | locally determinable, no local gate covered it |
+| **C** | 2 | needs a live registry or a secret; no local gate can answer it |
+| — | 2 | cancelled, not an independent failure |
+
+**The headline is class A, not class B.** Thirteen of eighteen were questions a
+local gate already asks. `git config core.hooksPath` is `.githooks` and
+`.githooks/pre-push` does run `make check`, so the hook was installed and
+correct — and irrelevant, because **most of those failures were TAG pushes.**
+`pre-push` fires for a tag push too, but the hook ran `make check` (the `ci.yml`
+mirror) and nothing else; `make release-check`, which asks exactly the questions
+that were failing — *"has `go/` changed under a version that is already
+tagged"*, *"does this release have a changelog entry"* — was a target a human had
+to remember to type. The repeat rate is the evidence that remembering does not
+work.
+
+**Decision 1: the pre-push hook gates TAG pushes with `make release-check`.**
+It reads the refs git feeds it, maps `go/v*` / `ts-v*` / `java-v*` to a
+LANGUAGE + VERSION, and runs the matching release gate. It also refuses a
+LIGHTWEIGHT tag, which `tag-hygiene.sh` currently catches only *after* the tag
+exists.
+
+That "after" is the whole argument. For Go there is no remedy at all: `go/vX.Y.Z`
+is not a label on the release, it IS the release, and it is immutable the moment
+proxy.golang.org serves it — `go/v0.57.0` is permanently burned this way. Every
+gate in the publish workflows can report; only this hook can prevent.
+
+A tag-only push deliberately does NOT re-run `make check`: the commit it points
+at was gated when its branch was pushed, so it would add ~20s and check nothing.
+
+**Decision 2: `make check` picks up `workflow-hygiene.yml`'s SHA-pin job** — the
+one class-B gap. The Makefile header said "`check` mirrors `ci.yml` ONLY", which
+was true and had been read as a boundary; `workflow-hygiene.yml` is a SECOND
+required workflow and nothing local ran any of it. An accurate description of a
+gap is not a defence of one, and the header now says what is covered instead.
+
+**Not copied verbatim from the workflow**, deliberately. Its check is
+`grep -rnP`, and macOS `/usr/bin/grep` has no `-P` — the replica would have
+failed as a BROKEN CHECKER on the machine it is written for, which at a glance
+reads exactly like a checker that found something. It is re-implemented in
+python3 (already required by `make check`) and the two sides are tied together
+by both carrying a self-test that plants a violation and requires it to be
+caught. Proving each side FIRES is a stronger tie than proving two command
+strings match: a pattern that matches nothing passes string equality happily.
+
+**Decision 3: the hook gets a test suite** (`scripts/pre-push.test.sh`, wired
+into `make self-test`). A hook that quietly stopped gating looks exactly like a
+clean repo. Five cases, and the last two are the controls that make the first
+three mean anything: a branch push must still run `make check`, and the
+documented `REALMID_SKIP_PREPUSH=1` bypass must still work.
+
+The suite earned its keep on its first run: two cases were GREEN-by-accident
+because the test tags were named `zz-test-go/v9.9.9`, which does not match the
+hook's `go/v*` rule — so they took the "unrecognised tag" path and returned 0.
+An unrecognised tag being *reported* rather than silently accepted is what
+exposed it; that branch exists because a new publish lane arrives as a tag form
+nothing has a rule for.
+
+**What is NOT fixed, and cannot be here.** The two class-C failures are the npm
+publish, which is failing `404 Not Found - PUT https://registry.npmjs.org/@realm-id%2fsdk`.
+A 404 on PUT is npm's answer when the token cannot write to the scope. `NPM_TOKEN`
+was last set **2026-06-19**, it published successfully on 2026-09-14, and it
+fails today — consistent with a granular token's 90-day expiry, though that is
+inference from the secret's timestamp and the npm token page is what would
+settle it. No local gate can answer "is this credential still valid"; the check
+that catches it is the one that already did — **confirm the registry after
+publish, because a green publish workflow is not publication, and a red one is
+not a rollback.**
 
 ## 2026-09-18 (partner-facing bug batch) — five bugs a partner could hit, and five filed bugs that no longer existed
 
