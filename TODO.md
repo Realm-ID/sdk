@@ -9,11 +9,15 @@
 Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 `SPEC.md` is law — if a language SDK and the SPEC disagree, fix the SDK.
 
-> ⚠️ **There is a SECOND TODO file in this repo: [`go/TODO.md`](go/TODO.md).**
-> It carries Traide-reported Go-specific items (one 🔴) and **nothing
-> referenced it** until 2026-09-18 — not this file, not the umbrella `TODO.md`'s
-> scope note, not the root `CLAUDE.md` doc map. It was invisible to every sweep,
-> which is the worst state for a file holding a 🔴. Check both.
+> ⚠️ **`go/TODO.md` is GONE as of 2026-09-18 — this is the only TODO file in
+> this repo.** It was orphaned (nothing referenced it, so its 🔴 sat outside
+> every sweep), and linking it exposed a second problem: **a file under `go/`
+> is inside the Go module.** `TODO.md` shipped in the published module zip at
+> `go/v0.60.0` — 4,681 bytes, confirmed against `proxy.golang.org` — so every
+> edit to it changed the module's content hash and `tag-hygiene.sh
+> unreleased-go` correctly refused the push until `const Version` was bumped.
+> A TODO sweep must not be able to force a Go SDK release. Go-only items now
+> live here, under *Go SDK only*.
 
 ---
 
@@ -409,3 +413,40 @@ in the same repo.
       script's own header for why forcing those through the hand-rolled
       indentation reader would risk inventing drift rather than finding it.
       *(Filed 2026-09-06, W1-B.)*
+
+## Go SDK only
+
+Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
+under `go/` ships inside the published module zip, so editing it changes the
+module hash and demands a version bump (see the note at the top of this file).
+
+- [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the
+  same `user → jti` index to work around it.** (Traide, 2026-09-03. FEATURE —
+  needs an owner decision before any code; do not implement on this note.)
+  The interface is `Revoke(ctx, jti, expiresAt)` / `IsRevoked(ctx, jti)`
+  (`go/platform_token.go:315`), and the only caller is `Logout`, which works
+  because the user presents their OWN access token. The actor in the common
+  case is a DIFFERENT user: an owner demoting a colleague holds neither that
+  colleague's token nor their jti.
+  **Why it matters**: a role change lands only on the target's next refresh, so
+  authority is stale for up to one `access_ttl_seconds` (default **900s**). The
+  sharp case Traide names is not data exposure — where `POST /users/{id}/role`
+  is callable by `admin`, a just-demoted admin can re-promote themselves inside
+  that window. Bounded window, unbounded consequence.
+  Same wall as `Auth.ListSessions`/`RevokeSession` since issuer `v0.66.0`: both
+  need the target's own verified access JWT, and an admin acting on someone
+  else never has one. **That restriction is correct and is not up for debate** —
+  a platform key must not be able to act as any user. The question is whether
+  "revoke this user's authority now" gets a supported path that does not
+  require impersonation.
+  Options Traide offered, in their order of preference: (1) `RevokeAllForUser(ctx,
+  userID)` on the cache interface; (2) a way for a platform key to enumerate a
+  target's live jtis without impersonating them; (3) if neither fits the model, a
+  DOCUMENTED note that the index is the partner's job, so nobody assumes `Logout`
+  is the whole story.
+  ⚠️ Option 3 is not a cop-out and may be the right answer: the SDK cannot own a
+  `user → jti` index without either persisting per-user token state it currently
+  has no reason to hold, or asking the issuer for an enumeration endpoint that
+  re-opens the impersonation question. But leaving it UNDOCUMENTED is the one
+  choice with no defence — a missed index write is a token that silently
+  survives revocation, and it looks fine until the day it does not.

@@ -773,3 +773,42 @@ They stated explicitly: **no urgency** — they have a working, tested repair.
       not cover it. *(Filed 2026-08-30.)*
 
 </details>
+
+## Go SDK only — records moved out of the deleted `go/TODO.md` (2026-09-18)
+
+`go/TODO.md` was deleted because a file under `go/` ships inside the
+published module zip, so editing it forced a Go SDK version bump. Its open
+item moved to `TODO.md` § *Go SDK only*; its records are below, verbatim.
+
+## Closed
+
+> ~~🔴 **`Auth.MFAVerify` returns a claim-blind token**~~ **FIXED AND RELEASED;
+> CLOSED 2026-09-18.** Commit `870d75c` (2026-09-03), *"fix(derived-claims):
+> OTPLogin and MFAVerify handed back claim-blind tokens"*, wires
+> `mintProductRoles` into `MFAVerify` (`go/auth.go:1061`, `FlowMFAVerify`).
+> `git tag --contains 870d75c` puts it in `go/v0.57.0` onward — live in the
+> released `go/v0.59.0`, and in `0.60.0`.
+> Three things about the entry were wrong, which is why this note exists rather
+> than a silent tick:
+> - it named a FOURTH lane; the fix found a **FIFTH** (`OTPLogin`,
+>   `auth.go:871`) that the report never mentioned;
+> - every line number in it (`auth.go:955-985`, `:557`, `:618`, `:933`) had
+>   moved; and
+> - the "do NOT fix this as a one-off" instruction was FOLLOWED —
+>   `go/derived_claims_lanes_test.go` derives the set of session-minting lanes
+>   from the package AST and fails when one does not run the handler, replacing
+>   the hand-maintained "three call sites" comment that let the fourth lane
+>   ship. It also refuses to pass vacuously when it parses no package files.
+> This item sat open for 15 days after it was fixed, in an ORPHANED file no
+> sweep read. A TODO's defect description is a timestamped CLAIM, not a finding.
+
+## Checked and NOT a defect (do not re-file)
+
+- `enrichRefreshMint`'s two early returns (`derived_claims_refresh.go`) were
+  reported alongside the `MFAVerify` gap as "the same shape". They are not.
+  Both are deliberate and carry their reasoning in-place: the peek-failure
+  branch degrades to the pre-`v0.54.0` behaviour rather than breaking every
+  refresh, and is pinned by regression tests that assert the subject reaches the
+  handler (so it cannot silently become the normal path); the both-handlers-
+  empty branch is a genuine no-op, because a re-mint could only reproduce the
+  token already held. Verified against source 2026-09-03.
