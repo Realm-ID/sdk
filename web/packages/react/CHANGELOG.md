@@ -13,6 +13,13 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.2 — accept `@realm-id/web` 0.8.x as a peer (2026-09-18)
+
+No source change. `@realm-id/web` 0.8.0 ships the `completeSignIn` OIDC-error
+throw, and this package's peer range stopped at `^0.7.0` — so installing the new
+core alongside it is an `ERESOLVE` failure, not a warning. The range is widened;
+nothing else here moves.
+
 ## 0.5.1 — peer range accepts `@realm-id/web@^0.7.0` (2026-09-04)
 
 No source change. This package has no error-code or 401 logic of its own; the
