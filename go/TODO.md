@@ -1,7 +1,13 @@
 # TODO — `Realm-ID/sdk`
 
-Open follow-ups for the SDK monorepo. Cross-repo items live in the umbrella
+Open follow-ups **specific to the Go SDK**. Cross-language and monorepo-wide
+items live in [`../TODO.md`](../TODO.md); cross-repo items live in the umbrella
 repo's `TODO.md`; design rationale lives in `DECISIONS.md`.
+
+> ⚠️ **This file was ORPHANED until 2026-09-18** — nothing in the tree linked
+> it, so the 🔴 below sat outside every TODO sweep and every open-item count.
+> `../TODO.md` and the root `CLAUDE.md` now both point here. If you add a Go-only
+> item, add it here; if it spans languages, it belongs in `../TODO.md`.
 
 ## Open
 

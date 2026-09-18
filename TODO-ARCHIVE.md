@@ -597,3 +597,179 @@ features are tested in disjoint universes.
   lanes that get no refresh token at all (ADR-089).
 
 They stated explicitly: **no urgency** — they have a working, tested repair.
+
+
+## Sweep 2026-09-18 — nine items closed against source
+
+> Closed during the cross-repo TODO sweep. Each verified in the tree or against
+> the live registry, not inferred from a changelog. **Note the direction of the
+> drift:** all nine were work that had ALREADY been done and never walked back
+> to this file — the failure here is a TODO that is too conservative, not one
+> that claims something false.
+
+### CI runs no job for `web/packages/*` at all. `.github/workflows/ci.yml`
+
+**CLOSED 2026-09-18.** `ci.yml` now has a `Web (tsc + node --test, per package)` job at `:202` covering `web/packages/*`.
+
+<details><summary>original entry</summary>
+
+- **CI runs no job for `web/packages/*` at all.** `.github/workflows/ci.yml`
+  has `go`, `ts` and `java` jobs and nothing for the browser packages, so
+  `@realm-id/web-admin`'s `npm run typecheck` and `npm test` never run on a
+  push — including the tsconfig.test.json pass added on 2026-08-28, which is
+  therefore only as good as someone running it locally. These packages are what
+  the admin console actually vendors. *(Found 2026-08-28 while pinning
+  `MeMembership.realm_id`; the pin was mutation-verified locally.)*
+  `.github/workflows/ci.yml`, `web/packages/*/package.json`.
+
+
+</details>
+
+### `@realm-id/web-admin` `0.9.1` is committed but NOT published or
+
+**CLOSED 2026-09-18.** CLOSED BY SUPERSESSION - npm latest is `0.18.0` and `0.9.1` was never published. `MeMembership.realm_id` shipped (`web/packages/admin/src/types.ts:596`) and the BFF declares it (`api/internal/handlers/me_realm_test.go`).
+
+<details><summary>original entry</summary>
+
+- **`@realm-id/web-admin` `0.9.1` is committed but NOT published or
+  vendored.** It adds `MeMembership.realm_id` (issuer spec `0.34.0`). Until it
+  is published and re-vendored into `ui/web/vendor/`, the console cannot read
+  the field — and it would see nothing anyway until the BFF (`Realm-ID/api`)
+  declares it, since that BFF re-encodes `/me` through its own struct and drops
+  what it does not declare. Order: `api/` → publish `0.9.1` → re-vendor →
+  `ui/`. Verify the packed tarball's bundled dep, not the version string
+  (`tar xzOf vendor/realm-id-web-admin-0.9.1.tgz package/node_modules/@realm-id/sdk/package.json`).
+
+
+</details>
+
+### `ui/DECISIONS.md` (3,147) and the root `DECISIONS.md` (3,167) are both
+
+**CLOSED 2026-09-18.** Both splits happened: `ui/DECISIONS.md` is 1,612 lines with an index, root is 2,983, and both have companion `DECISIONS-ARCHIVE.md` files.
+
+<details><summary>original entry</summary>
+
+- **`ui/DECISIONS.md` (3,147) and the root `DECISIONS.md` (3,167) are both
+      unsplit, and both now exceed `issuer/DECISIONS.md`'s post-split main file
+      (3,485 main / 8,598 archive).** Measured 2026-08-25. The item that produced
+      the sdk + issuer split named `sdk/DECISIONS.md` — the smallest of the five
+      — because that is the file someone happened to be looking at; the same
+      mis-file is still live for these two, which no item anywhere names. Same
+      `decision-log` treatment: index under the H1 + a `DECISIONS-ARCHIVE.md`
+      split, text MOVED not rewritten, every `## ` heading verified present in
+      exactly one of the two files afterwards. (Filed in `sdk/TODO.md` only
+      because that is where the split item lives; the work is in `ui/` and the
+      umbrella repo.)
+
+</details>
+
+### `scopes.remove` exists in `ts` ONLY. Written and tested at
+
+**CLOSED 2026-09-18.** SUPERSEDED, not ported - ADR-100 D10 DELETED the bulk removal outright; `ts/src/scopes.ts:13` records that retiring a scope is self-healing and needs no server write. Porting it to go/java would have built a retired endpoint.
+
+<details><summary>original entry</summary>
+
+- **`scopes.remove` exists in `ts` ONLY.** Written and tested at
+      `sdk/ts/src/scopes.ts` (`0.40.0`, unpublished — CI down). `go` and `java`
+      have no `ScopesClient` at all, so this is not "add a method" but "add the
+      resource" in both — the same shape as the rename, which is also ts-only.
+      Decide deliberately whether `scopes` is a ts-only surface (the console is
+      its only consumer today) or a lockstep one; SPEC §13 says surface changes
+      that break wire compatibility need all three, and an ADDITIVE resource does
+      not, so this is a product call rather than a spec violation.
+
+</details>
+
+### `federationBindings` resource in `@realm-id/web-admin` — the UI still
+
+**CLOSED 2026-09-18.** Shipped - `web/packages/admin/src/index.ts:95,164` export a `FederationBindingsClient`, and `ui/web/src/api.ts` no longer defines the CRUD shims.
+
+<details><summary>original entry</summary>
+
+- **`federationBindings` resource in `@realm-id/web-admin`** — the UI still
+  carries `list/create/revokeFederationBinding` shims (`ui/web/src/api.ts:449`,
+  and the comment at `:19` says why). The `scope` field is free-text — tighten
+  if a scope catalog is ever defined.
+  ⚠️ **CORRECTED 2026-08-24 — this is a PORT, not a build, and the entry said
+  "Mirror `ApiKeysClient`" as if from scratch.** `sdk/ts` ALREADY has the
+  resource: `ts/src/federation-bindings.ts` with `federation-bindings.test.ts`,
+  wired into `realm.ts`. The gap is web-admin only. Copying a tested
+  implementation is a materially different cost from mirroring a sibling.
+
+</details>
+
+### `go/roles_authority.go` `ConfersAuthority` — the issuer classifies a
+
+**CLOSED 2026-09-18.** `ConfersAuthorityWithCatalog(perms, catalog)` exists at `go/roles_authority.go:125`, matching the ts/java catalog-aware form. The three languages agree.
+
+<details><summary>original entry</summary>
+
+- `go/roles_authority.go` `ConfersAuthority` — the issuer classifies a
+      well-formed but NON-CATALOG permission (`widgets:read`) as conferring, via
+      catalog membership; the SDKs classify by action because they deliberately
+      embed no catalog copy. ts and java both take the SERVED catalog as an
+      optional argument and then answer exactly as the issuer does; Go has no
+      such form, so the three languages do not agree at that edge. Unreachable
+      today (write validation rejects unknown permissions), but it is a partner-
+      visible difference between SDKs. *(Filed 2026-08-30.)*
+> ~~`ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
+> `{owner, platform_api}`, but the issuer's `realmrole.NonAssignableRoles`
+> is `{owner, platform_api, platform_mgmt_api}`; go and java carry all
+> three. A ts-based picker will offer the key-minting bot role to a
+> human.~~ **CLOSED — the claim is FALSE as of 2026-09-13, verified in
+> source here.** `ts/src/roles.ts:323-331` declares
+> `NON_ASSIGNABLE_ROLES` containing all three, `platform_mgmt_api`
+> included, each with a comment citing the ADR it comes from, and
+> `roles-drift.test.ts` pins the set. Note the entry also had the NAME
+> wrong — the constant is `NON_ASSIGNABLE_ROLES`, not
+> `SYSTEM_UNASSIGNABLE`, so a grep for the name in this entry finds
+> nothing and would read as "the guard is missing entirely".
+> *(Filed 2026-08-30 from the java port; ts/ was owned by another agent —
+> which is the likeliest reason it described a sibling's tree from memory.)*
+
+</details>
+
+### `ts` — the `confersAuthority` non-catalog divergence filed above is now
+
+**CLOSED 2026-09-18.** Superseded by the go catalog overload above - all three languages now converge.
+
+<details><summary>original entry</summary>
+
+- `ts` — the `confersAuthority` non-catalog divergence filed above is now
+      CLOSED in TypeScript: `confersAuthority(role, { catalog })` takes the list
+      `roles.listPermissions()` already serves and answers exactly as the issuer
+      does, unknown keys included, with the action-derived rule as the default
+      when no catalog is supplied. `go` and `java` should take the same overload
+      so the three languages agree. *(Filed 2026-08-30.)*
+
+</details>
+
+### `ui/web/src/roleAssignability.ts` — the console mirror never learned
+
+**CLOSED 2026-09-18.** The file no longer exists; wave 4 deleted the console mirror rather than teaching it the rule.
+
+<details><summary>original entry</summary>
+
+- `ui/web/src/roleAssignability.ts` — the console mirror never learned
+      ADR-091's `is_system` exemption from the §2.3 human-only floor, so it
+      filters `platform_api` out of a service-account picker on a rule the
+      issuer stopped applying to RI-managed roles. Inert today only because
+      `platform_api` is also in the console's hardcoded exclusion set. Fixed by
+      wave 4 deleting the file for the SDK predicate; recorded here so the
+      finding is not lost if that slips. *(Filed 2026-08-30 from W1b.)*
+
+</details>
+
+### `ts/CHANGELOG.md` — `0.43.0` is in `ts/package.json` (bumped by a92cdac,
+
+**CLOSED 2026-09-18.** `ts/CHANGELOG.md` carries the `## 0.43.0` heading; the gap is gone.
+
+<details><summary>original entry</summary>
+
+- `ts/CHANGELOG.md` — `0.43.0` is in `ts/package.json` (bumped by a92cdac,
+      the ADR-101 role-wire change) with NO heading of its own; only the
+      monorepo `CHANGELOG.md` recorded it. Same gap as the `java` `0.40.0` item
+      above. The `## Unreleased` section added 2026-08-30 sits above it and does
+      not cover it. *(Filed 2026-08-30.)*
+
+</details>

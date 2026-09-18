@@ -9,6 +9,12 @@
 Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 `SPEC.md` is law — if a language SDK and the SPEC disagree, fix the SDK.
 
+> ⚠️ **There is a SECOND TODO file in this repo: [`go/TODO.md`](go/TODO.md).**
+> It carries Traide-reported Go-specific items (one 🔴) and **nothing
+> referenced it** until 2026-09-18 — not this file, not the umbrella `TODO.md`'s
+> scope note, not the root `CLAUDE.md` doc map. It was invisible to every sweep,
+> which is the worst state for a file holding a 🔴. Check both.
+
 ---
 
 > ~~**All three SDKs' `integrations.install()` send the retired `role_id`
@@ -45,24 +51,6 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > `docs/error-reference.md` — they were written to WARN about this lag, so
 > those warnings are now themselves stale and will mislead a partner.
 
-- [ ] **CI runs no job for `web/packages/*` at all.** `.github/workflows/ci.yml`
-  has `go`, `ts` and `java` jobs and nothing for the browser packages, so
-  `@realm-id/web-admin`'s `npm run typecheck` and `npm test` never run on a
-  push — including the tsconfig.test.json pass added on 2026-08-28, which is
-  therefore only as good as someone running it locally. These packages are what
-  the admin console actually vendors. *(Found 2026-08-28 while pinning
-  `MeMembership.realm_id`; the pin was mutation-verified locally.)*
-  `.github/workflows/ci.yml`, `web/packages/*/package.json`.
-
-- [ ] **`@realm-id/web-admin` `0.9.1` is committed but NOT published or
-  vendored.** It adds `MeMembership.realm_id` (issuer spec `0.34.0`). Until it
-  is published and re-vendored into `ui/web/vendor/`, the console cannot read
-  the field — and it would see nothing anyway until the BFF (`Realm-ID/api`)
-  declares it, since that BFF re-encodes `/me` through its own struct and drops
-  what it does not declare. Order: `api/` → publish `0.9.1` → re-vendor →
-  `ui/`. Verify the packed tarball's bundled dep, not the version string
-  (`tar xzOf vendor/realm-id-web-admin-0.9.1.tgz package/node_modules/@realm-id/sdk/package.json`).
-
 - [ ] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`.**
   `@realm-id/web-admin` types starter roles as `"admin" | "viewer"` because the
   menu is closed server-side and an unknown name is a hard 400. But the issuer
@@ -73,35 +61,17 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   *(Confirmed 2026-08-03: the issuer has `POST /platforms/{id}/starter-roles`
   (seed) and no GET advertising the menu — `internal/httpapi/routes.go:123`.)*
 
-- [ ] **`ui/DECISIONS.md` (3,147) and the root `DECISIONS.md` (3,167) are both
-      unsplit, and both now exceed `issuer/DECISIONS.md`'s post-split main file
-      (3,485 main / 8,598 archive).** Measured 2026-08-25. The item that produced
-      the sdk + issuer split named `sdk/DECISIONS.md` — the smallest of the five
-      — because that is the file someone happened to be looking at; the same
-      mis-file is still live for these two, which no item anywhere names. Same
-      `decision-log` treatment: index under the H1 + a `DECISIONS-ARCHIVE.md`
-      split, text MOVED not rewritten, every `## ` heading verified present in
-      exactly one of the two files afterwards. (Filed in `sdk/TODO.md` only
-      because that is where the split item lives; the work is in `ui/` and the
-      umbrella repo.)
-## Scope removal (ADR-097 §G) — partial language coverage
+> **Two empty headings and a dead release note were removed here 2026-09-18.**
+> `## Scope removal (ADR-097 §G)` held nothing once its only item closed
+> (ADR-100 D10 deleted the capability). The stale note under the old
+> `## Cross-language parity gaps` said *"GitHub Actions is down on the
+> `Realm-ID` org (billing), so `java-v0.35.0` and `ts-v0.37.0` are unpublished;
+> Maven Central still serves `0.34.0` and npm `0.36.0`"* — **every clause of
+> that is false**: CI was restored 2026-08-26, Maven serves **0.48.0** and npm
+> **0.51.0**, thirteen and fifteen releases on. A blocker note with no expiry
+> reads as a live blocker forever; the parity gaps now live under their own
+> heading further down.
 
-- [ ] **`scopes.remove` exists in `ts` ONLY.** Written and tested at
-      `sdk/ts/src/scopes.ts` (`0.40.0`, unpublished — CI down). `go` and `java`
-      have no `ScopesClient` at all, so this is not "add a method" but "add the
-      resource" in both — the same shape as the rename, which is also ts-only.
-      Decide deliberately whether `scopes` is a ts-only surface (the console is
-      its only consumer today) or a lockstep one; SPEC §13 says surface changes
-      that break wire compatibility need all three, and an ADDITIVE resource does
-      not, so this is a product call rather than a spec violation.
-## Cross-language parity gaps
-
-> Still open, unchanged: (2) optional — show the device name on the `/device`
-> approve page (needs a by-`user_code` lookup).
-> **NOT RELEASED — both bumps are committed locally only.** GitHub Actions is
-> down on the `Realm-ID` org (billing), so `java-v0.35.0` and `ts-v0.37.0` are
-> unpublished; Maven Central still serves `0.34.0` and npm `0.36.0`. Tag and
-> publish when CI returns.
 ## HTTP surface not yet wrapped
 
 - [ ] Remaining partner-facing gaps (lower priority): `GET /me` caller identity;
@@ -126,15 +96,6 @@ this is the SDK-side work.
   the BFF resolves server-side. *Cross-check before building:* the ADR-076 handler
   already accepts a `new_owner_email` fallback — this may be a pure type/method
   addition rather than new behavior.
-- [ ] **`federationBindings` resource in `@realm-id/web-admin`** — the UI still
-  carries `list/create/revokeFederationBinding` shims (`ui/web/src/api.ts:449`,
-  and the comment at `:19` says why). The `scope` field is free-text — tighten
-  if a scope catalog is ever defined.
-  ⚠️ **CORRECTED 2026-08-24 — this is a PORT, not a build, and the entry said
-  "Mirror `ApiKeysClient`" as if from scratch.** `sdk/ts` ALREADY has the
-  resource: `ts/src/federation-bindings.ts` with `federation-bindings.test.ts`,
-  wired into `realm.ts`. The gap is web-admin only. Copying a tested
-  implementation is a materially different cost from mirroring a sibling.
 - [ ] **`RolesClient` is realmId-bound at construction.** A per-call `realmId`
   override would help cross-realm ops UIs. Not blocking today — the UI works
   around it with `useAdminForRealm(realmId)`, which returns a realm-scoped cached
@@ -210,6 +171,37 @@ in the same repo.
 
 ## Docs
 
+> **Regrouped 2026-09-18.** This heading held **19 open items and only 3
+> were about documentation** — the rest were parity gaps, web-package
+> defects and drift-gate holes filed under `## Docs` because it was the
+> last heading in the file. A catch-all section at the bottom is where
+> items go to stop being read: nothing scanning for "SDK parity work"
+> would ever have looked here. They now sit under the heading that
+> describes them.
+
+- [ ] `docs/partner-integration-guide.md` + `docs/integration-guide.md` — TWO
+      partner integration guides now sit side by side (~1600 and ~1700 lines) and
+      overlap substantially. The first arrived 2026-08-28 from the private
+      `Realm-ID/issuer` repo, where partners could not read it. They are not
+      reconciled; `docs/INDEX.md` currently tells the reader which is which and
+      that `SPEC.md` wins on conflict, which is a signpost, not a fix. Decide:
+      merge, or split cleanly by audience (SDK-shaped vs platform-shaped).
+- [ ] `docs/partner-integration-guide.md` — the published copy is REDACTED
+      (customer names removed) and the private issuer original is not. There is
+      no check that a future edit does not reintroduce a customer name into the
+      public copy. A CI grep over the public repo for the partner-name list would
+      be cheap, but the list itself is then hand-maintained — see the failure
+      class in the global notes before writing one.
+- [ ] `java/CHANGELOG.md` — `0.40.0` (the ADR-101 work: `RoleScopes`, and
+      `required_mfa_methods` / `can_invite_roles` leaving `RoleObject`) had NO
+      per-package heading; `build.gradle.kts` was bumped and only the monorepo
+      `CHANGELOG.md` recorded it. `changelog-hygiene.sh maven` would have caught
+      it at publish. The `0.40.0` heading now added covers only the predicate
+      port, so the ADR-101 java bullets are still missing from that section.
+      *(Filed 2026-08-30.)*
+
+## Cross-language parity gaps
+
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
       taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes
       against `ts/src/errors.ts`'s **60** (measured 2026-08-24). So the admin
@@ -240,79 +232,12 @@ in the same repo.
       never arrives — but it is a SPEC change across two languages and belongs
       in its own release, not smuggled into one about something else.
       *(Filed 2026-08-24 while registering `platform_not_found`.)*
-
-- [ ] `docs/partner-integration-guide.md` + `docs/integration-guide.md` — TWO
-      partner integration guides now sit side by side (~1600 and ~1700 lines) and
-      overlap substantially. The first arrived 2026-08-28 from the private
-      `Realm-ID/issuer` repo, where partners could not read it. They are not
-      reconciled; `docs/INDEX.md` currently tells the reader which is which and
-      that `SPEC.md` wins on conflict, which is a signpost, not a fix. Decide:
-      merge, or split cleanly by audience (SDK-shaped vs platform-shaped).
-- [ ] `docs/partner-integration-guide.md` — the published copy is REDACTED
-      (customer names removed) and the private issuer original is not. There is
-      no check that a future edit does not reintroduce a customer name into the
-      public copy. A CI grep over the public repo for the partner-name list would
-      be cheap, but the list itself is then hand-maintained — see the failure
-      class in the global notes before writing one.
-
-- [ ] `java/src/test/java/dev/realmid/sdk/roles/RolePredicatesDriftTest.java` —
-      the drift gate compares `RolePredicates` against the issuer's own Go
-      source, but `Realm-ID/issuer` is a separate private repo that this repo's
-      CI never checks out, so the test ABORTS there and only returns a verdict
-      on a machine with the workspace checkout. Wire the checkout into
-      `ci.yml`'s java job (org-reader GitHub App or a read-only deploy key) and
-      make the missing-checkout case a hard failure — a gate that cannot run is
-      one release away from being a gate that stopped mattering.
-      *(Filed 2026-08-30 with the A1-java predicate port.)*
-- [ ] `java/CHANGELOG.md` — `0.40.0` (the ADR-101 work: `RoleScopes`, and
-      `required_mfa_methods` / `can_invite_roles` leaving `RoleObject`) had NO
-      per-package heading; `build.gradle.kts` was bumped and only the monorepo
-      `CHANGELOG.md` recorded it. `changelog-hygiene.sh maven` would have caught
-      it at publish. The `0.40.0` heading now added covers only the predicate
-      port, so the ADR-101 java bullets are still missing from that section.
-      *(Filed 2026-08-30.)*
-- [ ] `go/roles_authority.go` `ConfersAuthority` — the issuer classifies a
-      well-formed but NON-CATALOG permission (`widgets:read`) as conferring, via
-      catalog membership; the SDKs classify by action because they deliberately
-      embed no catalog copy. ts and java both take the SERVED catalog as an
-      optional argument and then answer exactly as the issuer does; Go has no
-      such form, so the three languages do not agree at that edge. Unreachable
-      today (write validation rejects unknown permissions), but it is a partner-
-      visible difference between SDKs. *(Filed 2026-08-30.)*
-> ~~`ts/src/roles.ts` — `SYSTEM_UNASSIGNABLE` there is
-> `{owner, platform_api}`, but the issuer's `realmrole.NonAssignableRoles`
-> is `{owner, platform_api, platform_mgmt_api}`; go and java carry all
-> three. A ts-based picker will offer the key-minting bot role to a
-> human.~~ **CLOSED — the claim is FALSE as of 2026-09-13, verified in
-> source here.** `ts/src/roles.ts:323-331` declares
-> `NON_ASSIGNABLE_ROLES` containing all three, `platform_mgmt_api`
-> included, each with a comment citing the ADR it comes from, and
-> `roles-drift.test.ts` pins the set. Note the entry also had the NAME
-> wrong — the constant is `NON_ASSIGNABLE_ROLES`, not
-> `SYSTEM_UNASSIGNABLE`, so a grep for the name in this entry finds
-> nothing and would read as "the guard is missing entirely".
-> *(Filed 2026-08-30 from the java port; ts/ was owned by another agent —
-> which is the likeliest reason it described a sibling's tree from memory.)*
 - [ ] role predicates — go/java expose ONE `isRoleAssignableTo` that folds in
       the system-name and disabled guards; ts splits them into
       `isRoleAssignableTo` (pure server mirror) + `isRoleSeatable` (the picker
       predicate). Three languages, two shapes, and reaching for the wrong one in
       ts offers `owner`. Pick one shape before the SDKs are released together.
       *(Filed 2026-08-30.)*
-- [ ] `ts/src/roles-drift.test.ts` — same limit as the Java gate above, and the
-      same fix: the half that re-reads the LIVE issuer source cannot run in this
-      repo's single-repo CI checkout, so it emits a diagnostic and
-      `REALMID_DRIFT_STRICT=1` is what turns "issuer not reachable" into a
-      failure. The pinned-snapshot half DOES run everywhere. Wire the issuer
-      checkout into `ci.yml` (org-reader GitHub App or read-only deploy key) and
-      set `REALMID_DRIFT_STRICT=1` there.
-      *(Filed 2026-08-30 with the A1-ts predicate port.)*
-- [ ] `ts` — the `confersAuthority` non-catalog divergence filed above is now
-      CLOSED in TypeScript: `confersAuthority(role, { catalog })` takes the list
-      `roles.listPermissions()` already serves and answers exactly as the issuer
-      does, unknown keys included, with the action-derived rule as the default
-      when no catalog is supplied. `go` and `java` should take the same overload
-      so the three languages agree. *(Filed 2026-08-30.)*
 - [ ] `ts/src/errors.ts` + `go/errors.go` + `java/.../ErrorCode.java` —
       `membership_not_found` is emitted by the issuer
       (`internal/httpapi/me_memberships.go`, three call sites) and is in NONE of
@@ -332,35 +257,6 @@ in the same repo.
       `not_found` and loses the specific remedy. That makes this the
       highest-value of the SDK items here: it is the only one a partner can hit
       without doing anything unusual.
-- [ ] `ui/web/src/roleAssignability.ts` — the console mirror never learned
-      ADR-091's `is_system` exemption from the §2.3 human-only floor, so it
-      filters `platform_api` out of a service-account picker on a rule the
-      issuer stopped applying to RI-managed roles. Inert today only because
-      `platform_api` is also in the console's hardcoded exclusion set. Fixed by
-      wave 4 deleting the file for the SDK predicate; recorded here so the
-      finding is not lost if that slips. *(Filed 2026-08-30 from W1b.)*
-- [ ] `ts/CHANGELOG.md` — `0.43.0` is in `ts/package.json` (bumped by a92cdac,
-      the ADR-101 role-wire change) with NO heading of its own; only the
-      monorepo `CHANGELOG.md` recorded it. Same gap as the `java` `0.40.0` item
-      above. The `## Unreleased` section added 2026-08-30 sits above it and does
-      not cover it. *(Filed 2026-08-30.)*
-- [ ] `go/roles_drift_test.go` — the cross-repo drift check
-      (`TestRolePredicatesMatchTheIssuer` and its two siblings) can only run
-      where an `issuer/` checkout is a sibling of `sdk/`. In `Realm-ID/sdk`'s
-      own CI it finds none, logs `DRIFT CHECK DID NOT RUN` and returns — so the
-      only CI that runs the Go suite is the one place the check is inert.
-      Either give `.github/workflows/ci.yml` a read-only checkout of
-      `Realm-ID/issuer` (see the `cross-repo-deploy-key` pattern) or move the
-      comparison to the umbrella repo's cross-repo CI, which already has both
-      trees. Until then the guard is a local-session guard. *(Filed 2026-08-30
-      from W1a.)*
-- [ ] `go/middleware.go` — `MiddlewareOptions.MFAProtectedPaths` is now
-      validated by `ValidateMFARules` at wiring time, but an invalid rule only
-      LOGS at error level; the middleware still builds. Refusing to construct
-      would be the honest behaviour (a rule that cannot fire reads as
-      protection and is none), but `Middleware()` has no error return and
-      changing that is a breaking signature change for every existing partner.
-      Decide it deliberately at the next major. *(Filed 2026-08-30 from W1a.)*
 - [ ] `ts/src/memberships.ts` — `MembershipActionCode`'s nine codes are all
       really emitted (verified 2026-08-30 against `internal/httpapi/`), but they
       are the ONE set `ts/src/roles-drift.test.ts` still cannot compare: the
@@ -374,6 +270,9 @@ in the same repo.
       ABSENCE of a per-role MFA floor are asserted by unit tests, so they would
       not go red if the ISSUER changed its mind. `sdk/java`'s gate does parse
       those from the Go source; ts should match. *(Filed 2026-08-30 from W1b.)*
+
+## Web packages (`@realm-id/web*`)
+
 - [ ] `web/packages/core/src/envelope.ts` + `memberships.ts` — `@realm-id/web`
       takes ZERO runtime dependencies, so it cannot import `@realm-id/sdk`,
       which OWNS `unwrapData` / `parseErrorEnvelope` / `MEMBERSHIP_ACTION_CODES`.
@@ -409,6 +308,43 @@ in the same repo.
       any kind, which is the same class of defect W2 just removed for
       `ActiveSession`. Audit the file against `issuer/docs/swagger.yaml`.
       *(Filed 2026-08-30 from W2.)*
+- [ ] `web/packages/core/src/stepup.ts` — `parseStepUp` hand-reads the 412
+      instead of using `parseErrorEnvelope`, which is why it needed its own
+      fix for the nested gate payload on 2026-08-30 after the parser already
+      had one. `@realm-id/web` cannot import `@realm-id/sdk` (zero runtime
+      deps) but it OWNS `parseErrorEnvelope` in the same package — route
+      `parseStepUp` through it so there is one reader of that envelope, not two.
+      *(Filed 2026-08-30 while settling the error contract.)*
+
+## Drift gates and test infra
+
+- [ ] `java/src/test/java/dev/realmid/sdk/roles/RolePredicatesDriftTest.java` —
+      the drift gate compares `RolePredicates` against the issuer's own Go
+      source, but `Realm-ID/issuer` is a separate private repo that this repo's
+      CI never checks out, so the test ABORTS there and only returns a verdict
+      on a machine with the workspace checkout. Wire the checkout into
+      `ci.yml`'s java job (org-reader GitHub App or a read-only deploy key) and
+      make the missing-checkout case a hard failure — a gate that cannot run is
+      one release away from being a gate that stopped mattering.
+      *(Filed 2026-08-30 with the A1-java predicate port.)*
+- [ ] `ts/src/roles-drift.test.ts` — same limit as the Java gate above, and the
+      same fix: the half that re-reads the LIVE issuer source cannot run in this
+      repo's single-repo CI checkout, so it emits a diagnostic and
+      `REALMID_DRIFT_STRICT=1` is what turns "issuer not reachable" into a
+      failure. The pinned-snapshot half DOES run everywhere. Wire the issuer
+      checkout into `ci.yml` (org-reader GitHub App or read-only deploy key) and
+      set `REALMID_DRIFT_STRICT=1` there.
+      *(Filed 2026-08-30 with the A1-ts predicate port.)*
+- [ ] `go/roles_drift_test.go` — the cross-repo drift check
+      (`TestRolePredicatesMatchTheIssuer` and its two siblings) can only run
+      where an `issuer/` checkout is a sibling of `sdk/`. In `Realm-ID/sdk`'s
+      own CI it finds none, logs `DRIFT CHECK DID NOT RUN` and returns — so the
+      only CI that runs the Go suite is the one place the check is inert.
+      Either give `.github/workflows/ci.yml` a read-only checkout of
+      `Realm-ID/issuer` (see the `cross-repo-deploy-key` pattern) or move the
+      comparison to the umbrella repo's cross-repo CI, which already has both
+      trees. Until then the guard is a local-session guard. *(Filed 2026-08-30
+      from W1a.)*
 - [ ] **The `@realm-id/web` ↔ `@realm-id/sdk` parity gate is a LOCAL-SESSION
       guard that reports nothing in CI.** `web/packages/core/src/envelope.test.ts`
       really does run both implementations over a shared fixture table — but
@@ -421,15 +357,17 @@ in the same repo.
       widen the table. (The missing CI job is also the first item in this file,
       filed 2026-08-28 for the same package — this is the second time it has
       cost something.) *(Filed 2026-08-30 while settling the error contract.)*
-- [ ] `web/packages/core/src/stepup.ts` — `parseStepUp` hand-reads the 412
-      instead of using `parseErrorEnvelope`, which is why it needed its own
-      fix for the nested gate payload on 2026-08-30 after the parser already
-      had one. `@realm-id/web` cannot import `@realm-id/sdk` (zero runtime
-      deps) but it OWNS `parseErrorEnvelope` in the same package — route
-      `parseStepUp` through it so there is one reader of that envelope, not two.
-      *(Filed 2026-08-30 while settling the error contract.)*
 
 ## Known contract debt
+
+- [ ] `go/middleware.go` — `MiddlewareOptions.MFAProtectedPaths` is now
+      validated by `ValidateMFARules` at wiring time, but an invalid rule only
+      LOGS at error level; the middleware still builds. Refusing to construct
+      would be the honest behaviour (a rule that cannot fire reads as
+      protection and is none), but `Middleware()` has no error return and
+      changing that is a breaking signature change for every existing partner.
+      Decide it deliberately at the next major. *(Filed 2026-08-30 from W1a.)*
+
 
 - [ ] `java/src/main/java/dev/realmid/sdk/auth/JwtPeek.java` — THREE private
       unverified-JWT peeks now exist in the Java SDK and none can see the
