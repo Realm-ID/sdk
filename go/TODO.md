@@ -44,25 +44,25 @@ repo's `TODO.md`; design rationale lives in `DECISIONS.md`.
 
 ## Closed
 
-- [x] 🔴 **`Auth.MFAVerify` returns a claim-blind token** — **FIXED AND RELEASED;
-  closed 2026-09-18.** Commit `870d75c` (2026-09-03), *"fix(derived-claims):
-  OTPLogin and MFAVerify handed back claim-blind tokens"*, wires
-  `mintProductRoles` into `MFAVerify` (`go/auth.go:1061`, `FlowMFAVerify`).
-  `git tag --contains 870d75c` puts it in `go/v0.57.0` onward — live in the
-  released `go/v0.59.0`, and in `0.60.0`.
-  Three things about the entry were wrong, which is why this note exists rather
-  than a silent tick:
-  - it named a FOURTH lane; the fix found a **FIFTH** (`OTPLogin`,
-    `auth.go:871`) that the report never mentioned;
-  - every line number in it (`auth.go:955-985`, `:557`, `:618`, `:933`) had
-    moved; and
-  - the "do NOT fix this as a one-off" instruction was FOLLOWED —
-    `go/derived_claims_lanes_test.go` derives the set of session-minting lanes
-    from the package AST and fails when one does not run the handler, replacing
-    the hand-maintained "three call sites" comment that let the fourth lane
-    ship. It also refuses to pass vacuously when it parses no package files.
-  This item sat open for 15 days after it was fixed, in an ORPHANED file no
-  sweep read. A TODO's defect description is a timestamped CLAIM, not a finding.
+> ~~🔴 **`Auth.MFAVerify` returns a claim-blind token**~~ **FIXED AND RELEASED;
+> CLOSED 2026-09-18.** Commit `870d75c` (2026-09-03), *"fix(derived-claims):
+> OTPLogin and MFAVerify handed back claim-blind tokens"*, wires
+> `mintProductRoles` into `MFAVerify` (`go/auth.go:1061`, `FlowMFAVerify`).
+> `git tag --contains 870d75c` puts it in `go/v0.57.0` onward — live in the
+> released `go/v0.59.0`, and in `0.60.0`.
+> Three things about the entry were wrong, which is why this note exists rather
+> than a silent tick:
+> - it named a FOURTH lane; the fix found a **FIFTH** (`OTPLogin`,
+>   `auth.go:871`) that the report never mentioned;
+> - every line number in it (`auth.go:955-985`, `:557`, `:618`, `:933`) had
+>   moved; and
+> - the "do NOT fix this as a one-off" instruction was FOLLOWED —
+>   `go/derived_claims_lanes_test.go` derives the set of session-minting lanes
+>   from the package AST and fails when one does not run the handler, replacing
+>   the hand-maintained "three call sites" comment that let the fourth lane
+>   ship. It also refuses to pass vacuously when it parses no package files.
+> This item sat open for 15 days after it was fixed, in an ORPHANED file no
+> sweep read. A TODO's defect description is a timestamped CLAIM, not a finding.
 
 ## Checked and NOT a defect (do not re-file)
 

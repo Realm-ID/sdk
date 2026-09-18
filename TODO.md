@@ -51,14 +51,14 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 > `docs/error-reference.md` — they were written to WARN about this lag, so
 > those warnings are now themselves stale and will mislead a partner.
 
-- [x] **`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`** —
-  **CLOSED BY DELETION 2026-09-18, not by reconciliation.** The duplication is gone
-  because the SURFACE is gone: ADR-101 (issuer `v0.113.0`) retired starter roles
-  entirely, so `PlatformCreate.starter_roles`, the `StarterRole` union and
-  `platforms.seedStarterRoles()` were removed in `web-admin 0.19.0`. The field
-  was a hard `400 starter_roles_retired` for any non-empty value and the route
-  a `404`. The proposed fix — a `GET /platforms/starter-roles` discovery
-  endpoint to drive both from one source — is moot: there is no menu.
+> ~~**`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`**~~
+> **CLOSED BY DELETION 2026-09-18**, not by reconciliation. The duplication is gone
+> because the SURFACE is gone: ADR-101 (issuer `v0.113.0`) retired starter roles
+> entirely, so `PlatformCreate.starter_roles`, the `StarterRole` union and
+> `platforms.seedStarterRoles()` were removed in `web-admin 0.19.0`. The field
+> was a hard `400 starter_roles_retired` for any non-empty value and the route
+> a `404`. The proposed fix — a `GET /platforms/starter-roles` discovery
+> endpoint to drive both from one source — is moot: there is no menu.
 
 - [ ] Remaining partner-facing gaps (lower priority): `GET /me` caller identity;
   tenant domain delete (`DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`);
@@ -281,14 +281,17 @@ in the same repo.
       `total` alongside `data`), and that is not said at its call sites — only
       in the function's own doc comment. Name it where it is called, or return
       the siblings. *(Filed 2026-08-30 from W2; re-scoped 2026-09-18.)*
-- [x] `web/packages/core/src/types.ts` — **DONE 2026-09-18.** `web/BFF-SPEC.md`
-      § `GET /providers` now names `tenantId` (response root) and `nickname`
-      (each provider row) as OPTIONAL, in the example AND in a table stating
-      what ABSENT means — for `tenantId`, "the server did not resolve one",
-      never "no tenant", since a realm-root origin legitimately has none.
-      Documentation-shaped, not a code fix: both fields were already typed in
-      `@realm-id/web`; the spec a partner BFF author implements from named
-      neither. *(Filed 2026-08-30 from W2.)*
+> ~~`web/packages/core/src/types.ts` — `ProvidersResponse.tenantId` /
+> `IdentityProvider.nickname` are populated only by our own adapter, so a
+> spec-following partner BFF breaks login.~~
+> **CLOSED 2026-09-18.** `web/BFF-SPEC.md`
+> § `GET /providers` now names `tenantId` (response root) and `nickname`
+> (each provider row) as OPTIONAL, in the example AND in a table stating
+> what ABSENT means — for `tenantId`, "the server did not resolve one",
+> never "no tenant", since a realm-root origin legitimately has none.
+> Documentation-shaped, not a code fix: both fields were already typed in
+> `@realm-id/web`; the spec a partner BFF author implements from named
+> neither. *(Filed 2026-08-30 from W2.)*
 - [ ] `web/packages/admin/` — three `ui/web/src/api.ts` shims were NOT in the
       W2 move list and still have no SDK resource: `fetchPlatformAuditEvents`
       (`GET /platforms/{id}/audit-events`, ADR-055 — distinct from the
