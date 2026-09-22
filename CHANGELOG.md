@@ -13,6 +13,42 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Lockstep release with issuer `v0.126.0` / spec `0.48.0` — **no SDK code change** — ts `0.53.0`, go `0.61.0`, java `0.50.0` (2026-09-21)
+
+**There is no behaviour change and no API change in any of the three languages.** This
+is a version bump released in lockstep with the issuer's 2026-09-21 audit batch and
+ADR-108, and it is recorded plainly rather than dressed up, because a changelog entry
+that implies a change nobody made is worse than a short one.
+
+Why no code change was needed, so the next reader does not go looking for one:
+
+- **ADR-108 altered no wire value.** It states where each login mechanism is configured
+  — per-app only when the issuer can bind the app from a signal the client cannot forge,
+  per-realm otherwise — and makes that rule self-enforcing in the issuer. The
+  `allowed_methods` enum is unchanged, `otp` included.
+- **Spec `0.47.0` → `0.48.0` is carried by the issuer's `password_login_enabled` knob
+  (A-M11), and none of `go/`, `ts/` or `java/` types `RealmConfig`.** Those three expose
+  it only through untyped config passthrough, so there was nothing to add. The typed
+  mirror lives in `@realm-id/web-admin`, which is versioned separately under `web/` —
+  and it **does** ship here, as **`@realm-id/web-admin` 0.20.0**. So "no SDK code
+  change" is true of `go/`, `ts/` and `java/` and is NOT true of the web workspace;
+  see `web/packages/admin/CHANGELOG.md`. ⚠️ It is `0.20.0` rather than more content
+  under `0.19.0` because `0.19.0` is already PUBLISHED on npm (checked against the
+  registry, not assumed) and `ui/web` pins these packages as vendored tarballs **by
+  filename** — changed content under an existing version is masked by the pin, which
+  is the mechanism behind the Microsoft-login prod bug. `web/package-lock.json` was
+  stale on four workspace versions and is refreshed in the same pass.
+
+Housekeeping folded in here: **go `const Version` was `0.60.1` against a latest tag of
+`go/v0.60.0`** — an untagged bump forced by the `go/TODO.md` deletion changing the
+module hash (a file under `go/` is inside the published module). That content is
+absorbed into `0.61.0`; there is deliberately no `0.60.1` entry, because
+`changelog-hygiene.sh go-tagged` fails a changelog naming a release that does not exist.
+
+`SPEC.md` §13's tag matrix was stale by two on every language (it claimed `go/v0.58.0`,
+`ts-v0.51.0`, `java-v0.48.0`) and is corrected in this release. Read `git tag`, not that
+table.
+
 ## `membership_not_found` enters the taxonomy — ts `0.52.0`, go `0.60.0`, java `0.49.0` (2026-09-18)
 
 The issuer emits `membership_not_found` (404) at three sites in

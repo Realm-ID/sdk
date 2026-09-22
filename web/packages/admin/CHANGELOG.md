@@ -1,5 +1,25 @@
 # @realm-id/web-admin — changelog
 
+## 0.20.0 — `password_login_enabled` on the realm config surface (2026-09-22)
+
+**Added.** `RealmConfigPatch.password_login_enabled?: boolean` — A-M11's
+per-realm gate for `grant_type=password` (issuer `v0.126.0`). `RealmConfigView`
+picks it up for free, being `Omit<Required<RealmConfigPatch>, …>`, so the read
+side needs no separate edit.
+
+Default **false**: a realm opts IN. It is per-REALM rather than per-app on
+purpose (ADR-108) — a mechanism is configurable per-app only where the issuer
+can bind the app from a signal the client cannot forge, and no password login
+carries any app identifier — so it will never appear in a source's
+`allowed_methods`, and an admin UI should not offer it there.
+
+**Why this is `0.20.0` and not more content under `0.19.0`.** `0.19.0` is
+PUBLISHED on npm (checked against the registry, not assumed). `ui/web` pins
+these packages as vendored tarballs **by filename**, so shipping changed
+content under a version that already exists is silently masked by the pin —
+the failure that produced the Microsoft-login prod bug. A content change gets a
+version, every time.
+
 ## 0.19.0 — the starter-role surface is gone; error codes are derived (2026-09-18)
 
 **BREAKING (source).** `PlatformCreate.starter_roles`, the `StarterRole` union

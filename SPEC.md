@@ -3077,9 +3077,16 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.58.0`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`. |
-| TS       | `ts-v0.51.0`        | `@realm-id/sdk@0.51.0` on npm. Same §4.1.7 surface. |
-| Java     | `java-v0.48.0`      | `dev.realmid:sdk:0.48.0` on Maven Central. Same §4.1.7 surface. |
+| Go       | `go/v0.61.0`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`. |
+| TS       | `ts-v0.53.0`        | `@realm-id/sdk@0.53.0` on npm. Same §4.1.7 surface. |
+| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface. |
+
+> ⚠️ **This table was stale by TWO releases on every language** until 2026-09-21 — it
+> read `go/v0.58.0` / `ts-v0.51.0` / `java-v0.48.0` while the repo held `go/v0.60.0`,
+> `ts-v0.52.0` and `java-v0.49.0`. That is not a cosmetic drift: a release cut from
+> these numbers would have tried to re-use `ts-v0.52.0` and `java-v0.49.0`, which
+> already exist. The note below has said "`git tag` is the source of truth" all along;
+> it means it. **Read the tags, then fix this table in the same commit.**
 
 > The three languages ship in lockstep per SPEC change (matching
 > CHANGELOG entries); this matrix drifts between releases — `git tag`

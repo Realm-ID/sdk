@@ -410,6 +410,17 @@ export interface RealmConfigPatch {
   provider_mfa_ttl_seconds?: number;
   // Login
   otp_login_enabled?: boolean;
+  /**
+   * A-M11 / ADR-104: gates `grant_type=password` for this realm. Default
+   * **false** — a realm opts IN, and prod held zero `user_credentials` rows
+   * when the knob was introduced (checked, not assumed).
+   *
+   * Per-realm rather than per-app on purpose (ADR-108): a mechanism is
+   * configurable per-app only if the issuer can bind the app from a signal the
+   * client cannot forge, and no password login carries any app identifier. It
+   * will never appear in a source's `allowed_methods`.
+   */
+  password_login_enabled?: boolean;
   otp_length?: number;
   otp_ttl_seconds?: number;
   require_bff_login?: boolean;

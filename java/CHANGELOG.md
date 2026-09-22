@@ -4,6 +4,13 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.50.0 — lockstep release with issuer `v0.126.0` / spec `0.48.0`, no code change (2026-09-21)
+
+No behaviour change and no API change. Released in lockstep with the issuer's
+2026-09-21 audit batch and ADR-108, which altered no wire value; spec `0.48.0` is
+carried by the issuer's `password_login_enabled` knob, and this SDK does not type
+`RealmConfig`. See the monorepo `CHANGELOG.md` for the full reasoning.
+
 ## 0.49.0 — `membership_not_found` enters the taxonomy (2026-09-18)
 
 ### Added — `membership_not_found`
