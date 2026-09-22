@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-102 entries total — 47 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+103 entries total — 48 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-09-22 (local gates) — RCA: the tag gate could never pass, and nothing noticed for four days](#2026-09-22-local-gates--rca-the-tag-gate-could-never-pass-and-nothing-noticed-for-four-days)
 - [2026-09-18 (publish auth) — the npm token did not fail, it EXPIRED, and it will keep doing that](#2026-09-18-publish-auth--the-npm-token-did-not-fail-it-expired-and-it-will-keep-doing-that)
 - [2026-09-18 (local gates) — the hook only ever saw branch pushes, and the releases are cut with tags](#2026-09-18-local-gates--the-hook-only-ever-saw-branch-pushes-and-the-releases-are-cut-with-tags)
 - [2026-09-18 (partner-facing bug batch) — five bugs a partner could hit, and five filed bugs that no longer existed](#2026-09-18-partner-facing-bug-batch--five-bugs-a-partner-could-hit-and-five-filed-bugs-that-no-longer-existed)
@@ -114,6 +115,56 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-09-22 (local gates) — RCA: the tag gate could never pass, and nothing noticed for four days
+
+`git push origin go/v0.61.0` was refused by `.githooks/pre-push` during the
+v0.126.0 release with `go/v0.61.0 already exists locally. […] Ship the NEXT
+PATCH VERSION instead.` Nothing was wrong with the release: the tag was freshly
+cut, annotated, on the pushed HEAD, and absent from origin.
+
+**Symptom.** Every `go/v*`, `ts-v*` and `java-v*` tag push is refused, with an
+error that tells the operator to burn a version number and retry — which would
+have refused identically, and cost `go/v0.61.0` for nothing.
+
+**Root cause.** `scripts/release-check.sh` is a PRE-FLIGHT tool. Its own header
+says so: "assert the version/changelog/tag preconditions for a release BEFORE
+the tag exists". In that context `tag_exists_locally` is sound evidence that the
+version is spent. On 2026-09-18 the entry above ("the hook only ever saw branch
+pushes") wired the same script into `pre-push`, where the tag being pushed
+NECESSARILY exists locally — `git push origin go/v0.61.0` cannot be issued
+otherwise. The predicate was correct for one caller and structurally always-true
+for the other, so the tag half of the hook refused unconditionally.
+
+**Why it wasn't caught.** It was never executed. `go/v0.60.0`, `ts-v0.52.0` and
+`java-v0.49.0` were pushed at 2026-09-18T11:37; the hook landed at 12:13, 36
+minutes later. No SDK tag has been pushed since, so the gate sat inert from the
+day it was written until the first release that reached it — the same shape as
+the 2026-09-06 entry, "a gate that was red from the day it was written". A gate
+authored and merged without one execution against a real subject is a claim, not
+a check, and `make install-hooks` gives it no first run either.
+
+**Fix.** `tag_claimed_locally()` replaces the bare `tag_exists_locally` at all
+three call sites. It waives local existence for EXACTLY the tag named in
+`RELEASE_CHECK_PUSHING_TAG`, which `pre-push` now sets from the ref git handed
+it. The waiver is per-tag, not a mode: a stray local `go/v0.59.0` while pushing
+`go/v0.61.0` still refuses. Nothing about the irreversible case is relaxed —
+`tag_exists_remotely` is untouched and still refuses a tag already on origin,
+and git itself refuses a non-fast-forward tag update without `--force`.
+
+`report_unclaimed()` came out of the same pass: under the waiver the old line
+printed "does not exist locally or on origin" about a tag that demonstrably did
+exist locally. The release log is where someone later reconstructs what was
+checked, so a gate must not narrate something false in order to pass.
+
+**Prevention.** The fix was verified in BOTH polarities per language, not one:
+at-push with the correct tag returns 0, pre-flight with the variable unset still
+refuses, and at-push naming a DIFFERENT tag still refuses. The one-sided version
+of this test is what would have let the waiver silently become a mode. The wider
+rule this repo keeps relearning: a guard whose subject never arrives is
+indistinguishable from a guard that works, so a new gate needs one real
+execution against a real subject before it is trusted — not a green CI run in
+which it had nothing to examine.
 
 ## 2026-09-18 (publish auth) — the npm token did not fail, it EXPIRED, and it will keep doing that
 

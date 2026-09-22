@@ -70,7 +70,13 @@ for remote_ref in $(printf '%s\n' "$refs" | awk '$2 !~ /^0+$/ { print $3 }'); do
   fi
 
   echo "pre-push: make release-check LANGUAGE=$lang VERSION=$version   ($tag)" >&2
-  if ! make release-check LANGUAGE="$lang" VERSION="$version"; then
+  # release-check was written as a PRE-FLIGHT, where a local tag of this name
+  # means the version is spent. Here the tag necessarily exists — it is the
+  # ref being pushed — so name it, and release-check waives its local-existence
+  # refusal for THAT tag alone. Without this the tag half of this hook refuses
+  # every SDK release unconditionally, which is what it did from 2026-09-18
+  # until the first tag push actually reached it.
+  if ! RELEASE_CHECK_PUSHING_TAG="$tag" make release-check LANGUAGE="$lang" VERSION="$version"; then
     status=1
   fi
 done

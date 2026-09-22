@@ -108,6 +108,43 @@ tag_exists_locally() {
   git -C "$REPO_ROOT" rev-parse -q --verify "refs/tags/$1" >/dev/null 2>&1
 }
 
+# tag_claimed_locally <tag> — 0 if a local tag of this name is EVIDENCE OF A
+# PRIOR RELEASE, rather than the tag this very push is carrying.
+#
+# This script was written as a PRE-FLIGHT (see the header: "BEFORE the tag
+# exists"), where local existence unambiguously means the version is spent. On
+# 2026-09-18 .githooks/pre-push began invoking it at PUSH time as well, and
+# there the tag being pushed NECESSARILY exists locally — `git push origin
+# go/v0.61.0` cannot be issued otherwise. The local check therefore refused
+# every SDK tag push unconditionally, and no SDK tag has ever passed through
+# that hook: go/v0.60.0, ts-v0.52.0 and java-v0.49.0 were all pushed at
+# 2026-09-18T11:37, 36 minutes BEFORE the hook landed at 12:13. The gate was
+# inert until it blocked the first real release (v0.126.0) that reached it.
+#
+# The waiver is scoped to the EXACT tag git named, never to "some tag exists":
+# a stray local go/v0.59.0 while pushing go/v0.61.0 still refuses. At push time
+# the re-point danger is carried by tag_exists_remotely, which is unchanged —
+# and git itself refuses a non-fast-forward tag update without --force.
+tag_claimed_locally() {
+  local tag="$1"
+  tag_exists_locally "$tag" || return 1
+  [ "${RELEASE_CHECK_PUSHING_TAG:-}" = "$tag" ] && return 1
+  return 0
+}
+
+# report_unclaimed <tag> — say what was actually established. Under the push
+# waiver the tag DOES exist locally, so the pre-flight wording ("does not exist
+# locally or on origin") would be a false statement in the release log, which
+# is where someone later reconstructs what was checked.
+report_unclaimed() {
+  local tag="$1"
+  if [ "${RELEASE_CHECK_PUSHING_TAG:-}" = "$tag" ]; then
+    echo "OK — $tag is unclaimed on origin (the local tag is the one being pushed)."
+  else
+    echo "OK — $tag does not exist locally or on origin."
+  fi
+}
+
 # tag_exists_remotely <tag> — best-effort. Prints one of: yes / no / unknown.
 # `unknown` (no network, no `origin`, or the remote timed out) is deliberately
 # NOT a failure — this script has no no-network contract, unlike `make check`.
@@ -137,14 +174,14 @@ check_go() {
   echo "OK — go/realmid.go already declares Version=\"$version\"."
 
   tag="go/v$version"
-  if tag_exists_locally "$tag"; then
+  if tag_claimed_locally "$tag"; then
     echo "::error::$tag already exists locally. The Go module publishes by tag push alone and proxy.golang.org may already have served it — re-pointing it breaks every downstream go.sum (2026-07-05 incident). Ship the NEXT PATCH VERSION instead." >&2
     exit 1
   fi
   remote=$(tag_exists_remotely "$tag")
   case "$remote" in
     yes) echo "::error::$tag already exists on origin (immutable once proxy.golang.org has cached it). Ship the NEXT PATCH VERSION instead." >&2; exit 1 ;;
-    no)  echo "OK — $tag does not exist locally or on origin." ;;
+    no)  report_unclaimed "$tag" ;;
     unknown) echo "WARNING — could not reach origin to confirm $tag is unclaimed there; local check passed." ;;
   esac
 
@@ -162,14 +199,14 @@ check_ts() {
   echo "OK — ts/package.json already declares version $version."
 
   tag="ts-v$version"
-  if tag_exists_locally "$tag"; then
+  if tag_claimed_locally "$tag"; then
     echo "::error::$tag already exists locally. npm rejects a republish of an already-served version, so this version number is spent — bump and retry." >&2
     exit 1
   fi
   remote=$(tag_exists_remotely "$tag")
   case "$remote" in
     yes) echo "::error::$tag already exists on origin. Delete + re-cut is possible ONLY if publish-npm.yml has not yet run for it; if it already published, bump the version instead." >&2; exit 1 ;;
-    no)  echo "OK — $tag does not exist locally or on origin." ;;
+    no)  report_unclaimed "$tag" ;;
     unknown) echo "WARNING — could not reach origin to confirm $tag is unclaimed there; local check passed." ;;
   esac
 
@@ -186,14 +223,14 @@ check_java() {
   echo "OK — java/build.gradle.kts already declares version $version."
 
   tag="java-v$version"
-  if tag_exists_locally "$tag"; then
+  if tag_claimed_locally "$tag"; then
     echo "::error::$tag already exists locally. Maven Central rejects a republish of an already-served version, so this version number is spent — bump and retry." >&2
     exit 1
   fi
   remote=$(tag_exists_remotely "$tag")
   case "$remote" in
     yes) echo "::error::$tag already exists on origin. Delete + re-cut is possible ONLY if publish-maven.yml has not yet run for it; if it already published, bump the version instead." >&2; exit 1 ;;
-    no)  echo "OK — $tag does not exist locally or on origin." ;;
+    no)  report_unclaimed "$tag" ;;
     unknown) echo "WARNING — could not reach origin to confirm $tag is unclaimed there; local check passed." ;;
   esac
 
