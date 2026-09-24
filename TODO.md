@@ -358,6 +358,24 @@ in the same repo.
       widen the table. (The missing CI job is also the first item in this file,
       filed 2026-08-28 for the same package — this is the second time it has
       cost something.) *(Filed 2026-08-30 while settling the error contract.)*
+- [ ] **`ts/tsconfig.json` excludes `**/*.test.ts`, so `npm run typecheck`
+      (the CI gate whose whole comment is "catch what tsx's transpile-only
+      run can't") never actually checks a test file.** Confirmed by running
+      `tsc --noEmit --listFiles` in `ts/` — zero `.test.ts` files in the
+      checked set — and separately: even an explicit `tsc … src/*.test.ts`
+      invocation fails immediately on `Cannot find module 'node:test'`,
+      because this zero-devDep package (by design, matching `sdk/go`) carries
+      no `@types/node`. So a `// @ts-expect-error` in a test file (e.g.
+      `identity-resolved.test.ts`) documents intent but is not gated by
+      anything. `ts/src/tenants.test.ts`'s "decodes status/owner/config typed
+      fields" test (finding #6, 2026-09-24) has the same limit — its typed
+      local-variable assignments were verified RED/GREEN by hand with an
+      isolated `tsc` invocation against `tenants.ts` alone, not by a script
+      this repo runs. Fix needs a decision: add a slim
+      `@types/node` (test-only devDependency, doesn't touch the shipped
+      `dist/`) plus a second `tsconfig.test.json` that includes test files,
+      wired into the `ts` CI job. *(Filed 2026-09-24 during the SDK usage
+      audit fixes, item #6.)*
 
 ## Known contract debt
 

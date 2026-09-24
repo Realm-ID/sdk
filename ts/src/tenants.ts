@@ -6,11 +6,35 @@
 import type { HttpClient } from "./http.js";
 import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
+/** Tenant lifecycle status (issuer swagger `Tenant.status`). */
+export type TenantStatus = "active" | "suspended" | "deactivated";
+
+/**
+ * Read-side tenant config (issuer swagger `TenantConfig`, the shape
+ * returned on `Tenant.config`). Narrower than {@link TenantConfigPatch}
+ * (the PATCH body), which also accepts `role_overrides` /
+ * `default_invitation_role` write-only governance keys.
+ */
+export interface TenantConfig {
+  mfa_policy?: "off" | "opt_in" | "required_for_all";
+  signup_mode?: SignupMode;
+  [k: string]: unknown;
+}
+
 export interface Tenant {
   id: string;
   display_name?: string;
+  /** Issuer swagger `Tenant.status` (active|suspended|deactivated). */
+  status?: TenantStatus;
   owner_user_id?: string;
-  config?: Record<string, unknown>;
+  /**
+   * Inline owner of this tenant (role=owner). Populated on list responses
+   * (`tenants.list`, `GET /platforms/{pid}/tenants`) and on `tenants.get`
+   * (one lookup, no fan-out). `null`/absent when no owner is seated yet
+   * (e.g. a freshly minted admin tenant before the invite is accepted).
+   */
+  owner?: User | null;
+  config?: TenantConfig;
   created_at?: string;
   updated_at?: string;
   [k: string]: unknown;

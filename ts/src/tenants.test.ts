@@ -50,6 +50,36 @@ test("tenants.list: manual page() exposes nextCursor", async () => {
   assert.equal(p.nextCursor, "ck");
 });
 
+test("tenants.get: decodes status/owner/config typed fields (issuer swagger Tenant, finding #6)", async () => {
+  const fetch = mkFetch(() => new Response(
+    JSON.stringify({
+      id: "t1",
+      display_name: "Acme",
+      status: "active",
+      owner: { id: "u1", email: "owner@acme.test", display_name: "Owner" },
+      config: { mfa_policy: "required_for_all", signup_mode: "closed" },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  ));
+  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const t = await realm.tenants.get("t1");
+
+  // Typed locals, not `unknown` — before Tenant declared status/owner/config,
+  // each of the three assignments below was a TS2322/TS2339 (the index
+  // signature's fallback `unknown` is not assignable to the literal union,
+  // and `.email` does not exist on `{}`). Not caught by `npm run typecheck`
+  // today (tsconfig excludes *.test.ts, and node:test/assert need
+  // @types/node this zero-devDep package doesn't carry) — filed in
+  // sdk/TODO.md. Verified with an isolated tsc run against tenants.ts alone.
+  const status: "active" | "suspended" | "deactivated" | undefined = t.status;
+  const ownerEmail: string | undefined = t.owner?.email;
+  const mfaPolicy: "off" | "opt_in" | "required_for_all" | undefined = t.config?.mfa_policy;
+
+  assert.equal(status, "active");
+  assert.equal(ownerEmail, "owner@acme.test");
+  assert.equal(mfaPolicy, "required_for_all");
+});
+
 test("tenants.list: rejects unexpected paginated wire shape (SPEC §7)", async () => {
   // Server returns the legacy `{ data, cursor }` envelope. SDK must reject.
   const fetch = mkFetch(() => new Response(
