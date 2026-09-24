@@ -1,12 +1,25 @@
 /**
  * Partner-facing audit-event feed (ADR-055) — `GET /platforms/{id}/audit-events`
- * (issuer swagger, "Partner-facing audit-event feed"). Same row shape as
- * `admin.admin.listEvents` (`GET /admin/events`, base-realm-staff only), but
- * scoped and FORCED to `{id}` — a caller cannot read another platform's
- * events even by passing a `platform_id` query param (the issuer ignores it).
+ * (issuer swagger, "Partner-facing audit-event feed"; SPEC §7.6). Same row
+ * shape as `admin.admin.listEvents` (`GET /admin/events`, base-realm-staff
+ * only), but scoped and FORCED to `{id}` — a caller cannot read another
+ * platform's events even by passing a `platform_id` query param (the issuer
+ * ignores it).
  *
  * Auth: a platform admin user JWT, or a platform-scoped service JWT minted
  * from a platform API key. Retention: 400 days.
+ *
+ * ⚠️ **`@realm-id/sdk` already has an `AuditEventsClient`** (`realm.auditEvents`,
+ * SPEC §7.6) — this is a DELIBERATE, DIFFERENT, package-local class, same
+ * relationship `ApiKeysClient` has to the bundled one (see `api-keys.ts`):
+ * the SPEC's `auditEvents.list(opts?)` is scoped to the SDK's own configured
+ * `realmId` and returns one page (`Promise<AuditEventsResponse>`) — right for
+ * a partner app that only ever sees its own platform. This admin console
+ * needs an EXPLICIT `platformId` per call (RealmID staff and multi-platform
+ * partners administer more than one) and the same `Paginated<T>` cursor-walk
+ * every other admin list uses (`apiKeys.list`, `tenants.list`, …), so it is
+ * not that class reused — it is `ApiKeysClient`'s override shape applied to
+ * this route. Do not collapse the two without reading SPEC §7.6 first.
  *
  * Replaces the hand-rolled `fetchPlatformAuditEvents` shim
  * (`ui/web/src/api.ts`).
