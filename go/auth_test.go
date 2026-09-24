@@ -288,6 +288,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []any{map[string]any{
 					"id":           "sess-1",
+					"origin":       "https://app.realmid.dev",
 					"created_at":   1_751_241_600,
 					"last_seen_at": 1_751_245_200,
 				}},
@@ -300,6 +301,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var ids []string
 	var createdAt, lastUsedAt int64
+	var origin string
 	for s, err := range r.Auth.ListSessions(WithUserToken(context.Background(), "user-jwt"), ListSessionsRequest{
 		UserID:       "user-42",
 		OnBehalfOfIP: "203.0.113.7",
@@ -310,6 +312,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 		ids = append(ids, s.ID)
 		createdAt = s.CreatedAt
 		lastUsedAt = s.LastUsedAt
+		origin = s.Origin
 	}
 	if len(ids) != 1 || ids[0] != "sess-1" {
 		t.Errorf("ids = %v", ids)
@@ -319,6 +322,9 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 	}
 	if lastUsedAt != 1_751_245_200 {
 		t.Errorf("LastUsedAt = %d, want 1751245200 (decoded from wire last_seen_at)", lastUsedAt)
+	}
+	if origin != "https://app.realmid.dev" {
+		t.Errorf("Origin = %q, want https://app.realmid.dev", origin)
 	}
 	if gotAuth != "Bearer ptok" {
 		t.Errorf("auth = %q (want platform token)", gotAuth)
@@ -401,6 +407,9 @@ func TestSessionInfo_UnmarshalIssuerPayload(t *testing.T) {
 	}
 	if si.LastUsedAt != 1_751_245_200 {
 		t.Errorf("LastUsedAt = %d, want 1751245200 — json tag must map to the issuer's last_seen_at field", si.LastUsedAt)
+	}
+	if si.Origin != "https://app.realmid.dev" {
+		t.Errorf("Origin = %q, want https://app.realmid.dev", si.Origin)
 	}
 }
 

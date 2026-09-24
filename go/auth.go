@@ -395,6 +395,11 @@ type SessionInfo struct {
 	// DeviceName is the human-readable device label recorded at login via
 	// the X-Device-Name header (e.g. a CLI hostname), if any (ADR-062).
 	DeviceName string `json:"device_name,omitempty"`
+	// Origin is the azp / login origin recorded when the session was
+	// created (issuer sessionstore.Session.Origin), e.g.
+	// "https://app.realmid.dev". Empty for sessions that predate the
+	// issuer recording it.
+	Origin string `json:"origin,omitempty"`
 }
 
 // ListSessionsRequest selects the user whose sessions to list and how
@@ -1191,6 +1196,7 @@ func decodeSessionPage(raw map[string]any) ([]SessionInfo, string, error) {
 			UserAgent:  strField(obj, "user_agent"),
 			IP:         strField(obj, "ip"),
 			DeviceName: strField(obj, "device_name"),
+			Origin:     strField(obj, "origin"),
 		})
 	}
 	next, _ := raw["next_cursor"].(string)

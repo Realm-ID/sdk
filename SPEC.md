@@ -1062,7 +1062,8 @@ name exists only on the api-key DTO, §6.5). `device_name` is the ADR-062
 label supplied at login (§4.1) and is carried by all three SDKs (Go
 `SessionInfo.DeviceName`, Java `Session.deviceName()`, TS raw
 `device_name`); it is absent on sessions created without one and on every
-M2M session.
+M2M session. `origin` (the azp / login origin) is carried by Go as
+`SessionInfo.Origin` (go `0.62.0`); ts/java parity is not yet built.
 
 ### 4.7 `revokeAllSessions(req)`
 

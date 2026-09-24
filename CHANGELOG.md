@@ -13,6 +13,17 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.62.0` — `SessionInfo.Origin` (2026-09-24)
+
+### Added — the login origin, mirrored from the issuer's `sessionDTO`
+
+`SessionInfo` gains `Origin string` (`json:"origin,omitempty"`), decoded from
+the issuer's `sessionDTO.Origin` (`internal/httpapi/sessions.go`) — the azp /
+login origin recorded when the session was created. Wired through both
+`ListSessions` decode paths (the struct-tag decode and `decodeSessionPage`'s
+manual field mapping). Empty for sessions that predate the issuer recording
+it. Additive; no existing caller is affected.
+
 ## Lockstep release with issuer `v0.126.0` / spec `0.48.0` — **no SDK code change** — ts `0.53.0`, go `0.61.0`, java `0.50.0` (2026-09-21)
 
 **There is no behaviour change and no API change in any of the three languages.** This
