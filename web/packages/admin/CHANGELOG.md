@@ -1,5 +1,17 @@
 # @realm-id/web-admin — changelog
 
+## 0.21.0 — `auditEvents.list`, the ADR-055 partner audit feed (2026-09-24)
+
+**Added.** `admin.auditEvents.list(platformId, opts)` — `GET
+/platforms/{id}/audit-events` (issuer swagger), paginated the same way as
+`admin.apiKeys.list` (returns a `Paginated<AuditEvent>` pager, `for await`
+walks every page). `opts` threads `tenantId` / `actorId` / `kind`
+(string or string[], joined server-side-compatible as a comma-separated
+value) / `since` / `until` onto the query, matching the route's declared
+parameters. Replaces the console's hand-rolled `fetchPlatformAuditEvents`
+shim (`ui/web/src/api.ts`), which the doc comment there already flagged as
+provisional pending this method. Bundles `@realm-id/sdk` 0.54.0.
+
 ## 0.20.0 — `password_login_enabled` on the realm config surface (2026-09-22)
 
 **Added.** `RealmConfigPatch.password_login_enabled?: boolean` — A-M11's

@@ -34,6 +34,7 @@ const note = await admin.notes.create("plt_42", "investigated");
 |-----------------------|---------------------------------------|---------------------|
 | `tenants` / `roles` / `domains` / `admin` | `@realm-id/sdk/internal` | passthrough (`/api/...`) |
 | `apiKeys`             | this package                          | passthrough         |
+| `auditEvents`         | this package                          | passthrough (`/api/platforms/{id}/audit-events` → issuer) |
 | `userApiKeys`         | `@realm-id/sdk/internal`              | passthrough         |
 | `platforms`           | this package                          | passthrough         |
 | `notes` / `signingKeys` | this package                        | passthrough (`/api/admin/...` → issuer) |

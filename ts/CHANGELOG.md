@@ -4,6 +4,19 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.54.0 — `Tenant.status` / `.owner` / `.config` typed per issuer swagger (2026-09-24)
+
+### Added — closing a wire/type gap the SDK usage audit found
+
+`Tenant` gains `status?: TenantStatus`, `owner?: User | null`, and a typed
+`config?: TenantConfig` (mfa_policy/signup_mode), all declared on the issuer's
+`Tenant` swagger schema and previously reachable only through the interface's
+`[k: string]: unknown` index signature. `TenantConfig` is deliberately
+narrower than the existing `TenantConfigPatch` (the write body), which also
+carries write-only governance keys (`role_overrides`,
+`default_invitation_role`) the read side never returns. Additive; no existing
+caller loses anything.
+
 ## 0.53.0 — lockstep release with issuer `v0.126.0` / spec `0.48.0`, no code change (2026-09-21)
 
 No behaviour change and no API change. Released in lockstep with the issuer's

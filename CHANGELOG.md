@@ -13,6 +13,24 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ts `0.54.0` · `web-admin` `0.21.0` — SDK usage audit fixes #6/#7 (2026-09-24)
+
+### Added
+
+- **ts `0.54.0`** — `Tenant` gains `status`, a nullable `owner`, and a typed
+  `config`, all present on the issuer's `Tenant` swagger schema and
+  previously reachable only via the index signature's `unknown` fallback.
+  See `ts/CHANGELOG.md`.
+- **`web-admin` `0.21.0`** — `admin.auditEvents.list(platformId, opts)`,
+  the ADR-055 partner-facing audit feed (`GET /platforms/{id}/audit-events`),
+  paginated like `admin.apiKeys.list`. Replaces the console's hand-rolled
+  `fetchPlatformAuditEvents`. See `web/packages/admin/CHANGELOG.md`. Bundles
+  ts `0.54.0`.
+
+Both are additive; no existing caller is affected. From the 2026-09-24 SDK
+usage audit (`plans/2026-09-24-sdk-usage-audit-fixes.md` in the umbrella
+`Realm-ID/project` repo, items #6/#7).
+
 ## go `0.62.0` — `SessionInfo.Origin` (2026-09-24)
 
 ### Added — the login origin, mirrored from the issuer's `sessionDTO`

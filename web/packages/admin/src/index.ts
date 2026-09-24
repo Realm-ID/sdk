@@ -35,6 +35,7 @@ import { FederationBindingsClient } from "@realm-id/sdk";
 
 import { realmFetchAsHttpClient, type HttpLike } from "./transport.js";
 import { ApiKeysClient } from "./api-keys.js";
+import { AuditEventsClient } from "./audit-events.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
 import { PlatformsClient } from "./platforms.js";
 import { OriginsClient } from "./origins.js";
@@ -70,6 +71,13 @@ export interface Admin {
    */
   scopes: ScopesClient;
   apiKeys: ApiKeysClient;
+  /**
+   * Partner-facing audit-event feed (ADR-055), `GET
+   * /platforms/{id}/audit-events` — scoped and forced to one platform. NOT
+   * {@link admin} `.listEvents` (`GET /admin/events`), which is base-realm
+   * staff only and 403s for a platform owner.
+   */
+  auditEvents: AuditEventsClient;
   identityProviders: IdentityProvidersClient;
   domains: DomainsClient;
   admin: AdminClient;
@@ -155,6 +163,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     roleTemplates: new RoleTemplatesClient(httpAsClient, rid),
     scopes: new ScopesClient(httpAsClient, rid),
     apiKeys: new ApiKeysClient(http),
+    auditEvents: new AuditEventsClient(http),
     identityProviders: new IdentityProvidersClient(http),
     domains: new DomainsClient(httpAsClient),
     admin: new AdminClient(httpAsClient),
@@ -180,6 +189,8 @@ export { realmFetchAsHttpClient } from "./transport.js";
 export type { HttpLike, RealmFetchHttpOptions } from "./transport.js";
 
 export { ApiKeysClient } from "./api-keys.js";
+export { AuditEventsClient } from "./audit-events.js";
+export type { AuditEventsListOpts } from "./audit-events.js";
 export { IdentityProvidersClient } from "./identity-providers.js";
 export { PlatformsClient } from "./platforms.js";
 // `StarterRole` is deliberately NOT re-exported: the union and the surface it
