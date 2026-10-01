@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { normalizeOrigin } from "./origins.js";
@@ -76,7 +77,7 @@ test("origins.validate: cache hit returns true on registered origin without refe
       );
     },
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
 
   const ok1 = await realm.origins.validate({ realmId: REALM_ID, origin: "https://app.acme.com" });
   assert.equal(ok1, true);
@@ -104,7 +105,7 @@ test("origins.validate: cache expires after 5 minutes", async () => {
   ]);
   // Drive the OriginsClient's clock via an injected `now` shim by going
   // around the public Realm constructor — exercise the class directly.
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   // Because the public Realm constructs OriginsClient with a real clock,
   // assert TTL behavior by waiting beyond the window using fake intervals
   // is not feasible here. Instead use the underlying class directly.
@@ -173,7 +174,7 @@ test("origins.validate: 401 invalidates platform token and retries once", async 
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: fetchImpl });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: fetchImpl });
   const ok = await realm.origins.validate({ realmId: REALM_ID, origin: "https://app.acme.com" });
   assert.equal(ok, true);
   assert.equal(mintCalls, 2, "401 forces a second mint");
@@ -189,7 +190,7 @@ test("origins.validate: persistent 401 surfaces unauthorized", async () => {
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: fetchImpl });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: fetchImpl });
   await assert.rejects(
     () => realm.origins.validate({ realmId: REALM_ID, origin: "https://app.acme.com" }),
     (err: unknown) => err instanceof Error && (err as { code?: string }).code === "unauthorized",
@@ -215,7 +216,7 @@ test("origins.list: paginates and uses platform-token auth", async () => {
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: fetchImpl });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: fetchImpl });
   const got: string[] = [];
   for await (const o of realm.origins.list({ realmId: REALM_ID })) got.push(o.domain);
   assert.deepEqual(got, ["a.com", "b.com"]);

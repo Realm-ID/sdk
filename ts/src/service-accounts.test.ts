@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -45,7 +46,7 @@ test("serviceAccounts.create: POSTs to the tenant route + maps displayName", asy
       status: "active", kind: "service",
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const out = await realm.serviceAccounts.create("t1", {
     handle: "bot@acme.test", role: "member", displayName: "Bot",
   });
@@ -57,7 +58,7 @@ test("serviceAccounts.create: 409 handle_taken surfaces on error.code", async ()
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "handle_taken", message: "handle already in use" },
   }), { status: 409, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await assert.rejects(
     () => realm.serviceAccounts.create("t1", { handle: "x@y.z" }),
     (e: Error) => e instanceof RealmError && e.code === "handle_taken" && e.httpStatus === 409,
@@ -68,7 +69,7 @@ test("serviceAccounts.create: 400 invalid_role surfaces on error.code", async ()
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "invalid_role", message: "role may not be owner" },
   }), { status: 400, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await assert.rejects(
     () => realm.serviceAccounts.create("t1", { handle: "x@y.z", role: "owner" }),
     (e: Error) => e instanceof RealmError && e.code === "invalid_role",
@@ -86,7 +87,7 @@ test("serviceAccounts.list: returns a page over {items}", async () => {
       ],
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const page = await realm.serviceAccounts.list("t1").page();
   assert.equal(page.items.length, 2);
   assert.equal(page.items[1]!.status, "suspended");
@@ -101,7 +102,7 @@ test("serviceAccounts.get: GETs by id", async () => {
       id: "sa-1", handle: "a@x.test", role: "member", status: "active", kind: "service",
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const sa = await realm.serviceAccounts.get("t1", "sa-1");
   assert.equal(sa.id, "sa-1");
 });
@@ -120,7 +121,7 @@ test("serviceAccounts: lifecycle verbs hit the right routes", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await realm.serviceAccounts.suspend("t1", "sa-1");
   await realm.serviceAccounts.unsuspend("t1", "sa-1");
   await realm.serviceAccounts.deactivate("t1", "sa-1");
@@ -146,7 +147,7 @@ test("serviceAccounts.resetHandle: sends {handle}", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const out = await realm.serviceAccounts.resetHandle("t1", "sa-1", "new@acme.test");
   assert.equal(out.handle, "new@acme.test");
 });

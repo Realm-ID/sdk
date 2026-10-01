@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -53,7 +54,7 @@ test("otp.issue: posts subject_ref + purpose, returns response", async () => {
       subject_ref: "booking:X",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   const out = await realm.otp.issue({
     subjectRef: "booking:X",
     purpose: "delivery",
@@ -78,7 +79,7 @@ test("otp.verify: success returns issuer attribution", async () => {
       purpose: "delivery",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   const out = await realm.otp.verify({
     subjectRef: "booking:X",
     purpose: "delivery",
@@ -95,7 +96,7 @@ test("otp.verify: invalid surfaces invalid_otp", async () => {
       error: { code: "invalid_otp", message: "invalid OTP" },
     }), { status: 401, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   await assert.rejects(
     () => realm.otp.verify({
       subjectRef: "booking:X", purpose: "delivery", presented: "wrong",
@@ -116,7 +117,7 @@ test("otp.view: returns issuerUserId", async () => {
       issuer_user_id: "manager-A",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   const out = await realm.otp.view("otp-1", { userBearer: "manager-jwt" });
   assert.equal(out.value, "654321");
   assert.equal(out.issuerUserId, "manager-A");
@@ -132,7 +133,7 @@ test("otp.issue: threads delivery_mode=view_bff onto the issue body (ADR-071 §4
       subject_ref: "user:sa-1",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   await realm.otp.issue({
     subjectRef: "user:sa-1",
     purpose: "login",
@@ -150,7 +151,7 @@ test("otp.issue: omits delivery_mode when unset", async () => {
       purpose: "delivery", subject_ref: "booking:X",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   await realm.otp.issue({ subjectRef: "booking:X", purpose: "delivery", userBearer: "u" });
   const body = calls[0]!.body as Record<string, unknown>;
   assert.equal("delivery_mode" in body, false);

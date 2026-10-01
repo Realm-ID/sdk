@@ -12,6 +12,8 @@ export interface Claims {
   iat: number;
   nbf?: number;
   jti?: string;
+  /** Session id (ADR-109). Absent on integration tokens and before Issuer A. */
+  sid?: string;
   azp?: string;
   tenant_id?: string;
   role?: string;

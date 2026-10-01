@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -43,7 +44,7 @@ test("idp.list: injects platform_id=realmId and normalizes items", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const page = await realm.identityProviderConfig.list();
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]!.provider, "google");
@@ -57,7 +58,7 @@ test("idp.list: forwards tenant_id and normalizes absent items to []", async () 
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const page = await realm.identityProviderConfig.list({ tenantId: "t9" });
   assert.deepEqual(page.items, []);
 });
@@ -77,7 +78,7 @@ test("idp.create: injects platform_id, maps camel->snake, omits unset", async ()
       status: 201, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.identityProviderConfig.create({
     provider: "google", clientType: "web", clientId: "gid",
     allowedOrigins: ["https://app.example"],
@@ -95,7 +96,7 @@ test("idp.create+update: provider config (Firebase web config) round-trips", asy
       status: 201, headers: { "content-type": "application/json" },
     });
   });
-  let realm = createRealm({ ...REALM, fetch });
+  let realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   let out = await realm.identityProviderConfig.create({
     provider: "firebase", clientType: "web", clientId: "demo-app",
     allowedOrigins: ["https://app.example.com"], config: fb,
@@ -109,7 +110,7 @@ test("idp.create+update: provider config (Firebase web config) round-trips", asy
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  realm = createRealm({ ...REALM, fetch });
+  realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   out = await realm.identityProviderConfig.update("idp-1", { config: fb });
   assert.deepEqual(out.config, fb);
 });
@@ -119,7 +120,7 @@ test("idp.create: 409 provider_exists surfaces as RealmError(conflict)", async (
     error: { code: "conflict", message: "provider already configured" },
     provider_exists: true,
   }), { status: 409, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   await assert.rejects(() => realm.identityProviderConfig.create({
     provider: "google", clientType: "ios", clientId: "gid",
   }), (e: Error) => e instanceof RealmError && e.code === "conflict" && e.httpStatus === 409);
@@ -134,7 +135,7 @@ test("idp.update: sends only provided fields", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.identityProviderConfig.update("idp-1", { enabled: false, clientId: "new" });
   assert.equal(out.enabled, false);
   assert.equal(out.client_id, "new");
@@ -148,7 +149,7 @@ test("idp.delete: returns deleted ack", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.identityProviderConfig.delete("idp-1");
   assert.equal(out.status, "deleted");
 });
@@ -157,7 +158,7 @@ test("idp.delete: 404 provider_not_found surfaces as RealmError(not_found)", asy
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "not_found", message: "provider not found" },
   }), { status: 404, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   await assert.rejects(() => realm.identityProviderConfig.delete("missing"), (e: Error) =>
     e instanceof RealmError && e.code === "not_found" && e.httpStatus === 404);
 });

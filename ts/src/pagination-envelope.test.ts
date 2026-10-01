@@ -9,6 +9,7 @@
  * spanned the round trip.
  */
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -80,7 +81,7 @@ test("sources.list exposes the envelope and walks every page", async () => {
   const fetch = pagedFetch(/\/sources/,
     p1({ id: "s1", platform_id: "r", type: "web", label: "one", allowed_methods: [], enabled: true, created_at: 1 }),
     p2({ id: "s2", platform_id: "r", type: "web", label: "two", allowed_methods: [], enabled: true, created_at: 2 }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const list = realm.sources.list();
   const page = await list.page();
   assert.equal(page.nextCursor, "cur-2");
@@ -95,7 +96,7 @@ test("serviceAccounts.list exposes the envelope and walks every page", async () 
   const fetch = pagedFetch(/\/tenants\/t1\/service-accounts/,
     p1({ id: "sa1", handle: "a@x.test", role: "member", status: "active", kind: "service" }),
     p2({ id: "sa2", handle: "b@x.test", role: "member", status: "active", kind: "service" }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const list = realm.serviceAccounts.list("t1");
   const page = await list.page({ limit: 1 });
   assert.equal(page.hasMore, true, "envelope discarded");
@@ -108,7 +109,7 @@ test("userApiKeys.list exposes the envelope and walks every page", async () => {
   const fetch = pagedFetch(/\/tenants\/t1\/users\/u1\/user-api-keys/,
     p1({ id: "k1", prefix: "uk_live_a", label: "one" }),
     p2({ id: "k2", prefix: "uk_live_b", label: "two" }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const list = realm.userApiKeys.list("t1", "u1");
   const page = await list.page();
   assert.equal(page.hasMore, true, "envelope discarded");
@@ -121,7 +122,7 @@ test("apiKeys.list exposes the envelope and walks every page", async () => {
   const fetch = pagedFetch(/\/platforms\/r\/api-keys/,
     p1({ id: "ak1", prefix: "rk_live_a" }),
     p2({ id: "ak2", prefix: "rk_live_b" }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const list = realm.apiKeys.list();
   const page = await list.page();
   assert.equal(page.hasMore, true, "envelope discarded");
@@ -139,7 +140,7 @@ test("the pager stops on has_more:false even with a non-empty next_cursor", asyn
       next_cursor: "cur-9", has_more: false,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   let n = 0;
   for await (const _ of realm.sources.list()) {
     if (++n > 5) throw new Error("pager did not terminate on has_more:false");
@@ -164,7 +165,7 @@ test("an unset limit and cursor are OMITTED from the query string", async () => 
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
 
   await realm.sources.list().page();
   await realm.serviceAccounts.list("t1").page();
@@ -190,7 +191,7 @@ test("a set limit and cursor ARE sent — the omission is a guard, not a dropped
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await realm.apiKeys.list().page({ cursor: "c1", limit: 25 });
   const q = new URL(seen).searchParams;
   assert.equal(q.get("limit"), "25");
@@ -205,7 +206,7 @@ test("a 400 invalid_limit / invalid_cursor surfaces on error.code, not bad_reque
       new Response(JSON.stringify({ error: "bad pagination input", code }), {
         status: 400, headers: { "content-type": "application/json" },
       }));
-    const realm = createRealm({ ...cfg, fetch });
+    const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
     await assert.rejects(
       () => realm.sources.list().page(),
       (e: Error) =>

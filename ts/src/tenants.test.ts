@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -31,7 +32,7 @@ test("tenants.list: pages through cursor", async () => {
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
 
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const seen: string[] = [];
   for await (const t of realm.tenants.list()) {
     seen.push(t.id);
@@ -44,7 +45,7 @@ test("tenants.list: manual page() exposes nextCursor", async () => {
     JSON.stringify({ items: [{ id: "t1" }], next_cursor: "ck" }),
     { status: 200, headers: { "content-type": "application/json" } },
   ));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const p = await realm.tenants.list().page({ limit: 50 });
   assert.equal(p.items.length, 1);
   assert.equal(p.nextCursor, "ck");
@@ -61,7 +62,7 @@ test("tenants.get: decodes status/owner/config typed fields (issuer swagger Tena
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   ));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const t = await realm.tenants.get("t1");
 
   // Typed locals, not `unknown` — before Tenant declared status/owner/config,
@@ -86,7 +87,7 @@ test("tenants.list: rejects unexpected paginated wire shape (SPEC §7)", async (
     JSON.stringify({ data: [{ id: "t1" }], cursor: "ck" }),
     { status: 200, headers: { "content-type": "application/json" } },
   ));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await assert.rejects(() => realm.tenants.list().page(), (e: Error) => {
     return e instanceof RealmError && e.code === "server_error";
   });
@@ -110,7 +111,7 @@ test("tenants.create: routes to /platforms/{realmId}/tenants (SPEC §6.1)", asyn
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
   const tnt = await realm.tenants.create({
     displayName: "Acme",
     signupMode: "allowlist",
@@ -141,7 +142,7 @@ test("tenants.invitations.create: posts identifier (v0.11.0 contact model)", asy
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
   const inv = await realm.tenants.invitations.create("t1", { identifier: "alice@acme.com", role: "member" });
   assert.equal(inv.id, "u-new");
   assert.equal(inv.identifier, "alice@acme.com");
@@ -170,7 +171,7 @@ test("tenants.driftReviews.accept: POSTs /contact-drift-reviews/{id}/accept", as
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
   const out = await realm.tenants.driftReviews.accept("t1", "dr1");
   assert.equal(out.status, "accepted");
   assert.equal(out.accepted_value, "new@acme.com");
@@ -195,7 +196,7 @@ test("tenants.contactVerifications.list: filters by state and yields rows", asyn
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
   const p = await realm.tenants.contactVerifications.list("t1", { state: "pending" }).page();
   assert.equal(p.items.length, 1);
   assert.equal(p.items[0]!.id, "cv1");
@@ -223,7 +224,7 @@ test("tenants.updateUserRole: PATCHes /tenants/{id}/users/{uid}/role", async () 
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
   const out = await realm.tenants.updateUserRole("t1", "u9", "admin");
   assert.equal(out.role, "admin");
   assert.equal(out.tenant_id, "t1");
@@ -252,7 +253,7 @@ test("tenants.transferOwner: PUTs owner_user_id and optional ADR-076 knobs", asy
     );
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch: wrapped });
 
   // nil opts → owner_user_id only.
   const t = await realm.tenants.transferOwner("t1", "u-new");
@@ -276,7 +277,7 @@ test("tenants.users.list: threads role/status/q filters onto the query (S-07)", 
     return new Response(JSON.stringify({ items: [{ id: "u1" }], next_cursor: null }),
       { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.tenants.users.list("t1", { role: "admin", status: "active", q: "acme" }).page();
   assert.match(hitUrl, /role=admin/);
   assert.match(hitUrl, /status=active/);
@@ -290,7 +291,7 @@ test("tenants.users.list: no filter opts → no filter params", async () => {
     return new Response(JSON.stringify({ items: [], next_cursor: null }),
       { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.tenants.users.list("t1").page();
   assert.doesNotMatch(hitUrl, /role=|status=|[?&]q=/);
 });
@@ -302,7 +303,7 @@ test("tenants.invitations.list: threads status filter onto the query (S-07)", as
     return new Response(JSON.stringify({ items: [{ id: "i1" }], next_cursor: null }),
       { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.tenants.invitations.list("t1", { status: "pending" }).page();
   assert.match(hitUrl, /status=pending/);
 });

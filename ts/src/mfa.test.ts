@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -46,7 +47,7 @@ test("auth.selfEnrollMfa: refresh-authed POST to /auth/mfa/enroll, platform bear
       tenant_id: "t1",
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1" });
   assert.equal(out.secret, "BASE32SECRET");
   assert.equal(out.qrUrl, "otpauth://totp/x");
@@ -65,7 +66,7 @@ test("auth.selfEnrollMfa: includes method when set, defaults recovery codes to [
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1", method: "totp" });
   assert.deepEqual(out.recoveryCodes, []);
   assert.equal(out.mfaChallengeToken, "c");
@@ -90,7 +91,7 @@ test("auth.selfEnrollMfa: enroll challenge completes via mfaVerify (no separate 
       user: { id: "u1" }, tenants: [],
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const enroll = await realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1" });
   const session = await realm.auth.mfaVerify({ challengeToken: enroll.mfaChallengeToken, code: "123456" });
   assert.equal(session.accessToken, "at");
@@ -101,7 +102,7 @@ test("auth.selfEnrollMfa: 409 already_enrolled surfaces as RealmError(conflict)"
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "conflict", message: "already enrolled" },
   }), { status: 409, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   await assert.rejects(() => realm.auth.selfEnrollMfa({ refreshToken: "rt-123", tenantId: "t1" }), (e: Error) =>
     e instanceof RealmError && e.code === "conflict" && e.httpStatus === 409);
 });
@@ -115,7 +116,7 @@ test("auth.disableMfa: DELETE /auth/mfa with code body, returns void", async () 
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.auth.disableMfa({ userBearer: "user_jwt", code: "999000" });
   assert.equal(out, undefined);
 });
@@ -124,7 +125,7 @@ test("auth.disableMfa: 400 not_enrolled surfaces as RealmError", async () => {
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "bad_request", message: "not enrolled" },
   }), { status: 400, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   await assert.rejects(() => realm.auth.disableMfa({ userBearer: "user_jwt", code: "x" }), (e: Error) =>
     e instanceof RealmError && e.httpStatus === 400);
 });
@@ -139,7 +140,7 @@ test("auth.revokeAllSessions: DELETE /auth/sessions with no body, returns void",
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   const out = await realm.auth.revokeAllSessions({ userBearer: "user_jwt" });
   assert.equal(out, undefined);
 });
@@ -148,7 +149,7 @@ test("auth.revokeAllSessions: 403 insufficient_scope surfaces as RealmError", as
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "forbidden", message: "revocation token cannot revoke sessions" },
   }), { status: 403, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...REALM, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...REALM, fetch });
   await assert.rejects(() => realm.auth.revokeAllSessions({ userBearer: "rev_jwt" }), (e: Error) =>
     e instanceof RealmError && e.httpStatus === 403);
 });

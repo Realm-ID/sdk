@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -50,7 +51,7 @@ test("integrations.register: POSTs to the platform route + maps camelCase", asyn
       listed: false, disabled: false,
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const out = await realm.integrations.register({ slug: "hiring-motion", displayName: "Hiring Motion" });
   assert.equal(out.id, "intg-1");
   assert.equal(out.slug, "hiring-motion");
@@ -75,7 +76,7 @@ test("integrations.install: POSTs the permission list, and no role_id, to the te
       principal_user_id: "u-9", status: "installed",
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const out = await realm.integrations.install("t1", {
     integrationId: "intg-1",
     permissions: ["users:read"],
@@ -98,7 +99,7 @@ test("integrations.install: the three ADR-101 permission refusals surface on Rea
     const fetch = mkFetch(() =>
       new Response(JSON.stringify({ error: "no", code }),
         { status, headers: { "content-type": "application/json" } }));
-    const realm = createRealm({ ...cfg, fetch });
+    const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
     await assert.rejects(
       () => realm.integrations.install("t1", { integrationId: "intg-1", permissions: ["users:read"] }),
       (e: unknown) => e instanceof RealmError && e.code === code,
@@ -116,7 +117,7 @@ test("integrations.install: role_not_service_typed still resolves (dead code, ke
   const fetch = mkFetch(() =>
     new Response(JSON.stringify({ error: "no", code: "role_not_service_typed" }),
       { status: 400, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await assert.rejects(
     () => realm.integrations.install("t1", { integrationId: "intg-1", permissions: ["users:read"] }),
     (e: unknown) => e instanceof RealmError && e.code === "role_not_service_typed",
@@ -129,7 +130,7 @@ test("integrations.listInstallations: decodes the inbound-access page", async ()
       items: [{ id: "inst-1", integration_id: "intg-1", permissions: ["users:read", "users:manage"], mint_count: 3 }],
       next_cursor: null,
     }), { status: 200, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const page = await realm.integrations.listInstallations("t1");
   assert.equal(page.items.length, 1);
   assert.deepEqual(page.items[0]?.permissions, ["users:read", "users:manage"]);
@@ -143,7 +144,7 @@ test("integrations.uninstall: DELETEs the installation", async () => {
     seen = `${req.method} ${new URL(req.url).pathname}`;
     return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await realm.integrations.uninstall("t1", "inst-1");
   assert.equal(seen, "DELETE /tenants/t1/integration-installations/inst-1");
 });
@@ -165,7 +166,7 @@ test("integrations.mintToken: sends the raw api key with NO bearer + decodes acc
       access_token: "brokered-jwt", expires_in: 600, tenant_id: "t-target", role: "svc",
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const out = await realm.integrations.mintToken({
     apiKey: "rk_live_src", installationId: "inst-1", sourceOrgId: "org-a",
   });
@@ -180,7 +181,7 @@ test("integrations.mintToken: key_class_mismatch surfaces on RealmError.code", a
   const fetch = mkFetch(() =>
     new Response(JSON.stringify({ error: "no", code: "key_class_mismatch" }),
       { status: 401, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await assert.rejects(
     () => realm.integrations.mintToken({ apiKey: "rk_live_svc", installationId: "inst-1", sourceOrgId: "o" }),
     (e: unknown) => e instanceof RealmError && e.code === "key_class_mismatch",
@@ -193,7 +194,7 @@ test("integrations.disable/enable/remove: hit the source lifecycle verbs", async
     hits.push(`${req.method} ${new URL(req.url).pathname}`);
     return new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await realm.integrations.disable("intg-1");
   await realm.integrations.enable("intg-1");
   await realm.integrations.remove("intg-1");

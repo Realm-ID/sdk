@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { globMatch } from "./middleware.js";
@@ -61,7 +62,7 @@ function autoFetch(handler: (url: string, init: RequestInit | undefined) => Prom
 }
 
 function makeRealm(handler: (url: string, init: RequestInit | undefined) => Promise<Response> | Response) {
-  return createRealm({
+  return createRealm({ sessionStore: createMemorySessionStore(),
     realmId: "r1",
     apiKey: "rk_live_x",
     baseUrl: "https://auth.test",
@@ -223,7 +224,7 @@ test("middleware: valid bearer attaches claims to req.realmid", async () => {
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware();
   const req = mkReq({ url: "/me", headers: { authorization: `Bearer ${token}` } });
   const res = new MockRes();
@@ -260,7 +261,7 @@ test("middleware: mfaProtectedPaths returns 412 mfa_required when token lacks MF
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware({ mfaProtectedPaths: ["/admin/*"] });
   const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
   const res = new MockRes();
@@ -293,7 +294,7 @@ test("middleware: mfaProtectedPaths lets through tokens carrying amr=mfa", async
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware({ mfaProtectedPaths: ["/admin/*"] });
   const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
   const res = new MockRes();
@@ -326,7 +327,7 @@ test("middleware: mfaProtectedPaths accepts fresh mfa_at", async () => {
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware({
     mfaProtectedPaths: [{ path: "/admin/*", maxAgeSeconds: 900 }],
   });
@@ -364,7 +365,7 @@ test("middleware: stale mfa_at returns 412 stale_mfa", async () => {
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware({
     mfaProtectedPaths: [{ path: "/admin/*", maxAgeSeconds: 900 }],
   });
@@ -403,7 +404,7 @@ test("middleware: requireFresh rejects amr-only token (no mfa_at)", async () => 
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware({
     mfaProtectedPaths: [{ path: "/billing/*", requireFresh: true }],
   });
@@ -439,7 +440,7 @@ test("middleware: requireFresh accepts mfa_at within 30s", async () => {
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud });
   const mw = realm.middleware({
     mfaProtectedPaths: [{ path: "/billing/*", requireFresh: true }],
   });

@@ -8,6 +8,7 @@
 export type ErrorCode =
   // verifier
   | "malformed"
+  | "invalid_config"
   | "wrong_algorithm"
   | "bad_signature"
   | "wrong_issuer"

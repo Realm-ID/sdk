@@ -203,7 +203,7 @@ export function decideScope(
   for (const rule of policy) {
     if (!rule.path) continue;
     if (rule.method && rule.method.toUpperCase() !== m) continue;
-    if (!globMatch(rule.path, path)) continue;
+    if (!globMatch(rule.path, path, { braces: true })) continue;
 
     const required = rule.scopes ?? [];
     const anyOf = rule.anyOf ?? false;
@@ -211,14 +211,9 @@ export function decideScope(
       return { allowed: true, matched: true, public: true, required, anyOf, missing: [] };
     }
     if (anyOf) {
-      return {
-        allowed: scopeAllowsAny(claims, ...required),
-        matched: true,
-        public: false,
-        required,
-        anyOf,
-        missing: [],
-      };
+      const ok = scopeAllowsAny(claims, ...required);
+      // §11.4: on an anyOf denial `missing` is the rule's FULL set, declared order.
+      return { allowed: ok, matched: true, public: false, required, anyOf, missing: ok ? [] : [...required] };
     }
     const allowed = scopeAllows(claims, ...required);
     const held = new Set(scopesFrom(claims));
@@ -326,6 +321,7 @@ export interface ScopeReqLike {
 /** The subset of an Express-style response these adapters write. */
 export interface ScopeResLike {
   statusCode: number;
+  writableEnded?: boolean;
   setHeader?(name: string, value: string): unknown;
   end(chunk?: string): unknown;
 }
@@ -341,6 +337,12 @@ export interface ScopeMiddlewareOptions {
    * ordinary traffic.
    */
   onScopeDenied?(req: ScopeReqLike, decision: ScopeDecision): void;
+  /**
+   * Shapes the denial response (SPEC §11.5.1). Runs on EVERY denial, after
+   * `onScopeDenied`. The status is preset to 403 and the response is ended
+   * afterwards if the hook left it open. Unset, the 403 body is unchanged.
+   */
+  writeDenied?(req: ScopeReqLike, res: ScopeResLike, decision: ScopeDecision): void | Promise<void>;
 }
 
 const FORBIDDEN_BODY = JSON.stringify({
@@ -380,6 +382,14 @@ export function createScopeMiddleware(
     }
     opts.onScopeDenied?.(req, decision);
     res.statusCode = 403;
+    if (opts.writeDenied) {
+      const w = opts.writeDenied;
+      void (async () => {
+        await w(req, res, decision);
+        if (res.writableEnded === false) res.end();
+      })().catch((e) => next(e));
+      return;
+    }
     res.setHeader?.("Content-Type", "application/json");
     res.end(FORBIDDEN_BODY);
   };
@@ -397,7 +407,7 @@ export function fastifyScopeHook(
   opts: ScopeMiddlewareOptions = {},
 ): (
   req: ScopeReqLike,
-  reply: { code(status: number): { send(body: unknown): unknown } },
+  reply: { code(status: number): { send(body: unknown): unknown }; hijack?(): unknown; raw?: ScopeResLike },
   done: (err?: unknown) => void,
 ) => void {
   return (req, reply, done) => {
@@ -407,6 +417,21 @@ export function fastifyScopeHook(
       return;
     }
     opts.onScopeDenied?.(req, decision);
+    if (opts.writeDenied) {
+      const w = opts.writeDenied;
+      if (typeof reply.hijack !== "function" || !reply.raw) {
+        done(new TypeError("realmid: writeDenied needs a Fastify reply with hijack() and raw"));
+        return;
+      }
+      reply.hijack();
+      const raw = reply.raw;
+      raw.statusCode = 403;
+      void (async () => {
+        await w(req, raw, decision);
+        if (raw.writableEnded === false) raw.end();
+      })().catch((e) => done(e));
+      return;
+    }
     reply.code(403).send(JSON.parse(FORBIDDEN_BODY));
   };
 }

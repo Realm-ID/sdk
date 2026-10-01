@@ -8,7 +8,7 @@
  *
  * Quick start:
  *   import { createRealm } from "@realm-id/sdk";
- *   const realm = createRealm({ realmId, apiKey: "rk_live_..." });
+ *   const realm = createRealm({ realmId, apiKey: "rk_live_...", sessionStore: createMemorySessionStore() });
  *   const claims = await realm.verify(accessToken);
  */
 
@@ -32,6 +32,10 @@ export { MemAuthorityCache, AUTHORITY_STALE_SKEW_MS, DEFAULT_ACCESS_TTL_MS } fro
 export type { AuthorityCache, AuthorityChange, AuthorityChangeIntent } from "./authority.js";
 
 export { TokensClient, TokenRevokedError } from "./tokens.js";
+export { createMemorySessionStore, sessionStoreConformance, SESSION_STATE_H_MS } from "./session-store.js";
+export type { SessionStateStore, SessionState, RefreshLock } from "./session-store.js";
+export { OrgSessionModeResolver } from "./org-session.js";
+export type { OrgSessionMode } from "./org-session.js";
 
 export { RealmError, isTokenStale, isKnownCode, ERROR_CODES } from "./errors.js";
 export type { ErrorCode } from "./errors.js";

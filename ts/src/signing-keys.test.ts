@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 
@@ -37,7 +38,7 @@ test("signingKeys.list: reads keyring + rotation policy", async () => {
       rotation: { mode: "auto", interval: "1w", next_rotation_at: 900 },
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.signingKeys.list();
   assert.equal(out.keys.length, 2);
   assert.equal(out.keys[0]!.is_current, true);
@@ -50,7 +51,7 @@ test("signingKeys.list: tolerates a bare/empty envelope", async () => {
   const fetch = mkFetch(() => new Response(JSON.stringify({}), {
     status: 200, headers: { "content-type": "application/json" },
   }));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.signingKeys.list();
   assert.deepEqual(out.keys, []);
   assert.equal(out.rotation.mode, "auto");
@@ -64,7 +65,7 @@ test("signingKeys.rotate: POSTs rotate and returns new/retired kids", async () =
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.signingKeys.rotate();
   assert.equal(out.kid, "k3");
   assert.deepEqual(out.retired_kids, ["k1"]);

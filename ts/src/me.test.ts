@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -39,7 +40,7 @@ function json(payload: unknown, status = 200): Response {
 }
 
 function realmWith(fetch: typeof fetch) {
-  return createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  return createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
 }
 
 test("me.chooseTenant: posts the KEPT tenant and decodes released", async () => {

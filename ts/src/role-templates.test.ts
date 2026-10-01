@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 
@@ -30,7 +31,7 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
 }
 
 function mkRealm(fetch: typeof fetch) {
-  return createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  return createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
 }
 
 test("roleTemplates.list: sends level and never returns null", async () => {

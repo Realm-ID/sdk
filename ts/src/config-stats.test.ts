@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 
@@ -49,7 +50,7 @@ test("config.get: returns the realm id and the config map with keys intact", asy
       },
     });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.config.get();
   assert.equal(out.id, "r");
   assert.deepEqual(Object.keys(out.config).sort(), [
@@ -73,7 +74,7 @@ test("config.get: returns the realm id and the config map with keys intact", asy
 
 test("config.get: tolerates a bare envelope", async () => {
   const fetch = mkFetch(() => json({}));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.config.get();
   assert.equal(out.id, "r");
   assert.deepEqual(out.config, {});
@@ -92,7 +93,7 @@ test("stats.get: decodes the KPI rollup", async () => {
       mfa_coverage: { covered_users: 8, eligible_users: 40, percent: 20 },
     });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.stats.get();
   assert.equal(out.platform_id, "r");
   assert.equal(out.generated_at, 1783400000);
@@ -113,7 +114,7 @@ test("stats.get: null percent stays null (never coerced to 0)", async () => {
     sessions_24h: 0,
     mfa_coverage: { covered_users: 0, eligible_users: 0, percent: null },
   }));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.stats.get();
   assert.equal(out.mfa_coverage.percent, null);
   assert.notEqual(out.mfa_coverage.percent, 0);

@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { createMemorySessionStore } from "./session-store.js";
 import { test } from "node:test";
 import { AuthClient, type LoginResponse } from "./auth.js";
 import { createRealm } from "./realm.js";
@@ -256,7 +257,7 @@ function refreshRig(cfg: {
   refreshSub?: string;
 }): { mints: Record<string, unknown>[]; drive(): Promise<void> } {
   const mints: Record<string, unknown>[] = [];
-  const realm = createRealm({
+  const realm = createRealm({ sessionStore: createMemorySessionStore(),
     realmId: "r1",
     apiKey: "rk_live_x",
     baseUrl: "https://auth.test",

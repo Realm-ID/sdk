@@ -140,7 +140,10 @@ function normalizeMfaRule(entry: string | MFARule): NormalizedMFARule {
 export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): ConnectMiddleware {
   const merged: Resolved = {
     exemptPaths: cfg.exemptPaths ?? ["/health", "/public/*"],
-    mfaRules: (cfg.mfaProtectedPaths ?? []).map(normalizeMfaRule),
+    mfaRules: (cfg.mfaProtectedPaths ?? []).map(normalizeMfaRule).map((r) => {
+      globMatch(r.path, "/", { braces: true }); // refuse a malformed `{...}` at construction
+      return r;
+    }),
     mfaDefaultMaxAgeSeconds: cfg.mfaDefaultMaxAgeSeconds ?? DEFAULT_MFA_MAX_AGE_SECONDS,
     loginPath: cfg.loginPath ?? "/login",
     logoutPath: cfg.logoutPath ?? "/logout",
@@ -357,7 +360,7 @@ function readRefreshToken(req: ConnectReq, cfg: Resolved, body?: Record<string, 
 
 function findMfaRule(rules: NormalizedMFARule[], path: string): NormalizedMFARule | undefined {
   for (const r of rules) {
-    if (globMatch(r.path, path)) return r;
+    if (globMatch(r.path, path, { braces: true })) return r;
   }
   return undefined;
 }
@@ -605,24 +608,40 @@ function pathOnly(url: string): string {
  * segments). No braces, no character classes — partners can use multiple
  * patterns if they need an alternation.
  */
-export function globMatch(pattern: string, path: string): boolean {
-  const re = globToRegex(pattern);
-  return re.test(path);
+export function globMatch(pattern: string, path: string, opts: { braces?: boolean } = {}): boolean {
+  return globToRegex(pattern, opts.braces === true).test(path);
 }
 
-function globToRegex(pat: string): RegExp {
+/**
+ * `braces: true` (mfaProtectedPaths, ScopeRule paths — SPEC §10.2 / §11.4.1)
+ * turns a WHOLE-SEGMENT `{name}` into one non-empty segment (`[^/]+`); any
+ * other brace form throws. `exemptPaths` keeps the default (braces literal): a
+ * placeholder there would widen an exemption, the fail-open direction.
+ * `/x/**` matches the bare `/x` (v0.63.0, BREAKING vs v0.62).
+ */
+function globToRegex(pat: string, braces = false): RegExp {
+  if (braces) assertBracesWellFormed(pat);
   let re = "^";
   let i = 0;
   while (i < pat.length) {
     const c = pat[i]!;
-    if (c === "*" && pat[i + 1] === "*") {
+    if (c === "/" && pat[i + 1] === "*" && pat[i + 2] === "*" && (i + 3 === pat.length || pat[i + 3] === "/")) {
+      // `/**` = zero or more segments, so it also matches the bare prefix.
+      re += "(?:/.*)?";
+      i += 3;
+      // A following "/" belongs to the segments the group already spans.
+      if (pat[i] === "/") i++;
+    } else if (c === "*" && pat[i + 1] === "*") {
       re += ".*";
       i += 2;
-      // optional trailing slash absorbed
       if (pat[i] === "/") i++;
     } else if (c === "*") {
       re += "[^/]*";
       i++;
+    } else if (braces && c === "{") {
+      const close = pat.indexOf("}", i);
+      re += "[^/]+";
+      i = close + 1;
     } else if (/[.+?^${}()|[\]\\]/.test(c)) {
       re += "\\" + c;
       i++;
@@ -633,4 +652,18 @@ function globToRegex(pat: string): RegExp {
   }
   re += "$";
   return new RegExp(re);
+}
+
+/** SPEC §11.4.1 grammar: `{name}` must be a whole segment, name = 1*(ALPHA/DIGIT/_/-). */
+function assertBracesWellFormed(pat: string): void {
+  if (!/[{}]/.test(pat)) return;
+  for (const seg of pat.split("/")) {
+    if (!/[{}]/.test(seg)) continue;
+    if (!/^\{[A-Za-z0-9_-]+\}$/.test(seg)) {
+      throw new RealmError({
+        code: "invalid_config",
+        message: `realmid: path "${pat}": "{name}" must be a whole path segment (name = letters, digits, _ or -)`,
+      });
+    }
+  }
 }

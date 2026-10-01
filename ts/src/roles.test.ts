@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -50,7 +51,7 @@ test("roles.list: returns the locked envelope shape", async () => {
       total: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const page = await realm.roles.list();
   assert.equal(page.items.length, 2);
   assert.equal(page.items[1]!.name, "salesman");
@@ -66,7 +67,7 @@ test("roles.list: forwards cursor + limit", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.roles.list({ cursor: "c1", limit: 50 });
 });
 
@@ -86,7 +87,7 @@ test("roles.create: maps displayName + permissions to wire shape", async () => {
       created_at: 1, updated_at: 1,
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.create({ name: "salesman", displayName: "Field Sales", permissions: ["bills:read"] });
   assert.equal(r.name, "salesman");
   assert.equal(r.is_system, false);
@@ -107,7 +108,7 @@ test("roles.update: sends only provided fields", async () => {
       is_system: false, created_at: 1, updated_at: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.update("role-salesman", { permissions: ["bills:read", "orders:all"] });
   assert.deepEqual(r.permissions, ["bills:read", "orders:all"]);
 });
@@ -120,7 +121,7 @@ test("roles.delete: returns deleted ack", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.roles.delete("role-old");
   assert.equal(out.status, "deleted");
 });
@@ -130,7 +131,7 @@ test("roles.delete: 409 role_in_use surfaces as RealmError(conflict)", async () 
     error: { code: "conflict", message: "role still attached to 12 users" },
     role_in_use: true,
   }), { status: 409, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await assert.rejects(() => realm.roles.delete("role-salesman"), (e: Error) => {
     return e instanceof RealmError && e.code === "conflict" && e.httpStatus === 409;
   });
@@ -143,7 +144,7 @@ test("roles.list: forwards include_system when requested", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.roles.list({ includeSystem: true });
 });
 
@@ -156,7 +157,7 @@ test("roles.disable: POSTs …/disable and surfaces disabled fields", async () =
       disabled: true, disabled_at: 42, created_at: 1, updated_at: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.disable("role-salesman");
   assert.equal(r.disabled, true);
   assert.equal(r.disabled_at, 42);
@@ -171,7 +172,7 @@ test("roles.enable: POSTs …/enable", async () => {
       disabled: false, created_at: 1, updated_at: 3,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.enable("role-salesman");
   assert.equal(r.disabled, false);
 });
@@ -180,7 +181,7 @@ test("roles.disable: 400 last_active_role surfaces as RealmError", async () => {
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "bad_request", message: "a realm must keep at least one active role besides owner" },
   }), { status: 400, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await assert.rejects(() => realm.roles.disable("role-last"), (e: Error) => {
     return e instanceof RealmError && e.httpStatus === 400;
   });
@@ -196,7 +197,7 @@ test("roles.rename: posts {to: <new>}", async () => {
       created_at: 1, updated_at: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.rename("role-oldname", { to: "newname" });
   assert.equal(r.name, "newname");
 });
@@ -212,7 +213,7 @@ test("roles.listPermissions: returns the ADR-074 catalog", async () => {
       ],
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const perms = await realm.roles.listPermissions();
   assert.equal(perms.length, 2);
   assert.equal(perms[0]!.key, "users:read");
@@ -238,7 +239,7 @@ test("roles.create: forwards assignableTo (ADR-081) and no retired fields", asyn
       is_system: false, created_at: 1, updated_at: 1,
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.create({
     name: "bot", displayName: "Bot", assignableTo: ["service"],
   });
@@ -260,7 +261,7 @@ test("roles.update: sends assignableTo and surfaces the §2.5 holder migration",
       is_system: false, created_at: 1, updated_at: 2,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const r = await realm.roles.update("role-bot", { assignableTo: ["service"] });
   assert.equal(r.migrated_holders, 12);
   assert.equal(r.migrated_holders_to, "member");

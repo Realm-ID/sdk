@@ -15,7 +15,7 @@
  */
 
 import express from "express";
-import { createRealm } from "@realm-id/sdk";
+import { createRealm, createMemorySessionStore } from "@realm-id/sdk";
 
 const realmId = process.env["REALM_ID"];
 const apiKey = process.env["REALM_API_KEY"];
@@ -29,6 +29,7 @@ if (!apiKey) {
 }
 
 const realm = createRealm({
+  sessionStore: createMemorySessionStore(), // single replica; use a shared store otherwise
   realmId,
   apiKey,
   baseUrl: process.env["REALMID_BASE_URL"] ?? "https://auth.realmid.dev",

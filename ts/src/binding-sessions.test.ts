@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -26,7 +27,7 @@ const cfg = { realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test" };
 
 test("sessions.revokeUser: POST /tenants/{id}/users/{uid}/sessions/revoke", async () => {
   const sink: { method?: string; url?: string } = {};
-  const realm = createRealm({ ...cfg, fetch: mkFetch(200, { status: "ok", revoked: 3 }, sink) });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { status: "ok", revoked: 3 }, sink) });
   const out = await realm.sessions.revokeUser("t1", "u9");
   assert.equal(sink.method, "POST");
   assert.match(sink.url!, /\/tenants\/t1\/users\/u9\/sessions\/revoke$/);
@@ -35,7 +36,7 @@ test("sessions.revokeUser: POST /tenants/{id}/users/{uid}/sessions/revoke", asyn
 
 test("sessions.revokeAll: POST /platforms/{realmId}/sessions/revoke-all", async () => {
   const sink: { url?: string } = {};
-  const realm = createRealm({ ...cfg, fetch: mkFetch(200, { status: "ok", revoked: 42 }, sink) });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { status: "ok", revoked: 42 }, sink) });
   const out = await realm.sessions.revokeAll();
   assert.match(sink.url!, /\/platforms\/r\/sessions\/revoke-all$/);
   assert.equal(out.revoked, 42);
@@ -43,7 +44,7 @@ test("sessions.revokeAll: POST /platforms/{realmId}/sessions/revoke-all", async 
 
 test("users.delinkContact: POST .../contacts/{contactId}/delink", async () => {
   const sink: { method?: string; url?: string } = {};
-  const realm = createRealm({ ...cfg, fetch: mkFetch(200, { status: "delinked", contact_id: "c7", revoked_bindings: 1 }, sink) });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { status: "delinked", contact_id: "c7", revoked_bindings: 1 }, sink) });
   const out = await realm.tenants.users.delinkContact("t1", "u1", "c7");
   assert.equal(sink.method, "POST");
   assert.match(sink.url!, /\/tenants\/t1\/users\/u1\/contacts\/c7\/delink$/);
@@ -53,7 +54,7 @@ test("users.delinkContact: POST .../contacts/{contactId}/delink", async () => {
 
 test("users.handBack: POST .../hand-back with {from_user_id}", async () => {
   const sink: { body?: unknown } = {};
-  const realm = createRealm({ ...cfg, fetch: mkFetch(200, { status: "handed_back", user_id: "old", email: "u@corp.test" }, sink) });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { status: "handed_back", user_id: "old", email: "u@corp.test" }, sink) });
   const out = await realm.tenants.users.handBack("t1", "old", "new");
   assert.deepEqual(sink.body, { from_user_id: "new" });
   assert.equal(out.user_id, "old");
@@ -62,13 +63,13 @@ test("users.handBack: POST .../hand-back with {from_user_id}", async () => {
 
 test("driftReviews.reject: soft (no body) then rejectHard sends {hard:true}", async () => {
   const softSink: { body?: unknown } = {};
-  const soft = createRealm({ ...cfg, fetch: mkFetch(200, { id: "rv1", status: "rejected", mode: "soft" }, softSink) });
+  const soft = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { id: "rv1", status: "rejected", mode: "soft" }, softSink) });
   const s = await soft.tenants.driftReviews.reject("t1", "rv1");
   assert.equal(s.mode, "soft");
   assert.equal(softSink.body, undefined);
 
   const hardSink: { body?: unknown } = {};
-  const hard = createRealm({ ...cfg, fetch: mkFetch(200, { id: "rv1", status: "rejected", mode: "hard", parked: true, revoked_bindings: 2 }, hardSink) });
+  const hard = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { id: "rv1", status: "rejected", mode: "hard", parked: true, revoked_bindings: 2 }, hardSink) });
   const h = await hard.tenants.driftReviews.rejectHard("t1", "rv1");
   assert.equal(h.mode, "hard");
   assert.equal(h.parked, true);
@@ -78,7 +79,7 @@ test("driftReviews.reject: soft (no body) then rejectHard sends {hard:true}", as
 
 test("auth.listAuthenticators: GET /auth/mfa/authenticators", async () => {
   const sink: { method?: string; url?: string } = {};
-  const realm = createRealm({ ...cfg, fetch: mkFetch(200, {
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, {
     authenticators: [{ type: "totp", confirmed: true, created_at: 1000, confirmed_at: 1001 }],
     backup_codes_remaining: 8,
   }, sink) });
@@ -90,14 +91,14 @@ test("auth.listAuthenticators: GET /auth/mfa/authenticators", async () => {
 });
 
 test("auth.regenerateRecoveryCodes: POST /auth/mfa/recovery/regenerate", async () => {
-  const realm = createRealm({ ...cfg, fetch: mkFetch(200, { status: "ok", recovery_codes: ["aaaa-1111", "bbbb-2222"] }) });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { status: "ok", recovery_codes: ["aaaa-1111", "bbbb-2222"] }) });
   const out = await realm.auth.regenerateRecoveryCodes({ userBearer: "u-jwt" });
   assert.equal(out.status, "ok");
   assert.equal(out.recovery_codes.length, 2);
 });
 
 test("auth.regenerateRecoveryCodes: 412 surfaces mfa_required", async () => {
-  const realm = createRealm({ ...cfg, fetch: mkFetch(412, { error: "fresh TOTP required", code: "mfa_required" }) });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(412, { error: "fresh TOTP required", code: "mfa_required" }) });
   await assert.rejects(() => realm.auth.regenerateRecoveryCodes({ userBearer: "u-jwt" }),
     (e: Error) => e instanceof RealmError && e.code === "mfa_required");
 });
@@ -105,7 +106,7 @@ test("auth.regenerateRecoveryCodes: 412 surfaces mfa_required", async () => {
 test("login: contact_admin_required (409, flat envelope) decodes to code", async () => {
   // The platform_api_key leg mints the token; the user provider_token leg 409s
   // with the real issuer FLAT envelope: { "error": "<msg string>", "code": ... }.
-  const realm = createRealm({ ...cfg, fetch: (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const gt = init?.body ? (JSON.parse(init.body as string) as { grant_type?: string }).grant_type : undefined;
     if (url.endsWith("/auth/login") && gt === "platform_api_key") {

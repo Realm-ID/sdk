@@ -1,3 +1,5 @@
+import { sessionKeyOf } from "./session-store.js";
+
 /**
  * Shared revocation cache — ADR-041 follow-up.
  *
@@ -16,7 +18,7 @@
  * as before when no cache is configured.
  */
 
-/** Pluggable JTI denylist. Cheap reads matter — `isRevoked` is on the
+/** Pluggable SESSION denylist (a `jti` denylist through v0.62; keyed on the session key from v0.63, SPEC §6.7.6). Cheap reads matter — `isRevoked` is on the
  *  hot path of every authenticated request. */
 export interface RevocationCache {
   /**
@@ -24,14 +26,14 @@ export interface RevocationCache {
    * epoch), used as the cache entry TTL — partners' implementations
    * should evict on expiry so the cache never grows unboundedly.
    */
-  revoke(jti: string, expiresAtMs: number): Promise<void>;
+  revoke(key: string, expiresAtMs: number): Promise<void>;
   /**
    * Returns true when `jti` has been revoked and the TTL has not elapsed.
    * Errors propagate to the verifier which fails closed (request
    * rejected). Partners running an unreliable cache should swallow
    * transient errors inside their implementation.
    */
-  isRevoked(jti: string): Promise<boolean>;
+  isRevoked(key: string): Promise<boolean>;
 }
 
 /** Single-process implementation suitable for a single partner-API
@@ -69,23 +71,39 @@ export class MemRevocationCache implements RevocationCache {
   }
 }
 
-/** Decode a JWT payload without signature verification and return its
- *  `jti` and `exp` claims. Returns nulls on malformed input. Used by
- *  `auth.logout` to push the access token's jti into the revocation
- *  cache; signature verification stays the verifier's job. */
-export function peekJwtRevokeFields(jwt: string): { jti: string; expMs: number } {
+/** What an UNVERIFIED peek at an access token yields (SPEC §6.7.6 R1). */
+export interface PeekedToken {
+  /** `sid`, else `jti`, else "" (SPEC §6.7.1). */
+  sessionKey: string;
+  jti: string;
+  sid: string;
+  sub: string;
+  /** `iat` in whole seconds; 0 when absent / not numeric. */
+  iat: number;
+  /** `exp` in ms; 0 when absent. */
+  expMs: number;
+}
+
+/** Decode a JWT payload without signature verification. Used by the §6.7
+ *  session cache, which only ever acts on a token the partner already holds;
+ *  signature verification stays the verifier's job. Empty fields on malformed input. */
+export function peekJwtRevokeFields(jwt: string): PeekedToken {
+  const none: PeekedToken = { sessionKey: "", jti: "", sid: "", sub: "", iat: 0, expMs: 0 };
   const parts = jwt.split(".");
-  if (parts.length !== 3) return { jti: "", expMs: 0 };
+  if (parts.length !== 3) return none;
   const payload = parts[1];
-  if (payload === undefined) return { jti: "", expMs: 0 };
+  if (payload === undefined) return none;
   try {
     const padded = payload.replace(/-/g, "+").replace(/_/g, "/");
     const json = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-    const c = JSON.parse(json) as { jti?: unknown; exp?: unknown };
-    const jti = typeof c.jti === "string" ? c.jti : "";
-    const exp = typeof c.exp === "number" ? c.exp * 1000 : 0;
-    return { jti, expMs: exp };
+    const c = JSON.parse(json) as Record<string, unknown>;
+    const jti = typeof c["jti"] === "string" ? c["jti"] : "";
+    const sid = typeof c["sid"] === "string" ? c["sid"] : "";
+    const sub = typeof c["sub"] === "string" ? c["sub"] : "";
+    const iat = typeof c["iat"] === "number" ? Math.floor(c["iat"]) : 0;
+    const expMs = typeof c["exp"] === "number" ? c["exp"] * 1000 : 0;
+    return { sessionKey: sessionKeyOf({ sid, jti }), jti, sid, sub, iat, expMs };
   } catch {
-    return { jti: "", expMs: 0 };
+    return none;
   }
 }

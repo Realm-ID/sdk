@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -66,7 +67,7 @@ test("auth.login: happy path mints platform token first, then logs in", async ()
       tenants: [{ id: "t1", role: "owner" }],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const out = await realm.auth.login({ method: "firebase", providerToken: "id_xyz" });
   assert.equal(out.accessToken, "at");
   assert.equal(out.refreshToken, "rt");
@@ -103,7 +104,7 @@ test("auth.login: mfa_required surfaces challenge token", async () => {
       methods: ["totp"],
     }), { status: 412, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   await assert.rejects(
     () => realm.auth.login({ method: "firebase", providerToken: "id" }),
     (e: Error) => {
@@ -124,7 +125,7 @@ test("auth.token: rotate refresh + tenant switch", async () => {
       role: "admin",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const out = await realm.auth.token({ refreshToken: "rt", tenantId: "t2", customClaims: { outlet_ids: ["o1"] } });
   assert.equal(out.accessToken, "at2");
   assert.equal(out.role, "admin");
@@ -146,7 +147,7 @@ test("auth: decodes refresh_exp + idle_ttl onto login + token responses", async 
       user: { id: "u1" }, tenants: [{ id: "t1", role: "owner" }],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const login = await realm.auth.login({ method: "firebase", providerToken: "id_xyz" });
   assert.equal(login.refreshExp, 1_780_000_000);
   assert.equal(login.idleTtl, 1800);
@@ -157,7 +158,7 @@ test("auth: decodes refresh_exp + idle_ttl onto login + token responses", async 
       refresh_exp: 1_780_000_000, idle_ttl: 1800, tenant_id: "t2", role: "admin",
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm2 = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: tok.fetch, origin: "https://app.example" });
+  const realm2 = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: tok.fetch, origin: "https://app.example" });
   const token = await realm2.auth.token({ refreshToken: "rt", tenantId: "t2" });
   assert.equal(token.refreshExp, 1_780_000_000);
   assert.equal(token.idleTtl, 1800);
@@ -169,7 +170,7 @@ test("auth: decodes refresh_exp + idle_ttl onto login + token responses", async 
       user: { id: "u1" }, tenants: [{ id: "t1" }],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm3 = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: bare.fetch, origin: "https://app.example" });
+  const realm3 = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch: bare.fetch, origin: "https://app.example" });
   const bareLogin = await realm3.auth.login({ method: "firebase", providerToken: "id" });
   assert.equal(bareLogin.idleTtl, undefined);
 });
@@ -182,7 +183,7 @@ test("auth.otpLogin: sends grant_type=otp + identifier + presented (ADR-071 §4)
       user: { id: "u-bob" }, tenants: [{ id: "t1", role: "member" }],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const out = await realm.auth.otpLogin({ identifier: "+15551234567", presented: "123456" });
   assert.equal(out.accessToken, "at");
   // ADR-071 §8 provenance decodes onto the session.
@@ -202,7 +203,7 @@ test("auth.mfaVerifyOtp: routes through /auth/mfa/verify with method=otp (ADR-07
       user: { id: "u" }, tenants: [],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   await realm.auth.mfaVerifyOtp({ mfaToken: "ch_9", presented: "654321" });
   assert.match(calls[1]!.url, /\/auth\/mfa\/verify$/);
   const body = calls[1]!.body as Record<string, unknown>;
@@ -215,7 +216,7 @@ test("auth.logout: returns ok", async () => {
   const { fetch, calls } = recorder([
     () => new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const out = await realm.auth.logout({ refreshToken: "rt" });
   assert.equal(out.status, "ok");
   assert.match(calls[1]!.url, /\/auth\/logout$/);
@@ -245,7 +246,7 @@ test("auth.listSessions: decodes issuer sessionDTO fields incl. last_seen_at", a
       total: 1,
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const list = (await realm.auth.listSessions("u-jwt").page()).items;
   // userBearer path uses the JWT directly — no platform-token bootstrap.
   assert.match(calls[0]!.url, /\/auth\/sessions/);
@@ -267,7 +268,7 @@ test("auth.login: sends the ADR-062 X-Device-Name header, and only on the user g
       user: { id: "u1" }, tenants: [],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   await realm.auth.login({ method: "firebase", providerToken: "tok", deviceName: "akshat-mbp" });
 
   const bootstrap = calls[0]!;
@@ -289,7 +290,7 @@ test("auth.login: omits X-Device-Name when no device name is given", async () =>
       user: { id: "u1" }, tenants: [],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   await realm.auth.login({ method: "firebase", providerToken: "tok" });
   assert.equal(calls[1]!.headers.has("x-device-name"), false);
 });
@@ -304,7 +305,7 @@ test("auth.listSessions: still decodes the legacy flat {sessions: [...]} shape",
       sessions: [{ id: "legacy-1", created_at: 1_751_241_600 }],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   // Drained through the ITERATOR, not page(): the legacy body carries no
   // cursor, so this also pins that a pre-envelope server cannot spin the
   // iterator forever — it must stop after exactly one round trip.
@@ -332,7 +333,7 @@ test("auth.listSessions: follows next_cursor across pages", async () => {
       total: 3,
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
 
   const ids: string[] = [];
   for await (const s of realm.auth.listSessions("u-jwt")) ids.push(s.id);
@@ -356,7 +357,7 @@ test("auth.listSessions: page() returns one page and surfaces the cursor", async
       total: 9,
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const page = await realm.auth.listSessions("u-jwt").page({ limit: 1 });
 
   assert.equal(page.items.length, 1);
@@ -379,7 +380,7 @@ test("auth.login: a device label the transport cannot carry is stripped, not fat
       user: { id: "u1" }, tenants: [],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const long = "x".repeat(200);
   await realm.auth.login({
     method: "firebase",
@@ -399,7 +400,7 @@ test("auth.login: a label made ENTIRELY of control characters sends no header", 
       user: { id: "u1" }, tenants: [],
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   await realm.auth.login({ method: "firebase", providerToken: "tok", deviceName: "\n\n" });
   assert.equal(calls[1]!.headers.has("x-device-name"), false);
 });
@@ -415,7 +416,7 @@ test("auth: BFF mode is withUserToken — the platform bearer plus X-User-Token"
     () => new Response(JSON.stringify({ items: [{ id: "sess-1" }], next_cursor: null, total: 1 }),
       { status: 200, headers: { "content-type": "application/json" } }),
   ]);
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
   const list = (await realm.withUserToken("user-jwt").auth.listSessions().page()).items;
 
   assert.equal(list.length, 1);

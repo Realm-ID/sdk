@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -41,7 +42,7 @@ const okMint = () => new Response(JSON.stringify({
 const REALM_ID = "01HREALM";
 const API_KEY = "rk_live_test123";
 const mk = (fetch: typeof fetch) =>
-  createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
 
 // The defect test: before this field existed the body had no `scope` key,
 // whatever the caller asked for.

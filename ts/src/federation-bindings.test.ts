@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 
@@ -23,7 +24,7 @@ test("federationBindings.list: pages the platform bindings", async () => {
       next_cursor: null,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const p = await realm.federationBindings.list().page();
   assert.match(hitUrl, /\/platforms\/r-1\/federation-bindings/);
   assert.equal(p.items[0]!.id, "fb1");
@@ -39,7 +40,7 @@ test("federationBindings.create: POSTs snake_case body and decodes", async () =>
     return new Response(JSON.stringify({ id: "fb2", platform_id: "r-1", issuer: "https://token.actions.githubusercontent.com", audience: "ri-const", status: "active", mapped_role: "platform_api" }),
       { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const fb = await realm.federationBindings.create({
     issuer: "https://token.actions.githubusercontent.com",
     matchClaims: { repository: "acme/billing" },
@@ -63,7 +64,7 @@ test("federationBindings.revoke: DELETEs the binding by id", async () => {
     return new Response(JSON.stringify({ status: "revoked", id: "fb2" }),
       { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r-1", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const res = await realm.federationBindings.revoke("fb2");
   assert.equal(hitMethod, "DELETE");
   assert.match(hitUrl, /\/platforms\/r-1\/federation-bindings\/fb2$/);

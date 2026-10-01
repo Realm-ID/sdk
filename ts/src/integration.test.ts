@@ -5,6 +5,7 @@
  */
 
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -31,10 +32,10 @@ test("createRealm: missing apiKey is allowed (auto-detect workload identity, ADR
   // No apiKey + no credential → auto-detect an ambient workload identity.
   // Construction succeeds; the credential is only fetched lazily at first
   // login (which is what would fail off a supported platform).
-  const realm = createRealm({ realmId: REALM_ID });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID });
   assert.equal(realm.realmId, REALM_ID);
   // realmId is still required.
-  assert.throws(() => createRealm({} as Parameters<typeof createRealm>[0]), (e: Error) => {
+  assert.throws(() => createRealm({ sessionStore: createMemorySessionStore(),} as Parameters<typeof createRealm>[0]), (e: Error) => {
     return e instanceof RealmError && e.code === "bad_request" && /realmId/.test(e.message);
   });
 });
@@ -59,7 +60,7 @@ test("Origin auto-attach: derived from realm.info() audience when no override", 
     }
     return new Response("not found", { status: 404 });
   });
-  const realm = createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   await realm.auth.login({ method: "firebase", providerToken: "id" });
   // The user-grant /auth/login is the call carrying the Origin header
   // (the platform-api-key bootstrap doesn't).
@@ -88,7 +89,7 @@ test("Origin auto-attach: per-call origin overrides handle config and discovery"
     }
     return new Response("not found", { status: 404 });
   });
-  const realm = createRealm({
+  const realm = createRealm({ sessionStore: createMemorySessionStore(),
     realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test",
     fetch, origin: "https://configured.example",
   });
@@ -125,7 +126,7 @@ test("Logger: never logs raw apiKey, platform_token, refresh, or access tokens",
     return new Response("not found", { status: 404 });
   });
 
-  const realm = createRealm({
+  const realm = createRealm({ sessionStore: createMemorySessionStore(),
     realmId: REALM_ID, apiKey: "rk_live_supersecret_full", baseUrl: "https://auth.test",
     fetch, logger, origin: "https://app.test",
   });

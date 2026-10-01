@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -42,7 +43,7 @@ test("sources.list: GETs /sources?platform_id=<realm> and returns a page", async
       ],
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const page = await realm.sources.list().page();
   assert.equal(page.items.length, 2);
   assert.deepEqual(page.items[1]!.allowed_methods, ["otp"]);
@@ -62,7 +63,7 @@ test("sources.create: POSTs /sources, defaults platform_id to the realm", async 
       allowed_methods: ["google"], enabled: true, created_at: 100,
     }), { status: 201, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const src = await realm.sources.create({ type: "web", label: "Web app", allowedMethods: ["google"] });
   assert.equal(src.id, "src-1");
   assert.equal(src.platform_id, "r");
@@ -72,7 +73,7 @@ test("sources.create: 400 method_violates_kind surfaces on error.code", async ()
   const fetch = mkFetch(() => new Response(JSON.stringify({
     error: { code: "method_violates_kind", message: "human source may not list otp" },
   }), { status: 400, headers: { "content-type": "application/json" } }));
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await assert.rejects(
     () => realm.sources.create({ type: "web", label: "X", allowedMethods: ["otp"] }),
     (e: Error) => e instanceof RealmError && e.code === "method_violates_kind",
@@ -89,7 +90,7 @@ test("sources.update: PATCHes only provided fields", async () => {
       allowed_methods: ["google"], enabled: false, created_at: 100,
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   const src = await realm.sources.update("src-1", { label: "Renamed", enabled: false });
   assert.equal(src.label, "Renamed");
   assert.equal(src.enabled, false);
@@ -103,6 +104,6 @@ test("sources.delete: DELETEs /sources/{id}", async () => {
       status: 200, headers: { "content-type": "application/json" },
     });
   });
-  const realm = createRealm({ ...cfg, fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch });
   await realm.sources.delete("src-1");
 });

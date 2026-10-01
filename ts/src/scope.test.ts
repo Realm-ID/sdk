@@ -115,8 +115,8 @@ test("public, anyOf, method and first-match-wins", () => {
     "anyOf passes on one of two");
 
   assert.deepEqual(decideScope(policy, read, "POST", "/orders/7").missing, ["orders:write"]);
-  assert.deepEqual(decideScope(policy, claimsWith("nope"), "GET", "/reports/x").missing, [],
-    "an anyOf denial has no single missing scope");
+  assert.deepEqual(decideScope(policy, claimsWith("nope"), "GET", "/reports/x").missing, ["r:a", "r:b"],
+    "SPEC §11.4 (v0.63.0): an anyOf denial lists the rule's full scope set");
 });
 
 // These are the mistakes a partner makes once and should learn about at

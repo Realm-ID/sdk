@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
@@ -33,7 +34,7 @@ test("admin.listPlatforms: forwards filters and decodes envelope", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.admin.listPlatforms({
     q: "ac",
     status: ["active", "suspended"],
@@ -67,7 +68,7 @@ test("admin.stats: GETs /admin/stats and decodes", async () => {
       sessions_active: 7, events_24h: 3,
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const s = await realm.admin.stats();
   assert.equal(s.platforms_count, 4);
   assert.equal(s.events_24h, 3);
@@ -88,7 +89,7 @@ test("admin.listEvents: forwards kind+platform_id filters", async () => {
       next_cursor: null,
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.admin.listEvents({
     platformId: "p1",
     kind: ["platform.created", "platform.suspended"],
@@ -116,7 +117,7 @@ test("admin.search: q + limit", async () => {
       ],
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.admin.search("ac", 10);
   assert.equal(out.items.length, 2);
   assert.equal(out.items[0]!.type, "platform");
@@ -133,7 +134,7 @@ test("admin.stats: surfaces 403 forbidden envelope as RealmError(forbidden)", as
       error: { code: "forbidden", message: "base-realm staff required" },
     }), { status: 403, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await assert.rejects(() => realm.admin.stats(), (e: Error) => {
     return e instanceof RealmError && e.code === "forbidden";
   });
@@ -159,7 +160,7 @@ test("admin.getPlatform: GETs /admin/platforms/{id} and decodes the fleet row", 
     }), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
 
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   const out = await realm.admin.getPlatform("p1");
 
   // The row is the SAME AdminPlatformSummary the list returns — single-sourced
@@ -188,7 +189,7 @@ test("admin.getPlatform: percent-encodes the id into the path", async () => {
     hitUrl = typeof input === "string" ? input : input.toString();
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.admin.getPlatform("a/../b");
   // An unencoded id would escape the /admin/platforms/ prefix and address a
   // different endpoint entirely.
@@ -204,7 +205,7 @@ test("admin.getPlatform: a 404 stays platform_not_found, never a forbidden flavo
       error: { code: "platform_not_found", message: "platform not found" },
     }), { status: 404, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
-  const realm = createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   // The issuer returns an IDENTICAL 404 for an id that was never issued and for
   // a platform the caller may not see (issuer DECISIONS.md 2026-08-06). That
   // indistinguishability is the security property: a distinct refusal would

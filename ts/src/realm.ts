@@ -44,6 +44,8 @@ import type { ProductRolesHandler } from "./product-roles.js";
 import type { ScopesHandler } from "./scopes-handler.js";
 import type { IdentityResolvedHandler } from "./identity-resolved.js";
 import type { RevocationCache } from "./revocation.js";
+import { isMemorySessionStore, type SessionStateStore } from "./session-store.js";
+import { OrgSessionModeResolver, type OrgSessionMode } from "./org-session.js";
 import {
   AUTHORITY_STALE_SKEW_MS,
   DEFAULT_ACCESS_TTL_MS,
@@ -99,6 +101,15 @@ export interface RealmConfig {
    * a Redis/memcached-backed implementation for multi-replica deploys.
    */
   revocation?: RevocationCache;
+
+  /**
+   * REQUIRED (SPEC §6.7.5, v0.63.0): where the SDK keeps revoked sessions, the
+   * not-before marks and the refresh lock. Pass `createMemorySessionStore()`
+   * for a single replica; a multi-replica partner passes a shared (Redis, DB)
+   * implementation, because two replicas each holding their own lock serialize
+   * nothing. `createRealm` throws `RealmError{invalid_config}` without one.
+   */
+  sessionStore: SessionStateStore;
 
   /**
    * Optional SUBJECT-keyed staleness marker consulted by `verify()` after the
@@ -213,6 +224,12 @@ export interface Realm {
   readonly identityProviders: IdentityProvidersClient;
   readonly origins: OriginsClient;
   readonly tokens: TokensClient;
+  /** The §6.7.5 store shared by `tokens` and the middleware. */
+  readonly sessionStore: SessionStateStore;
+  /** The realm's org-session mode from discovery (SPEC §6.7.3); never throws, 10-min cache. */
+  orgSessionMode(): Promise<OrgSessionMode>;
+  /** Clock the realm was built with (ms); the middleware uses it for its own windows. */
+  now(): number;
   readonly admin: AdminClient;
   /** Partner audit-event feed (ADR-055). */
   readonly auditEvents: AuditEventsClient;
@@ -291,6 +308,13 @@ export function createRealm(cfg: RealmConfig): Realm {
   if (!cfg.realmId) {
     throw new RealmError({ code: "bad_request", message: "realmid: realmId required" });
   }
+  if (!cfg.sessionStore) {
+    throw new RealmError({
+      code: "invalid_config",
+      message:
+        "realmid: createRealm({ sessionStore }) is required (use createMemorySessionStore() for a single replica)",
+    });
+  }
   const baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const logger = cfg.logger ?? NOOP_LOGGER;
   const fetchImpl = cfg.fetch ?? globalThis.fetch.bind(globalThis);
@@ -366,6 +390,16 @@ export function createRealm(cfg: RealmConfig): Realm {
   // single typed-method signature. Everything expensive — the platform-token
   // manager, the verifier + its JWKS cache, realm-info discovery — is captured
   // above and SHARED by every derived handle.
+  const nowMs = (): number => (cfg.clock ? cfg.clock().getTime() : Date.now());
+  const orgSessions = new OrgSessionModeResolver({ baseUrl, fetch: fetchImpl, now: nowMs, logger });
+  // ONE TokensClient shared by every derived handle and by the middleware.
+  const tokens = new TokensClient(cfg.sessionStore, {
+    now: nowMs,
+    logger,
+    orgMode: (iss) => orgSessions.forIssuer(iss),
+  });
+  void isMemorySessionStore;
+
   const build = (client: HttpClient): Realm => {
     const handle: Realm = {
       realmId: cfg.realmId,
@@ -383,6 +417,7 @@ export function createRealm(cfg: RealmConfig): Realm {
         cfg.productRoles,
         cfg.scopes,
         cfg.onIdentityResolved,
+        { tokens, verify: (t) => verifier.verify(t), now: nowMs },
       ),
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),
@@ -397,7 +432,10 @@ export function createRealm(cfg: RealmConfig): Realm {
       identityProviderConfig: new IdentityProviderConfigClient(client, cfg.realmId),
       identityProviders: new IdentityProvidersClient(client, cfg.realmId),
       origins: new OriginsClient(client, platformTokens),
-      tokens: new TokensClient(cfg.clock ? () => (cfg.clock as () => Date)().getTime() : undefined),
+      tokens,
+      sessionStore: cfg.sessionStore,
+      orgSessionMode: () => orgSessions.get(cfg.realmId),
+      now: nowMs,
       admin: new AdminClient(client),
       auditEvents: new AuditEventsClient(client, cfg.realmId),
       otp: new OtpClient(client),

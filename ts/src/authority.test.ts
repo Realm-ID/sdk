@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import {
   AUTHORITY_STALE_SKEW_MS,
@@ -66,7 +67,7 @@ test("MemAuthorityCache: the key is per-MEMBERSHIP (D4)", async () => {
 /* ---------------------------------------- the notify method (D7, D11, D15) */
 
 function realmWith(authority?: AuthorityCache, clock?: () => Date) {
-  return createRealm({
+  return createRealm({ sessionStore: createMemorySessionStore(),
     realmId: REALM_ID,
     apiKey: "rk_live_test",
     baseUrl: BASE_URL,

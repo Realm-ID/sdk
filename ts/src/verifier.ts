@@ -10,6 +10,7 @@ import { RealmError, type ErrorCode } from "./errors.js";
 import type { Claims } from "./claims.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
+import { sessionKeyOf } from "./session-store.js";
 
 export interface VerifierConfig {
   /** Issuer host, no trailing slash. e.g. "https://auth.realmid.dev" */
@@ -107,6 +108,14 @@ export class Verifier {
       throw rerr("malformed", "iss missing");
     }
 
+    // §5.1.1: only an ACCESS token verifies. Before the kid lookup, so a wrongly
+    // typed token never triggers a JWKS fetch. No trimming; ASCII lower-casing.
+    const typ = (header as { typ?: unknown }).typ;
+    const typOk = typeof typ === "string" && ["jwt", "at+jwt", "application/at+jwt"].includes(typ.toLowerCase());
+    if (!typOk) {
+      throw rerr("malformed", `unexpected token type: ${typeof typ === "string" ? typ : "<absent>"}`);
+    }
+
     const realmId = extractRealmId(claims.iss);
     const key = await this.resolveKey(realmId, header.kid);
 
@@ -137,14 +146,25 @@ export class Verifier {
       throw rerr("not_yet_valid", "token not yet valid");
     }
 
+    // §5.1: a blank/absent sub is refused BEFORE either cache, so it can never
+    // skip the ADR-107 demotion check. ASCII whitespace only (not U+00A0).
+    if (typeof claims.sub !== "string" || /^[ \t\n\r\f\v]*$/.test(claims.sub)) {
+      throw rerr("malformed", "sub missing or blank");
+    }
+    // §5.1.1: an `events` member (any value, null included) marks a non-access token.
+    if (Object.prototype.hasOwnProperty.call(claims, "events")) {
+      throw rerr("malformed", "token carries an events claim");
+    }
+
     // ADR-041 follow-up: shared revocation cache check. Runs AFTER
     // signature + claim verification so a junk JTI never reaches the
     // cache. Opt-in: nil cache → no-op. Cache errors fail closed
     // (request rejected).
-    if (this.revocation && typeof claims.jti === "string" && claims.jti) {
+    const sessionKey = sessionKeyOf(claims);
+    if (this.revocation && sessionKey) {
       let revoked = false;
       try {
-        revoked = await this.revocation.isRevoked(claims.jti);
+        revoked = await this.revocation.isRevoked(sessionKey);
       } catch (e) {
         throw rerr("unauthorized", "revocation cache: " + (e as Error).message);
       }

@@ -7,6 +7,7 @@
  */
 
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 
@@ -42,7 +43,7 @@ function json(payload: unknown, status = 200): Response {
 }
 
 function realmWith(fetch: typeof fetch) {
-  return createRealm({ realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  return createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
 }
 
 test("withUserToken: a TYPED call carries X-User-Token beside the platform bearer", async () => {

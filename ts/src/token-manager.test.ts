@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError, isTokenStale } from "./errors.js";
@@ -48,7 +49,7 @@ function rotatingToken(_presented: string | undefined, n: number): Response {
 }
 
 function makeRealm(fetch: typeof fetch) {
-  return createRealm({ realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
+  return createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
 }
 
 test("TokenManager: first call refreshes, next is cache, near-expiry refreshes again", async () => {

@@ -580,6 +580,12 @@ export class AuthClient {
      * including why it is NOT retried and MUST be idempotent.
      */
     private readonly onIdentityResolved?: IdentityResolvedHandler,
+    /** SPEC §6.7 / §10.1 step 3a: what `logout` needs to revoke the session locally. */
+    private readonly session?: {
+      tokens: import("./tokens.js").TokensClient;
+      verify(token: string): Promise<unknown>;
+      now(): number;
+    },
   ) {}
 
   /**
@@ -992,30 +998,61 @@ export class AuthClient {
    *  (ADR-041 follow-up). Failure to push to the cache does NOT fail
    *  the logout call; the server-side refresh revocation is the
    *  load-bearing operation. */
-  async logout(req?: LogoutRequest): Promise<{ status: string }> {
+  async logout(req?: LogoutRequest): Promise<{ status: string; sid?: string; revoked_sids?: string[] }> {
+    // SPEC §10.1 step 3a: the session to revoke is named by the ISSUER's
+    // response (`sid`, and `revoked_sids` for all=true). Only when it names
+    // none — an older issuer, or the call failed — does a VERIFIED, UNEXPIRED
+    // bearer stand in. Anything else revokes nothing locally.
     const headers = await this.originHeaders(req?.origin);
-    const out = await this.http.request<{ status: string }>({
-      method: "POST",
-      path: "/auth/logout",
-      headers,
-      body: {
-        realm_id: this.realmId,
-        refresh_token: req?.refreshToken,
-      },
-    });
-    if (req?.accessToken && this.revocation) {
-      const { peekJwtRevokeFields } = await import("./revocation.js");
-      const { jti, expMs } = peekJwtRevokeFields(req.accessToken);
-      if (jti) {
+    let out: { status: string; sid?: string; revoked_sids?: string[] } | undefined;
+    let failure: unknown;
+    try {
+      out = await this.http.request<{ status: string; sid?: string; revoked_sids?: string[] }>({
+        method: "POST",
+        path: "/auth/logout",
+        headers,
+        body: {
+          realm_id: this.realmId,
+          refresh_token: req?.refreshToken,
+        },
+      });
+    } catch (e) {
+      failure = e;
+    }
+    const sids = new Set<string>();
+    if (out) {
+      if (typeof out.sid === "string" && out.sid) sids.add(out.sid);
+      if (Array.isArray(out.revoked_sids)) {
+        for (const id of out.revoked_sids) if (typeof id === "string" && id) sids.add(id);
+      }
+    }
+    if (this.session) {
+      if (sids.size > 0) {
+        for (const id of sids) await this.revokeLocally(id);
+      } else if (req?.accessToken) {
         try {
-          await this.revocation.revoke(jti, expMs);
+          await this.session.verify(req.accessToken); // full verify, expiry included
+          const { sessionKey } = (await import("./revocation.js")).peekJwtRevokeFields(req.accessToken);
+          await this.revokeLocally(sessionKey);
         } catch {
-          // Cache failure does not fail logout; server-side refresh
-          // revocation is the load-bearing operation.
+          // unverifiable / expired / typed wrong: revoke nothing locally.
         }
       }
     }
-    return out;
+    if (failure !== undefined) throw failure;
+    return out as { status: string };
+  }
+
+  private async revokeLocally(sessionKey: string): Promise<void> {
+    if (!sessionKey || !this.session) return;
+    await this.session.tokens.revokeSession(sessionKey);
+    if (this.revocation) {
+      try {
+        await this.revocation.revoke(sessionKey, this.session.now() + 24 * 60 * 60 * 1000);
+      } catch {
+        // Cache failure does not fail logout; server-side refresh revocation is load-bearing.
+      }
+    }
   }
 
   /** SPEC §4.5 — server-side revoke of a specific session id. */
