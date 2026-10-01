@@ -10,8 +10,10 @@ Newest first.
 
 ## Index
 
-103 entries total — 48 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+105 entries total — 50 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-01 (SPEC v0.63.0) — sessions, not tokens: logout and refresh revoke by `sid`, refresh is serialized, and only an access token verifies](#2026-10-01-spec-v0630--sessions-not-tokens-logout-and-refresh-revoke-by-sid-refresh-is-serialized-and-only-an-access-token-verifies)
+- [2026-10-01 (SPEC, owner rulings Q1-Q4) — the SDK owns the auth decisions a partner kept re-implementing, and two of them were holes](#2026-10-01-spec-owner-rulings-q1-q4--the-sdk-owns-the-auth-decisions-a-partner-kept-re-implementing-and-two-of-them-were-holes)
 - [2026-09-22 (local gates) — RCA: the tag gate could never pass, and nothing noticed for four days](#2026-09-22-local-gates--rca-the-tag-gate-could-never-pass-and-nothing-noticed-for-four-days)
 - [2026-09-18 (publish auth) — the npm token did not fail, it EXPIRED, and it will keep doing that](#2026-09-18-publish-auth--the-npm-token-did-not-fail-it-expired-and-it-will-keep-doing-that)
 - [2026-09-18 (local gates) — the hook only ever saw branch pushes, and the releases are cut with tags](#2026-09-18-local-gates--the-hook-only-ever-saw-branch-pushes-and-the-releases-are-cut-with-tags)
@@ -115,6 +117,306 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-01 (SPEC v0.63.0) — sessions, not tokens: logout and refresh revoke by `sid`, refresh is serialized, and only an access token verifies
+
+**Context.** The owner widened v0.63.0 the same day as Q1-Q4 (root
+`DECISIONS.md` 2026-10-01, "SDK v0.63.0 widened"; plan
+`auth/plans/2026-10-01-sdk-v063-sid-jti.md`). This entry amends the draft
+`289f85f` in place, as ruled. SPEC sections: §5.1.1, §6.7, §10.1 steps 3a/4a/4b,
+§10.2 path syntax, BFF-SPEC § Refresh-token rotation.
+
+**Decisions taken here, inside the rulings (each one reviewable by Wave 2):**
+
+- **The cache keys on the session: `sid`, else `jti`.** Before Issuer A the
+  `jti` IS the session id, unchanged across refresh and tenant switch
+  (`issuer/internal/authsvc/service.go:992,1507,1511`), so the fallback names
+  the same session and the transition needs no dual-keying.
+- **`markRevoked` revokes the session, not one token.** That is its effect
+  today; leaving it keyed on `jti` would have silently narrowed it to one token
+  the day Issuer B ships unique `jti`s.
+- **Revocation TTL is `max(exp, now + (exp − iat))`**, so revoking with an old
+  or expired token still covers a newer token of the same session.
+- ~~**The logout route verifies the bearer with expiry ignored.**~~ SUPERSEDED
+  the same day (Wave 2, M1, owner ruling): logout is keyed by the
+  refresh-token holder — see below.
+- **One `SessionStateStore` interface** holds revoked sessions, not-before
+  marks, the refresh lock and the refresh outcome, and later ADR-110 pushes —
+  so a multi-replica partner implements one thing once. Reads fail OPEN,
+  following the issuer's 2026-09-05 ruling for its own bearer check; a lock
+  failure fails CLOSED (503), because minting unlocked is the bug.
+- **The loser receives the winner's OUTCOME, errors included**, keyed on
+  `sha256(refresh token)` with a fingerprint of `tenant_id` + `custom_claims`.
+  Lock TTL 10 s (not the reference's 5 s) to match the 10 s detached mint
+  bound. (The draft's "a different fingerprint chains on the rotated token" is
+  SUPERSEDED — Wave 2, M2, below.)
+- **`typ` is an allowlist, absent refused, plus an `events` refusal.** Stronger
+  than ADR-110 D3's denylist and satisfies it. (The draft's `JWT`/`at+jwt`
+  became the issuer's exact three — Wave 2, M6, below.)
+- **Browser:** a Web Lock per BFF (not per tenant), the new token shared over
+  BroadcastChannel only — never through the `localStorage` fallback — and no
+  emulated lock where `navigator.locks` is absent.
+
+**RCA — the Go middleware's refresh route lets two requests spend one refresh
+token, and the issuer then kills the session.**
+- *Symptom (inferred from source, not reproduced):* a user with two tabs whose
+  access tokens expire together — routinely after a laptop wakes — is signed
+  out of every tab; no error names the cause.
+- *Root cause:* `handleRefresh` (`go/middleware.go:575-660`) reads the refresh
+  cookie and calls `Auth.Token` with no lock. Both requests present the same
+  one-time token; the issuer rotates for one and treats the other as reuse,
+  which revokes the session (ADR-031; the issuer's rotation is not
+  compare-and-swap either, `issuer/internal/storage/pg/session.go:301-336`).
+  The ts and java middlewares share the shape (not line-verified here).
+- *Why it wasn't caught:* the pattern was solved — in the reference BFF
+  (`api/internal/middleware/refresh.go:100-160`) and written up as partner
+  guide §6.7 — and the SDK middleware was never held to it. BFF-SPEC said it
+  "does not mandate a mechanism", and every middleware test sends one request at
+  a time.
+- *Fix:* SPEC §10.1 step 4a (per-refresh-token single-flight, loser gets the
+  winner's outcome, detached mint, 5 s outcome window), BFF-SPEC now MANDATES
+  it, and the browser SDK adds a cross-tab Web Lock.
+- *Prevention:* each language gets a concurrency test (two parallel refreshes
+  against a fake issuer that fails a reused token → exactly one issuer call,
+  both responses carry the same token); the browser gets a two-tab test.
+
+**RCA — every SDK verifier would accept any realm-signed JWT as an access
+token.**
+- *Symptom:* none observed; latent. Found by ADR-110's author while designing a
+  second realm-signed token type (the Logout Token).
+- *Root cause:* go parses the header `typ` and never checks it
+  (`go/verifier.go:86-99`); ts and java never read it
+  (`ts/src/verifier.ts:101-111`, `java/.../verifier/Verifier.java:140-157`).
+  Safe only while the issuer signs one token type.
+- *Why it wasn't caught:* it was true by accident — `tokens.Sign` is the
+  issuer's only signer (`issuer/internal/tokens/tokens.go:234-253`) — and no
+  test fed a verifier a well-signed token of the wrong type.
+- *Fix:* SPEC §5.1.1.
+- *Prevention:* negative tests per language (absent `typ`, `logout+jwt`,
+  `events` present) signed with the realm's own test key, so only the new check
+  can refuse them.
+
+**Answered the same day (owner, root `DECISIONS.md` 2026-10-01, umbrella
+`52d0b6f`).** The not-before key is chosen by a NEW per-realm setting, default
+`concurrent` (per `(sid, sub)`); `exclusive` keys per `sid` and a tenant switch
+ends the user's other orgs. The SDK reads the mode from the realm's discovery
+document — the field is `realmid_org_sessions`, issuer config key
+`org_sessions.mode` (ADR-109 D10). Only a refresh that
+ROTATES the refresh token moves a mark. Integration tokens (ADR-083) carry no
+`sid` and key on their own `jti`. Design consequence taken here:
+`recordRefresh` always writes BOTH marks and the mode is applied at check time,
+so a mode change needs no migration of recorded state and replicas that read
+the mode at different moments never disagree about what was recorded.
+
+**Wave 2 critique (`auth/.scratch/sdk-v063/critic-wave2.md`) and the owner
+rulings on it (root `DECISIONS.md` 2026-10-01, umbrella `f375541`), applied in
+this same draft commit.** Rulings: Issuer A is purely additive (atomic rotation
+and issuer-side refuse-older move to Issuer B); upgrade `@realm-id/web` before
+the backend SDK, no setting; logout keyed by the refresh-token holder; the
+session store is REQUIRED and explicit. Design choices taken here inside those
+rulings, each reviewable:
+
+- **B1 — every `jti` reader moves (SPEC §6.7.6).** The ADR-041
+  `Config.Revocation` keys `Revoke`/`IsRevoked` on `sid`, else `jti`, in all
+  three languages; the six reader groups are inventoried in the SPEC with a red
+  test each. Interface signatures are unchanged, so a partner's Redis
+  `RevocationCache` keeps working, and its v0.62 entries (keyed on the `jti`
+  that IS the session id) keep matching.
+- **One lifetime rule, `now + 24 h`** (the issuer's access-TTL ceiling,
+  `issuer/internal/httpapi/tenants.go:759`) for every revoked entry and mark,
+  extended and never shortened by a later write. Replaces
+  `max(exp, now + (exp − iat))`, which under-covered a token minted before the
+  realm's TTL was lowered and cannot be computed for a logout-response `sid`
+  that comes with no token. Cost: an entry lives a day, not 15 minutes.
+- **M1 — logout.** The issuer's logout response `sid` is revoked (also in
+  `auth.logout`, so a BFF calling it directly gets it); with no `sid` (older
+  issuer, or the issuer call failed) the bearer is the fallback only if it
+  passes the full `verify()`, expiry included. "Or the call failed" is my
+  reading of the ruling's "against an older issuer"; a verified unexpired
+  token proves possession of a live session, so it adds no attack.
+- **M2 — a loser asking for something else no longer chains.** It answers
+  `503 retry: true` carrying the winner's rotated refresh token, the client
+  retries. Both racing responses then set the SAME cookie, so their order
+  cannot strand a spent token, and "a loser does not record" holds without
+  exception. A narrow residual (the winner's response delayed past the whole
+  retry round trip) is stated in §10.1 step 4a.
+- **H3 — MFA verify takes the refresh lock** when it carries a refresh
+  candidate; it waits for the lock rather than adopting an outcome (its
+  challenge is unspent) and stores its outcome so a racing refresh is handed
+  the rotated token. The login route takes none: a login creates a new
+  session (INFERRED, not line-verified).
+- **M4/M5 — the store interface, settled before the go tag freezes it:**
+  namespaced opaque keys under `realmid:v1:`, a reserved subject-mark
+  namespace for ADR-110 D8, `SessionStates` batch read, `Evict` by prefix,
+  "lives until the latest `until` ever written", atomic per key, lock =
+  set-if-absent with TTL and fenced release. **The org-session mode is NOT a
+  store key** — it stays a per-process discovery cache (10 min, the JWKS TTL);
+  because keys are opaque, adding one later changes no interface.
+- **M6** — `typ` allowlist = the issuer's exactly (`JWT`, `at+jwt`,
+  `application/at+jwt`, case-insensitive; absent refused, as ADR-109 D9 also
+  refuses it). **M7** — the login/refresh/MFA-verify routes fetch the mode too.
+  **M3, L2** — stated as accepted limits in SPEC §6.7.4 / §6.7.2.
+- **A correction to the draft found while checking M6:** §5.1.1 said every
+  `tokens.Sign` caller is an access-token mint. `service.go:2490` is
+  `mintBaseJWT` — the issuer's MFA-challenge / session-revocation JWTs, `typ:
+  JWT`, base-realm `iss`/`aud` (ADR-109 Q2). `typ` cannot refuse them; a
+  partner-realm verifier still does, on `iss`/`aud`.
+
+**RCA — the SPEC moved logout to the session but left the ADR-041 shared
+cache on `jti` (design defect, caught in review before any code).**
+- *Symptom (would-be):* after Issuer B, a multi-replica partner using a shared
+  Redis `Config.Revocation` and passing `AccessToken` on logout, as the partner
+  guide says, denies only the one presented token; every sibling token of the
+  session keeps verifying until it expires. Silent: logout "works" in any
+  single-token test.
+- *Root cause:* the draft treated "the revocation cache" as one thing —
+  `TokensClient` — and rewrote that, while a second, older cache with the same
+  job reads `jti` in three other places per language (`go/auth.go:1100-1101`,
+  `go/verifier.go:177-178`; ts `auth.ts:1008-1011`, `verifier.ts:144-147`;
+  java `AuthClient.java:620-622`, `Verifier.java:206-210`). §6.7.5 then
+  declared it "unchanged and separate", and ADR-109's blast-radius table
+  claimed the opposite (protected because "v0.63.0 keys on `sid`"); the two
+  documents disagreed and neither was checked against the code.
+- *Why it wasn't caught by the author:* the reader list was built from the
+  section being rewritten, not DERIVED by searching the code for `jti`; the
+  Issuer-B precondition ("every reader of `jti` as a session id has moved")
+  was satisfied on paper.
+- *Fix:* SPEC §6.7.6 — the inventory, derived by `/usr/bin/grep` over all
+  three SDK trees plus `web/packages`, and the move; tests 89-95.
+- *Prevention:* the inventory is a table of greppable sites with a test per
+  row, and the builder re-runs the grep before tagging (any `jti` read outside
+  the table fails the release review). A reader list for a "which code reads
+  X" question is derived, never written from memory.
+
+
+## 2026-10-01 (SPEC, owner rulings Q1-Q4) — the SDK owns the auth decisions a partner kept re-implementing, and two of them were holes
+
+**Context.** A partner migrating a GoFr service onto the SDK's route gate
+(`CompiledScopePolicy.Middleware`) found it could not delete its own auth code:
+its middleware still had to refuse blank subjects, call the logout check, write
+its own 403 body and translate `{id}` route strings. The owner ruled the same
+day (Q1-Q4, recorded in the workspace's root `DECISIONS.md` 2026-10-01): the SDK
+owns authentication and route authorization for apps built on it, stays
+zero-dependency, and gets no GoFr adapter. This entry records the SPEC half
+only — **spec first, code after**. Nothing under `go/`, `ts/` or `java/`
+changed in this commit; the SPEC header marks the four sections UNRELEASED.
+
+**What the SPEC now says, and why each.**
+
+1. **§5.1 — a blank `sub` is refused, `malformed`, 401, no knob (Q1).** A token
+   with no subject has no principal for any downstream check to be about, and
+   (RCA 1) it skipped demotion. Reused `malformed` rather than adding a code:
+   a missing `iss` is already `malformed`, the taxonomy has no per-claim codes,
+   and a new code buys a `switch` arm nobody can act on. The whitespace set is
+   spelled out (six ASCII code points) because `strings.TrimSpace`, JS `trim()`
+   and Java `isBlank()` disagree about U+00A0, and a parity rule that leans on
+   three different helpers is three rules. The check sits after the
+   cryptographic checks and before both caches, so an untrustworthy token
+   reports why it is untrustworthy first and no cache ever sees an empty key.
+2. **§10.1 step 6a — the middleware runs the logout check itself (Q2).** It
+   was documented as the partner's job (§6.7 "the partner's middleware calls"),
+   which is exactly the kind of line a migration drops (RCA 2). Bearer
+   fall-through only — the one branch that forwards to a handler; there is no
+   cookie-refreshed request to gate, because the refresh route never forwards.
+   **No opt-out**: the cache only holds what the partner recorded as revoked,
+   and ignoring one's own revocation has no use. The 401 body carries
+   `revoked: true` in all three languages; Go already merged that detail, ts
+   and java dropped it, and a client should be able to tell "you were logged
+   out" from "your token is bad" without parsing a message.
+3. **§11.5.1 — `writeDenied` shapes the scope 403 (Q3).** A partner whose
+   clients parse a different 403 shape otherwise has to change every client
+   parser to adopt the gate. Kept the owner-approved name and a WRITER shape
+   (not a body-returning function), so a partner can also set headers such as
+   RFC 6750's `WWW-Authenticate`. The cost of a writer is that it can write
+   nothing, so the SPEC makes the SDK guarantee a 403 default and a finished
+   response in every adapter — otherwise an empty hook is a `200` in Go and a
+   hung request in Express. Runs on every denial including `matched == false`,
+   after `onScopeDenied`, so one route map has one 403 parser.
+4. **§11.4.1 — `{name}` matches one non-empty segment in a `ScopeRule` (Q4).**
+   Braces were escaped as literals (`go/middleware.go:1084`), so a pasted
+   `GET /dsr/{id}` matched only the literal string and every such route fell to
+   default deny — about 170 routes for the migrating partner. Compiles to
+   `[^/]+`, not `*`'s `[^/]*`: gorilla/mux's own default for a variable is
+   `[^/]+` (from memory of gorilla's source, not re-checked here), and an empty
+   segment is not an id. Partial-segment forms (`/files/{id}.json`) are
+   refused rather than supported: the ruling says "exactly one path segment",
+   and `*` already covers in-segment wildcards. Invalid brace forms compile to
+   a never-matching rule — inert, so fail closed — and `Validate()` names them.
+   Limited to `ScopeRule` paths as ruled; widening it to `exemptPaths` would
+   widen exemptions, so that is filed as an owner question, not done.
+5. **§11.4 — `missing` lists the full set on an `anyOf` denial.** Raised by the
+   partner session: the field was empty there in all three languages, so a
+   denial hook could not say which scopes would have admitted the caller. The
+   definition did not change — "required scopes the token did not carry" — and
+   on an `anyOf` denial that is all of them.
+6. **§11.4.1 normalisation table.** Not a behaviour change: the matcher
+   normalises nothing in any language, and that is now written down with test
+   rows, because a partner porting a slash-stripping matcher sees different
+   verdicts on `/orders/42/` and `/orders//42`.
+7. **§10 table, Java row.** It promised a Spring Security sibling artifact that
+   was never built; §11.5 already said there is none. Corrected to §11.5.
+
+**Not decided here — filed in `OPEN-QUESTIONS.md`:** whether the middleware's
+own logout route should mark the presented access token revoked (today step 3
+revokes only the refresh token, so 6a refuses only what partner code marked);
+and whether `{name}` should extend to `exemptPaths` / `mfaProtectedPaths`.
+**Found, not fixed — filed in `TODO.md`:** `/x/**` matches bare `/x` in Go but
+not in ts/java.
+
+**For the builders.** Test names cite `SPEC5_1`, `SPEC10_1_6a`, `SPEC11_4_1`,
+`SPEC11_5_1`. The doc comments that become false with the code: `scope.go:136-140`
+/ `scope.ts:110-113` ("same matcher as MFAProtectedPaths"), the three
+`ScopeDecision.Missing` field docs, and `tokens.go:93` / `tokens.ts:89-92` /
+`TokensClient.java:78-82` ("partner middleware calls").
+
+### RCA 1 — a token with a blank `sub` verified, and skipped the demotion check
+
+- **Symptom.** `verify()` accepted a correctly signed token whose `sub` was
+  absent or `""`. With an ADR-107 `AuthorityCache` configured, such a token was
+  also never checked against it, so a demotion marker could not refuse it.
+- **Root cause.** No verifier required `sub`, and the ADR-107 check was written
+  with a guard that skips it when `sub` is empty — go `verifier.go:192`, ts
+  `verifier.ts:162`, java `Verifier.java:226`. The guard is correct for its own
+  purpose (a cache keyed on `""` is meaningless), but with no earlier refusal it
+  turned "no subject" into "no demotion check".
+- **Why it wasn't caught.** The issuer never mints a blank `sub` (every mint
+  path sets a real id), so no test token and no live token ever exercised the
+  branch. The ADR-107 tests asserted what happens for a subject that HAS a
+  marker; nothing asked what happens for a token with no subject at all. A
+  verifier is tested against the issuer's tokens, and its job is the tokens the
+  issuer did not mint.
+- **Fix.** SPEC §5.1: refuse it, `malformed`, 401, before either cache, with no
+  setting to turn it off. Code follows in go/ts/java.
+- **Prevention.** The §5.1 vector table is mandatory in all three languages,
+  including the row that asserts `staleSince` is never called for a blank
+  `sub` — a spy, not an outcome, so re-introducing the skip goes red even when
+  the cache happens to be empty.
+
+### RCA 2 — the logout check was opt-in, so leaving it out silently disabled logout
+
+- **Symptom.** After a user logged out through partner code that marked the
+  access token revoked, that token still worked on any route behind the SDK
+  middleware unless the partner had ALSO called `gateRequest` themselves. A
+  migration that deleted the partner's "redundant" call would have kept
+  accepting logged-out tokens until expiry, with nothing failing.
+- **Root cause.** §6.7 specified `gateRequest` as something "the partner's
+  middleware calls" (`tokens.go:93`), and none of the three SDK middlewares
+  called it (go `middleware.go:430-447`, ts `middleware.ts:184-205`, java
+  `RealmFilter.java:89-104`). The SDK shipped the cache and the gate but left
+  the one line connecting them to every partner.
+- **Why it wasn't caught.** The tests for §6.7 test the cache in isolation
+  (mark, then `isRevoked`/`gateRequest`); the middleware tests never populate
+  the cache. A claim that "the SDK covers logout revocation" was believed by
+  the partner's own handoff for the same reason — the pieces exist, so the
+  wiring was assumed.
+- **Fix.** SPEC §10.1 step 6a: the middleware calls it on every bearer
+  request, before the MFA check, with no opt-out.
+- **Prevention.** A middleware-level test in each language that marks a token
+  through the realm's own `TokensClient` and asserts the 401 body and that the
+  handler was not called — so the cache and the middleware are tested as one
+  path, which is how a partner experiences them. The residual gap (the
+  middleware's own logout route does not mark the token) is filed rather than
+  assumed away.
 
 ## 2026-09-22 (local gates) — RCA: the tag gate could never pass, and nothing noticed for four days
 

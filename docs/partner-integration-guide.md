@@ -984,7 +984,7 @@ reading and revoking one you already hold is not.
 ## 5. Sessions, logout, MFA
 
 - **Sessions:** one RealmID session per login. Concurrent session limits configurable per realm (design.md §Session Management).
-- **Logout:** call the SDK — Go `realm.Auth.Logout(ctx, &realmid.LogoutRequest{RefreshToken: rt})`, TS `realm.auth.logout({ refreshToken })`. Revocation is immediate (DB + Redis); pass `AccessToken` too and the Go SDK's optional `RevocationCache` rejects that token's `jti` locally until natural expiry.
+- **Logout:** call the SDK — Go `realm.Auth.Logout(ctx, &realmid.LogoutRequest{RefreshToken: rt})`, TS `realm.auth.logout({ refreshToken })`. Revocation is immediate (DB + Redis); pass `AccessToken` too and the Go SDK's optional `RevocationCache` rejects that token's `jti` locally until natural expiry (through v0.62). **From SDK v0.63.0** `Logout` revokes the SESSION the issuer's logout response names (`sid`, from Issuer A) in both the `RevocationCache` and the session store, and uses `AccessToken` only as the fallback against an older issuer — only if it verifies and has not expired (SPEC §10.1 step 3a, §6.7.6). **From SDK v0.63.0** the middleware's own `POST /logout` also revokes the whole SESSION in your app (every access token of it, in every tenant) when the request carries the access token as a bearer, and a refresh refuses the session's older access tokens — SPEC §6.7 and §10.1 steps 3a/4b. Running several replicas? Supply a shared `SessionStateStore` (SPEC §6.7.5), or a logout on one replica is not seen by the others.
 - **MFA at login:** configurable per realm/tenant, delegated to the provider when it supports it natively (Firebase, Google); otherwise handled by RealmID TOTP (ADR-008).
 - **First-login MFA self-enrollment (ADR-061):** when a user logs into an MFA-required tenant with no factor yet, `/auth/login` returns `412 mfa_registration_required` with an `mfa_challenge_token` and `tenant_id`. The user (via your BFF) enrolls a TOTP factor through **`POST /auth/mfa/enroll`** — this is **refresh-authed** (the request carries the login session's `refreshToken` + `tenant_id`), so the **same** endpoint serves first-login enrollment *and* a logged-in user switching into an MFA-required tenant. The enroll response returns `{ secret, qr_url, recovery_codes, mfa_challenge_token, tenant_id }`; complete it by passing the **enroll-scoped** `mfa_challenge_token` to **`POST /auth/mfa/verify`** — a single verify both confirms the new secret and mints the token pair. There is **no** `/auth/mfa/confirm` step (it was removed in ADR-061; confirmation folds into verify). SDK: `selfEnrollMfa` (SPEC §4.8). **Note:** `recovery_codes` ARE redeemable — `POST /auth/mfa/recovery` (ADR-077 §2), and `POST /auth/mfa/recovery/regenerate` rotates them. This bullet used to say they were "not yet redeemable"; that stopped being true when the redeem path shipped.
 - **MFA freshness model (SPEC §10.4):** access tokens carry an `mfa_at` claim — the unix-seconds timestamp of the user's most recent successful MFA verify. SDK middleware reads `mfa_at` and enforces a per-route freshness window (`maxAgeSeconds` or `requireFresh`); on miss it returns `412 mfa_required` with a sibling `mfa_challenge_token`. The realm-wide default window lives at `realms.config.mfa_session_ttl_seconds` (default 900s). When fresh MFA is needed mid-session, partners call `POST /auth/mfa/challenge` (bearer = current access token) to mint a step-up challenge, then `POST /auth/mfa/verify` to complete it — verify returns a freshly-minted access + refresh pair carrying the new `mfa_at`. Full contract in [SDK SPEC §10.4](../../sdk/SPEC.md).
@@ -1084,7 +1084,7 @@ client and the verifier.
 | --- | --- |
 | `Auth.Login(ctx, LoginRequest{Method, ProviderToken, TenantID, …})` | User login (`grant_type=provider_token` on the wire). On an MFA gate it returns a `*RealmError` carrying `Details["mfa_challenge_token"]`. |
 | `Auth.Token(ctx, TokenRequest{RefreshToken, TenantID, Scope, CustomClaims, …})` | Refresh, tenant switch, and the §4.2 scoped mint. Custom claims are supplied HERE, per mint (§4 option a). |
-| `Auth.Logout(ctx, &LogoutRequest{RefreshToken, AccessToken})` | Revoke the session. `AccessToken`, when set, also feeds the local `RevocationCache` (below). |
+| `Auth.Logout(ctx, &LogoutRequest{RefreshToken, AccessToken})` | Revoke the session. From v0.63.0 the session the issuer's response names (`sid`) is revoked in the local `RevocationCache` (below) and the session store; `AccessToken` is the fallback for an older issuer, used only if it verifies and is unexpired. |
 | `Auth.ListSessions` / `Auth.RevokeSession` | Session administration on behalf of the user. |
 | `Tenants.*`, `Roles.*`, `APIKeys.*`, `Domains.*`, `Origins.*`, … | The admin surface — `SPEC.md` §6 carries the per-resource contract. |
 
@@ -1098,7 +1098,8 @@ client and the verifier.
 | --- | --- |
 | `RealmID` | Required. `BaseURL` defaults to the hosted issuer. |
 | `Leeway`, `Clock` | Clock-skew tolerance for `exp`/`nbf` (default 30s); time hook for tests. |
-| `Revocation RevocationCache` | Optional JTI denylist consulted after the stateless checks — stops the bleed on a stolen access token between logout and natural expiry. `NewMemRevocationCache(nil)` for one process; back it with Redis across replicas. There is **no issuer-side introspection endpoint** — tighter-than-TTL revocation is this cache plus your own logout wiring. |
+| `SessionStore SessionStateStore` | **Required from v0.63.0** — `NewRealm` fails without it. `realmid.NewMemorySessionStore()` for ONE replica; a shared (Redis) implementation across replicas, or refresh is not serialized and a logout on one pod is invisible to the others (SPEC §6.7.5). |
+| `Revocation RevocationCache` | Optional denylist — keyed on `jti` through v0.62, on the SESSION (`sid`, else `jti`) from v0.63.0 (SPEC §6.7.6) — consulted after the stateless checks — stops the bleed on a stolen access token between logout and natural expiry. `NewMemRevocationCache(nil)` for one process; back it with Redis across replicas. There is **no issuer-side introspection endpoint** — tighter-than-TTL revocation is this cache plus your own logout wiring. |
 
 > **Audience auto-discovery (ADR-064, issuer v0.14.0+).** If you call
 > `Verify(ctx, token, nil)` without an explicit audience, the verifier reads the
@@ -2046,6 +2047,22 @@ need is behind them.
 
 
 ## 6.7 Running your own BFF: refresh-token rotation
+
+> **Using the SDK middleware? From v0.63.0 it does all of this for you** — the
+> refresh route is single-flight per refresh token, a concurrent loser gets the
+> winner's tokens, and a reload inside 5 s gets the stored outcome (SPEC §10.1
+> step 4a). The session store is REQUIRED from v0.63.0 (SPEC §6.7.5): pass
+> `NewMemorySessionStore()` for one replica and a shared store for several —
+> the in-memory one serializes within one process only. **Upgrade
+> `@realm-id/web` to v0.63 BEFORE the backend SDK** (SPEC header, *Upgrade
+> order*): with an older browser SDK, two tabs in one org keep invalidating
+> each other's tokens — a `401` and an extra refresh on every tab switch,
+> though nobody is logged out. The rest
+> of this section is for a BFF that holds the tokens itself. Such a BFF, if it
+> also verifies access tokens, calls `tokens.recordRefresh(newAccessToken)`
+> after each rotation so the session's older tokens are refused (SPEC §6.7.2).
+> `web/BFF-SPEC.md` § Refresh-token rotation now MANDATES this serialization.
+
 
 If you front RealmID with your own BFF (the ADR-050/ADR-060 pattern — the browser
 holds an opaque session id, your server holds the tokens), you will hit this. It

@@ -321,13 +321,111 @@ codes: `mfa_required`, `mfa_registration_required`, `session_limit_reached`,
 ## Refresh-token rotation inside the BFF
 
 RealmID refresh tokens are **one-time-use, and reuse revokes the whole session
-chain** (ADR-031). A BFF that holds the tokens therefore needs single-flight
-rotation, a debounce, and a mint+persist that survives client cancellation —
-otherwise two parallel `/token` calls, or a page reload that aborts an in-flight
-one, signs the user out. This contract does not mandate a mechanism, but the
-failure mode is universal: the algorithm the reference BFF uses is written up as
-a documented pattern in
-[`sdk/docs/partner-integration-guide.md` §6.7](../docs/partner-integration-guide.md).
+chain** (ADR-031); the issuer keeps no grace window (owner ruling 2026-10-01).
+Two parallel `/token` calls carrying one refresh token, or a reload that aborts
+an in-flight one, sign the user out.
+
+**MANDATORY (v0.63.0, UNRELEASED — until then this section read "does not
+mandate a mechanism"):** a BFF **serializes refresh per session**, and a
+concurrent caller that loses the race **receives the winner's outcome** — the
+same tokens, or the same error — never a second mint with the same refresh
+token. Concretely, for every BFF:
+
+1. A per-session lock around the mint, shared across replicas, with a crash TTL.
+2. A loser waits for the winner's outcome; it does not mint.
+3. A short window (≤ 5 s) in which a repeat of the just-consumed refresh token
+   gets the stored outcome — this is what makes a reload survive.
+4. Mint and persist on a context the client's disconnect cannot cancel.
+5. A tenant switch takes the same lock and mints against the ROTATED token.
+6. **MFA verify takes the same lock** when the request carries the session's
+   refresh token: the issuer's MFA verify ROTATES that session's refresh token,
+   so an ADR-096 step-up racing a refresh spends one token twice.
+
+The SDK middleware does all six (SPEC §10.1 step 4a). Its lock is only as
+shared as the store the partner passes: from v0.63.0 the SDK refuses to
+construct without an explicit `SessionStateStore` (SPEC §6.7.5), so a
+multi-replica BFF must pass a shared one — the in-memory store satisfies
+point 1 only for a single replica. A loser whose request differs from the
+winner's (another tenant) gets `503 { error: { code: "server_error" }, retry:
+true }` carrying the winner's rotated refresh token (cookie or body), and the
+client retries (SPEC §10.1 step 4a). A hand-rolled BFF
+follows [`sdk/docs/partner-integration-guide.md` §6.7](../docs/partner-integration-guide.md).
+After a successful rotation a BFF that verifies access tokens itself calls
+`tokens.recordRefresh(newAccessToken)` (SPEC §6.7.2).
+
+### The browser side: one refresh across tabs (`@realm-id/web`, v0.63.0, UNRELEASED)
+
+Today `token-manager.ts` single-flights per **tenant** within one tab
+(`web/packages/core/src/token-manager.ts:114-120`) and `multi-tab.ts` carries
+events only (`token_refreshed` has no payload). But the refresh cookie belongs
+to the session, not the tenant or the tab, so the browser SDK:
+
+- **Takes a Web Lock** around every `/token` call:
+  `navigator.locks.request("realmid-refresh:" + channelName, { mode:
+  "exclusive" }, …)`, where `channelName` is the tab bus's (one per BFF base
+  URL). One lock per BFF, **not per tenant**: two tenants in one tab share the
+  cookie too.
+- **Inside the lock, first adopts a fresh sibling result:** if a
+  `token_refreshed` for the same `tenantId` arrived within the last 5 s and its
+  expiry is later than the held token's, it uses that token and does not call
+  `/token`. Otherwise it calls `/token`.
+- **Shares the result over BroadcastChannel:** `{ type: "token_refreshed",
+  tenantId, accessToken, expiresAt }`. A receiving tab adopts it for that
+  tenant when its expiry is later than what it holds. Tokenless mode
+  (`refresh.tokenless`) sends no `accessToken`; the receiver advances only the
+  expiry of the bearer it already has.
+- **Never writes a token to `localStorage`.** When BroadcastChannel is absent
+  the bus falls back to `storage` events (`multi-tab.ts`); on that path the
+  message carries `{ type: "token_refreshed", tenantId }` only, and a tab still
+  refreshes for itself — serialized by the lock.
+- **On `503` with `retry: true` from `/token`**, the token manager adopts the
+  refresh token the response carries (body mode; cookie mode needs nothing)
+  and retries `/token` ONCE, inside the same lock. A second `503` is a failed
+  refresh, not a lost session.
+- **Why this ships BEFORE the backend SDK (owner ruling 2026-10-01).** A v0.63
+  backend refuses an access token older than the session's last rotating
+  refresh in that org (SPEC §10.1 step 4b). An older `@realm-id/web` keeps one
+  token per tab, so two tabs in one org take turns invalidating each other —
+  each tab switch costs a `401` + `revoked: true`, a refresh and a retry, and
+  nobody is logged out. Upgrade `@realm-id/web` to v0.63 first; it works
+  unchanged against a v0.62 backend. There is no setting to turn 4b off. A
+  browser without BroadcastChannel (the `storage` fallback below carries no
+  token) has the same churn even on v0.63.
+- **When `navigator.locks` is absent**, the SDK keeps today's per-tab
+  single-flight, widened from per-tenant to per-BFF, and relies on the BFF's
+  mandatory serialization above as the backstop. No lock is emulated over
+  `localStorage`: such a lease is racy, and the server side is already correct.
+
+### Org-session mode in the browser (v0.63.0, UNRELEASED)
+
+`/token`, `/login` and MFA-verify success bodies carry `org_session_mode`
+(SPEC §6.7.3, §10.1 step 4b). Absent → `concurrent` (an older BFF).
+
+- **`concurrent`** — today's model: one held token per tenant, each refreshed
+  on its own. A refresh for Globex refuses only older Globex tokens.
+- **`exclusive`** — one org at a time. After a successful `/token` for tenant
+  Y the token manager **drops every held token for any other tenant** (they
+  are already refused server-side) and broadcasts `{ type: "tenant_switched",
+  tenantId: Y }` (an existing message type, `multi-tab.ts:11`) in addition to
+  `token_refreshed`. A receiving tab drops its other-tenant tokens and follows
+  the existing `tenant_switched` path rather than refreshing its old tenant —
+  refreshing it would end tenant Y in the first tab, and the two tabs would
+  take turns ending each other's org on every request.
+- A tab that still receives `401` + `revoked: true` for a tenant it was using
+  (no broadcast reached it: no BroadcastChannel, closed laptop) refreshes once,
+  as today. In `exclusive` mode that is the user re-choosing that org.
+
+### Logout (v0.63.0, UNRELEASED)
+
+A BFF revokes the session named by the ISSUER's logout response (`sid`, from
+Issuer A), which it gets by presenting the refresh token — so logout works for
+a client that sends no bearer at all (SPEC §10.1 step 3a). `POST /logout` also
+sends the current access token as `Authorization: Bearer` when the SDK holds
+one (today it sends none, `web/packages/core/src/realm.ts:453-458`): against
+an issuer older than Issuer A the BFF falls back to it, and only if it verifies
+AND has not expired. An expired or missing bearer revokes nothing locally; the
+issuer-side logout happens either way. A BFF that ignores the bearer is
+unaffected.
 
 ## Tokenless `/token` rotation
 

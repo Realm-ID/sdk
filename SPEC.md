@@ -3,6 +3,89 @@
 **Current as of 2026-09-05 — go `go/v0.58.0` · ts `ts-v0.51.0` · java
 `java-v0.48.0`** (see §12 for the tag matrix).
 
+> ⚠️ **UNRELEASED as of 2026-10-01 — the SDK v0.63.0 behaviours are specified
+> here ahead of code** (owner rulings Q1-Q4 and the same-day v0.63.0 widening,
+> 2026-10-01; why in `DECISIONS.md` 2026-10-01, both entries; plan
+> `auth/plans/2026-10-01-sdk-v063-sid-jti.md`). They target go `0.63.0`, then ts
+> and java with ONE behaviour, and **this note is deleted in the commit that
+> releases them**. Until then the sentence below this note is false for these
+> sections only:
+>
+> | § | Behaviour | Visible to an existing partner? |
+> |---|---|---|
+> | **§5.1** | `verify()` refuses an absent/blank `sub` with `malformed`, 401. No knob. | **Yes** — a token with no usable `sub` that verified before now fails. The issuer mints none, so only a forged, hand-built or third-party token is affected; with an ADR-107 cache configured, such a token also no longer skips the demotion check. |
+> | **§5.1.1** | `verify()` refuses a token whose header `typ` is absent or is not `JWT`/`at+jwt`/`application/at+jwt` (case-insensitive — the issuer's own ADR-109 D9 allowlist), and any token carrying an `events` claim. `malformed`, 401. No knob. | **Only for a token the issuer does not mint as an access token** — every issuer access token is typed `JWT`; `events` is reserved from custom claims from Issuer A (see *Release preconditions*). Closes an ADR-110 Logout Token passing as a bearer. Partner TEST fixtures that build a header without `typ` start failing. |
+> | **§6.7** | The partner-side session state is keyed on the SESSION (`sid`, falling back to `jti`), gains a refresh "not-before" record, and sits behind a `SessionStateStore` the partner MUST pass. | **Yes, BREAKING** — `NewRealm` / `createRealm` / `Realm.Builder.build()` FAIL without a session store (§6.7.5). `markRevoked` / `revokeOnLogout` revoke every access token of the session. |
+> | **§6.7.6** | The ADR-041 `Config.Revocation` cache keys `Revoke` and `IsRevoked` on the session key too — every `jti` reader in the SDK moves (inventory below). | **Yes** — a logout pushed into a shared `RevocationCache` denies every token of the session, before and after Issuer B. |
+> | **§10.1 step 3** | The middleware's logout route revokes the session named by the issuer's logout response (`sid`), or — against an older issuer — by a verified, UNEXPIRED bearer. `auth.logout` does the same. | **Yes** — after `POST /logout` every access token of that session gets `401` + `revoked: true` from this app. |
+> | **§10.1 step 4a** | The middleware's refresh route — and its MFA-verify route when a refresh cookie is present — is single-flight per presented refresh token; a concurrent same-request loser receives the winner's outcome; a loser asking for something else gets a retryable `503` carrying the rotated refresh token. | **Yes, as a fix** — two tabs refreshing with one cookie no longer trip the issuer's reuse detection and kill the session. |
+> | **§10.1 step 4b** + **§6.7.3** | A refresh that ROTATES refuses older access tokens (`iat < T`) — per org (`concurrent`, default) or per session (`exclusive`), by the realm's `realmid_org_sessions` discovery field (issuer config key `org_sessions.mode`, ADR-109 D10). Responses gain `org_session_mode`. No setting. | **Yes, BREAKING for a client that holds one access token per TAB** — see *Upgrade order*. A token older than the user's last refresh in that org (or, `exclusive`, in any org) is refused. |
+> | **§10.1 step 6a** | The SDK middleware runs the §6.7 logout check on every bearer request. | **Yes** — a token the partner marked revoked now gets `401 unauthorized` + `revoked: true` from the middleware itself. A partner who already calls `gateRequest` sees no change. |
+> | **§10.2 path syntax** | `/x/**` matches the bare `/x` in ts and java (Go already did); `{name}` works in `mfaProtectedPaths`; `exemptPaths` stays literal. | **Yes, BREAKING in ts and java** — an `exemptPaths` entry `/x/**` now ALSO exempts `/x`. |
+> | **§11.4** | `ScopeDecision.missing` lists the rule's full scope set on an `anyOf` denial. | Server-side only; never on the wire. |
+> | **§11.4.1** | `{name}` in a `ScopeRule` path matches exactly one non-empty segment. | Only for a rule that already contains `{` or `}`. |
+> | **§11.5.1** | Optional `writeDenied` hook shapes the scope 403. | No — unset, the 403 is byte-identical to today. |
+>
+> **How to cite.** The SPEC is the source; each language implements the
+> section. Builders put the section number in the test name or the test's first
+> comment — `SPEC5_1`, `SPEC5_1_1`, `SPEC6_7`, `SPEC10_1_3`, `SPEC10_1_4a`,
+> `SPEC6_7_5`, `SPEC6_7_6`, `SPEC10_1_4b`, `SPEC10_1_5`, `SPEC10_1_6a`, `SPEC10_2_paths`, `SPEC11_4`, `SPEC11_4_1`,
+> `SPEC11_5_1` — so a parity sweep can `grep` one section across `go/`, `ts/`
+> and `java/`. The per-language test list is kept beside the plan
+> (`auth/.scratch/sdk-v063/sdk-test-cases.md`, scratch — the SPEC is the
+> contract, the list is a checklist).
+>
+> **CHANGELOG — builders, read this.** This repo writes `CHANGELOG.md` per
+> release heading (`## go 0.63.0 … (date)`), in the release commit, not as an
+> `Unreleased` section. The v0.63.0 entry MUST carry a **Breaking** block naming:
+> §5.1 (blank `sub`), §5.1.1 (`typ`/`events`), §6.7.5 (the session store is
+> REQUIRED — construction fails without one; pass `NewMemorySessionStore()` for
+> a single replica), §6.7.6 (`Config.Revocation` keys on the session), §10.1
+> step 3 (logout revokes the session), §10.1 step 4b (refresh refuses older
+> tokens — with the *Upgrade order* note below, verbatim in substance), §10.1
+> step 6a (logout check by default), and — ts and java only — §10.2 `/x/**`
+> matching `/x`. Plus a **Fixed** line for §10.1 step 4a (the refresh race; RCA
+> in `DECISIONS.md`), for §5.1.1 (RCA in `DECISIONS.md`) and for §6.7.6 (RCA in
+> `DECISIONS.md`). Each language's own `CHANGELOG.md` mirrors its half.
+>
+> **Upgrade order — `@realm-id/web` FIRST, then the backend SDK (owner ruling
+> 2026-10-01; no setting).** §10.1 step 4b refuses an access token older than
+> the session's last rotating refresh in that org. `@realm-id/web` v0.63 shares
+> each new token across tabs (BFF-SPEC § The browser side); older versions keep
+> one token per tab. With an old browser SDK and a v0.63 backend, two tabs in
+> one org invalidate each other: tab A refreshes, tab B's next request gets
+> `401` + `revoked: true`, B refreshes, then A's next request is refused, and
+> so on. Every tab switch costs one `401`, one refresh and one retry. **Nobody is
+> logged out** — each refresh succeeds, and `revoked: true` is not a terminal
+> code to the browser SDK. The v0.63 browser SDK against a v0.62 backend works
+> unchanged (the new body field is ignored, the bearer on `/logout` is
+> ignored), so upgrading the browser first is always safe. The same churn hits
+> any client that keeps one access token per tab — a custom SPA, or v0.63 in a
+> browser without BroadcastChannel (BFF-SPEC: the `storage` fallback carries
+> no token).
+>
+> **Issuer compatibility — v0.63.0 MUST work against all three:**
+>
+> | Issuer | `sid` claim | `jti` | discovery `realmid_org_sessions` | logout response `sid` | What the SDK does |
+> |---|---|---|---|---|---|
+> | prod `v0.126.0` (today) | absent | = session id | absent | absent | keys on `jti` (same session, §6.7.1); mode `concurrent`; logout falls back to a verified UNEXPIRED bearer (§10.1 step 3) |
+> | **Issuer A** (ADR-109; purely additive) | present | = session id | present | present | keys on `sid`; mode from discovery; logout revokes the response `sid` |
+> | **Issuer B** (unique `jti`, atomic rotation, issuer-side refuse-older) | present | unique per token | present | present | as Issuer A — no SDK path reads `jti` as a session id any more (§6.7.6) |
+>
+> Issuer A adds and changes nothing a v0.62 client observes; the atomic
+> refresh rotation and the issuer refusing older tokens on its own routes are
+> **Issuer B** (owner ruling 2026-10-01), gated on the BFF and Traide running
+> v0.63.0. Nothing in v0.63.0 requires Issuer A.
+>
+> **Release preconditions owned outside `sdk/` (ADR-109 D1.1).** Issuer A
+> reserves both `sid` and `events` from `custom_claims` / a realm's
+> `access_token_custom_claim_keys`, so a partner can no longer mint either.
+> Against prod `v0.126.0` `events` is NOT reserved
+> (`issuer/internal/tokens/tokens.go`, `reservedClaims`): a realm whose custom
+> claim keys name `events` would mint tokens every v0.63 verifier refuses. The
+> issuer's read-only prod query for such realms must cover `events` as well as
+> `sid`, and come back empty, before go `0.63.0` is tagged.
+
 > **Every section of this revision is RELEASED.** The header carried an
 > "UNRELEASED surface" warning for ADR-102/103/104/105 (`login` MINTS now,
 > §4.1.1; `orgScope`/`orgIds` gone from §6.6) — those shipped in go `0.53.0` ·
@@ -1167,10 +1250,143 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
   override.
 - `exp` / `nbf` checked with leeway (default 30s).
 - JWKS fetched per-realm, cached 10m, unknown-kid forces refetch.
+- `sub` must be present and non-blank (§5.1).
+
+### 5.1 `sub` is required — a blank subject is refused (owner ruling 2026-10-01)
+
+`verify()` refuses a token whose `sub` claim is **blank**, which means any of:
+
+- absent from the payload;
+- JSON `null`;
+- not a JSON string (a number, boolean, object or array);
+- a string that is empty, or that consists only of ASCII whitespace —
+  U+0020, U+0009, U+000A, U+000B, U+000C, U+000D. **This exact set, in all
+  three languages.** Do not use the language's own "is blank" helper: Go's
+  `strings.TrimSpace` and JS `trim()` strip U+00A0 and Java's `isBlank()` does
+  not, so each would draw the line in a different place.
+
+**The refusal:**
+
+| | value |
+|---|---|
+| `code` | `malformed` (§3.1 verifier code — reused, no new code) |
+| `httpStatus` | `401`, set **on the error by `verify()` itself**, as §5.3 does for `token_stale`, so a partner verifying by hand gets the status this section promises |
+| middleware response | `401` `{ "error": { "code": "malformed", "message": … } }`, the ordinary §10.1 step 6 verify failure |
+| configurable? | **No.** No `Config` field, no `VerifyOptions` field, no middleware option, no per-realm knob |
+
+**Why `malformed` and not a new code.** The taxonomy has no per-claim codes;
+a missing `iss` is already `malformed` (go `verifier.go:118-120`), and a missing
+`sub` is the same kind of defect. A new code would be one more case every
+partner `switch` has to learn, for a refusal whose remedy is identical (there
+is none — no caller can fix a token by retrying), and `scripts/taxonomy-parity.py`
+would gain a symbol in three languages for no branch anyone would write.
+
+**Where the check sits — after the cryptography, before the caches.** It runs
+once signature, `iss`, `aud`, `exp` and `nbf` have all passed, and **before**
+the ADR-041 revocation-cache check and the §5.3 authority check. So:
+
+- an expired token with a blank `sub` reports `expired`, not `malformed` — a
+  token that is not trustworthy reports why it is not trustworthy first;
+- neither cache is ever consulted with an empty key;
+- the §5.3 check can no longer be skipped by sending no subject. That skip is
+  the defect this section closes: go `verifier.go:192`, ts `verifier.ts:162`
+  and java `Verifier.java:226` each guard the authority check with "sub is
+  non-empty", so a blank-`sub` token walked past demotion. The guard becomes
+  unreachable; an implementation may keep it as defence in depth.
+
+**The value is used verbatim.** A non-blank `sub` with surrounding whitespace
+(`" u1 "`) is accepted and returned unchanged — trimming it would change the
+§5.3 cache key.
+
+**Scope.** Every caller of `verify()`: the middleware's bearer fall-through,
+the middleware's post-refresh decode, and a partner calling `verify()` by hand.
+It does **not** apply to unverified peeks (go `claims_unverified.go` and its
+ts/java counterparts), which are not verifiers and refuse nothing.
+
+**Nothing the issuer mints is affected.** Every issuer mint path sets a
+non-empty `sub` (checked in issuer source, 2026-10-01), so the only tokens this
+refuses are ones the issuer did not mint in that shape.
+
+**Test vectors** — every language, every row:
+
+| `sub` in the payload | result |
+|---|---|
+| absent | `malformed`, 401 |
+| `null` | `malformed`, 401 |
+| `""` | `malformed`, 401 |
+| `" "` | `malformed`, 401 |
+| `"\t\n"` | `malformed`, 401 |
+| `42` (a number) | `malformed`. ts/java: 401 on the error. Go: already refused today by the claims decode (`verifier.go:115-116`, before the cryptographic checks), whose error carries no status; the middleware still answers 401, and that existing path is acceptable |
+| `""`, with an `AuthorityCache` configured | `malformed`, 401; `staleSince` is **never called** |
+| `""`, and the token is expired | `expired` |
+| `" u1 "` | accepted; `sub` is `" u1 "` |
+| `" "` (NBSP only) | accepted — outside the ASCII set above |
+
+### 5.1.1 Only an ACCESS token verifies — `typ` and `events` (fix, v0.63.0, UNRELEASED)
+
+`verify()` refuses a token as **`malformed`** (401 through the middleware,
+step 6) when either holds:
+
+1. **Its JOSE header `typ` is absent, not a string, or — after ASCII
+   lower-casing, with no trimming — anything other than `jwt`, `at+jwt` or
+   `application/at+jwt`.** This is exactly the issuer's own `LocalVerifier`
+   allowlist (ADR-109 D9), so the SDK and the issuer can never disagree about
+   which access tokens exist.
+   Checked right after the `alg` check and **before** the `kid` lookup, so a
+   wrongly typed token never triggers a JWKS fetch. Message:
+   `unexpected token type: <typ>` (`<absent>` when missing).
+2. **Its payload carries an `events` member** — any value, including `null` and
+   `{}`. Checked after the signature verifies and the claims decode, beside the
+   §5.1 `sub` check and **before** both caches (ADR-041 `Revocation`, ADR-107
+   `AuthorityCache`). Message: `token carries an events claim`.
+
+No knob. Both run on every `verify()` call: the middleware's step 6, the
+logout-route bearer read (§10.1 step 3) and a partner's direct call.
+
+**Why the allowlist accepts exactly these three.** Every JWT the issuer signs
+goes through one function, `tokens.Sign`, which hard-codes `typ: "JWT"`
+(`issuer/internal/tokens/tokens.go:238`; it holds the only RSA sign call,
+`tokens.go:253`; callers `authsvc/service.go:766,800,2490,2654` and
+`authsvc/integration_mint.go:83`). So `JWT` is every valid token today, and
+refusing an absent `typ` breaks none. `at+jwt` is the RFC 9068 access-token
+type and `application/at+jwt` its long form (RFC 7515 §4.1.9 treats the two as
+equivalent); both are accepted so that a later issuer move to RFC 9068 typing
+(ADR-109 Q1, undecided) is not a breaking change for v0.63+ SDKs. Any other
+spelling is refused. The decision to refuse an ABSENT `typ` stands: ADR-109 D9
+refuses it too.
+
+**Not every `tokens.Sign` caller is an access-token mint** — this section said
+so until 2026-10-01 and it was wrong. `service.go:2490` is `mintBaseJWT`, the
+issuer's own MFA-challenge and session-revocation JWTs: `typ: JWT`, `sub:
+"authsvc"`, the BASE realm's `iss`/`aud` (`service.go:2457-2466`; ADR-109 Q2).
+`typ` cannot tell them from an access token. A partner-realm verifier still
+refuses them on `iss`/`aud`; only a verifier configured for the base realm
+(RealmID's own services) would accept one. ADR-109 Q2 (a distinct `typ` for
+them) closes that; until it does, this check does not.
+
+**What it closes.** An ADR-110 Logout Token is signed with the realm key and
+carries the realm `iss` and `aud`; v0.62 verifiers would have taken it as a
+bearer, because none of them checks `typ` — go parses it and never reads it
+(`go/verifier.go:86-99`), ts and java never read it at all
+(`ts/src/verifier.ts:101-111`, `java/.../verifier/Verifier.java:140-157`).
+ADR-110 D3 asks for refusing `typ: logout+jwt` **or** an `events` claim; the
+allowlist is strictly stronger (it also refuses any future non-access type) and
+satisfies D3. The `events` check is the second, independent guard D3 requires.
+
+**The `events` refusal stays, and it depends on the issuer reserving the name.**
+A partner custom claim named `events` would otherwise be minted into every
+access token of that realm and refused by every v0.63 verifier — an outage.
+Issuer A reserves `events` and `sid` from custom claims (ADR-109 D1.1); prod
+`v0.126.0` reserves neither, which is why the header makes the issuer's prod
+query a release precondition.
+
+**Unaffected:** `ParseClaimsUnverified` (§6.6) and the §6.7 cache's claim peek,
+which never verify.
 
 ### 5.3 Authority-change propagation — the `AuthorityCache` (ADR-107)
 
-The ADR-041 `RevocationCache` is a **jti denylist**, and that is the whole of
+The ADR-041 `RevocationCache` is a **session denylist** (a `jti` denylist
+through v0.62 — the `jti` was the session id; §6.7.6), and that is the whole of
 what it can express. It serves logout for exactly one reason: the user presents
 their own token, so the SDK holds the jti at the moment it needs to deny it.
 
@@ -1534,64 +1750,329 @@ Partners that need stricter freshness for a high-risk operation can
 call `origins.invalidate(realmId)` to drop the cache and force a
 refetch, but the default TTL is the documented contract.
 
-### 6.7 Access-token revocation cache — `client.tokens.*`
+### 6.7 Session revocation cache — `client.tokens.*` (rewritten for v0.63.0, UNRELEASED)
 
-ADR-047 §1.1 routes every scoped read/write through the partner
-backend, which uses the SDK to call RealmID. RealmID handles
-**refresh-token** revocation server-side via `POST /auth/logout`. The
-SDK adds **partner-side defense-in-depth** for access tokens: on
-logout, the SDK caches the access token's JTI locally so subsequent
-requests presenting that JTI are rejected without needing a server
-round-trip. This bounds the "stolen access token" replay window
-without requiring RI to add per-access-token revocation state.
+RealmID revokes **refresh** tokens server-side (`POST /auth/logout`, and its
+reuse detection). A partner app verifies **access** tokens locally and learns
+of neither. The SDK therefore holds partner-side state about **sessions**, and
+refuses an access token on two grounds:
 
-Surface — symmetric across runtimes:
+- **revoked** — this app logged the session out (§10.1 step 3, `markRevoked`,
+  `revokeOnLogout`). Every access token of the session is refused.
+- **superseded** — the session refreshed at `T` (§10.1 step 4b,
+  `recordRefresh`). Every access token of the session with `iat < T` is
+  refused.
 
-- `tokens.markRevoked(accessToken)` — extracts the JWT's `jti` and
-  `exp`, stores the JTI in cache with TTL = `exp - now()`. No-op when
-  `exp` is in the past or when `jti`/`exp` are missing.
-- `tokens.isRevoked(accessToken)` — `boolean`. True iff the JTI is in
-  cache and not expired. Lazy GC: stale entries are evicted on read.
-- `tokens.revokeOnLogout` — composable middleware that wraps a
-  `logout()` call. Extracts JTI/exp from the access token **before**
-  the network call, runs the network logout (RI's `POST /auth/logout`),
-  then on **either success or transport failure** marks the JTI
-  revoked locally. Rationale: partner backend should fail closed — if
-  RI is unreachable, the access token still gets blackholed locally
-  so the user is logged out from the partner's perspective.
-- `tokens.gateRequest(accessToken)` — per-request gate the partner's
-  middleware calls before forwarding upstream. If the JTI is in cache,
-  throws `TokenRevokedError` (TS) / returns `ErrTokenRevoked` wrapped
-  in `RealmError(unauthorized, details.revoked=true)` (Go) / throws
-  `TokenRevokedException` (Java).
+#### 6.7.1 The session key
 
-Cache implementation:
+`sessionKey(token)` = the `sid` claim when it is a non-empty string; otherwise
+the `jti` claim when it is a non-empty string; otherwise **none**. When `sid`
+is present, `jti` is ignored for keying.
 
-- TS: `Map<jti, expiresAt>`, single-threaded.
-- Go: `sync.RWMutex` + `map[string]time.Time`, lazy GC on read.
-- Java: `ConcurrentHashMap<String, Long>`, lazy GC on read.
-- All three accept an injectable clock (default = system clock) for
-  deterministic testing — same pattern as the origins cache.
+- **Why the fallback is the same session.** Until the issuer's "Issuer A"
+  release adds `sid`, every access token of a session carries the session id
+  as its `jti`, unchanged across refresh and tenant switch
+  (`issuer/internal/revocation/revocation.go:2-7`;
+  `issuer/internal/authsvc/service.go:992,1507,1511`). After Issuer A both are
+  present and equal; after "Issuer B" `jti` is unique per token and `sid`
+  carries the session.
+- **No key → nothing recorded, nothing refused** — the v0.62 behaviour for a
+  token without a `jti`.
 
-TTL semantics: an entry's TTL equals the access token's remaining
-`exp`. Lazily evicted on read; repeated `markRevoked` of the same JTI
-does not grow the cache.
+#### 6.7.2 Surface — names unchanged, semantics widened to the session
 
-**Multi-pod staleness window.** The cache is **per-process**. A logout
-served by pod A does not propagate to pod B; a stolen access token
-can still be replayed against pod B for up to its remaining TTL. This
-is acceptable for v1; partners running multi-replica deployments
-should be aware of the bound. **v1.1 swap-in:** a Redis-backed
-implementation behind the same surface, out of scope for the initial
-ship.
+**One lifetime rule for every revoked entry and every mark: `H` = 24 h, the
+issuer's access-TTL ceiling** (`access_ttl_seconds must be 1..86400`,
+`issuer/internal/httpapi/tenants.go:759`). Any access token a session has
+minted up to now expires no later than `now + H`, whatever the realm's TTL is
+or was, so an entry written at `now` is kept until `now + H` — extended, never
+shortened, by a later write (§6.7.5). This replaces the draft's
+`max(exp, now + (exp − iat))` / `max(stored, exp)`, which under-covered a token
+minted before the realm's access TTL was LOWERED, and could not be computed at
+all for a revocation that carries no token (the logout response's `sid`).
 
-Recommended partner integration:
+- `tokens.markRevoked(accessToken)` — records the token's session **revoked**
+  until `now + H`. No-op when there is no session key. Peeks, never verifies:
+  it is the partner's own call on a token the partner already holds. **It
+  revokes the session, not one token:** that is the effect it has had all
+  along (the `jti` was the session id), and keying it on `jti` after Issuer B
+  would silently narrow it to one token.
+- `tokens.revokeSession(sessionKey)` — **NEW.** Records the named session
+  revoked until `now + H`; no-op on an empty key. This is what logout calls
+  with the `sid` from the issuer's logout response (§10.1 step 3), where no
+  access token is involved; ADR-110's receiver will call it too.
+- `tokens.recordRefresh(newAccessToken)` — **NEW.** Raises TWO not-before
+  marks to the token's `iat` (whole seconds), every time, whatever the realm's
+  mode: the **session mark** and the **membership mark** (`sessionKey` +
+  `sub`; keys in §6.7.5). Each stores `max(stored, iat)` and never lowers it,
+  so out-of-order completions across replicas cannot resurrect an older token;
+  each lives until `now + H`. No-op without a key, `sub` or `iat`. Writing both means a realm's mode
+  (§6.7.3) can be read at CHECK time, and a mode change takes effect on the
+  next check with no migration of recorded state. **Call it only for a refresh
+  that ROTATED the refresh token** (owner ruling 2026-10-01; §10.1 step 4b
+  says how the middleware tells). The middleware's refresh route calls it; a
+  partner BFF that calls `auth.token()` itself calls it under the same rule.
+- `tokens.isRevoked(accessToken)` — true iff the token's session is recorded
+  revoked, **or** the not-before mark the realm's mode selects (§6.7.3) is live
+  and the token's `iat` is below it: **concurrent** → the membership mark;
+  **exclusive** → the session mark. A token with no numeric `iat` against a
+  live selected mark is refused. **Strictly `<`**:
+  a token minted in the same second as the refresh survives to its own expiry —
+  at most one second, accepted by owner ruling. Lazy GC on read, as before.
+- `tokens.gateRequest(accessToken)` — unchanged contract: on `isRevoked`,
+  throws/returns the revoked error (Go `*RealmError{unauthorized,
+  revoked:true}` wrapping `ErrTokenRevoked`; TS `TokenRevokedError`; Java
+  `TokenRevokedException`). Both grounds produce the **same** error and the same
+  §10.1 step 6a body; a client reacts identically (refresh; a logged-out
+  session's refresh then fails). The SDK middleware calls it on every bearer
+  request (§10.1 step 6a).
+- `tokens.revokeOnLogout(logoutFn)` — as before (peek before the network call,
+  mark on success **or** failure), now session-keyed through `markRevoked`.
+- `tokens.evict(key)` — `key` is a session key; drops that session's revoked
+  entry, session mark and EVERY membership mark under it (the in-memory store
+  by prefix; a shared store via `Evict`, §6.7.5). Empty clears everything the
+  in-memory store holds; on a shared store an empty key is a no-op that logs a
+  warning — the SDK never issues a keyspace-wide delete.
 
-- Wire `tokens.revokeOnLogout(authClient.logout)` on the BFF logout
-  handler so logout is a single call from the SPA's perspective.
-- Wire `tokens.gateRequest(accessToken)` in the inbound middleware
-  immediately after `verify()` succeeds, before forwarding to RealmID
-  or to internal services.
+**Store errors.** A read error in `isRevoked` is **fail-open** (the token
+passes, a warning is logged) — the issuer's own bearer revocation check made
+the same choice (owner ruling 2026-09-05, issuer `DECISIONS.md`), because
+fail-closed makes the store a hard dependency of every authenticated request. A
+write error in `markRevoked`/`revokeSession`/`recordRefresh` is logged and
+never changes the response. The in-memory store never errors.
+
+**Clock skew (accepted limits).** `iat` and the mark `T` are both stamped by
+the issuer, so the partner host's clock never enters the `iat < T` comparison;
+it enters only the `now + H` lifetimes, where a skew of minutes against 24 h is
+immaterial. Two cases remain: (1) issuer replicas whose clocks differ — a token
+minted on a slow replica right after a refresh on a fast one can carry
+`iat < T` and be refused; the client refreshes again and the new token is
+refused too until the slow clock passes `T`. Bounded by the replicas' skew
+(Cloud Run is NTP-synced, so sub-second; whole-second `iat` makes most of it
+vanish). (2) ADR-109 D4.2's issuer-side `GREATEST` has the same shape. Neither
+is detected; both are accepted.
+
+#### 6.7.3 Which not-before mark applies — the realm's org-session mode (owner ruling 2026-10-01)
+
+One RealmID session spans every org (tenant) the user belongs to: one refresh
+cookie mints for any `tenant_id` (go `middleware.go:580-587`), a tenant switch
+rotates the refresh token (`MintForTenant`), and the session id is unchanged by
+it (`issuer/internal/authsvc/service.go:1507,1511`). Whether a user may be
+active in two orgs at once is therefore a **per-realm setting, new in this
+release, default `concurrent`**:
+
+| Mode | Mark checked | Example: Alice refreshes in her Globex tab |
+|---|---|---|
+| `concurrent` (default) | membership mark, `(sid, sub)` — `sub` is per membership, so per org | only her older **Globex** tokens are refused; her Acme tab keeps working |
+| `exclusive` | session mark, `sid` | her older tokens in **every** org are refused — switching to Globex ends Acme; one org at a time |
+
+**Where the SDK reads the mode.** The realm's discovery document, beside its
+JWKS: `GET {baseUrl}/{realm}/.well-known/openid-configuration` (served by the
+issuer today, `issuer/internal/httpapi/routes.go:48`), for the realm the
+token's `iss` names — resolved exactly as the verifier resolves the JWKS URL
+(`go/verifier.go:279`).
+
+**The field: `realmid_org_sessions`**, a string, `"concurrent"` |
+`"exclusive"` (ADR-109 D10.3). Issuer A always emits it, carrying the RESOLVED
+mode. The realm owner sets it through the issuer realm-config key
+**`org_sessions.mode`** (ADR-109 D10.1; `PATCH` deep-merges the group). The
+SDK's own browser-body field `org_session_mode` (below) is a different name on
+a different wire, and stays.
+
+- **When it is fetched — two triggers, one cache.** (a) The §6.7 check, on a
+  bearer request whose session has a live not-before mark. (b) The login,
+  refresh and MFA-verify routes (§10.1 steps 2, 4, 5), whose success bodies
+  report the mode — a login has no mark, so (a) alone could never serve it.
+  Both read one per-realm cache, keyed by the token's `iss` realm, **TTL 10
+  minutes** — the JWKS TTL (`go/verifier.go:276`, `jwksTTL`) — with the same
+  refresh policy as that realm's JWKS (§2). So a mode change reaches an SDK
+  within 10 minutes (ADR-109 D10.3 requires the SPEC to state this). Never
+  fetched by `verify()`, and never by a bearer request whose session has no
+  mark.
+- **Absent field, `""`, unknown value, or a fetch that fails → `concurrent`.**
+  This matches ADR-109's own meaning: an absent key or empty string resolves to
+  `concurrent` (D10.1 — `""` is refused only as a PATCH input; discovery never
+  emits it). An issuer older than Issuer A serves no field and has no exclusive
+  realms, so `concurrent` is the truth there. A failed fetch is retried at the
+  next cache expiry, logs one warning, and never fails a request. Fail-soft
+  here means *refuse fewer tokens*, the same direction as §6.7.2's fail-open
+  store read.
+- **The mode is not stored in `SessionStateStore`** (settled with the store
+  interface, §6.7.5). Each process reads it from discovery; replicas agree
+  within one cache TTL, and since both marks are always written (§6.7.2) a
+  replica that read the mode late refuses nothing it should not have recorded.
+  Putting it in the store would buy faster agreement than the 10-minute bound
+  ADR-109 D10.3 already accepts, at the cost of one more shared write per
+  realm; and because the store's keys are opaque strings (§6.7.5), a mode key
+  can be added later without changing the interface.
+- **`markRevoked` is unaffected:** logout ends the session in every org in both
+  modes.
+- **Integration tokens (ADR-083) carry no `sid`** (owner ruling 2026-10-01) and
+  have their own unique `jti`, so their `sessionKey` is that `jti` (§6.7.1).
+  They have no session row and are never refreshed, so in practice only
+  `markRevoked` applies to them.
+- **What the middleware tells the browser.** The refresh and login routes add
+  `"org_session_mode": "concurrent" | "exclusive"` to their JSON body (§10.1
+  step 4b) — the browser cannot read the issuer's discovery document, and
+  BFF-SPEC § Org-session mode says what it does with the value. Additive; a
+  client that ignores it is unaffected.
+
+#### 6.7.4 Why "refresh refuses older tokens" — the theft it detects
+
+A thief steals a refresh token and refreshes first. The SDK records not-before
+`T`. The owner's next request carries a token with `iat < T` and is refused;
+the owner's app refreshes with its now-spent refresh token; the issuer's
+existing reuse detection (`issuer/internal/authsvc/service.go:847-873`) revokes
+the whole session, the thief's tokens included at the issuer. Without the rule
+the theft surfaces only at the owner's next natural refresh, up to an access
+token's lifetime later. **Limit:** the thief's own access token still verifies
+in a partner app until its `exp` — nothing tells this app the issuer killed the
+session. ADR-110 (back-channel logout, designed, not built) is what closes that,
+and its receiver writes into the store below through `revokeSession`.
+
+**Limit under `concurrent` (accepted baseline, owner awareness 2026-10-01).**
+The detector above needs the thief's refresh to supersede a token the OWNER is
+using. In a `concurrent` realm the mark is per org: a thief who refreshes the
+stolen token into ANOTHER org of a multi-org user (`tenant_id=Globex` while the
+owner works in Acme) moves only the Globex mark, so the owner's Acme token keeps
+verifying. The theft is then caught only by the issuer's reuse detection at the
+owner's next natural refresh — up to an access-token lifetime later, the gap
+the ruling set out to close. `exclusive` realms, and single-org users (or
+`single_tenant_membership: true`, ADR-109 D10.4), do not have this gap. It is
+the cost of the `concurrent` default the owner chose, stated here so nobody
+assumes otherwise.
+
+#### 6.7.5 `SessionStateStore` — REQUIRED, one store for all session state
+
+Behind the §6.7 checks sits ONE interface holding every piece of cross-request
+session state the SDK keeps: revoked sessions, the not-before marks, the §10.1
+step 4a refresh lock and its outcome handoff, and — when ADR-110 is built —
+back-channel revocations. The SDK ships one implementation, in memory (zero
+dependencies, §11.5); a multi-replica partner supplies a shared one (Redis, a
+database).
+
+**The store is REQUIRED and passed explicitly — even the in-memory one (owner
+ruling 2026-10-01; BREAKING).** A silent in-memory default let a multi-replica
+partner believe refresh was serialized when it was not: BFF-SPEC MANDATES a
+lock shared across replicas, and two replicas each holding their own lock serialize
+nothing. Construction fails without a store:
+
+| Language | Config | Without a store |
+|---|---|---|
+| Go | `Config.SessionStore SessionStateStore` | `NewRealm` returns `(nil, err)` with `errors.Is(err, ErrSessionStoreRequired)`; message `realmid: Config.SessionStore is required (use realmid.NewMemorySessionStore() for a single replica)` |
+| ts | `createRealm({ sessionStore })` | `createRealm` throws `RealmError` code `invalid_config`, same message (`sessionStore`, `createMemorySessionStore()`) |
+| Java | `Realm.Builder.sessionStore(SessionStateStore)` | `build()` throws `IllegalStateException`, same message (`sessionStore`, `new MemorySessionStore()`) |
+
+The realm's `TokensClient` and its middleware share the one instance. Nothing
+logs "you are on the in-memory store" — passing it is the partner's statement
+that they run one replica.
+
+**The interface — frozen by the `go/v0.63.0` tag, so it is settled here.**
+
+```go
+type SessionState struct {
+    Revoked   bool
+    NotBefore time.Time // zero = none
+}
+
+type SessionStateStore interface {
+    // RevokeSession marks key revoked. The entry lives until the LATEST `until`
+    // ever written for key: a write never shortens it. Atomic per key.
+    RevokeSession(ctx ctxpkg.Context, key string, until time.Time) error
+    // RaiseNotBefore stores max(stored, nb) — never lowers it — and extends the
+    // entry's life to max(stored until, until). Both maxima in ONE atomic step.
+    RaiseNotBefore(ctx ctxpkg.Context, key string, nb, until time.Time) error
+    // SessionStates returns the live state of each key, in order (the zero
+    // value for an absent or expired key). One round trip; NOT required to be
+    // atomic across keys.
+    SessionStates(ctx ctxpkg.Context, keys []string) ([]SessionState, error)
+    // Evict drops every entry whose key equals prefix or starts with prefix+"|".
+    Evict(ctx ctxpkg.Context, prefix string) error
+
+    // Refresh single-flight (§10.1 step 4a). SET-IF-ABSENT WITH TTL, atomically
+    // (Redis `SET key token NX PX ttl`). `release` is FENCED: it frees the lock
+    // only if this holder still owns it (compare-and-delete).
+    AcquireRefreshLock(ctx ctxpkg.Context, key string, ttl time.Duration) (acquired bool, release func(), err error)
+    // `result` is an opaque SDK-encoded outcome holding live credentials:
+    // store it as a secret, and only for `ttl` (exact; never extended).
+    PutRefreshResult(ctx ctxpkg.Context, key string, result []byte, ttl time.Duration) error
+    GetRefreshResult(ctx ctxpkg.Context, key string) (result []byte, ok bool, err error)
+}
+```
+
+ts: the same seven methods returning `Promise`s, `release` an async function.
+Java: synchronous, throwing on failure, `release` a `Runnable`.
+
+**Key namespaces.** The SDK builds every key; a store treats keys as opaque
+strings. Each key starts with `realmid:v1:` so one Redis can hold this beside
+the partner's own data. Components are escaped (`%` → `%25`, `|` → `%7C`) and
+joined with `|`.
+
+| Namespace | Key | Written by | Lifetime | Read by |
+|---|---|---|---|---|
+| revoked session | `realmid:v1:rev\|<sessionKey>` | `markRevoked`, `revokeSession` (logout, ADR-110) | until `now + H` at the latest write (§6.7.2) | every §6.7 check |
+| session mark | `realmid:v1:nb\|<sessionKey>` | `recordRefresh` | until `now + H` at the latest write | check in `exclusive` |
+| membership mark | `realmid:v1:nb\|<sessionKey>\|<sub>` | `recordRefresh` | until `now + H` at the latest write | check in `concurrent` |
+| subject mark | `realmid:v1:sub\|<iss>\|<sub>` | **reserved** for ADR-110 D8's sub-only logout; v0.63 neither writes nor reads it | — | — |
+| refresh lock | `realmid:v1:lock\|<hex(sha256(refresh token))>` | §10.1 step 4a | 10 s TTL, fenced release | step 4a |
+| refresh outcome | `realmid:v1:out\|<hex(sha256(refresh token))>` | §10.1 step 4a | 5 s TTL, exact | step 4a |
+| org-session mode | **none** — per-process cache, §6.7.3 | — | — | — |
+
+The raw refresh token never appears in any key. `Evict(sessionKey)` with the
+session-key prefixes above removes the revoked entry and both marks of that
+session; the SDK calls it once per namespace (`rev|<k>`, `nb|<k>`).
+
+**Atomicity, stated once.** `RevokeSession` and `RaiseNotBefore` are atomic
+per key (Redis: one Lua script that compares and sets value and `PEXPIREAT`
+together — a plain `SET` + `EXPIRE` per write can SHORTEN a revocation, which
+is the defect this rule exists to prevent). `AcquireRefreshLock` is
+set-if-absent with TTL, and its release is a compare-and-delete on the holder's
+token. Nothing else is required to be atomic.
+
+- **The in-memory store** (`NewMemorySessionStore()` / `createMemorySessionStore()`
+  / `new MemorySessionStore()`) additionally lets a lock loser wait on the
+  winner's completion instead of polling; the observable behaviour (§10.1 step
+  4a) is the same. Two `Realm`s given two in-memory stores share nothing.
+- **The v0.62 "multi-pod staleness window" is now the partner's stated
+  choice**: with an in-memory store a logout on pod A is not seen by pod B;
+  with a shared store it is.
+- **A conformance suite ships with each SDK** (exported test helper) so a
+  partner can run their Redis store through the same atomicity and lifetime
+  cases the in-memory store passes.
+
+#### 6.7.6 Every `jti` reader in the SDK moves to the session key (v0.63.0, UNRELEASED)
+
+The ADR-041 `Config.Revocation` cache (`RevocationCache`, checked INSIDE
+`verify()`, fail-CLOSED on a cache error) stays a separate, optional,
+partner-supplied cache — but from v0.63.0 it is keyed on `sessionKey(token)`
+(§6.7.1) exactly like the §6.7 store. Leaving it on `jti` was the Wave 2
+BLOCKER (RCA in `DECISIONS.md` 2026-10-01): after Issuer B a logout pushed into
+it would deny only the ONE presented token, and the go tag would freeze that.
+The interface signatures do not change — `Revoke(ctx, key, until)` /
+`IsRevoked(ctx, key)` — only what the SDK passes as `key`, so a partner's Redis
+implementation keeps working; its entries written by v0.62 are `jti`s, which
+equal the session id until Issuer B, so they keep matching. `until` follows the
+§6.7.2 lifetime rule (`now + H`).
+
+**The inventory** — every non-test site that reads `jti`
+(`/usr/bin/grep` over `go/`, `ts/src`, `web/packages/*/src`, `java/src/main`,
+2026-10-01; lists in `auth/.scratch/sdk-v063/jti-readers-{go,ts,java}.txt`).
+Each row gets a red test in all three languages (`SPEC6_7_6`):
+
+| # | Reader | go | ts | java | v0.63.0 |
+|---|---|---|---|---|---|
+| R1 | peek helper used by logout and `TokensClient` | `platform_token.go:264-287` `peekJWTRevokeFields` | `revocation.ts:76-89` `peekJwtRevokeFields` | `auth/JwtPeek.java:28-48`; `tokens/TokensClient.java:139-158` (`Peek`) | returns `sessionKey` (`sid`, then `jti`) plus `iat`/`exp`/`sub`; the jti-only form is deleted |
+| R2 | `AuthClient.Logout` pushes into `Config.Revocation` | `auth.go:1099-1102` | `auth.ts:1008-1011` | `auth/AuthClient.java:620-622` | revokes the logout response's `sid`; else a VERIFIED, UNEXPIRED `AccessToken`'s session key; else nothing (§10.1 step 3); writes the §6.7 store too |
+| R3 | `verify()` consults `Config.Revocation` | `verifier.go:177-178` (`claims.JWTID`) | `verifier.ts:144-147` (`claims.jti`) | `verifier/Verifier.java:206-210` | `IsRevoked(sessionKey(claims))` |
+| R4 | `TokensClient` mark / check / revokeOnLogout / evict | `tokens.go:54-137` | `tokens.ts:61-125` | `tokens/TokensClient.java:56-119` | §6.7.2 on the §6.7.5 store |
+| R5 | `MemRevocationCache` | `platform_token.go:340-371` | `revocation.ts:50-60` | `revocation/MemRevocationCache.java:33-47` | parameter is a session key; behaviour unchanged |
+| R6 | `Claims` exposes `jti` | `claims.go:13` `JWTID` | `claims.ts:14` | `Claims.java:18,75` `jwtId()` | unchanged; **`sid` added** (`SessionID` / `sid` / `sessionId()`), and `sid` joins the registered-claim set so it never lands in custom claims (`claims.go:30`, `Verifier.java:41`, ts equivalent) |
+
+Not readers: `go/authority.go:3-8` and `go/realmid.go:86-89,312` are comments
+describing the denylist; their wording is updated to "session key" with R2/R3.
+`api/` (the reference BFF), `ui/` and `cli/` read no `jti` through the SDK
+(ADR-109 § Blast radius). Traide's bridge is outside this workspace and is
+ADR-109 D8 precondition (b).
 
 ### 6.5 Realm self — top-level
 
@@ -2361,7 +2842,12 @@ or `verify` directly; the middleware does that for them.
 |-------------|------------------------------------------|
 | TypeScript  | Connect-style `(req, res, next) => void` (works with Express, Polka, Connect; thin wrappers shipped for Hono / Cloudflare Workers). |
 | Go          | `func(http.Handler) http.Handler`        |
-| Java        | `jakarta.servlet.Filter` (with a Spring Security adapter as a sibling artifact). |
+| Java        | `jakarta.servlet.Filter` (`RealmFilter`). Works in Spring MVC / Boot unchanged. There is **no** Spring Security adapter and no sibling artifact — §11.5 gives the reason. |
+
+> This row promised "a Spring Security adapter as a sibling artifact" until
+> 2026-10-01. None was ever built, and §11.5 already said there is no
+> Spring-native adapter (the SDK takes zero external dependencies). §11.5 was
+> right; this row was corrected to match it.
 
 ### 10.1 Behavior
 
@@ -2382,9 +2868,53 @@ For every inbound request, the middleware:
    can branch without `fetch` rejecting on the 4xx.
 
 3. **Logout route?** If `method + path` matches the logout endpoint
-   (default `POST /logout`), middleware reads the refresh token (cookie
-   or body per `tokenDelivery`), calls `realm.auth.logout(...)`, clears
-   the cookie if applicable, returns `{ status: "ok" }`.
+   (default `POST /logout`), middleware reads every refresh-token candidate
+   (cookie or body per `tokenDelivery`), calls `realm.auth.logout(...)` for
+   each, clears the cookie if applicable, returns `{ status: "ok" }`.
+
+   **3a. The logout revokes the SESSION, keyed by the refresh-token holder
+   (owner rulings 2026-10-01, v0.63.0, UNRELEASED).** The session to revoke is
+   named by the ISSUER, not by the caller's access token:
+
+   1. For each refresh-token candidate, `realm.auth.logout(...)` calls the
+      issuer's `POST /auth/logout` with that refresh token. From Issuer A the
+      issuer's response carries the session's id as **`sid`** (additive; with
+      `all: true` it is the presented token's session — the user's other
+      sessions are not named, and ADR-110 is what reaches them).
+   2. **Response carries `sid`** → `tokens.revokeSession(sid)` (§6.7.2) and,
+      when configured, `Config.Revocation.Revoke(sid, now + H)` (§6.7.6).
+      Every access token of that session is then refused by step 6a, in every
+      tenant, from every client — including one that sent no bearer (today's
+      `@realm-id/web`, mobile apps, custom SPAs).
+   3. **No `sid` in the response** — an issuer older than Issuer A (prod
+      `v0.126.0` today), or the issuer call failed → fall back to the request's
+      `Authorization: Bearer <t>` **only if `t` passes the full `verify()`,
+      expiry INCLUDED** (and §5.1/§5.1.1); then `tokens.markRevoked(t)` and the
+      `Config.Revocation` push on its session key. Otherwise **revoke nothing
+      locally**; the issuer-side logout still happens.
+   4. The cookie is cleared as before; the response is `200 { status: "ok" }`.
+      **Logout never 401s** — a missing, failing or expired bearer is ignored.
+
+   - **Why not the bearer first.** v0.63's draft revoked by a bearer verified
+     with expiry IGNORED. Anyone holding any old access token of a live session
+     — from a log, weeks old — could then `POST /logout` with it and log the
+     user out of this app, repeatedly. Keying on the refresh-token holder
+     removes that; the fallback's non-expired rule bounds the residual to a
+     token that is still live (≤ its access TTL), which already grants
+     everything a logout takes away.
+   - **Verify, never peek.** An unverified `sid` would let anyone who knows a
+     session id revoke it in this app.
+   - **The same rule in `auth.logout`.** `AuthClient.Logout` (go
+     `auth.go:1077-1104`, ts `auth.ts` ~1008, java `AuthClient.java` ~620) does
+     steps 2-3 itself, so a partner BFF calling it directly gets the same
+     behaviour; its `LogoutRequest.AccessToken` is now only the step-3
+     fallback, and is VERIFIED there (v0.62 peeked it). Signatures unchanged.
+   - Go today: `handleLogout` (`go/middleware.go:560-572`) never touches
+     `Tokens`; ts `handleLogout` and java `RealmFilter` likewise.
+   - The browser SDK sends its current access token on `POST /logout`
+     (`web/BFF-SPEC.md` § Logout) so the step-3 fallback has something to use
+     against an older issuer. Today it sends none
+     (`web/packages/core/src/realm.ts:453-458`).
 
 4. **Refresh route?** If `method + path` matches the refresh endpoint
    (default `POST /token`), middleware reads the refresh token + body
@@ -2393,8 +2923,123 @@ For every inbound request, the middleware:
    rotated via cookie or body per `tokenDelivery`). `custom_claims` is
    the documented place for partner-supplied access-token claims.
 
+   **4a. One refresh per refresh token at a time; a loser receives the
+   winner's outcome (owner ruling 2026-10-01, v0.63.0, UNRELEASED).** Refresh
+   tokens are one-time-use and reuse revokes the session (ADR-031). Today Go's
+   `handleRefresh` (`go/middleware.go:575-660`) takes no lock, so two tabs
+   presenting one cookie both reach the issuer and the session dies (RCA in
+   `DECISIONS.md` 2026-10-01). The algorithm mirrors the reference BFF
+   (`api/internal/middleware/refresh.go:100-160`):
+
+   - **Key** = `hex(sha256(first refresh-token candidate))`, in the order the
+     route already reads candidates. Two tabs sharing a cookie jar produce the
+     same key.
+   - **Fingerprint** = `tenant_id` + canonical JSON of `custom_claims`. Stored
+     with the outcome.
+   - **Winner** (`AcquireRefreshLock(key, 10s)` returns acquired):
+     1. If `GetRefreshResult(key)` holds an outcome (a request that lost the
+        previous winner's response, e.g. a reload), use it — go to *Respond*.
+     2. Otherwise run the existing candidate loop and `enrichRefreshMint` on a
+        context **detached from the request** and bounded at **10 s**, so a
+        client disconnect cannot abort a rotation the issuer already performed.
+     3. Store the **outcome** — the mint result, or the error — with the
+        fingerprint: `PutRefreshResult(key, …, 5s)`. Errors are stored too: a
+        loser retrying a refresh the issuer already consumed would be a reuse.
+     4. On success, step 4b. Release the lock. *Respond*.
+   - **Loser** (not acquired): wait for the winner's outcome — in-process, on
+     its completion; with a shared store, `GetRefreshResult` every **50 ms**, at
+     most **60** tries (3 s). Then:
+     - **same fingerprint** → *Respond* with the winner's outcome (same tokens,
+       same `Set-Cookie`, or the same error);
+     - **different fingerprint** (another tenant, other `custom_claims`, or an
+       MFA-verify winner — below) → the loser **does not mint**. If the
+       winner's outcome was an error, the loser responds with it. Otherwise it
+       answers **`503 { error: { code: "server_error", message: "refresh
+       superseded, retry" }, retry: true }`** and hands over the winner's
+       ROTATED refresh token exactly as the winner's response did — the same
+       `Set-Cookie` in cookie mode, `refresh_token` in the body in body mode.
+       The client retries with the token it then holds, and the retry is an
+       ordinary winner keyed on that token, which mints for the loser's tenant
+       and records (step 4b).
+       **Why not chain** (the draft did): a chained loser rotated R1 → R2 and
+       set R2 while the winner set R1; a browser that processed the winner's
+       `Set-Cookie` LAST kept the spent R1, and once the 5 s window passed the
+       next refresh was reuse and killed the session. Both responses now set
+       the SAME token, so their order cannot matter; and "a loser does not
+       record" (step 4b) holds without exception, because a loser never mints.
+       The residual: the retry's response (R2) could still be overtaken by the
+       winner's response (R1) only if the winner's response is delayed by more
+       than the client's whole retry round trip; within the 5 s window even
+       that heals (a presenter of R1 gets the retry's stored outcome).
+       `@realm-id/web` v0.63 never reaches this branch — its Web Lock is per
+       BFF, not per tenant. An old browser SDK treats the `503` as a failed
+       request, not a lost session (`token-manager.ts` drops the session only
+       on `unauthorized` / `session_*` codes), so the user sees one failed call;
+       v0.62 middleware would have let both mint instead;
+     - **no outcome within 3 s** → `503 { error: { code: "server_error",
+       message: "refresh in progress" } }`. It never mints.
+   - **A store error on acquire** → `503 server_error` ("session store
+     unavailable"), no mint — minting unlocked is the bug this step removes.
+   - **Respond** = today's response for the outcome. `OnAuthSuccess` (Go) runs
+     on every successful response, winner and loser alike, so a partner's
+     fail-closed hook is never bypassed by losing a race.
+   - **Lock TTL 10 s, not the reference's 5 s**, so a slow mint inside its 10 s
+     bound cannot be overtaken by a second winner.
+   - **The 5 s result window is a grace window inside the SDK**, the same one
+     the reference BFF has: within it, a second presenter of the old refresh
+     token gets the new tokens. The issuer keeps no grace window. Its rotation
+     becomes atomic (a losing racer at the issuer is reuse) only in **Issuer
+     B** (owner ruling 2026-10-01: Issuer A is purely additive), which waits for
+     the BFF and Traide to run this serialization; against prod `v0.126.0` and
+     Issuer A the issuer's rotation is not compare-and-swap, so two unserialized
+     racers both mint and the session dies one refresh later — this step is
+     what prevents that on every issuer.
+   - **The MFA-verify route takes the same lock (step 5).** The issuer's MFA
+     verify ROTATES the session's refresh token (`VerifyMFAWithMethod` loads
+     the live session and calls `RotateRefresh`,
+     `issuer/internal/authsvc/service.go` ~1709-1744), so an ADR-096 step-up
+     verify in tab A racing a refresh in tab B spends one refresh token twice.
+     When the MFA-verify request carries a refresh-token candidate, it acquires
+     the lock keyed on that candidate (same key rule). It never adopts a
+     refresh outcome — its challenge is single-use and has not been consumed —
+     so when the lock is held it waits for the lock itself (the same 50 ms × 60
+     budget, then `503` "refresh in progress"), then calls the issuer. On
+     success it stores its outcome (fingerprint `mfa-verify`) under the key,
+     so a refresh loser waiting on it takes the different-fingerprint branch
+     above and is handed the rotated token. Without a refresh-token candidate
+     (first-login MFA: no session yet) it takes no lock. The login route takes
+     no lock: a login creates a NEW session and does not rotate the presented
+     cookie's session (INFERRED from the login flow, not line-verified). The
+     issuer half of this race — not treating an MFA-path compare-and-swap loss
+     as reuse — is ADR-109's (Issuer B), not the SDK's.
+
+   **4b. A ROTATING refresh refuses the session's older access tokens (owner
+   rulings 2026-10-01, v0.63.0, UNRELEASED).** After a winner's successful
+   mint the middleware decides whether the refresh **rotated**: it did iff the
+   response's refresh token is non-empty **and differs from the candidate that
+   minted**. A non-rotating refresh (an M2M/service session with
+   `*_refresh_rotates` off) comes back carrying the SAME refresh token — the
+   issuer's mint leaves it empty and, per the comment at
+   `issuer/internal/authsvc/service.go:1028-1034`, its HTTP layer echoes the
+   presented one (the echo itself is not line-verified; the rule holds either way). Only on rotation does the
+   middleware call `tokens.recordRefresh(newAccessToken)` (§6.7.2); every
+   access token below the new `iat` on the mark the realm's mode selects
+   (§6.7.3) is then refused by step 6a. Why only rotation: three replicas of
+   one service sharing a non-rotating refresh token would otherwise log each
+   other out every cycle. A loser does not record (it holds the same token).
+   The theft this detects is §6.7.4.
+
+   The refresh response — winner and same-fingerprint loser — gains
+   `"org_session_mode": "concurrent" | "exclusive"` (§6.7.3; the SDK's own
+   wire name, distinct from the issuer's discovery field
+   `realmid_org_sessions`). The login and MFA-verify success bodies carry it
+   too; those routes read the mode through the §6.7.3 cache. When the mode
+   could not be read it reports `concurrent`.
+
 5. **MFA verify route?** Default `POST /mfa/verify`. Body
-   `{ challenge_token, code }`; behaves like login on success.
+   `{ challenge_token, code }`; behaves like login on success. **From v0.63.0
+   it runs under the step 4a lock when a refresh-token candidate is present**
+   (step 4a, "The MFA-verify route takes the same lock").
 
 6. **Otherwise:** require `Authorization: Bearer <access-token>`,
    call `realm.verify(token)`. On success, attach the verified `Claims`
@@ -2404,6 +3049,57 @@ For every inbound request, the middleware:
 
    On verify failure (bad signature, expired, malformed, unknown kid,
    missing header): respond **`401`** with `{ error: { code, message } }`.
+
+   **6a. Logout check (owner ruling Q2, 2026-10-01).** Immediately after
+   `verify()` succeeds — before the MFA check below and before the claims are
+   attached — the middleware runs the §6.7 session check (revoked or superseded) on the same
+   bearer string, using **the realm's own** `TokensClient` (the instance the
+   realm exposes, so a `markRevoked` / `revokeOnLogout` the partner performed on
+   it is seen):
+
+   | Language | Call | Hit raises |
+   |---|---|---|
+   | Go | `r.Tokens.GateRequest(token)` | `*RealmError{Code: unauthorized, Details: {revoked: true}}`, `errors.Is(err, ErrTokenRevoked)` |
+   | TS | `realm.tokens.gateRequest(token)` | `TokenRevokedError` (`code: "unauthorized"`, `details.revoked: true`) |
+   | Java | `realm.tokens().gateRequest(token)` | `TokenRevokedException` (`UNAUTHORIZED`, `revoked=true` detail) |
+
+   On a hit the middleware responds exactly as for a verify failure, through
+   the same path (Go `respondAuthFail` at stage `verify`, so `OnAuthFailure`
+   fires; ts `respondAuthFailure`, so `onAuthFailure` keeps its §10.5
+   semantics; java `sendError`), with this body in all three:
+
+   ```json
+   { "error": { "code": "unauthorized", "message": "access token revoked" }, "revoked": true }
+   ```
+
+   Status **401**. The wrapped handler is **not** called. A revoked token on an
+   `mfaProtectedPaths` route gets this 401, never the 412 — the logout check
+   runs first.
+
+   - **Today.** None of the three middlewares makes this call: go
+     `middleware.go:430-447`, ts `middleware.ts:184-205`, java
+     `RealmFilter.java:89-104` go straight from `verify()` to the MFA check.
+     Go already emits the `revoked: true` sibling for an error carrying that
+     detail (`respondAuthFail` merges `Details`, `middleware.go:724-726`); ts
+     (`respondAuthFailure`, `middleware.ts:469-475`) and java (verify failure
+     passes `null` siblings, `RealmFilter.java:102`) must add it for this case.
+   - **Only the bearer fall-through.** Step 6 is the one branch that hands a
+     request to the partner's handler, so it is the one branch gated. Exempt
+     paths (step 1) touch no auth. The login, logout, refresh and MFA-verify
+     routes (steps 2-5) authenticate with a provider token, a refresh token or
+     a challenge, never with an access token, and are not gated. **There is no
+     "cookie-refreshed request" to gate:** the refresh route answers the client
+     itself and never forwards; a request to a protected path carrying only the
+     refresh cookie and no bearer is the existing `401 unauthorized` "missing
+     bearer token".
+   - **No knob.** The check is a map lookup that refuses only what the partner
+     themselves recorded as revoked; an option to ignore one's own revocation
+     has no use. A partner who still calls `gateRequest` by hand after the
+     middleware is unaffected — a revoked token never reaches their call.
+   - **Not the ADR-041 shared cache.** `Config.Revocation` (checked *inside*
+     `verify()`) still answers `unauthorized` without the `revoked` sibling,
+     but is keyed on the session from v0.63.0 (§6.7.6), not on `jti`. 6a is
+     the separate §6.7 session cache (`SessionStateStore`).
 
    On a path that requires MFA (declared via `mfaProtectedPaths`),
    evaluate **MFA freshness** (see §10.4). On miss, respond **`412`**
@@ -2456,6 +3152,25 @@ const middleware = realm.middleware({
   onAuthFailure?: (ctx, event) => void,             // observe-only; SDK still writes the envelope
 });
 ```
+
+**Path syntax of `exemptPaths` and `mfaProtectedPaths` (v0.63.0, UNRELEASED).**
+
+| Form | `exemptPaths` | `mfaProtectedPaths` | Matches |
+|---|---|---|---|
+| `*` | yes | yes | any characters within ONE segment, empty included |
+| `**` | yes | yes | zero or more segments; **`/x/**` matches `/x`, `/x/` and `/x/a/b`** |
+| `{name}` | **no — literal text** | yes | exactly one NON-empty segment (§11.4.1 grammar; other brace forms are refused at construction as in §11.4.1) |
+
+- **`/x/**` matches the bare `/x` in all three languages** (owner ruling
+  2026-10-01). Go already did (`go/middleware.go:1066-1071` compiles `/**` to
+  `(?:/.*)?`); ts (`ts/src/middleware.ts:613`) and java
+  (`GlobMatcher.toRegex`) needed `/x/` or deeper. **BREAKING in ts and java:**
+  an `exemptPaths` entry `/x/**` now also exempts `/x` — the direction that
+  removes auth. The same change reaches `mfaProtectedPaths` (protects more) and
+  `ScopeRule` paths (§11.4.1).
+- **`{name}` in `mfaProtectedPaths`** only adds protection. **`exemptPaths`
+  stays a literal match for braces** (owner ruling 2026-10-01): a placeholder
+  there would widen an exemption, the fail-open direction.
 
 Same fields exist in the Go and Java configurations using
 language-idiomatic types (`time.Duration` for `MaxAge`,
@@ -2941,7 +3656,128 @@ needs a specificity metric, and any metric would be a guess about your routing.
 
 **`Validate()` returns every problem, not the first** — including a scope RealmID
 would refuse to mint, which would otherwise present as a route no token can ever
-satisfy. Run it at startup.
+satisfy. Run it at startup. `Compile()` does **not** validate.
+
+**`ScopeDecision.missing` — the required scopes the token did not carry, in
+BOTH modes (2026-10-01).** On an all-of denial that is the subset it lacked. On
+an `anyOf` denial it is the rule's **full** `scopes` list, in declared order —
+which is the same definition, because an `anyOf` rule denies only when the token
+carries none of them; any one would have satisfied it. Empty whenever the
+decision is allowed, and empty on a `matched == false` denial (there is no rule
+to be missing from). It reaches the partner's server only — `onScopeDenied` and
+`writeDenied` — never the wire.
+
+> Until 2026-10-01 all three languages left `missing` EMPTY on an `anyOf` denial
+> (go `scope.go:306-308`, ts `scope.ts:213-221`, java `ScopePolicy.java:82-84`,
+> each field doc saying "no single scope is the missing one"), so a denial hook
+> could not say which scopes would have let the caller in. The field docs change
+> with the code.
+
+#### 11.4.1 Path syntax — `{name}` placeholders (owner ruling Q4, 2026-10-01)
+
+A `ScopeRule` path is the §10.2 glob (`*` = within one segment, `**` = across
+segments) **plus** one form: `{name}`, which matches **exactly one non-empty
+path segment**. So a GoFr or gorilla/mux route string pastes unchanged:
+`GET /orders/{id}` matches `/orders/42`.
+
+**Grammar.**
+
+```
+placeholder = "{" name "}"
+name        = 1*( ALPHA / DIGIT / "_" / "-" )
+```
+
+- A placeholder must be a **whole segment**: immediately preceded by `/` and
+  followed by `/` or the end of the pattern. `/orders/{id}` and
+  `/orgs/{org}/files/**` are valid; `/v{n}/x`, `/files/{id}.json` and
+  `/{a}{b}` are not.
+- It compiles to the segment class `[^/]+`. The name is **not captured**, not
+  exposed on `ScopeDecision`, and need not be unique (`/{id}/{id}` is valid).
+- It mixes freely with `*` and `**` in the same pattern.
+
+**`{name}` is NOT `*`, on exactly one point:** `*` compiles to `[^/]*` and so
+matches an EMPTY segment (`/orders/*` matches `/orders/`); `{name}` does not
+(`/orders/{id}` does not match `/orders/`). gorilla/mux's own default for a
+`{name}` variable is `[^/]+`, so the SDK agrees with the router the route string
+came from; and an empty segment is not a resource id, so `/orders/` falls to a
+later rule or to the default deny rather than being decided by a per-id rule.
+`*` keeps its existing behaviour — it is shared with `exemptPaths` and
+`mfaProtectedPaths`, and matching an empty segment there is not a defect.
+
+**Every other use of `{` or `}` in a `ScopeRule` path is a `Validate()` error**,
+one per offending rule, each naming the rule's index and path:
+
+| Form | Example | Message must say |
+|---|---|---|
+| regex placeholder (a `:` inside the braces) | `/files/{path:.*}` | regex placeholders are unsupported; use `*` for one segment or `**` for any depth |
+| empty | `/a/{}` | empty placeholder |
+| bad name character | `/a/{org id}` | name may contain only letters, digits, `_`, `-` |
+| not a whole segment | `/v{n}/x`, `/files/{id}.json` | a placeholder must be a whole path segment |
+| unbalanced or nested | `/a/{id`, `/a/id}`, `/a/{{id}}` | unbalanced brace |
+
+**`Compile()` makes such a rule inert, never a literal.** A rule with an
+invalid brace form compiles to a pattern that matches **no** path, so the
+request falls through to later rules and, failing those, to the default deny.
+(Today the braces are escaped and matched as literal text, which no real
+request path carries, so the observable result is the same — but "inert" is
+now the stated contract rather than an accident.) A literal `{` or `}` in a
+request path can therefore no longer be matched by any `ScopeRule`.
+
+**Precedence is unchanged: first match wins.** Put the literal route before the
+placeholder it would otherwise be shadowed by:
+
+```go
+{Path: "/orders/export", Method: "GET", Scopes: []string{"orders:export"}},
+{Path: "/orders/{id}",   Method: "GET", Scopes: []string{"orders:read"}},
+```
+
+**Where `{name}` applies (owner ruling 2026-10-01).** `ScopeRule` paths and
+`mfaProtectedPaths` (§10.2). **`exemptPaths` keeps escaping braces as literal
+text.** All three languages share ONE glob compiler today (go `globToRegex`,
+`middleware.go:1060`, used by `scope.go:271`; ts `globMatch`, `middleware.ts:608`,
+imported by `scope.ts:43`; java `GlobMatcher.toRegex`, used by
+`ScopePolicy.java:77`), so the implementation needs a placeholder mode the
+`exemptPaths` caller does not enable, rather than a change to the shared
+default.
+
+**Path normalisation — there is none, in any language.** Stated here because a
+partner porting a matcher that strips slashes will otherwise see different
+verdicts. The pattern is an anchored regex over the path exactly as the
+framework hands it over:
+
+| | path the matcher sees |
+|---|---|
+| Go | `r.URL.Path` — percent-decoded by `net/url` |
+| TS | `req.path ?? req.originalUrl ?? req.url`, query string removed — whatever the framework supplies (Express: not decoded) |
+| Java | `getRequestURI()` — not decoded, and includes the servlet context path |
+
+No trailing-slash stripping, no `//` collapsing, no case folding, no
+dot-segment resolution. Consequences, identical in all three (and test cases
+for each):
+
+| Rule | Request | Matches? |
+|---|---|---|
+| `/orders/{id}` | `/orders/42` | yes |
+| `/orders/{id}` | `/orders/42/` | **no** — a trailing slash is one more (empty) segment |
+| `/orders/{id}` | `/orders/` | **no** — `{name}` never matches an empty segment |
+| `/orders/{id}` | `/orders` | no |
+| `/orders/{id}` | `/orders//42` | **no** — an empty segment then `42` |
+| `/orders/{id}` | `/orders/42/items` | no |
+| `/orders/*` | `/orders/` | yes — `*` matches an empty segment (unchanged) |
+| `/orders/*` | `/orders//42` | no |
+| `/orders/**` | `/orders/42/` | yes |
+| `/orders/**` | `/orders` | **yes, in all three languages from v0.63.0** — ts and java matched only `/orders/` and deeper before (BREAKING there, §10.2) |
+| `/orders/{id}/` | `/orders/42/` | yes — write the slash if the route has one |
+
+None of this is changed by the 2026-10-01 revision except the `{name}` rows,
+which did not exist before, and the bare-prefix `/orders/**` row (ts/java). Not normalising is deliberate: a gate that
+normalises a path the router does not would decide a request the router routes
+somewhere else.
+
+> **Aligned in v0.63.0 (owner ruling 2026-10-01, UNRELEASED):** `/x/**` matches
+> the bare `/x` in all three languages — ts and java move to Go's behaviour
+> (§10.2; BREAKING there). Until a partner is on v0.63.0, a ts/java rule that
+> must cover the bare prefix lists it explicitly: `/x` and `/x/**`.
 
 ### 11.5 Layer 3 — framework adapters
 
@@ -2959,6 +3795,66 @@ They answer **403** with RFC 6750 §3.1's `insufficient_scope`, and deliberately
 **do not name the missing scopes on the wire**: telling an unauthorized caller
 which permissions they lack is a map of your authority model, handed out for
 free. The names reach *your* server through the denial hook.
+
+#### 11.5.1 Shaping the 403 — `writeDenied` (owner ruling Q3, 2026-10-01)
+
+A partner whose clients already parse a different 403 body can supply a hook
+that writes the denial response. **Unset, nothing changes**: status `403`,
+`Content-Type: application/json`, and exactly these bytes, in all three
+adapters —
+
+```
+{"error":{"code":"insufficient_scope","message":"this token does not carry the scope required for this route"}}
+```
+
+| Language | Where | Signature |
+|---|---|---|
+| Go | `ScopeMiddlewareOptions.WriteDenied` | `func(w http.ResponseWriter, r *http.Request, d ScopeDecision)` |
+| TS | `ScopeMiddlewareOptions.writeDenied` (both adapters) | `(req: ScopeReqLike, res: ScopeResLike, decision: ScopeDecision) => void \| Promise<void>` |
+| Java | new `ScopeFilter(policy, onDenied, writeDenied)` constructor; the two existing constructors are unchanged and mean "no writer" | `@FunctionalInterface interface ScopeDeniedWriter { void write(HttpServletRequest req, HttpServletResponse res, ScopeDecision decision) throws IOException; }` in `dev.realmid.sdk.scope` |
+
+**When it runs: on EVERY denial** — a matched rule the token does not satisfy,
+a `matched == false` default deny, and a nil/null policy. It never runs on an
+allowed request. A partner who wants a different body for an undeclared route
+branches on `decision.matched` inside the hook; the SDK does not split them,
+because a client must be able to parse every 403 from one route map with one
+parser.
+
+**Order: `onScopeDenied` first, then `writeDenied`.** Observe, then respond —
+so the existing promise that `onScopeDenied` runs "before the 403 is written"
+stays true. Both receive the same decision value. The wrapped handler is never
+called.
+
+**The status defaults to 403 and the response always ends.** The hook owns
+headers and body; the SDK guarantees it cannot fail open into a `200` or hang
+the request:
+
+- **Go.** The hook receives a wrapper around `w`. If the hook calls `Write`
+  without `WriteHeader`, the status sent is `403`, not net/http's implicit
+  `200`. If it returns having written nothing, the SDK calls
+  `WriteHeader(403)`, empty body. An explicit `WriteHeader(n)` by the hook is
+  honoured — the status is the partner's to choose, and SHOULD be 403. The SDK
+  sets no `Content-Type` in hook mode. A panic propagates.
+- **TS, Express/Connect.** The adapter sets `res.statusCode = 403`, then calls
+  the hook. If the hook returns a Promise, the adapter awaits it. Afterwards, if
+  `res.writableEnded === false`, the adapter calls `res.end()` (empty body).
+  `ScopeResLike` gains an optional `writableEnded?: boolean` (Node's
+  `ServerResponse` has it); when it is absent the adapter does not end the
+  response. A throw or a rejected Promise goes to `next(err)`; no fallback body
+  is written.
+- **TS, Fastify.** The adapter calls `reply.hijack()`, sets
+  `reply.raw.statusCode = 403`, and calls the SAME `writeDenied` with
+  `reply.raw` as `res`, with the same await-then-end rule; errors go to
+  `done(err)`. The structural reply type gains optional `hijack()` and `raw`; if
+  `writeDenied` is set and either is missing, the adapter calls
+  `done(new TypeError(...))` rather than silently writing the default body.
+- **Java.** The filter calls `onDenied`, then `res.setStatus(403)`, then the
+  writer. It writes nothing afterwards; the container commits on return. An
+  exception propagates.
+
+**Nothing about what the hook may reveal is enforced.** It receives the full
+decision, `missing` included (§11.4); writing those names to the wire is the
+map-of-your-authority-model leak described above, and is the partner's call.
 
 There is no Gin/Echo/Fiber adapter, and no Spring-native one. These SDKs take
 zero external dependencies (Java's only web dependency is a `compileOnly`

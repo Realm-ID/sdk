@@ -472,6 +472,27 @@ Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TO
 > pointed at so nobody re-derives one. The code-less GoFr 401 is called out in
 > the same place.
 
+## Closed 2026-10-01 — two owner questions ruled, and one parity gap pulled into v0.63.0
+
+Moved here from `OPEN-QUESTIONS.md` and `TODO.md` when the owner ruled (root
+`DECISIONS.md` 2026-10-01, "SDK v0.63.0 widened"). All three were filed by the
+draft `289f85f` the same day.
+
+- **"Should the middleware's logout route mark the access token revoked?"** —
+  RULED, wider than the recommended Option A: the logout route revokes the whole
+  SESSION (`sid`, falling back to `jti`). SPEC §10.1 step 3a, §6.7.
+- **"Should `{name}` work in `exemptPaths` and `mfaProtectedPaths` too?"** —
+  RULED Option B, permanently: `{name}` in `ScopeRule` paths and
+  `mfaProtectedPaths`; `exemptPaths` stays literal. SPEC §10.2, §11.4.1.
+- **"`/x/**` matches the bare `/x` in Go but not in ts or java"** (parity gap)
+  — RULED: fixed in v0.63.0, ts and java aligned to Go, with a breaking-change
+  note. SPEC §10.2. Now in-release work, not backlog.
+- **"The refresh not-before: keyed on `sid` alone, or per membership?"**
+  (filed by the amended draft the same day) — RULED (umbrella `52d0b6f`): a new
+  per-realm org-session mode decides, default `concurrent` = per `(sid, sub)`;
+  `exclusive` = per `sid`. SPEC §6.7.3. Only a rotating refresh moves the mark.
+
+
 ## ~~Partner ask (Traide, 2026-09-05) — a post-identity, PRE-MINT hook~~ — CLOSED 2026-09-13, BUILT as `OnIdentityResolved`
 
 > **Option 1 was built and shipped** (go `0.58.0`, ts, java). The section below
