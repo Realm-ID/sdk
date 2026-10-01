@@ -1,4 +1,5 @@
 import { RealmError } from "./errors.js";
+import type { TabBus, TabMessage } from "./multi-tab.js";
 import type { Transport } from "./transport.js";
 import type { GateRule, RefreshConfig, RequestAdapters, ResponseAdapters, TokenResponse } from "./types.js";
 import { resolveExpiresIn } from "./util.js";
@@ -6,6 +7,20 @@ import { resolveExpiresIn } from "./util.js";
 interface TokenEntry {
   accessToken: string;
   expiresAt: number; // ms epoch
+}
+
+/** BFF-SPEC v0.63.0: a sibling's result is only worth adopting inside the lock for this long. */
+const SIBLING_RESULT_WINDOW_MS = 5_000;
+
+export type OrgSessionMode = "concurrent" | "exclusive";
+
+/** `org_session_mode` off a success body; anything unrecognised is `concurrent`, absent is undefined. */
+export function readOrgSessionMode(raw: unknown): OrgSessionMode | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const b = raw as Record<string, unknown>;
+  const v = b.org_session_mode ?? b.orgSessionMode;
+  if (v === undefined) return undefined;
+  return v === "exclusive" ? "exclusive" : "concurrent";
 }
 
 /**
@@ -36,6 +51,12 @@ export class TokenManager {
    * for" is the one we just minted.
    */
   private forcedByTenant = new Map<string, string>();
+  /** Org-session mode last reported by the BFF (SPEC §6.7.3). Absent → concurrent. */
+  private orgMode: OrgSessionMode = "concurrent";
+  /** Per tenant, the last sibling-tab result adopted: when, and the expiry it carried. */
+  private sibling = new Map<string, { at: number; expiresAt: number }>();
+  /** Tail of the in-tab queue used when `navigator.locks` is absent (per BFF, not per tenant). */
+  private chain: Promise<unknown> = Promise.resolve();
 
   constructor(
     private transport: Transport,
@@ -47,8 +68,63 @@ export class TokenManager {
       requestAdapters: RequestAdapters;
       gates: GateRule[];
       refresh: RefreshConfig;
+      /** The tab bus; carries refresh results between tabs (BFF-SPEC v0.63.0). */
+      bus?: TabBus;
+      /** The bus channel name — one per BFF base URL; names the Web Lock. */
+      channelName?: string;
     },
-  ) {}
+  ) {
+    opts.bus?.subscribe((msg) => this.onTabMessage(msg));
+  }
+
+  setOrgSessionMode(mode: OrgSessionMode): void {
+    this.orgMode = mode;
+  }
+
+  private onTabMessage(msg: TabMessage): void {
+    if (msg.type === "token_refreshed") {
+      const { tenantId, accessToken, expiresAt } = msg;
+      if (!tenantId || typeof expiresAt !== "number") return;
+      const held = this.tokens.get(tenantId);
+      if (accessToken !== undefined) {
+        if (held && expiresAt <= held.expiresAt) return;
+        this.tokens.set(tenantId, { accessToken, expiresAt });
+      } else {
+        // Tokenless: only the expiry of the bearer already held advances. A
+        // token-bearing BFF whose message lost its token (storage fallback)
+        // must NOT advance it — nothing was minted for THIS tab's bearer.
+        if (!this.opts.refresh.tokenless || !held || expiresAt <= held.expiresAt) return;
+        held.expiresAt = expiresAt;
+      }
+      this.sibling.set(tenantId, { at: Date.now(), expiresAt });
+    } else if (msg.type === "tenant_switched" && this.orgMode === "exclusive") {
+      this.dropOthers(msg.tenantId);
+    }
+  }
+
+  private dropOthers(keep: string): void {
+    for (const k of [...this.tokens.keys()]) {
+      if (k !== keep) {
+        this.tokens.delete(k);
+        this.forcedByTenant.delete(k);
+      }
+    }
+  }
+
+  /** One refresh across tabs: a Web Lock per BFF, else an in-tab queue per BFF. */
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const locks = (globalThis as { navigator?: { locks?: { request?: unknown } } }).navigator?.locks;
+    if (locks && typeof locks.request === "function") {
+      return (locks as unknown as LockManager).request(
+        `realmid-refresh:${this.opts.channelName ?? ""}`,
+        { mode: "exclusive" },
+        fn,
+      ) as Promise<T>;
+    }
+    const run = this.chain.catch(() => {}).then(fn);
+    this.chain = run;
+    return run;
+  }
 
   setCurrentTenant(tenantId: string | null): void {
     this.currentTenantId = tenantId;
@@ -114,24 +190,49 @@ export class TokenManager {
     const existing = this.inflight.get(tid);
     if (existing) return existing;
 
-    const p = this.doRefresh(tid).finally(() => {
+    const heldExpiry = this.tokens.get(tid)?.expiresAt ?? 0;
+    const p = this.exclusive(() => this.doRefresh(tid, heldExpiry)).finally(() => {
       this.inflight.delete(tid);
     });
     this.inflight.set(tid, p);
     return p;
   }
 
-  private async doRefresh(tenantId: string): Promise<string> {
+  private async doRefresh(tenantId: string, heldExpiryAtRequest: number): Promise<string> {
+    // Inside the lock: a sibling tab may have minted for this tenant while we
+    // waited. Adopt it (it is already in `tokens`) rather than spend a second
+    // rotation — but only a RECENT one that is newer than what we held.
+    const sib = this.sibling.get(tenantId);
+    if (sib && Date.now() - sib.at <= SIBLING_RESULT_WINDOW_MS && sib.expiresAt > heldExpiryAtRequest) {
+      const adopted = this.tokens.get(tenantId);
+      if (adopted) return adopted.accessToken;
+    }
     const current = this.tokens.get(tenantId);
     try {
       const wireBody = this.opts.requestAdapters.token
         ? this.opts.requestAdapters.token({ tenantId })
         : { tenantId };
-      const res = await this.transport.request<unknown>("POST", this.transport.endpoints.token, {
-        body: wireBody,
-        accessToken: this.opts.refresh.sendBearer ? current?.accessToken : undefined,
-        gates: this.opts.gates,
-      });
+      const send = (body: unknown) =>
+        this.transport.request<unknown>("POST", this.transport.endpoints.token, {
+          body,
+          accessToken: this.opts.refresh.sendBearer ? current?.accessToken : undefined,
+          gates: this.opts.gates,
+        });
+      let res;
+      try {
+        res = await send(wireBody);
+      } catch (err) {
+        // `503 retry:true` is a superseded refresh, not a lost session: adopt
+        // the rotated refresh token it carries (body mode; cookie mode needs
+        // nothing) and retry ONCE inside this same lock. A second 503 throws.
+        const rb =
+          err instanceof RealmError && err.status === 503
+            ? (err.body as Record<string, unknown> | undefined)
+            : undefined;
+        if (!rb || rb.retry !== true) throw err;
+        const rt = rb.refresh_token ?? rb.refreshToken;
+        res = await send(typeof rt === "string" ? { ...(wireBody as object), refreshToken: rt } : wireBody);
+      }
       const adapted: TokenResponse = this.opts.adapters.token
         ? this.opts.adapters.token(res.body, {
             status: res.status,
@@ -160,6 +261,21 @@ export class TokenManager {
       }
 
       this.set(tenantId, nextToken, expiresIn);
+      this.orgMode = readOrgSessionMode(res.body) ?? readOrgSessionMode(adapted) ?? "concurrent";
+      const expiresAt = this.tokens.get(tenantId)!.expiresAt;
+      this.opts.bus?.post({
+        type: "token_refreshed",
+        tenantId,
+        // Tokenless: the bearer is opaque and unchanged — share the expiry only.
+        ...(this.opts.refresh.tokenless ? {} : { accessToken: nextToken }),
+        expiresAt,
+      });
+      if (this.orgMode === "exclusive") {
+        // One org at a time: every other org's token is already refused
+        // server-side. Tell the other tabs to follow rather than refresh theirs.
+        this.dropOthers(tenantId);
+        this.opts.bus?.post({ type: "tenant_switched", tenantId });
+      }
       this.opts.onRefreshed();
       return nextToken;
     } catch (err) {

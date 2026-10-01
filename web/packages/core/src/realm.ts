@@ -12,7 +12,7 @@ import {
   type PendingOidc,
 } from "./oidc.js";
 import { signInWithFirebase } from "./firebase-driver.js";
-import { TokenManager } from "./token-manager.js";
+import { TokenManager, readOrgSessionMode } from "./token-manager.js";
 import { createTabBus, type TabBus } from "./multi-tab.js";
 import { resolveExpiresIn } from "./util.js";
 import { memoryStorage, type StorageAdapter, type StoredSession } from "./storage.js";
@@ -80,11 +80,13 @@ export class Realm {
     this.tokenless = cfg.refresh?.tokenless ?? false;
 
     const skew = cfg.refreshSkewMs ?? 60_000;
+    const channel = cfg.channelName ?? `realmid:${this.transport.baseUrl}`;
+    this.bus = createTabBus(channel);
     this.tokens = new TokenManager(this.transport, {
       refreshSkewMs: skew,
       onRefreshed: () => {
+        // The manager already broadcast the result (tenant, token, expiry).
         this.events.emit({ type: "token_refreshed" });
-        this.bus.post({ type: "token_refreshed" });
       },
       onLost: (reason) => {
         this.handleSessionLost(reason as "expired" | "replaced" | "revoked");
@@ -93,10 +95,10 @@ export class Realm {
       requestAdapters: this.requestAdapters,
       gates: this.gates,
       refresh: cfg.refresh ?? {},
+      bus: this.bus,
+      channelName: channel,
     });
 
-    const channel = cfg.channelName ?? `realmid:${this.transport.baseUrl}`;
-    this.bus = createTabBus(channel);
     this.bus.subscribe((msg) => this.onTabMessage(msg));
 
     if (cfg.autoRestore !== false) {
@@ -454,6 +456,8 @@ export class Realm {
     try {
       await this.transport.request("POST", this.transport.endpoints.logout, {
         body: {},
+        // BFF-SPEC v0.63.0: the BFF's fallback for an issuer older than Issuer A.
+        accessToken: this.tokens.peek() || undefined,
         gates: this.gates,
       });
     } catch (err) {
@@ -597,6 +601,8 @@ export class Realm {
   /* -------------------------------------------------- internals */
 
   private adaptLogin(raw: unknown, status: number, headers: Headers): LoginResponse {
+    const mode = readOrgSessionMode(raw);
+    if (mode) this.tokens.setOrgSessionMode(mode);
     if (this.adapters.login) {
       return this.adapters.login(raw, { status, headers, currentAccessToken: this.tokens.peek() ?? undefined });
     }

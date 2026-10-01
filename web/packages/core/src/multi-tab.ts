@@ -9,7 +9,19 @@ export type TabMessage =
   | { type: "login" }
   | { type: "logout"; reason: string }
   | { type: "tenant_switched"; tenantId: string }
-  | { type: "token_refreshed" };
+  | {
+      type: "token_refreshed";
+      /** BFF-SPEC v0.63.0: which tenant's token was minted. Absent from a pre-0.63 tab. */
+      tenantId?: string;
+      /**
+       * The new access token. Carried ONLY over BroadcastChannel (same-origin,
+       * in memory); the `storage` fallback strips it so a token never touches
+       * localStorage. Absent in tokenless mode.
+       */
+      accessToken?: string;
+      /** Absolute expiry, ms epoch. */
+      expiresAt?: number;
+    };
 
 const STORAGE_KEY = "__realmid_tab_msg__";
 
@@ -58,10 +70,18 @@ export function createTabBus(channelName: string): TabBus {
         bc.postMessage(msg);
         return;
       }
+      // The storage fallback is readable by every script on the origin and
+      // persists: a token NEVER goes through it (BFF-SPEC v0.63.0). A receiving
+      // tab refreshes for itself, serialized by the lock.
+      let wire: TabMessage = msg;
+      if (msg.type === "token_refreshed" && "accessToken" in msg) {
+        const { accessToken: _drop, ...rest } = msg;
+        wire = rest;
+      }
       try {
         localStorage.setItem(
           STORAGE_KEY,
-          JSON.stringify({ channel: channelName, msg, ts: Date.now() }),
+          JSON.stringify({ channel: channelName, msg: wire, ts: Date.now() }),
         );
       } catch {
         /* localStorage may be unavailable (private mode etc.) */

@@ -83,6 +83,8 @@ export interface TokenResponse {
   accessToken?: string;
   expiresIn?: number;
   expiresAt?: string | number;
+  /** BFF-SPEC v0.63.0; an adapter may surface it. Absent → `concurrent`. */
+  orgSessionMode?: "concurrent" | "exclusive";
 }
 
 export interface IdentityProvider {
