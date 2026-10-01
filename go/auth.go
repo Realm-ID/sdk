@@ -376,6 +376,8 @@ type LogoutRequest struct {
 	AccessToken string
 	// All asks the issuer to end every session of the user; its response then
 	// carries `revoked_sids` and the SDK revokes each locally (SPEC §10.1 step 3a).
+	// Needs Issuer A (ADR-109): an older issuer ignores `all` and ends only the
+	// one session, answering ok with no `revoked_sids`.
 	All bool
 }
 

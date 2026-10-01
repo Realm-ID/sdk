@@ -23,6 +23,7 @@ type mwEnv struct {
 	mu       sync.Mutex
 	logout   func() map[string]any // issuer logout response body
 	logoutOK bool
+	logoutIn []map[string]any // bodies the fake issuer's /auth/logout received
 	nextRT   string // refresh token the fake /auth/token returns
 	mintSID  string
 	reached  int
@@ -34,9 +35,12 @@ func newMWEnv(t *testing.T) *mwEnv {
 	e := &mwEnv{sign: sign, logoutOK: true, mintSID: "S1"}
 	e.logout = func() map[string]any { return map[string]any{"status": "ok"} }
 	e.srv = mwTestServer(t, []jwk{key}, testAud, map[string]http.HandlerFunc{
-		"/auth/logout": func(w http.ResponseWriter, _ *http.Request) {
+		"/auth/logout": func(w http.ResponseWriter, r *http.Request) {
 			e.mu.Lock()
 			defer e.mu.Unlock()
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			e.logoutIn = append(e.logoutIn, in)
 			if !e.logoutOK {
 				http.Error(w, "boom", 500)
 				return
@@ -237,5 +241,34 @@ func TestSPEC6_7_3_BodiesCarryOrgSessionMode(t *testing.T) {
 	e.nextRT = "rt-new"
 	if got := e.realm.orgSessionModeOf(context.Background(), e.token("S1", "u", time.Now())); got != OrgSessionsExclusive {
 		t.Fatalf("mode from discovery: %q", got)
+	}
+}
+
+// H1 (final critic): the middleware logout route relays `all` from the browser's
+// body to the issuer for every candidate (SPEC §10.1 step 3).
+func TestSPEC10_1_3_LogoutRelaysAllFromBodyInCookieMode(t *testing.T) {
+	e := newMWEnv(t)
+	e.logout = func() map[string]any {
+		return map[string]any{"status": "ok", "sid": "S1", "revoked_sids": []string{"S1", "S2"}}
+	}
+	req := httptest.NewRequest("POST", "/logout", strings.NewReader(`{"all":true}`))
+	req.AddCookie(&http.Cookie{Name: "realmid_refresh", Value: "rt1"})
+	e.h.ServeHTTP(httptest.NewRecorder(), req)
+	if len(e.logoutIn) == 0 {
+		t.Fatal("issuer logout never called")
+	}
+	for i, in := range e.logoutIn {
+		if in["all"] != true {
+			t.Fatalf("candidate %d: issuer must receive all=true, got %v", i, in)
+		}
+	}
+	e.wantRevoked(t, e.token("S2", "u", time.Now()))
+}
+
+func TestSPEC10_1_3_LogoutWithoutAllBodySendsNoAll(t *testing.T) {
+	e := newMWEnv(t)
+	e.do("POST", "/logout", "", "rt1") // body is {"tenant_id":"t1"}
+	if len(e.logoutIn) != 1 || e.logoutIn[0]["all"] == true {
+		t.Fatalf("all must not be set: %v", e.logoutIn)
 	}
 }

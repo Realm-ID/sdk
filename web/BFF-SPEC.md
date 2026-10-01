@@ -195,7 +195,8 @@ list before calling, so 404 here is a server-side error.
 
 ### `POST /logout` — revoke session
 
-**Request** `{}`
+**Request** `{}`, or `{ "all": true }` to end every session of the user (v0.63.0; relay it to the issuer's
+`POST /auth/logout` as `all: true` and revoke each id in `revoked_sids` — SPEC §4.4, §10.1 step 3a).
 
 **Response** 204 or 200. The SDK treats 401/404 as "already logged out"
 and proceeds with local cleanup.
@@ -421,7 +422,7 @@ A BFF revokes the session named by the ISSUER's logout response (`sid`, from
 Issuer A), which it gets by presenting the refresh token — so logout works for
 a client that sends no bearer at all (SPEC §10.1 step 3a). `POST /logout` also
 sends the current access token as `Authorization: Bearer` when the SDK holds
-one (today it sends none, `web/packages/core/src/realm.ts:453-458`): against
+one: against
 an issuer older than Issuer A the BFF falls back to it, and only if it verifies
 AND has not expired. An expired or missing bearer revokes nothing locally; the
 issuer-side logout happens either way. A BFF that ignores the bearer is

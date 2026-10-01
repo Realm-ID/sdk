@@ -577,9 +577,14 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 	if authz := req.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(authz), "bearer ") {
 		bearer = strings.TrimSpace(authz[len("bearer "):])
 	}
+	// SPEC §10.1 step 3: `all` comes from the request body (cookie and body mode
+	// alike) and goes to every candidate. readJSON re-seats the body, so
+	// readRefreshTokens still sees it.
+	body, _ := readJSON(req)
+	all, _ := body["all"].(bool)
 	candidates := readRefreshTokens(req, opts)
 	for _, refresh := range candidates {
-		_ = r.Auth.Logout(req.Context(), &LogoutRequest{RefreshToken: refresh, AccessToken: bearer})
+		_ = r.Auth.Logout(req.Context(), &LogoutRequest{RefreshToken: refresh, AccessToken: bearer, All: all})
 	}
 	if len(candidates) == 0 && bearer != "" {
 		if claims, verr := r.Verify(req.Context(), bearer, nil); verr == nil {

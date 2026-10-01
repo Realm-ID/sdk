@@ -23,6 +23,10 @@ works against a backend still on Go `v0.62.0` (which has no `503 retry` and
 sends no `org_session_mode`): a plain `200` from `/token` refreshes as before,
 the org mode defaults to `concurrent`, and the 503 path simply never fires.
 
+**Range change for partners on `^0.5.0`:** a `0.x` caret never floats to the
+next minor (`^0.5.0` means `>=0.5.0 <0.6.0`), so it will never reach `0.9.0`.
+Change the range (for example `^0.9.0`) to take this release.
+
 - **One `/token` at a time across tabs.** A Web Lock serialises refreshes; a
   tab that waited adopts a sibling's fresh token (shared over
   `BroadcastChannel`) instead of spending a second rotation. Without
@@ -42,8 +46,11 @@ the org mode defaults to `concurrent`, and the 503 path simply never fires.
   session). A 401/404 is still treated as already logged out.
 - **New: `realm.logout({ all: true })`** logs the user out everywhere (SPEC
   §4.4). It sends `{ all: true }` to the BFF's `/logout`; a plain `logout()`
-  still sends `{}`. A BFF that does not relay `all` ignores it and ends only
-  this session — the local cleanup is identical either way.
+  still sends `{}`. The SDK middlewares relay `all` to the issuer from Go
+  `0.63.0` (the middleware logout route reads it from the body); a hand-rolled
+  BFF that does not relay it ends only this session — the local cleanup is
+  identical either way. It also needs an issuer with Issuer A; an older issuer
+  ends only one session.
 
 ## 0.8.0 — `completeSignIn` reports an OIDC error return (2026-09-18)
 

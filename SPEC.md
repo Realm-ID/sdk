@@ -2886,7 +2886,10 @@ For every inbound request, the middleware:
 3. **Logout route?** If `method + path` matches the logout endpoint
    (default `POST /logout`), middleware reads every refresh-token candidate
    (cookie or body per `tokenDelivery`), calls `realm.auth.logout(...)` for
-   each, clears the cookie if applicable, returns `{ status: "ok" }`.
+   each, clears the cookie if applicable, returns `{ status: "ok" }`. The
+   middleware logout route reads `all` from the request body (both cookie and
+   body mode; boolean `true` only) and passes it to the issuer logout for every
+   candidate. An issuer older than Issuer A ignores it and ends only one session.
 
    **3a. The logout revokes the SESSION, keyed by the refresh-token holder
    (owner rulings 2026-10-01, v0.63.0, UNRELEASED).** The session to revoke is
