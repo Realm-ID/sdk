@@ -288,12 +288,15 @@ func (m *sessionManager) invalidate() {
 // RevocationCache is the partner-pluggable JTI denylist. Cheap reads
 // matter — IsRevoked is on the hot path of every authenticated request.
 type RevocationCache interface {
-	// Revoke marks jti as revoked. expiresAt is the JWT's exp, used as
-	// the cache entry TTL — partners' implementations should evict on
-	// expiry so the cache never grows unboundedly.
+	// Revoke marks a key as revoked. The SDK writes the SESSION key
+	// (Claims.SessionKey(): `sid`, falling back to `jti`) so every access token
+	// of the session is refused. expiresAt is an entry TTL (the SDK passes
+	// now+24h), not necessarily a JWT's exp — partners' implementations should
+	// evict on expiry so the cache never grows unboundedly.
 	Revoke(ctx ctxpkg.Context, jti string, expiresAt time.Time) error
-	// IsRevoked returns true when jti has been revoked and the TTL has
-	// not elapsed. Errors propagate to the verifier which fails closed
+	// IsRevoked returns true when the key has been revoked and the TTL has
+	// not elapsed. verify() asks twice when a token's jti differs from its
+	// session key — once per key — and refuses if either answers true. Errors propagate to the verifier which fails closed
 	// (request rejected).
 	IsRevoked(ctx ctxpkg.Context, jti string) (bool, error)
 }

@@ -267,3 +267,18 @@ func newTokensFixtureForWave4(t *testing.T) *wave4Tokens {
 	tc.MarkRevoked(context.Background(), tok)
 	return &wave4Tokens{TokensClient: tc, revokedToken: tok}
 }
+
+// L2 (final critic): writeRealmError's own "never clobber the envelope" guard
+// (the second site; respondAuthFail's twin is covered above).
+func TestWriteRealmErrorDetailsCannotClobberTheEnvelope(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeRealmError(w, &RealmError{
+		Code: ErrCodeUnauthorized, Message: "m", HTTPStatus: 401, Details: map[string]any{"error": "clobber", "extra": 1},
+	})
+	var b map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &b)
+	env, ok := b["error"].(map[string]any)
+	if !ok || env["code"] != "unauthorized" || b["extra"] != float64(1) {
+		t.Fatalf("envelope clobbered: %s", w.Body.String())
+	}
+}

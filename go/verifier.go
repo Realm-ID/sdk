@@ -190,13 +190,25 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 	// + claim verification so a junk JTI never reaches the cache. Opt-in:
 	// nil cache → no-op. Cache errors fail closed (request rejected) so
 	// partner-supplied caches with reliability issues degrade safely.
-	if sk := claims.SessionKey(); v.realm.revocation != nil && sk != "" {
-		revoked, rerr := v.realm.revocation.IsRevoked(ctx, sk)
-		if rerr != nil {
-			return nil, v.fail(ErrCodeUnauthorized, "revocation cache: %v", rerr)
+	// Keyed on the session key AND, when it differs, the jti: the SDK writes
+	// the session key, but a partner that calls Revoke(claims.JWTID, …) itself
+	// (the pre-0.63 documented use) must stay effective once sid != jti.
+	if v.realm.revocation != nil {
+		keys := []string{claims.SessionKey()}
+		if claims.JWTID != "" && claims.JWTID != keys[0] {
+			keys = append(keys, claims.JWTID)
 		}
-		if revoked {
-			return nil, v.fail(ErrCodeUnauthorized, "token revoked")
+		for _, k := range keys {
+			if k == "" {
+				continue
+			}
+			revoked, rerr := v.realm.revocation.IsRevoked(ctx, k)
+			if rerr != nil {
+				return nil, v.fail(ErrCodeUnauthorized, "revocation cache: %v", rerr)
+			}
+			if revoked {
+				return nil, v.fail(ErrCodeUnauthorized, "token revoked")
+			}
 		}
 	}
 	// ADR-107: subject-keyed authority check. Runs after the jti denylist and

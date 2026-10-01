@@ -360,8 +360,12 @@ func TestSPEC6_7_6_RevocationCacheKeyedOnSession(t *testing.T) {
 	if _, err := e.realm.Verify(context.Background(), e.tok(nil, func(c map[string]any) { c["jti"] = "J9" }), nil); err == nil {
 		t.Fatal("jti fallback must deny")
 	}
-	// a jti that merely equals nothing revoked verifies when a sid names a live session
-	if _, err := e.realm.Verify(context.Background(), e.tok(nil, func(c map[string]any) { c["sid"] = "S2"; c["jti"] = "J9" }), nil); err != nil {
-		t.Fatalf("sid present: jti is ignored for keying: %v", err)
+	// M1 (final critic): a revoked jti ALSO refuses when a sid names a live
+	// session, so a partner's own Revoke(claims.JWTID, ...) stays effective.
+	if _, err := e.realm.Verify(context.Background(), e.tok(nil, func(c map[string]any) { c["sid"] = "S2"; c["jti"] = "J9" }), nil); err == nil {
+		t.Fatal("a revoked jti must refuse even when sid is present")
+	}
+	if _, err := e.realm.Verify(context.Background(), e.tok(nil, func(c map[string]any) { c["sid"] = "S2"; c["jti"] = "J-live" }), nil); err != nil {
+		t.Fatalf("neither key revoked must verify: %v", err)
 	}
 }

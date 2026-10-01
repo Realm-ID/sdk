@@ -155,6 +155,11 @@ func (t *TokensClient) GateRequest(ctx ctxpkg.Context, accessToken string) error
 // RevokeOnLogout wraps a LogoutFn so the token's session is marked revoked on
 // **either success or failure** (fail closed). The token is peeked BEFORE the
 // network call.
+//
+// It revokes only the BEARER's own session: a LogoutFn returns just an error,
+// so the issuer's `revoked_sids` (LogoutRequest{All: true}) can never reach
+// it. Wrapping AuthClient.Logout with it is redundant — AuthClient.Logout
+// already revokes every id the issuer names.
 func (t *TokensClient) RevokeOnLogout(logoutFn LogoutFn) func(ctx ctxpkg.Context, accessToken string, req *LogoutRequest) error {
 	return func(ctx ctxpkg.Context, accessToken string, req *LogoutRequest) error {
 		p, perr := peekSession(accessToken)

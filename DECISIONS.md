@@ -12,6 +12,7 @@ Newest first.
 
 105 entries total — 50 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-02 (Go v0.63.0, final critic M1) — `Config.Revocation` is checked under the session key AND the jti](#2026-10-02-go-v0630-final-critic-m1--configrevocation-is-checked-under-the-session-key-and-the-jti)
 - [2026-10-01 (SPEC v0.63.0) — sessions, not tokens: logout and refresh revoke by `sid`, refresh is serialized, and only an access token verifies](#2026-10-01-spec-v0630--sessions-not-tokens-logout-and-refresh-revoke-by-sid-refresh-is-serialized-and-only-an-access-token-verifies)
 - [2026-10-01 (SPEC, owner rulings Q1-Q4) — the SDK owns the auth decisions a partner kept re-implementing, and two of them were holes](#2026-10-01-spec-owner-rulings-q1-q4--the-sdk-owns-the-auth-decisions-a-partner-kept-re-implementing-and-two-of-them-were-holes)
 - [2026-09-22 (local gates) — RCA: the tag gate could never pass, and nothing noticed for four days](#2026-09-22-local-gates--rca-the-tag-gate-could-never-pass-and-nothing-noticed-for-four-days)
@@ -117,6 +118,22 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-02 (Go v0.63.0, final critic M1) — `Config.Revocation` is checked under the session key AND the jti
+
+**Context.** v0.63.0 moved `Config.Revocation` from jti keying to the session key
+(`sid`, else `jti`). A partner calling `Revoke(ctx, claims.JWTID, exp)` itself (the
+documented pre-0.63 use) would keep working on prod v0.126.0 (jti == sid) and silently
+stop revoking once Issuer A issues `sid != jti`.
+
+**Decision (dispatcher).** `verify()` asks `IsRevoked` for the session key and, when the
+jti differs from it, for the jti too; an entry under either key refuses. Cost: one extra
+lookup only when `sid != jti`. A jti entry kills that one token, not the session; session
+revocation still goes through the session key. Godoc on `RevocationCache` rewritten
+(key = `Claims.SessionKey()`; `expiresAt` is an entry TTL) and a README breaking bullet
+added. Also documented (L1/L3): `LogoutRequest.All` needs Issuer A, and `RevokeOnLogout`
+cannot see `revoked_sids`. The middleware logout route now relays `all` from the request
+body (H1; SPEC §10.1 step 3), implementing root DECISIONS 2cb2f23.
 
 ## 2026-10-01 (SPEC v0.63.0) — sessions, not tokens: logout and refresh revoke by `sid`, refresh is serialized, and only an access token verifies
 

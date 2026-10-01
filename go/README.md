@@ -72,6 +72,11 @@ func main() {
   entry and marks. `SessionStateStore.Evict(prefix)` is a PREFIX match (the key,
   or the key followed by `|`), so a Redis implementation must `SCAN` or keep
   an index.
+- **`Config.Revocation` is keyed on the session key** (`sid`, else `jti`);
+  `Revoke`'s `expiresAt` is an entry TTL. `Verify` checks the session key AND,
+  when the jti differs from it, the jti — so a partner's own
+  `Revoke(ctx, claims.JWTID, …)` still refuses that token once the issuer
+  issues `sid != jti`. Revoking by jti kills only that token, not the session.
 - **Revocation is keyed on the session, not the token.** `MarkRevoked`,
   `RevokeOnLogout` and `Config.Revocation` now cover every access token of the
   session. `GateRequest`/`IsRevoked` also refuse a token that a later
@@ -94,10 +99,20 @@ func main() {
   `MFAProtectedPaths` and `ScopeRule` paths, so an `ExemptPaths` entry `/x/**`
   exempts `/x` too. `{name}` matches one non-empty segment (`ExemptPaths`
   keeps braces literal).
+- **A malformed `{…}` rule path now fails `Compile`:** a `ScopeRule` /
+  `MFAProtectedPaths` path such as `/files/{path:.*}` or `/v{n}` compiled
+  literally in 0.62 and is now a `Compile` error (`{name}` must be a whole
+  segment). Fix the pattern.
+- **`ScopeDecision.Missing` is now filled on `anyOf` denials** (the rule's
+  full scope list), not only all-of.
+- **`Logout` with `All: true` needs Issuer A:** an older issuer ignores `all`
+  and ends only the one session. `RevokeOnLogout` cannot see `revoked_sids`.
 - **Refresh reads `custom_claims` or `customClaims`** from the request body.
 - **Error envelope:** a `RealmError.Details` key named `error` no longer
   overwrites the `{error: {code, message}}` envelope. `GateRequest`'s error
   carries `HTTPStatus` 401.
+- Partners pinned to `@realm-id/web` `^0.5.0` must CHANGE the range: a 0.x caret
+  never reaches `0.9.0`.
 - Upgrade `@realm-id/web` first, then this SDK (SPEC front matter, "Upgrade order").
 
 ## Runtime
