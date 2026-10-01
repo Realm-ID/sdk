@@ -84,15 +84,24 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 		return nil, v.fail(ErrCodeMalformed, "header b64: %v", err)
 	}
 	var hdr struct {
-		Alg string `json:"alg"`
-		Typ string `json:"typ"`
-		Kid string `json:"kid"`
+		Alg string  `json:"alg"`
+		Typ *string `json:"typ"`
+		Kid string  `json:"kid"`
 	}
 	if err := json.Unmarshal(hdrBytes, &hdr); err != nil {
 		return nil, v.fail(ErrCodeMalformed, "header json: %v", err)
 	}
 	if hdr.Alg != "RS256" {
 		return nil, v.fail(ErrCodeWrongAlgorithm, "unexpected alg: %s", hdr.Alg)
+	}
+	// SPEC §5.1.1: only an access token verifies. Before the kid lookup so a
+	// wrongly typed token never triggers a JWKS fetch.
+	if !accessTokenTyp(hdr.Typ) {
+		typ := "<absent>"
+		if hdr.Typ != nil {
+			typ = *hdr.Typ
+		}
+		return nil, v.failMalformed401("unexpected token type: %s", typ)
 	}
 	if hdr.Kid == "" {
 		return nil, v.fail(ErrCodeMalformed, "kid missing from header")
@@ -169,6 +178,13 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 			claims.Extra = make(map[string]any)
 		}
 		claims.Extra[k] = x
+	}
+	// SPEC §5.1 / §5.1.1: after the cryptography, before every cache.
+	if _, hasEvents := raw["events"]; hasEvents {
+		return nil, v.failMalformed401("token carries an events claim")
+	}
+	if blankSub(claims.Subject) {
+		return nil, v.failMalformed401("sub missing or blank")
 	}
 	// ADR-041 follow-up: shared revocation cache check. Runs AFTER signature
 	// + claim verification so a junk JTI never reaches the cache. Opt-in:
