@@ -24,7 +24,7 @@ type mwEnv struct {
 	logout   func() map[string]any // issuer logout response body
 	logoutOK bool
 	logoutIn []map[string]any // bodies the fake issuer's /auth/logout received
-	nextRT   string // refresh token the fake /auth/token returns
+	nextRT   string           // refresh token the fake /auth/token returns
 	mintSID  string
 	reached  int
 }
