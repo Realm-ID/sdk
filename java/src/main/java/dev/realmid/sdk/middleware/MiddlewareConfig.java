@@ -45,8 +45,13 @@ public final class MiddlewareConfig {
     final List<String> cookieDomainMigrateFrom;
     final boolean cookieSecure;
     final String cookieSameSite;
+    /** SPEC 10.1 step 4a: loser poll interval and tries (50 ms x 60 = the 3 s budget). */
+    final long refreshPollMillis;
+    final int refreshPollTries;
 
     private MiddlewareConfig(Builder b) {
+        this.refreshPollMillis = b.refreshPollMillis;
+        this.refreshPollTries = b.refreshPollTries;
         this.realm = b.realm;
         this.exemptPaths = Collections.unmodifiableList(new ArrayList<>(b.exemptPaths));
         this.mfaProtectedPaths = Collections.unmodifiableList(new ArrayList<>(b.mfaProtectedPaths));
@@ -94,6 +99,15 @@ public final class MiddlewareConfig {
         private List<String> cookieDomainMigrateFrom = new ArrayList<>();
         private boolean cookieSecure = true;
         private String cookieSameSite = "Lax";
+        private long refreshPollMillis = 50;
+        private int refreshPollTries = 60;
+
+        /** Test hook: shortens the refresh-loser wait. The spec values (50 ms x 60) are the default. */
+        Builder refreshWait(long pollMillis, int tries) {
+            this.refreshPollMillis = pollMillis;
+            this.refreshPollTries = tries;
+            return this;
+        }
 
         public Builder(Realm realm) { this.realm = realm; }
 

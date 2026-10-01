@@ -37,7 +37,7 @@ class OriginsTest {
     void tearDown() { fs.close(); }
 
     private Realm realm(Clock clock) {
-        Realm.Builder b = Realm.builder()
+        Realm.Builder b = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId(REALM_ID)
                 .apiKey("rk")
                 .baseUrl(fs.baseUrl)

@@ -67,7 +67,7 @@ class RefreshCookieShadowTest {
         });
         api.on("POST /auth/logout", (ex, body) -> FakeServer.Reply.json(200, Map.of("status", "ok")));
 
-        realm = Realm.builder()
+        realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId(REALM_ID)
                 .apiKey("rk")
                 .baseUrl(api.baseUrl)

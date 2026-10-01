@@ -26,7 +26,7 @@ implementation("dev.realmid:sdk:0.1.0")
 import dev.realmid.sdk.*;
 import dev.realmid.sdk.auth.*;
 
-Realm realm = Realm.builder()
+Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
     .realmId("01HXYZ...")
     .apiKey("rk_live_...")
     // .baseUrl("https://auth.realmid.dev")  // override for staging

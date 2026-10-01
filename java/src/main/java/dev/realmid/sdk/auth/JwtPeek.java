@@ -10,8 +10,8 @@ import java.util.Base64;
  * Decodes a JWT payload WITHOUT verifying the signature, to read the subject.
  *
  * <p>Every other peek in this SDK is a private method on the class that needs
- * it ({@code TokensClient} reads jti+exp, {@code PlatformTokenManager} reads
- * iss). None of them was reachable from here, so this is the third — no JWT
+ * it ({@code PlatformTokenManager} reads iss; session keys come from
+ * {@code SessionKeys#peek}). None of them was reachable from here, so this is the third — no JWT
  * library, just Jackson, which is already an {@code api} dependency.
  *
  * <p><b>⚠️ Never use this to authorize anything.</b> Signature verification is
@@ -24,32 +24,6 @@ final class JwtPeek {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private JwtPeek() {}
-
-    /** The {@code jti} and {@code exp} of a JWT, for the ADR-041 revocation
-     *  push. {@code jti} is null and {@code exp} is null when unreadable. */
-    record RevokeFields(String jti, java.time.Instant exp) {}
-
-    /** Decodes {@code jti} + {@code exp} without verifying the signature. Used
-     *  ONLY to push a jti the caller already holds into the revocation cache;
-     *  authorization is never decided from this. */
-    static RevokeFields revokeFields(String jwt) {
-        if (jwt == null) return new RevokeFields(null, null);
-        String[] parts = jwt.split("\\.");
-        if (parts.length != 3) return new RevokeFields(null, null);
-        try {
-            byte[] raw = Base64.getUrlDecoder().decode(parts[1]);
-            JsonNode payload = MAPPER.readTree(new String(raw, StandardCharsets.UTF_8));
-            if (payload == null) return new RevokeFields(null, null);
-            JsonNode j = payload.get("jti");
-            JsonNode e = payload.get("exp");
-            String jti = j != null && j.isTextual() && !j.asText().isEmpty() ? j.asText() : null;
-            java.time.Instant exp = e != null && e.isNumber() && e.asLong() > 0
-                    ? java.time.Instant.ofEpochSecond(e.asLong()) : null;
-            return new RevokeFields(jti, exp);
-        } catch (RuntimeException | java.io.IOException ex) {
-            return new RevokeFields(null, null);
-        }
-    }
 
     /** The {@code sub} claim, or {@code null} when the token is not a decodable
      *  JWT or carries no textual subject. */

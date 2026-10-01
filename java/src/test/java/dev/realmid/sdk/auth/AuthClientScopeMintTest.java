@@ -49,7 +49,7 @@ class AuthClientScopeMintTest {
                     "access_token", "at-2", "refresh_token", "rt-2",
                     "expires_in", 900, "subject_type", "user"));
         });
-        realm = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test").build();
     }
 

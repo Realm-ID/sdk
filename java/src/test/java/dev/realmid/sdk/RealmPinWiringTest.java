@@ -43,7 +43,7 @@ class RealmPinWiringTest {
     }
 
     private Realm realmPinnedTo(String realmId) {
-        return Realm.builder()
+        return Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId(realmId)
                 .apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl)

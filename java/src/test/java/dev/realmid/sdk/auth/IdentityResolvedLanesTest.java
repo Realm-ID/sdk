@@ -67,7 +67,7 @@ class IdentityResolvedLanesTest {
     void tearDown() { fs.close(); }
 
     private Realm realm() {
-        return Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        return Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .onIdentityResolved(fired::add)
                 .build();

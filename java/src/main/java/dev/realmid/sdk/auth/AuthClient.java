@@ -37,6 +37,18 @@ public final class AuthClient {
     private final IdentityResolvedHandler onIdentityResolved;
     /** ADR-041: where logout pushes the access token's jti. Null → no push. */
     private dev.realmid.sdk.revocation.RevocationCache revocation;
+    /** SPEC 6.7 / 10.1 step 3a: where logout records the revoked session. Null on a bare AuthClient. */
+    private dev.realmid.sdk.tokens.TokensClient tokens;
+    private dev.realmid.sdk.verifier.Verifier verifier;
+    private java.time.Clock clock = java.time.Clock.systemUTC();
+
+    /** Wires the session store, the verifier and the clock that logout needs (SPEC 10.1 step 3a). */
+    public void setLogoutSupport(dev.realmid.sdk.tokens.TokensClient tokens,
+                                 dev.realmid.sdk.verifier.Verifier verifier, java.time.Clock clock) {
+        this.tokens = tokens;
+        this.verifier = verifier;
+        if (clock != null) this.clock = clock;
+    }
 
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver) {
         this(http, realmId, originResolver, null, null);
@@ -609,25 +621,71 @@ public final class AuthClient {
         body.put("refresh_token", req.refreshToken());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/logout").body(body);
         attachOrigin(r, req.origin());
-        JsonNode raw = http.request(r);
-        // ADR-041: deny the access token locally now that the refresh side is
-        // revoked server-side. Best-effort BY DESIGN — the server-side
-        // revocation above is the load-bearing operation and has already
-        // happened, so a cache that throws must not turn a successful logout
-        // into a failed one.
-        if (revocation != null && req.accessToken() != null && !req.accessToken().isEmpty()) {
-            JwtPeek.RevokeFields f = JwtPeek.revokeFields(req.accessToken());
-            if (f.jti() != null) {
-                try {
-                    revocation.revoke(f.jti(), f.exp());
-                } catch (RuntimeException ignored) {
-                    // see above: the logout already succeeded
+        JsonNode raw;
+        try {
+            raw = http.request(r);
+        } catch (RuntimeException e) {
+            // The issuer call failed: fall back to a VERIFIED, UNEXPIRED bearer (step 3a.3).
+            revokeByVerifiedBearer(req.accessToken());
+            throw e;
+        }
+        // SPEC 10.1 step 3a: the ISSUER names the session to revoke (sid, and
+        // revoked_sids for all=true). Only when it names none do we fall back to
+        // the caller's bearer, and only if that verifies unexpired.
+        java.util.LinkedHashSet<String> sids = new java.util.LinkedHashSet<>();
+        if (raw != null && raw.isObject()) {
+            JsonNode sid = raw.get("sid");
+            if (sid != null && sid.isTextual() && !sid.asText().isEmpty()) sids.add(sid.asText());
+            JsonNode many = raw.get("revoked_sids");
+            if (many != null && many.isArray()) {
+                for (JsonNode n : many) {
+                    if (n.isTextual() && !n.asText().isEmpty()) sids.add(n.asText());
                 }
             }
+        }
+        if (!sids.isEmpty()) {
+            for (String id : sids) revokeSessionEverywhere(id);
+        } else {
+            revokeByVerifiedBearer(req.accessToken());
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> out = http.mapper().convertValue(raw, Map.class);
         return out == null ? Map.of("status", "ok") : out;
+    }
+
+    /**
+     * Revokes {@code sessionKey} locally: the session store (SPEC 6.7) and, when
+     * configured, the ADR-041 {@code Revocation} cache, both until now + 24h.
+     * Best-effort BY DESIGN: the issuer-side revocation is the load-bearing
+     * operation and has already happened, so a store that throws must not turn a
+     * successful logout into a failed one.
+     */
+    public void revokeSessionEverywhere(String sessionKey) {
+        if (sessionKey == null || sessionKey.isEmpty()) return;
+        if (tokens != null) tokens.revokeSession(sessionKey); // never throws
+        if (revocation != null) {
+            try {
+                revocation.revoke(sessionKey, java.time.Instant.now(clock).plus(java.time.Duration.ofHours(24)));
+            } catch (RuntimeException ignored) {
+                // see above
+            }
+        }
+    }
+
+    /**
+     * SPEC 10.1 step 3a.3: revokes the session of {@code accessToken} ONLY if it
+     * passes the full {@code verify()} - expiry included. An expired, forged,
+     * wrongly typed or blank-sub token revokes nothing: anyone holding any old
+     * access token of a live session could otherwise log the user out of this
+     * app. Never throws.
+     */
+    public void revokeByVerifiedBearer(String accessToken) {
+        if (accessToken == null || accessToken.isEmpty() || verifier == null) return;
+        try {
+            revokeSessionEverywhere(dev.realmid.sdk.session.SessionKeys.sessionKey(verifier.verify(accessToken)));
+        } catch (RuntimeException ignored) {
+            // not a live, trustworthy token: nothing to revoke locally
+        }
     }
 
     /** SPEC §4.5. */

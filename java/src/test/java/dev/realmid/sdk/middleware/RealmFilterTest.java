@@ -87,7 +87,7 @@ class RealmFilterTest {
         jwksServer.start();
         jwksBase = "http://127.0.0.1:" + jwksServer.getAddress().getPort();
 
-        realm = Realm.builder()
+        realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId(REALM_ID)
                 .apiKey("rk")
                 .baseUrl(jwksBase)
@@ -148,7 +148,7 @@ class RealmFilterTest {
                 "expires_in", 600,
                 "user", Map.of("id", "u1"),
                 "tenants", List.of())));
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware().buildFilter();
         FakeReq req = new FakeReq("POST", "/login");
         req.body = "{\"method\":\"firebase\",\"provider_token\":\"x\"}".getBytes(StandardCharsets.UTF_8);
@@ -177,7 +177,7 @@ class RealmFilterTest {
         api.on("GET /" + REALM_ID + "/.well-known/jwks.json", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("keys", List.of(jwk))));
 
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware().mfaProtectedPaths("/admin/*").buildFilter();
         String token = signToken(baseClaims(), kid);
         FakeReq req = new FakeReq("GET", "/admin/things");
@@ -196,7 +196,7 @@ class RealmFilterTest {
     @Test
     void mfaProtectedPaths_acceptsFreshMfaAt() throws Exception {
         configureMfaApi();
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware()
                 .mfaProtectedPaths(List.of(MFARule.of("/admin/*", Duration.ofMinutes(15))))
                 .buildFilter();
@@ -215,7 +215,7 @@ class RealmFilterTest {
     @Test
     void mfaProtectedPaths_returns412Stale() throws Exception {
         configureMfaApi();
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware()
                 .mfaProtectedPaths(List.of(MFARule.of("/admin/*", Duration.ofMinutes(15))))
                 .buildFilter();
@@ -236,7 +236,7 @@ class RealmFilterTest {
     @Test
     void mfaProtectedPaths_requireFreshRejectsLegacyMarker() throws Exception {
         configureMfaApi();
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware()
                 .mfaProtectedPaths(List.of(MFARule.requireFresh("/billing/charge")))
                 .buildFilter();
@@ -257,7 +257,7 @@ class RealmFilterTest {
     @Test
     void mfaProtectedPaths_requireFreshAcceptsRecent() throws Exception {
         configureMfaApi();
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware()
                 .mfaProtectedPaths(List.of(MFARule.requireFresh("/billing/charge")))
                 .buildFilter();
@@ -276,7 +276,7 @@ class RealmFilterTest {
     @Test
     void mfaProtectedPaths_legacyMarkerPassesUnderMaxAge() throws Exception {
         configureMfaApi();
-        Realm r2 = Realm.builder().realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
         RealmFilter f = r2.middleware().mfaProtectedPaths("/admin/*").buildFilter();
 
         Map<String, Object> claims = baseClaims();

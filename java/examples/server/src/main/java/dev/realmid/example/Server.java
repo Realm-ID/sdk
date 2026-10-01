@@ -23,7 +23,7 @@ public final class Server {
         String apiKey = System.getenv().getOrDefault("REALM_API_KEY", "rk_live_demo");
         String baseUrl = System.getenv().getOrDefault("REALM_BASE_URL", "https://auth.realmid.dev");
 
-        Realm realm = Realm.builder()
+        Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId(realmId)
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)

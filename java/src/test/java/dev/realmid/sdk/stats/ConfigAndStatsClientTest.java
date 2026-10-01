@@ -27,7 +27,7 @@ class ConfigAndStatsClientTest {
         fs = new FakeServer();
         fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
-        realm = Realm.builder()
+        realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId("01HREALM")
                 .apiKey("rk")
                 .baseUrl(fs.baseUrl)

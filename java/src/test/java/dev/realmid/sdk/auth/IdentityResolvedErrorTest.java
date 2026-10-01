@@ -59,7 +59,7 @@ class IdentityResolvedErrorTest {
      */
     @Test
     void loginHookErrorRidesTheLoginMintExceptionAnchorAndMintsNothing() {
-        Realm realm = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .onIdentityResolved(ev -> { throw new IllegalStateException("mirror db down"); })
                 .build();
@@ -78,7 +78,7 @@ class IdentityResolvedErrorTest {
     /** A partner expresses fail-open with one line: catch and return normally. */
     @Test
     void aPartnerExpressesFailOpenByReturningNormally() {
-        Realm realm = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 // A scopes handler forces the mint that would otherwise be
                 // short-circuited (an access token is already in hand and,
@@ -108,7 +108,7 @@ class IdentityResolvedErrorTest {
      */
     @Test
     void refreshRefusesWhenSubjectIsUnreadableAndHookIsConfigured() {
-        Realm realm = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .onIdentityResolved(ev -> {})
                 .build();
@@ -123,7 +123,7 @@ class IdentityResolvedErrorTest {
     /** Unchanged for everyone else: no hook configured still degrades silently. */
     @Test
     void refreshStillDegradesSilentlyWithNoHookConfigured() {
-        Realm realm = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .productRoles((t, u) -> List.of("dispatch"))
                 .build();

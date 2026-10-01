@@ -74,7 +74,7 @@ class DerivedClaimsLanesTest {
     void tearDown() { fs.close(); }
 
     private Realm realmWithScopes() {
-        return Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        return Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .scopes((tenantId, userId) -> {
                     handlerArgs.add(tenantId + "/" + userId);

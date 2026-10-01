@@ -103,11 +103,21 @@ public final class Realm {
     private final Clock clock;
     private final dev.realmid.sdk.authority.AuthorityCache authority;
     private final dev.realmid.sdk.revocation.RevocationCache revocation;
+    private final dev.realmid.sdk.session.SessionStateStore sessionStore;
+    private final dev.realmid.sdk.session.OrgSessionModes orgSessionModes;
 
     private Realm(Builder b) {
         if (b.realmId == null || b.realmId.isEmpty()) {
             throw new RealmException(ErrorCode.BAD_REQUEST, "realmid: realmId required");
         }
+        if (b.sessionStore == null) {
+            // SPEC 6.7.5 (owner ruling 2026-10-01, BREAKING): the store is REQUIRED and
+            // passed explicitly. A silent in-memory default let a multi-replica partner
+            // believe refresh was serialized when it was not.
+            throw new IllegalStateException("realmid: Builder.sessionStore is required "
+                    + "(use new MemorySessionStore() for a single replica)");
+        }
+        this.sessionStore = b.sessionStore;
         this.realmId = b.realmId;
         this.baseUrl = stripSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
         this.origin = b.origin;
@@ -150,8 +160,12 @@ public final class Realm {
                 b.cacheTtl, b.leeway, clock, this.logger, b.authority, b.revocation);
         this.authority = b.authority;
         this.revocation = b.revocation;
+        this.orgSessionModes = new dev.realmid.sdk.session.OrgSessionModes(
+                this.baseUrl, this.realmId, httpClient, mapper, clock, this.logger);
+        this.tokens = new TokensClient(this.sessionStore, clock, this.logger, this.orgSessionModes::mode);
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
         this.auth.setRevocationCache(this.revocation);
+        this.auth.setLogoutSupport(this.tokens, this.verifier, clock);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -167,7 +181,6 @@ public final class Realm {
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
-        this.tokens = new TokensClient(clock);
         this.admin = new AdminClient(this.http);
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.sessions = new SessionsClient(this.http, this.realmId);
@@ -196,6 +209,11 @@ public final class Realm {
         this.clock = parent.clock;
         this.authority = parent.authority;
         this.revocation = parent.revocation;
+        this.sessionStore = parent.sessionStore;
+        this.orgSessionModes = parent.orgSessionModes;
+        // The derived realm SHARES the parent's session state: a revocation made
+        // through either handle must be seen by both.
+        this.tokens = parent.tokens;
         this.platformTokens = parent.platformTokens;
         this.info = parent.info;
         this.verifier = parent.verifier;
@@ -203,6 +221,7 @@ public final class Realm {
 
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
         this.auth.setRevocationCache(this.revocation);
+        this.auth.setLogoutSupport(this.tokens, this.verifier, this.clock);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -218,7 +237,6 @@ public final class Realm {
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, this.clock);
-        this.tokens = new TokensClient(this.clock);
         this.admin = new AdminClient(this.http);
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.sessions = new SessionsClient(this.http, this.realmId);
@@ -296,8 +314,14 @@ public final class Realm {
     /** Public IdP discovery (SPEC §6.10) — the login provider list for SPAs. */
     public IdentityProvidersClient identityProviders() { return identityProviders; }
     public OriginsClient origins() { return origins; }
-    /** SPEC §6.7 — access-token revocation cache. */
+    /** SPEC §6.7 — session revocation / supersession cache. */
     public TokensClient tokens() { return tokens; }
+
+    /** The one session store this realm's {@link #tokens()} and middleware share (SPEC §6.7.5). */
+    public dev.realmid.sdk.session.SessionStateStore sessionStore() { return sessionStore; }
+
+    /** SPEC §6.7.3 — the realm's org-session mode, read from discovery (10-minute cache). */
+    public dev.realmid.sdk.session.OrgSessionModes orgSessionModes() { return orgSessionModes; }
 
     /**
      * The configured ADR-041 jti denylist, or {@code null} when not wired.
@@ -437,6 +461,20 @@ public final class Realm {
         private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
         private dev.realmid.sdk.auth.ScopesHandler scopes;
         private dev.realmid.sdk.auth.IdentityResolvedHandler onIdentityResolved;
+        private dev.realmid.sdk.session.SessionStateStore sessionStore;
+
+        /**
+         * SPEC 6.7.5 - the ONE store for revoked sessions, not-before marks, the
+         * refresh lock and its outcome handoff. <b>REQUIRED</b>; {@link #build()}
+         * throws {@link IllegalStateException} without it. Pass
+         * {@code new MemorySessionStore()} ONLY for a single replica; several
+         * replicas need a shared implementation (Redis, a database) or the
+         * refresh lock serializes nothing.
+         */
+        public Builder sessionStore(dev.realmid.sdk.session.SessionStateStore v) {
+            this.sessionStore = v;
+            return this;
+        }
 
         public Builder realmId(String v) { this.realmId = v; return this; }
         public Builder apiKey(String v) { this.apiKey = v; return this; }

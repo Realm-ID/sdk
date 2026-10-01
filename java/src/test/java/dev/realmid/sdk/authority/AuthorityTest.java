@@ -88,7 +88,7 @@ class AuthorityTest {
     /* -------------------------------------------------- the notify method */
 
     private static Realm.Builder realm() {
-        return Realm.builder()
+        return Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId("01HXYZREALM")
                 .apiKey("rk_live_test")
                 .baseUrl("https://auth.test.example")

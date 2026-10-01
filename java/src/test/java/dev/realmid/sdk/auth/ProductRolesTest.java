@@ -66,7 +66,7 @@ class ProductRolesTest {
     }
 
     private Realm realmWith(ProductRolesHandler h) {
-        Realm.Builder b = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm.Builder b = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test");
         if (h != null) b = b.productRoles(h);
         return b.build();

@@ -39,7 +39,7 @@ class UserTokenTest {
             page.put("next_cursor", null);
             return FakeServer.Reply.json(200, page);
         });
-        realm = Realm.builder()
+        realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId("01HREALM")
                 .apiKey("rk")
                 .baseUrl(fs.baseUrl)

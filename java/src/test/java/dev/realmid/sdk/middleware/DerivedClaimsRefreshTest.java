@@ -94,7 +94,7 @@ class DerivedClaimsRefreshTest {
     }
 
     private Realm realmWith(ProductRolesHandler pr, ScopesHandler sc) {
-        Realm.Builder b = Realm.builder().realmId(REALM_ID).apiKey("rk_live_test")
+        Realm.Builder b = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test");
         if (pr != null) b = b.productRoles(pr);
         if (sc != null) b = b.scopes(sc);

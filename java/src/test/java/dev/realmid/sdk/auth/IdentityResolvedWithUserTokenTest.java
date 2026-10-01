@@ -54,7 +54,7 @@ class IdentityResolvedWithUserTokenTest {
     void firesOnTheDerivedRealmTheBffActuallyUses() {
         AtomicInteger fired = new AtomicInteger();
 
-        Realm parent = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm parent = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .onIdentityResolved(ev -> fired.incrementAndGet())
                 .build();

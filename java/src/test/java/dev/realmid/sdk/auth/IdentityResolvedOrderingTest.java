@@ -63,7 +63,7 @@ class IdentityResolvedOrderingTest {
     void runsBeforeScopeResolutionAndItsWriteIsVisible() {
         Map<String, List<String>> mirror = new ConcurrentHashMap<>();
 
-        Realm realm = Realm.builder().realmId("01HREALM").apiKey("rk_live_test")
+        Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId("01HREALM").apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl).audience("acme.test")
                 .onIdentityResolved(ev -> mirror.put(ev.tenantId() + "+" + ev.userId(),
                         List.of("orders:read")))

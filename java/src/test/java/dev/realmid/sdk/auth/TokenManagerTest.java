@@ -40,7 +40,7 @@ class TokenManagerTest {
         fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200, Map.of(
                 "access_token", "atok-plat", "refresh_token", "rtok-plat",
                 "expires_in", 3600, "subject_type", "platform")));
-        realm = Realm.builder()
+        realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId("01HREALM")
                 .apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl)

@@ -3,7 +3,7 @@
 Minimal HTTP server backed by `com.sun.net.httpserver.HttpServer` (no web
 framework, no extra dependencies). Demonstrates:
 
-- Constructing a `Realm` handle via `Realm.builder()`.
+- Constructing a `Realm` handle via `Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())`.
 - Handling a login route with `realm.auth().login(...)`.
 - Verifying access tokens with `realm.verify(token)` on every other route.
 
