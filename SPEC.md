@@ -1103,7 +1103,12 @@ Response: same shape as `login()` (refresh + access).
 ### 4.4 `logout(req?)`
 
 Revokes the current refresh token (or any caller-supplied refresh).
-Request: `{ refreshToken? }`. Response: `{ status: "ok" }`.
+Request: `{ refreshToken?, all? }`. Response: `{ status: "ok" }`.
+
+`all: true` (owner ruling 2026-10-01) logs the user out everywhere: the SDK sends
+`all: true` on the wire, and the issuer answers with `revoked_sids`. `all` is part
+of the logout request in every SDK language (Go `LogoutRequest.All`, ts
+`all?: boolean`, Java `LogoutRequest.all`).
 
 From Issuer A the issuer's response also carries `sid` and, for `all: true`,
 `revoked_sids`; the SDK revokes each locally (§10.1 step 3a).
@@ -1990,18 +1995,26 @@ type SessionStateStore interface {
     // atomic across keys.
     SessionStates(ctx ctxpkg.Context, keys []string) ([]SessionState, error)
     // Evict drops every entry whose key equals prefix or starts with prefix+"|".
+    // A prefix match: a Redis implementation must SCAN (or index) for it.
     Evict(ctx ctxpkg.Context, prefix string) error
 
     // Refresh single-flight (§10.1 step 4a). SET-IF-ABSENT WITH TTL, atomically
     // (Redis `SET key token NX PX ttl`). `release` is FENCED: it frees the lock
     // only if this holder still owns it (compare-and-delete).
-    AcquireRefreshLock(ctx ctxpkg.Context, key string, ttl time.Duration) (acquired bool, release func(), err error)
+    AcquireRefreshLock(ctx ctxpkg.Context, key string, ttl time.Duration) (acquired bool, release func(ctx ctxpkg.Context) error, err error)
     // `result` is an opaque SDK-encoded outcome holding live credentials:
     // store it as a secret, and only for `ttl` (exact; never extended).
     PutRefreshResult(ctx ctxpkg.Context, key string, result []byte, ttl time.Duration) error
     GetRefreshResult(ctx ctxpkg.Context, key string) (result []byte, ok bool, err error)
 }
 ```
+
+**Go ctx rule (owner ruling 2026-10-01).** Every `TokensClient` method
+(`GateRequest`, `IsRevoked`, `MarkRevoked`, `RevokeSession`, `RecordRefresh`,
+`Evict`, ...) takes `ctx` as its FIRST parameter, and the lock's `release` takes a
+ctx and returns an error, so a store round trip is bounded by the caller's
+deadline and a failed release is reportable. The middleware passes the request
+ctx; no request path uses `context.Background()`.
 
 ts: the same seven methods returning `Promise`s, `release` an async function.
 Java: synchronous, throwing on failure, `release` a `Runnable`.
@@ -2017,7 +2030,7 @@ joined with `|`.
 | session mark | `realmid:v1:nb\|<sessionKey>` | `recordRefresh` | until `now + H` at the latest write | check in `exclusive` |
 | membership mark | `realmid:v1:nb\|<sessionKey>\|<sub>` | `recordRefresh` | until `now + H` at the latest write | check in `concurrent` |
 | subject mark | `realmid:v1:sub\|<iss>\|<sub>` | **reserved** for ADR-110 D8's sub-only logout; v0.63 neither writes nor reads it | — | — |
-| refresh lock | `realmid:v1:lock\|<hex(sha256(refresh token))>` | §10.1 step 4a | 10 s TTL, fenced release | step 4a |
+| refresh lock | `realmid:v1:lock\|<hex(sha256(refresh token))>` | §10.1 step 4a | 15 s TTL, fenced release | step 4a |
 | refresh outcome | `realmid:v1:out\|<hex(sha256(refresh token))>` | §10.1 step 4a | 5 s TTL, exact | step 4a |
 | org-session mode | **none** — per-process cache, §6.7.3 | — | — | — |
 
@@ -2945,14 +2958,22 @@ For every inbound request, the middleware:
      same key.
    - **Fingerprint** = `tenant_id` + canonical JSON of `custom_claims`. Stored
      with the outcome.
-   - **Winner** (`AcquireRefreshLock(key, 10s)` returns acquired):
+   - **Winner** (`AcquireRefreshLock(key, 15s)` returns acquired):
      1. If `GetRefreshResult(key)` holds an outcome (a request that lost the
-        previous winner's response, e.g. a reload), use it — go to *Respond*.
+        previous winner's response, e.g. a reload), answer from it exactly as a
+        loser would (below): an error outcome -> that error; same fingerprint ->
+        the stored outcome; a different fingerprint -> the `503 retry` hand-over
+        of its rotated token. A winner never returns tokens minted for a
+        different fingerprint, and never mints while an outcome for the key is
+        stored.
      2. Otherwise run the existing candidate loop and `enrichRefreshMint` on a
         context **detached from the request** and bounded at **10 s**, so a
         client disconnect cannot abort a rotation the issuer already performed.
      3. Store the **outcome** — the mint result, or the error — with the
-        fingerprint: `PutRefreshResult(key, …, 5s)`. Errors are stored too: a
+        fingerprint: `PutRefreshResult(key, …, 5s)`, under a FRESH context
+        (detached from the request AND from the mint's bound, itself bounded at
+        2 s) — never the context that just hit its deadline, which a
+        ctx-honouring store would reject, losing the rotation. Errors are stored too: a
         loser retrying a refresh the issuer already consumed would be a reuse.
      4. On success, step 4b. Release the lock. *Respond*.
    - **Loser** (not acquired): wait for the winner's outcome — in-process, on
@@ -2992,8 +3013,10 @@ For every inbound request, the middleware:
    - **Respond** = today's response for the outcome. `OnAuthSuccess` (Go) runs
      on every successful response, winner and loser alike, so a partner's
      fail-closed hook is never bypassed by losing a race.
-   - **Lock TTL 10 s, not the reference's 5 s**, so a slow mint inside its 10 s
-     bound cannot be overtaken by a second winner.
+   - **Lock TTL 15 s (mint bound 10 s + 5 s), not the reference's 5 s.** The
+     mint bound starts after the acquire and the stored-outcome read, so an equal
+     TTL would let a full-length mint outlive its lock; 15 s means a slow mint
+     inside its bound cannot be overtaken by a second winner.
    - **The 5 s result window is a grace window inside the SDK**, the same one
      the reference BFF has: within it, a second presenter of the old refresh
      token gets the new tokens. The issuer keeps no grace window. Its rotation
@@ -3068,7 +3091,7 @@ For every inbound request, the middleware:
 
    | Language | Call | Hit raises |
    |---|---|---|
-   | Go | `r.Tokens.GateRequest(token)` | `*RealmError{Code: unauthorized, Details: {revoked: true}}`, `errors.Is(err, ErrTokenRevoked)` |
+   | Go | `r.Tokens.GateRequest(ctx, token)` | `*RealmError{Code: unauthorized, Details: {revoked: true}}`, `errors.Is(err, ErrTokenRevoked)` |
    | TS | `realm.tokens.gateRequest(token)` | `TokenRevokedError` (`code: "unauthorized"`, `details.revoked: true`) |
    | Java | `realm.tokens().gateRequest(token)` | `TokenRevokedException` (`UNAUTHORIZED`, `revoked=true` detail) |
 
