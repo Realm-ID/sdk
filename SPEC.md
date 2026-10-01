@@ -1,10 +1,10 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-09-05 — go `go/v0.58.0` · ts `ts-v0.51.0` · java
-`java-v0.48.0`** (see §12 for the tag matrix).
+**Current as of 2026-10-02 — go `go/v0.63.0` · web `web-v0.9.0` (released); ts and
+java v0.63 HELD (unreleased, ts `ts-v0.54.0` · java `java-v0.50.0` are the latest tags)** (see §12 for the tag matrix).
 
-> ⚠️ **UNRELEASED as of 2026-10-01 — the SDK v0.63.0 behaviours are specified
-> here ahead of code** (owner rulings Q1-Q4 and the same-day v0.63.0 widening,
+> ⚠️ **PARTLY RELEASED, 2026-10-02 — go `0.63.0` and `@realm-id/web` `0.9.0` are RELEASED; ts and java v0.63 are HELD (UNRELEASED; held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`; see `TODO.md`).** The ts and java columns of the table below stay UNRELEASED. The v0.63.0 behaviours were specified
+> here ahead of code (owner rulings Q1-Q4 and the same-day v0.63.0 widening,
 > 2026-10-01; why in `DECISIONS.md` 2026-10-01, both entries; plan
 > `auth/plans/2026-10-01-sdk-v063-sid-jti.md`). They target go `0.63.0`, then ts
 > and java with ONE behaviour, and **this note is deleted in the commit that
@@ -4009,9 +4009,10 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.61.0`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`. |
-| TS       | `ts-v0.53.0`        | `@realm-id/sdk@0.53.0` on npm. Same §4.1.7 surface. |
-| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface. |
+| Go       | `go/v0.63.0`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved` and the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5). |
+| Web core | `web-v0.9.0`        | `@realm-id/web@0.9.0` on npm. Cross-tab refresh, `logout({ all })`. |
+| TS       | `ts-v0.54.0`        | `@realm-id/sdk@0.54.0` on npm. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. |
+| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. |
 
 > ⚠️ **This table was stale by TWO releases on every language** until 2026-09-21 — it
 > read `go/v0.58.0` / `ts-v0.51.0` / `java-v0.48.0` while the repo held `go/v0.60.0`,

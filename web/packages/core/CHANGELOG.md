@@ -14,10 +14,10 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
-## Unreleased — cross-tab refresh, `logout({ all })`, 503 retry (ships with Go `v0.63.0`)
+## 0.9.0 — cross-tab refresh, `logout({ all })`, 503 retry (2026-10-02)
 
-**Additive; no breaking change.** The version heading is written by the
-release commit, not here. Pairs with BFF-SPEC § Cross-tab refresh and § Logout
+**Additive; no breaking change.** Released alongside Go `v0.63.0`.
+Pairs with BFF-SPEC § Cross-tab refresh and § Logout
 (v0.63.0). **Upgrade order: upgrade this package BEFORE the Go backend** — it
 works against a backend still on Go `v0.62.0` (which has no `503 retry` and
 sends no `org_session_mode`): a plain `200` from `/token` refreshes as before,

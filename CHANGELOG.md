@@ -13,6 +13,76 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.63.0` · `web` `0.9.0` — session-keyed revocation, refresh single-flight, required session store (2026-10-02)
+
+Released together; **ts and java are NOT in this release** (held 2026-10-02, owner
+ruling in root `DECISIONS.md`; their v0.63 code is on `main` but unreleased and
+unfinished — see `TODO.md`). **Upgrade `@realm-id/web` to `0.9.0` first, then the Go
+SDK**: the new browser core works against a `0.62` backend, but a `0.63` backend with
+an older browser core makes two tabs in one org invalidate each other (one `401`, one
+refresh, one retry per tab switch; nobody is logged out). See SPEC front matter,
+"Upgrade order". Works against issuer `v0.126.0` today and against Issuer A / B
+(ADR-109) unchanged.
+
+### Breaking — go `0.63.0`
+
+- **`Config.SessionStore` is REQUIRED (SPEC §6.7.5).** `NewRealm` returns
+  `ErrSessionStoreRequired` without one. Single replica: `NewMemorySessionStore()`;
+  several replicas: a shared `SessionStateStore`.
+- **Session API is ctx-first.** Every `TokensClient` method takes `ctx` first
+  (`GateRequest`, `IsRevoked`, `MarkRevoked`, `RevokeSession`, `RecordRefresh`,
+  `Evict`); `SessionStateStore.AcquireRefreshLock` returns
+  `release func(ctx) error`. A custom store must change its signature.
+- **`Evict` takes the session key** (`sid`, falling back to `jti`), prefix-matched;
+  `TokensClient.Len()` is removed (`MemorySessionStore.Len()` remains).
+- **`Verify` is stricter (§5.1, §5.1.1).** A blank/absent `sub`, a header `typ` other
+  than `JWT`/`at+jwt`/`application/at+jwt`, or any `events` claim is `malformed`, 401.
+  Partner test fixtures that sign tokens without `typ`/`sub` now fail.
+- **Revocation is keyed on the session (§6.7, §6.7.6).** `MarkRevoked`,
+  `RevokeOnLogout` and `Config.Revocation` cover every access token of the session;
+  `Verify` checks the session key and, if different, the `jti`.
+- **Logout revokes the session (§10.1 step 3).** By the issuer's `sid` (and
+  `revoked_sids` for `All: true`), else by a verified, UNEXPIRED bearer; an expired or
+  invalid bearer revokes nothing locally.
+- **A refresh that rotates refuses older access tokens (§10.1 step 4b)**, per org
+  (`concurrent`, default) or per session (`exclusive`), from the realm's
+  `realmid_org_sessions` discovery field; responses gain `org_session_mode`.
+- **The middleware runs the logout check on every bearer request by default
+  (§10.1 step 6a):** a revoked or superseded bearer gets `401` + `revoked: true`.
+- **Path syntax (§10.2, §11.4.1):** `/x/**` also matches bare `/x`; `{name}` matches one
+  non-empty segment in scope rules and `MFAProtectedPaths` (`ExemptPaths` keeps braces
+  literal). A malformed `{...}` rule path (e.g. `/files/{path:.*}`) now fails `Compile`.
+- **`ScopeDecision.Missing` is filled on `anyOf` denials (§11.4).**
+
+### Added — go `0.63.0`
+
+- Optional `writeDenied` hook shaping the scope 403 (§11.5.1); unset, the 403 is
+  byte-identical.
+- `LogoutRequest{All: true}` / middleware logout relays `all` from the body (§4.4);
+  needs Issuer A, an older issuer ends only the one session.
+- Refresh reads `custom_claims` or `customClaims` from the request body.
+
+### Fixed — go `0.63.0`
+
+- **Refresh race (§10.1 step 4a):** the refresh and MFA-verify routes are single-flight
+  per presented refresh token; a concurrent same-request loser gets the winner's
+  outcome, otherwise a retryable `503` carrying the rotated refresh token. Two tabs
+  with one cookie no longer trip the issuer's reuse detection. RCA in `DECISIONS.md`.
+- **§5.1.1:** an ADR-110 Logout Token can no longer pass as a bearer. RCA in `DECISIONS.md`.
+- **§6.7.6:** a logout pushed into a shared `RevocationCache` denies every token of the
+  session. RCA in `DECISIONS.md`.
+- A `RealmError.Details` key named `error` no longer overwrites the error envelope;
+  `GateRequest`'s error carries `HTTPStatus` 401.
+
+### Added — `web` `0.9.0` (additive, no breaking change)
+
+Cross-tab refresh (Web Lock + `BroadcastChannel`), a one-time retry of
+`503 { retry: true }` from `/token`, `exclusive` org-session mode,
+`realm.logout()` sending the held bearer, and `realm.logout({ all: true })`. A `0.x`
+caret never floats: partners on `^0.5.0` must change the range (e.g. `^0.9.0`). See
+`web/packages/core/CHANGELOG.md`. `web-admin`, `web-react` and the other web packages
+are NOT released here; their `@realm-id/web` peer ranges stop at `^0.8.0`.
+
 ## ts `0.54.0` · `web-admin` `0.21.0` — SDK usage audit fixes #6/#7 (2026-09-24)
 
 ### Added

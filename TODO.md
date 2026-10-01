@@ -21,6 +21,31 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
+- [ ] **Finish and release ts `0.55.0` / java `0.51.0` (the v0.63 session surface) — HELD 2026-10-02.**
+  Go `0.63.0` and web `0.9.0` shipped without them (owner ruling, root `DECISIONS.md`
+  2026-10-02: no active ts/java consumers). Their v0.63 code is on `main`, UNRELEASED
+  (SPEC header says so). Open items, summarised here because the critic notes in the
+  umbrella `.scratch/sdk-v063/` are not durable:
+  (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
+  commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then
+  re-run the critic pass against SPEC §5.1/§5.1.1/§6.7/§6.7.6/§10.1/§10.2/§11.4-11.5.
+  (2) **java**: `bc5353c` landed (Wave 4 java); its sdk-e2e and a fresh critic pass are
+  not done. (3) **ts and java sdk-e2e** (`tests/sdk-e2e`, live issuer) have not been run
+  for the v0.63 surface; Go's was run (sdk-e2e/go). (4) Parity to hold: the required
+  session store (§6.7.5), ctx/async-first session API, `Evict` by session key,
+  `Revocation` keyed on session key AND jti, `typ`/`events`/blank-`sub` refusal,
+  logout fallback to a verified UNEXPIRED bearer + `revoked_sids` for `all`, the
+  default-on logout gate (§10.1 step 6a), `/x/**` matching bare `/x` (BREAKING in
+  ts/java) and `{name}` in `mfaProtectedPaths`, `ScopeDecision.missing` on `anyOf`,
+  `writeDenied`. (5) Release: bump versions, per-language CHANGELOG headings with the
+  Breaking block (SPEC front matter lists it), remove the SPEC "PARTLY RELEASED" note,
+  then `make release-check LANGUAGE=ts|java`.
+- [ ] **`@realm-id/web` peer ranges exclude `0.9.0`** — `web-admin`, `web-react`,
+  `bff-realmid`, `firebase` and `google` declare `@realm-id/web` `^0.4.0 … ^0.8.0`
+  (a `0.x` caret never reaches `0.9.0`). Not released with core `0.9.0`; widen the
+  ranges and release them when an app needs core `0.9.0` alongside them (npm will
+  warn on peer conflict until then).
+
 > ~~**All three SDKs' `integrations.install()` send the retired `role_id`
 > body — a current issuer refuses it.**~~ **CLOSED — the claim is FALSE as of
 > 2026-09-13, verified in source here.** `go/integrations.go:85-88` is
