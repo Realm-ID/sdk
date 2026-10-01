@@ -67,6 +67,7 @@ route. Mount it once on your mux:
 realm, err := realmid.NewRealm(realmid.Config{
     RealmID: os.Getenv("REALM_ID"),
     APIKey:  os.Getenv("REALM_API_KEY"),
+    SessionStore: realmid.NewMemorySessionStore(), // required; see below
 })
 if err != nil { log.Fatal(err) }
 
@@ -91,6 +92,37 @@ In `"cookie"` mode (default) the refresh token is set as
 XSS cannot exfiltrate it. Use `"body"` only when a cookie isn't
 viable — native apps, CLIs, or truly cross-origin SPAs. See
 [SPEC §10.2](../SPEC.md#102-configuration) for the full decision table.
+
+### Session store (required since v0.63.0)
+
+`Config.SessionStore` is **required**: `NewRealm` returns an error wrapping
+`realmid.ErrSessionStoreRequired` without it. It holds every piece of
+cross-request session state: revoked sessions, the refresh not-before marks,
+and the refresh lock that stops two tabs from spending one refresh token twice.
+
+- **One replica:** `SessionStore: realmid.NewMemorySessionStore()`.
+- **More than one replica:** supply a shared implementation of
+  `realmid.SessionStateStore` (Redis, a database). With the in-memory store a
+  logout on pod A is not seen by pod B, and the refresh lock serializes nothing
+  across pods. Run your implementation through the conformance suite in
+  `github.com/Realm-ID/sdk/go/sessionstoretest`:
+
+```go
+func TestMyStore(t *testing.T) {
+    sessionstoretest.Run(t, func() realmid.SessionStateStore { return newMyStore(t) })
+}
+```
+
+Logout revokes the session the issuer names (`sid`, and every id in
+`revoked_sids` for "log out everywhere"), and every access token of that
+session is then refused with `401` + `revoked: true`.
+
+### Scope denials
+
+`ScopeMiddlewareOptions.WriteDenied` lets you shape the 403 body; unset, the
+response is byte-identical to earlier releases. `{name}` in a `ScopeRule` path
+or an `MFAProtectedPaths` entry matches exactly one non-empty segment
+(`/orders/{id}`); `ExemptPaths` keeps braces literal.
 
 ## What's in scope
 
