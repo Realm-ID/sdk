@@ -193,8 +193,9 @@ type ScopeDecision struct {
 	Required []string
 	// AnyOf mirrors the matched rule.
 	AnyOf bool
-	// Missing lists required scopes the token did not carry. Empty on an
-	// AnyOf denial, where no single scope is "the" missing one.
+	// Missing lists the required scopes the token did not carry: the lacking
+	// subset on an all-of denial, the rule's FULL list on an AnyOf denial (it
+	// denies only when the token carries none). Empty when allowed or unmatched.
 	Missing []string
 }
 
@@ -233,6 +234,9 @@ func (p ScopePolicy) Validate() []error {
 			errs = append(errs, &ScopeConfigError{Index: i, Path: r.Path,
 				Msg: "rule lists no Scopes and is not Public; mark it Public or give it a scope"})
 		}
+		if msg := placeholderProblem(r.Path); r.Path != "" && msg != "" {
+			errs = append(errs, &ScopeConfigError{Index: i, Path: r.Path, Msg: msg})
+		}
 		for _, s := range r.Scopes {
 			if !isRFC6749ScopeToken(s) {
 				errs = append(errs, &ScopeConfigError{Index: i, Path: r.Path,
@@ -268,7 +272,7 @@ func (p ScopePolicy) Compile() *CompiledScopePolicy {
 			continue
 		}
 		out.rules = append(out.rules, compiledScopeRule{
-			re:     globToRegex(r.Path),
+			re:     placeholderGlobRegex(r.Path),
 			method: strings.ToUpper(strings.TrimSpace(r.Method)),
 			rule:   r,
 		})
@@ -305,6 +309,11 @@ func (c *CompiledScopePolicy) Decide(claims *Claims, method, path string) ScopeD
 		}
 		if cr.rule.AnyOf {
 			d.Allowed = ScopeAllowsAny(claims, cr.rule.Scopes...)
+			if !d.Allowed {
+				// An anyOf rule denies only when the token carries NONE of them,
+				// so the full list is the missing set (SPEC §11.4).
+				d.Missing = append([]string(nil), cr.rule.Scopes...)
+			}
 			return d
 		}
 		d.Allowed = ScopeAllows(claims, cr.rule.Scopes...)
@@ -365,6 +374,14 @@ func (c *CompiledScopePolicy) Middleware(opts ScopeMiddlewareOptions) func(http.
 			if opts.OnScopeDenied != nil {
 				opts.OnScopeDenied(req, d)
 			}
+			if opts.WriteDenied != nil {
+				sw := &scopeDenialWriter{ResponseWriter: w}
+				opts.WriteDenied(sw, req, d)
+				if !sw.wrote {
+					sw.WriteHeader(http.StatusForbidden)
+				}
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"error":{"code":"insufficient_scope","message":"this token does not carry the scope required for this route"}}`))
@@ -381,6 +398,8 @@ type ScopeMiddlewareOptions struct {
 	// unauthorized caller, and it is worth alerting on differently — the first
 	// is a deploy bug, the second is ordinary traffic.
 	OnScopeDenied func(req *http.Request, d ScopeDecision)
+	// WriteDenied shapes the denial response (SPEC §11.5.1). Unset: the stock 403.
+	WriteDenied func(w http.ResponseWriter, r *http.Request, d ScopeDecision)
 }
 
 // isRFC6749ScopeToken reports whether s is a valid scope-token:

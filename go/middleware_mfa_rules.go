@@ -118,6 +118,8 @@ func ValidateMFARules(rules []MFARule) error {
 		switch {
 		case r.Path == "":
 			return fmt.Errorf("realmid: MFA rule %d has an empty path; it would be silently skipped", i)
+		case placeholderProblem(r.Path) != "":
+			return fmt.Errorf("realmid: MFA %s: %s", where, placeholderProblem(r.Path))
 		case r.RequireFresh && r.MaxAge > 0:
 			return fmt.Errorf("realmid: MFA %s sets both RequireFresh and MaxAge; "+
 				"RequireFresh already fixes the window and the pair reads as a policy that is not enforced", where)
@@ -165,30 +167,7 @@ func compileMFARules(rules []MFARule) []compiledMFARule {
 // lifted from swagger.yaml matches the same requests here — and everything else
 // is handed to the middleware's existing glob compiler.
 func mfaPathToRegex(pat string) *regexp.Regexp {
-	if !strings.ContainsRune(pat, '{') {
-		return globToRegex(pat)
-	}
-	var sb strings.Builder
-	sb.WriteString("^")
-	for i := 0; i < len(pat); {
-		if pat[i] == '{' {
-			if end := strings.IndexByte(pat[i:], '}'); end > 0 {
-				sb.WriteString("[^/]+")
-				i += end + 1
-				continue
-			}
-		}
-		// Reuse the glob compiler one character at a time so `*` / `**` keep
-		// their meaning and regex metacharacters stay escaped.
-		sb.WriteString(strings.TrimSuffix(strings.TrimPrefix(globToRegex(pat[i:i+1]).String(), "^"), "$"))
-		i++
-	}
-	sb.WriteString("$")
-	re, err := regexp.Compile(sb.String())
-	if err != nil {
-		return globToRegex(pat)
-	}
-	return re
+	return placeholderGlobRegex(pat)
 }
 
 // mfaRulesNeedBody reports whether any compiled rule declares a JSON condition.

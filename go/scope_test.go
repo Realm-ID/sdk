@@ -163,8 +163,8 @@ func TestScopePolicy_PublicAnyOfMethodAndOrder(t *testing.T) {
 		if !reflect.DeepEqual(d.Missing, []string{"orders:write"}) {
 			t.Errorf("Missing = %v, want [orders:write]", d.Missing)
 		}
-		if any := p.Decide(claimsWithScope("nope"), "GET", "/reports/x"); len(any.Missing) != 0 {
-			t.Errorf("an AnyOf denial has no single missing scope; got %v", any.Missing)
+		if any := p.Decide(claimsWithScope("nope"), "GET", "/reports/x"); !reflect.DeepEqual(any.Missing, []string{"r:a", "r:b"}) {
+			t.Errorf("an AnyOf denial lists the rule's full scopes (SPEC 11.4); got %v", any.Missing)
 		}
 	})
 }
