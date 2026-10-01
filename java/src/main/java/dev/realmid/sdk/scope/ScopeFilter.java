@@ -44,6 +44,7 @@ public class ScopeFilter implements Filter {
 
     private final ScopePolicy policy;
     private final BiConsumer<HttpServletRequest, ScopeDecision> onDenied;
+    private final ScopeDeniedWriter writeDenied;
 
     public ScopeFilter(ScopePolicy policy) {
         this(policy, null);
@@ -58,8 +59,20 @@ public class ScopeFilter implements Filter {
      *                 the second is ordinary traffic.
      */
     public ScopeFilter(ScopePolicy policy, BiConsumer<HttpServletRequest, ScopeDecision> onDenied) {
+        this(policy, onDenied, null);
+    }
+
+    /**
+     * @param writeDenied SPEC 11.5.1 - writes the denial response instead of the
+     *                    default 403 body. Runs on EVERY denial, after
+     *                    {@code onDenied}; the status is already 403 when it is
+     *                    called. {@code null} means the byte-identical default.
+     */
+    public ScopeFilter(ScopePolicy policy, BiConsumer<HttpServletRequest, ScopeDecision> onDenied,
+                       ScopeDeniedWriter writeDenied) {
         this.policy = policy;
         this.onDenied = onDenied;
+        this.writeDenied = writeDenied;
     }
 
     @Override
@@ -87,6 +100,10 @@ public class ScopeFilter implements Filter {
             onDenied.accept(hreq, d);
         }
         hres.setStatus(403);
+        if (writeDenied != null) {
+            writeDenied.write(hreq, hres, d);
+            return;
+        }
         hres.setContentType("application/json");
         hres.getWriter().write(FORBIDDEN_BODY);
     }

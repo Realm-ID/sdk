@@ -20,6 +20,7 @@ public final class Claims {
     private final String tenantId;
     private final String role;
     private final long mfaAt;
+    private final String sessionId;
     private final Map<String, Object> extra;
 
     /** Backward-compat overload — leaves {@code mfaAt} as 0 (absent). */
@@ -52,6 +53,26 @@ public final class Claims {
             String role,
             long mfaAt,
             Map<String, Object> extra) {
+        this(issuer, subject, audience, issuedAt, notBefore, expiry, jwtId,
+                authorizedParty, tenantId, role, mfaAt, null, extra);
+    }
+
+    /** v0.63.0 - adds the {@code sid} claim (SPEC 6.7.6 R6). */
+    public Claims(
+            String issuer,
+            String subject,
+            String audience,
+            long issuedAt,
+            long notBefore,
+            long expiry,
+            String jwtId,
+            String authorizedParty,
+            String tenantId,
+            String role,
+            long mfaAt,
+            String sessionId,
+            Map<String, Object> extra) {
+        this.sessionId = sessionId;
         this.issuer = issuer;
         this.subject = subject;
         this.audience = audience;
@@ -73,6 +94,12 @@ public final class Claims {
     public long notBefore() { return notBefore; }
     public long expiry() { return expiry; }
     public String jwtId() { return jwtId; }
+    /**
+     * The {@code sid} claim - the session this token belongs to - or null when
+     * the issuer does not emit it yet (prod through v0.126.0, where {@code jti}
+     * IS the session id). Never appears in {@link #extra()}.
+     */
+    public String sessionId() { return sessionId; }
     public String authorizedParty() { return authorizedParty; }
     public String tenantId() { return tenantId; }
     public String role() { return role; }

@@ -25,6 +25,10 @@ public final class MFARule {
         if (path == null || path.isEmpty()) {
             throw new IllegalArgumentException("MFARule.path required");
         }
+        String braceErr = GlobMatcher.validateBraces(path);
+        if (braceErr != null) {
+            throw new IllegalArgumentException("MFARule.path " + path + ": " + braceErr);
+        }
         this.path = path;
         this.maxAge = maxAge;
         this.requireFresh = requireFresh;

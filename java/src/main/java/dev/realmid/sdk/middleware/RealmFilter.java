@@ -117,7 +117,7 @@ public class RealmFilter implements Filter {
 
     private MFARule findMfaRule(String path) {
         for (MFARule r : cfg.mfaProtectedPaths) {
-            if (GlobMatcher.match(r.path(), path)) return r;
+            if (GlobMatcher.matchPlaceholders(r.path(), path)) return r;
         }
         return null;
     }

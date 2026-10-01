@@ -38,7 +38,7 @@ import java.util.function.Function;
 public final class Verifier {
 
     private static final Set<String> RESERVED = Set.of(
-            "iss", "sub", "aud", "iat", "nbf", "exp", "jti", "azp", "tenant_id", "role", "mfa_at"
+            "iss", "sub", "aud", "iat", "nbf", "exp", "jti", "sid", "azp", "tenant_id", "role", "mfa_at"
     );
 
     private final String baseUrl;
@@ -152,6 +152,9 @@ public final class Verifier {
         if (!"RS256".equals(alg)) {
             throw new RealmException(ErrorCode.WRONG_ALGORITHM, "unexpected alg: " + alg);
         }
+        // SPEC 5.1.1: only an ACCESS token verifies. Checked before the kid
+        // lookup so a wrongly typed token never triggers a JWKS fetch.
+        checkTyp(header);
         String kid = strOrNull(header, "kid");
         if (kid == null || kid.isEmpty()) {
             throw new RealmException(ErrorCode.MALFORMED, "kid missing from header");
@@ -199,15 +202,29 @@ public final class Verifier {
             throw new RealmException(ErrorCode.NOT_YET_VALID, "token not yet valid");
         }
 
-        // ADR-041: jti denylist. Runs AFTER signature + claim verification so a
-        // junk jti never reaches the cache, and BEFORE the ADR-107 authority
+        // SPEC 5.1: a blank subject is refused AFTER the cryptography (an
+        // expired blank-sub token reports `expired`) and BEFORE both caches, so
+        // neither is ever consulted with an empty key.
+        checkSub(payload);
+        // SPEC 5.1.1: an `events` member (any value, null included) marks a
+        // non-access token (ADR-110 Logout Token) or a poisoned custom claim.
+        if (payload.has("events")) {
+            throw new RealmException(ErrorCode.MALFORMED, "token carries an events claim", 401, null);
+        }
+
+        // ADR-041: session denylist. Runs AFTER signature + claim verification so
+        // a junk key never reaches the cache, and BEFORE the ADR-107 authority
         // check because a revoked token needs no further questions asked of it.
-        // Opt-in: no cache → no-op. Fails closed on a cache error.
+        // Keyed on the SESSION key (sid, else jti; SPEC 6.7.6 R3), so after
+        // Issuer B a revoked session denies every token of it, not one.
+        // Opt-in: no cache -> no-op. Fails closed on a cache error.
         String jti = strOrNull(payload, "jti");
-        if (revocation != null && jti != null && !jti.isEmpty()) {
+        String sid = strOrNull(payload, "sid");
+        String sessionKey = dev.realmid.sdk.session.SessionKeys.sessionKey(sid, jti);
+        if (revocation != null && sessionKey != null) {
             boolean revoked;
             try {
-                revoked = revocation.isRevoked(jti);
+                revoked = revocation.isRevoked(sessionKey);
             } catch (RuntimeException e) {
                 throw new RealmException(ErrorCode.UNAUTHORIZED, "revocation cache: " + e.getMessage());
             }
@@ -273,8 +290,47 @@ public final class Verifier {
                 strOrNull(payload, "tenant_id"),
                 strOrNull(payload, "role"),
                 longOrZero(payload, "mfa_at"),
+                sid,
                 extra
         );
+    }
+
+    private static void checkTyp(JsonNode header) {
+        JsonNode t = header.get("typ");
+        String shown = t == null ? "<absent>" : (t.isTextual() ? t.asText() : t.toString());
+        boolean ok = false;
+        if (t != null && t.isTextual()) {
+            String lower = asciiLower(t.asText());
+            ok = lower.equals("jwt") || lower.equals("at+jwt") || lower.equals("application/at+jwt");
+        }
+        if (!ok) {
+            throw new RealmException(ErrorCode.MALFORMED, "unexpected token type: " + shown, 401, null);
+        }
+    }
+
+    private static String asciiLower(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            sb.append(c >= 'A' && c <= 'Z' ? (char) (c + 32) : c);
+        }
+        return sb.toString();
+    }
+
+    /** Blank = absent, null, non-string, or only U+0020/U+0009-U+000D. No other whitespace. */
+    private static void checkSub(JsonNode payload) {
+        JsonNode s = payload.get("sub");
+        boolean blank = true;
+        if (s != null && s.isTextual()) {
+            String v = s.asText();
+            for (int i = 0; i < v.length(); i++) {
+                char c = v.charAt(i);
+                if (c != ' ' && !(c >= '\t' && c <= '\r')) { blank = false; break; }
+            }
+        }
+        if (blank) {
+            throw new RealmException(ErrorCode.MALFORMED, "sub missing or blank", 401, null);
+        }
     }
 
     private String expectedAudience(String realmId, String override) {

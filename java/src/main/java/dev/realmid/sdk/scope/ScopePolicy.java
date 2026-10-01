@@ -48,6 +48,10 @@ public final class ScopePolicy {
         for (int i = 0; i < rules.size(); i++) {
             ScopeRule r = rules.get(i);
             String where = "scope rule " + i + " (" + r.path() + "): ";
+            String braceErr = r.path() == null ? null : GlobMatcher.validateBraces(r.path());
+            if (braceErr != null) {
+                errs.add(where + braceErr);
+            }
             if (r.path() == null || r.path().isEmpty()) {
                 errs.add("scope rule " + i + ": rule has an empty path");
             } else if (r.isPublic() && !r.scopes().isEmpty()) {
@@ -74,14 +78,17 @@ public final class ScopePolicy {
         for (ScopeRule r : rules) {
             if (r.path() == null || r.path().isEmpty()) continue;
             if (r.method() != null && !r.method().toUpperCase().equals(m)) continue;
-            if (!GlobMatcher.match(r.path(), path)) continue;
+            if (!GlobMatcher.matchPlaceholders(r.path(), path)) continue;
 
             if (r.isPublic()) {
                 return new ScopeDecision(true, true, true, r.scopes(), r.anyOf(), List.of());
             }
             if (r.anyOf()) {
-                return new ScopeDecision(Scopes.scopeAllowsAny(claims, r.scopes()),
-                        true, false, r.scopes(), true, List.of());
+                // `missing` on an any-of denial is the rule's FULL scope list in
+                // declared order (SPEC 11.4): any one of them would have admitted.
+                boolean ok = Scopes.scopeAllowsAny(claims, r.scopes());
+                return new ScopeDecision(ok, true, false, r.scopes(), true,
+                        ok ? List.of() : r.scopes());
             }
             boolean allowed = Scopes.scopeAllows(claims, r.scopes());
             List<String> missing = List.of();

@@ -120,8 +120,8 @@ class ScopeTest {
         assertTrue(p.decide(claimsWithScope("r:a"), "GET", "/reports/x").allowed(), "anyOf on one of two");
 
         assertEquals(List.of("orders:write"), p.decide(read, "POST", "/orders/7").missing());
-        assertEquals(List.of(), p.decide(claimsWithScope("nope"), "GET", "/reports/x").missing(),
-                "an anyOf denial has no single missing scope");
+        assertEquals(List.of("r:a", "r:b"), p.decide(claimsWithScope("nope"), "GET", "/reports/x").missing(),
+                "an anyOf denial reports the rule's full scope list (SPEC 11.4, v0.63.0)");
     }
 
     @Test

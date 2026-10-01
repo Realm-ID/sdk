@@ -47,8 +47,10 @@ public final class ScopeDecision {
     public boolean anyOf() { return anyOf; }
 
     /**
-     * Required scopes the token did not carry. Empty on an any-of denial, where
-     * no single scope is "the" missing one.
+     * Required scopes the token did not carry, in BOTH modes. On an all-of
+     * denial that is the lacking subset; on an any-of denial it is the rule's
+     * full scope list in declared order (any one would have admitted). Empty
+     * when allowed, and empty when no rule matched.
      */
     public List<String> missing() { return missing; }
 }
