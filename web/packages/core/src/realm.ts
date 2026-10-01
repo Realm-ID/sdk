@@ -452,10 +452,15 @@ export class Realm {
     return this.login({ method: pending.method, providerToken: pending.providerToken, tenantId });
   }
 
-  async logout(): Promise<void> {
+  /**
+   * Ends this session. `{ all: true }` logs the user out EVERYWHERE (every
+   * session of the identity; SPEC §4.4) — sent as `all: true` to the BFF, which
+   * relays it to the issuer. Plain `logout()` still sends `{}`.
+   */
+  async logout(opts?: { all?: boolean }): Promise<void> {
     try {
       await this.transport.request("POST", this.transport.endpoints.logout, {
-        body: {},
+        body: opts?.all ? { all: true } : {},
         // BFF-SPEC v0.63.0: the BFF's fallback for an issuer older than Issuer A.
         accessToken: this.tokens.peek() || undefined,
         gates: this.gates,

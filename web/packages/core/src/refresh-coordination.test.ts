@@ -491,6 +491,7 @@ test("88b /token 503 retry:true carrying refresh_token -> adopted, retried ONCE 
       assert.equal(tok, "at-7");
       assert.equal(srv.tokenCalls().length, 2);
       assert.equal(srv.tokenCalls()[1].body.refreshToken, "R2", "the retry did not carry the adopted refresh token");
+      assert.equal(srv.tokenCalls()[1].body.refresh_token, "R2", "the retry did not carry refresh_token (snake): a snake-case reader would re-present the spent token");
     }
     // second 503 is a failed refresh, not a lost session
     {
@@ -503,5 +504,45 @@ test("88b /token 503 retry:true carrying refresh_token -> adopted, retried ONCE 
       assert.equal(srv.tokenCalls().length, 2, "retried more than once");
     }
     assert.equal(lost, 0, "onLost fired on a 503");
+  });
+});
+
+test("88c 503 retry overrides a snake-case refresh_token already in an adapter-built body (never re-presents the spent token)", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    let k = 0;
+    const srv = bff(() => {
+      k++;
+      if (k === 1) {
+        return { status: 503, body: { error: { code: "server_error", message: "x" }, retry: true, refresh_token: "R2" } };
+      }
+      return okToken(7);
+    });
+    const a = manager(srv.fetch, hub().make(), {
+      requestAdapters: { token: () => ({ refresh_token: "SPENT" }) },
+    } as any);
+    await a.refresh("t1");
+    const b = srv.tokenCalls()[1].body;
+    assert.equal(b.refresh_token, "R2");
+    assert.equal(b.refreshToken, "R2");
+  });
+});
+
+test("89 logout({all:true}) sends all:true; plain logout() still sends {} (old BFF unaffected)", async () => {
+  const srv = bff((c) => (c.url.endsWith("/logout") ? { status: 200 } : { status: 404 }));
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch: srv.fetch, autoRestore: false });
+  await realm.logout({ all: true });
+  assert.deepEqual(srv.calls.find((x) => x.url.endsWith("/logout"))!.body, { all: true });
+  await realm.logout();
+  const logouts = srv.calls.filter((x) => x.url.endsWith("/logout"));
+  assert.deepEqual(logouts[1].body, {});
+  realm.close();
+});
+
+test("90 against an OLD backend: a plain 200 /token with no org_session_mode refreshes as concurrent, one call", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    const srv = bff(() => okToken(5));
+    const a = manager(srv.fetch, hub().make(), {});
+    assert.equal(await a.refresh("t1"), "at-5");
+    assert.equal(srv.tokenCalls().length, 1);
   });
 });

@@ -14,6 +14,37 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## Unreleased — cross-tab refresh, `logout({ all })`, 503 retry (ships with Go `v0.63.0`)
+
+**Additive; no breaking change.** The version heading is written by the
+release commit, not here. Pairs with BFF-SPEC § Cross-tab refresh and § Logout
+(v0.63.0). **Upgrade order: upgrade this package BEFORE the Go backend** — it
+works against a backend still on Go `v0.62.0` (which has no `503 retry` and
+sends no `org_session_mode`): a plain `200` from `/token` refreshes as before,
+the org mode defaults to `concurrent`, and the 503 path simply never fires.
+
+- **One `/token` at a time across tabs.** A Web Lock serialises refreshes; a
+  tab that waited adopts a sibling's fresh token (shared over
+  `BroadcastChannel`) instead of spending a second rotation. Without
+  `navigator.locks` / `BroadcastChannel` it degrades to the old per-tab refresh.
+- **`503 { retry: true }` from `/token` is retried ONCE** inside the same lock,
+  carrying the rotated refresh token the 503 hands over. The retry body sets
+  BOTH `refresh_token` and `refreshToken`: the SDK middleware reads
+  `refresh_token` first, so a `requestAdapters.token` that emits the snake
+  spelling would otherwise re-present the spent token (a second 503, then
+  issuer reuse detection after the 5 s window). A second 503 fails as
+  `server_error`; it never signs the user out.
+- **`exclusive` org-session mode.** When the backend reports
+  `org_session_mode: "exclusive"`, refreshing one org drops the other orgs'
+  tokens and tells the other tabs to follow.
+- **`realm.logout()` sends the held access token as `Authorization: Bearer`**
+  (BFFs fronting an issuer older than Issuer A fall back to it to revoke the
+  session). A 401/404 is still treated as already logged out.
+- **New: `realm.logout({ all: true })`** logs the user out everywhere (SPEC
+  §4.4). It sends `{ all: true }` to the BFF's `/logout`; a plain `logout()`
+  still sends `{}`. A BFF that does not relay `all` ignores it and ends only
+  this session — the local cleanup is identical either way.
+
 ## 0.8.0 — `completeSignIn` reports an OIDC error return (2026-09-18)
 
 **Behaviour change.** An identity provider can come back two ways and the SDK

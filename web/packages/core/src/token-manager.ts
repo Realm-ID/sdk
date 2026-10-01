@@ -231,7 +231,11 @@ export class TokenManager {
             : undefined;
         if (!rb || rb.retry !== true) throw err;
         const rt = rb.refresh_token ?? rb.refreshToken;
-        res = await send(typeof rt === "string" ? { ...(wireBody as object), refreshToken: rt } : wireBody);
+        // Set BOTH spellings: the SDK middleware reads `refresh_token` first, so an
+        // adapter-built snake_case body would otherwise re-present the spent token.
+        res = await send(
+          typeof rt === "string" ? { ...(wireBody as object), refresh_token: rt, refreshToken: rt } : wireBody,
+        );
       }
       const adapted: TokenResponse = this.opts.adapters.token
         ? this.opts.adapters.token(res.body, {
