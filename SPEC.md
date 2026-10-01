@@ -1105,6 +1105,9 @@ Response: same shape as `login()` (refresh + access).
 Revokes the current refresh token (or any caller-supplied refresh).
 Request: `{ refreshToken? }`. Response: `{ status: "ok" }`.
 
+From Issuer A the issuer's response also carries `sid` and, for `all: true`,
+`revoked_sids`; the SDK revokes each locally (§10.1 step 3a).
+
 ### 4.5 `revokeSession(sessionId)`
 
 Server-side revoke of a specific session id.
@@ -2879,10 +2882,16 @@ For every inbound request, the middleware:
    1. For each refresh-token candidate, `realm.auth.logout(...)` calls the
       issuer's `POST /auth/logout` with that refresh token. From Issuer A the
       issuer's response carries the session's id as **`sid`** (additive; with
-      `all: true` it is the presented token's session — the user's other
-      sessions are not named, and ADR-110 is what reaches them).
-   2. **Response carries `sid`** → `tokens.revokeSession(sid)` (§6.7.2) and,
-      when configured, `Config.Revocation.Revoke(sid, now + H)` (§6.7.6).
+      `all: true` it is the presented token's session). With `all: true` the
+      response ALSO carries **`revoked_sids`** (a list of every session the
+      call ended, additive, Issuer A; owner ruling 2026-10-01).
+   2. **Response carries `sid` and/or `revoked_sids`** → for EVERY id in
+      `revoked_sids`, plus `sid` (de-duplicated), call `tokens.revokeSession(id)`
+      (§6.7.2) and, when configured, `Config.Revocation.Revoke(id, now + H)`
+      (§6.7.6), so the user's other sessions stop working in this app at once.
+      **`revoked_sids` absent** (an older issuer, or `all` not set) → exactly
+      the `sid`-only behaviour; an empty or non-list value is ignored.
+      `auth.logout` (§4.4) does the same.
       Every access token of that session is then refused by step 6a, in every
       tenant, from every client — including one that sent no bearer (today's
       `@realm-id/web`, mobile apps, custom SPAs).
