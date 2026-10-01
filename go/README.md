@@ -52,6 +52,54 @@ func main() {
 }
 ```
 
+## Upgrading to 0.63.0 — breaking changes
+
+- **`Config.SessionStore` is REQUIRED.** `NewRealm` returns
+  `(nil, err)` with `errors.Is(err, realmid.ErrSessionStoreRequired)` without
+  one. Single replica: `realmid.NewMemorySessionStore()`. More than one
+  replica: a shared `SessionStateStore` (see "Session store" below).
+- **Every `TokensClient` method takes `ctx` FIRST:** `GateRequest(ctx, token)`,
+  `IsRevoked(ctx, token)`, `MarkRevoked(ctx, token)`, `RevokeSession(ctx, key)`,
+  `RecordRefresh(ctx, token)`, `Evict(ctx, key)`. The store call is bounded by
+  your deadline instead of `context.Background()`. The middleware passes the
+  request's ctx. `SessionStateStore.AcquireRefreshLock` now returns
+  `release func(ctx context.Context) error` (was `func()`); a custom store
+  must change its signature.
+- **`TokensClient.Len()` is removed.** `MemorySessionStore.Len()` counts the
+  in-memory store's live entries.
+- **`Evict(jti)` is now `Evict(ctx, sessionKey)`.** New meaning: it takes the
+  SESSION key (`sid`, falling back to `jti`) and drops that session's revoked
+  entry and marks. `SessionStateStore.Evict(prefix)` is a PREFIX match (the key,
+  or the key followed by `|`), so a Redis implementation must `SCAN` or keep
+  an index.
+- **Revocation is keyed on the session, not the token.** `MarkRevoked`,
+  `RevokeOnLogout` and `Config.Revocation` now cover every access token of the
+  session. `GateRequest`/`IsRevoked` also refuse a token that a later
+  refresh superseded (its `iat` is below the not-before mark).
+- **The middleware gates every request by default** (SPEC §10.1 step 6a): a
+  revoked or superseded bearer is `401` with `revoked: true`, before the MFA
+  check and before the handler. Refreshes are serialized per refresh token
+  (a concurrent loser gets the winner's outcome, or `503` + `retry: true`).
+  Login, refresh and MFA-verify bodies carry `org_session_mode`.
+- **`Verify` is stricter.** It refuses (`malformed`) a token with an absent or
+  other header `typ` (only `JWT`, `at+jwt`, `application/at+jwt`), any
+  `events` claim, and a blank `sub`. Partner TEST FIXTURES that sign tokens
+  without these will now fail — add `typ: "JWT"` and a `sub`.
+- **Logout** revokes the session(s) the issuer names (`sid`, and every id in
+  `revoked_sids` for `LogoutRequest{All: true}`). Without them it falls back to
+  a bearer that VERIFIES and is unexpired: an expired or invalid bearer revokes
+  nothing locally. Every refresh-cookie candidate is logged out, and the
+  revocation is also pushed into `Config.Revocation`.
+- **Path patterns:** `/x/**` now also matches the bare `/x` in `ExemptPaths`,
+  `MFAProtectedPaths` and `ScopeRule` paths, so an `ExemptPaths` entry `/x/**`
+  exempts `/x` too. `{name}` matches one non-empty segment (`ExemptPaths`
+  keeps braces literal).
+- **Refresh reads `custom_claims` or `customClaims`** from the request body.
+- **Error envelope:** a `RealmError.Details` key named `error` no longer
+  overwrites the `{error: {code, message}}` envelope. `GateRequest`'s error
+  carries `HTTPStatus` 401.
+- Upgrade `@realm-id/web` first, then this SDK (SPEC front matter, "Upgrade order").
+
 ## Runtime
 
 Stdlib only — no third-party dependencies. Go 1.22+.
