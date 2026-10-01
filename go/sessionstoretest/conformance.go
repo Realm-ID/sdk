@@ -130,7 +130,7 @@ func lockSetIfAbsent(t *testing.T, s realmid.SessionStateStore) {
 	if ok2, _, _ := s.AcquireRefreshLock(bg, "l", 2*tick); ok2 {
 		t.Fatal("second acquire must lose while the lock is held")
 	}
-	rel()
+	_ = rel(bg)
 	if ok3, rel3, _ := s.AcquireRefreshLock(bg, "l", tick/2); !ok3 {
 		t.Fatal("acquire after release must win")
 	} else {
@@ -140,7 +140,7 @@ func lockSetIfAbsent(t *testing.T, s realmid.SessionStateStore) {
 	if ok4, rel4, _ := s.AcquireRefreshLock(bg, "l", tick); !ok4 {
 		t.Fatal("an expired lock must be acquirable")
 	} else {
-		rel4()
+		_ = rel4(bg)
 	}
 }
 
@@ -151,8 +151,8 @@ func lockReleaseFenced(t *testing.T, s realmid.SessionStateStore) {
 	if !ok {
 		t.Fatal("second holder must acquire the expired lock")
 	}
-	defer rel()
-	staleRelease() // must NOT free the new holder's lock
+	defer func() { _ = rel(bg) }()
+	_ = staleRelease(bg) // must NOT free the new holder's lock
 	if ok3, _, _ := s.AcquireRefreshLock(bg, "l", tick); ok3 {
 		t.Fatal("a stale holder's release freed the new holder's lock")
 	}

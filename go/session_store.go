@@ -42,11 +42,12 @@ type SessionStateStore interface {
 	// atomic across keys.
 	SessionStates(ctx ctxpkg.Context, keys []string) ([]SessionState, error)
 	// Evict drops every entry whose key equals prefix or starts with prefix+"|".
+	// A prefix match: a shared implementation (Redis) must SCAN or index for it.
 	Evict(ctx ctxpkg.Context, prefix string) error
 
 	// AcquireRefreshLock is SET-IF-ABSENT WITH TTL, atomically. `release` is
 	// FENCED: it frees the lock only if this holder still owns it.
-	AcquireRefreshLock(ctx ctxpkg.Context, key string, ttl time.Duration) (acquired bool, release func(), err error)
+	AcquireRefreshLock(ctx ctxpkg.Context, key string, ttl time.Duration) (acquired bool, release func(ctx ctxpkg.Context) error, err error)
 	// PutRefreshResult stores an opaque SDK-encoded outcome holding live
 	// credentials, for exactly ttl (never extended).
 	PutRefreshResult(ctx ctxpkg.Context, key string, result []byte, ttl time.Duration) error
@@ -214,21 +215,22 @@ func (m *MemorySessionStore) Len() int {
 	return n
 }
 
-func (m *MemorySessionStore) AcquireRefreshLock(_ ctxpkg.Context, key string, ttl time.Duration) (bool, func(), error) {
+func (m *MemorySessionStore) AcquireRefreshLock(_ ctxpkg.Context, key string, ttl time.Duration) (bool, func(ctxpkg.Context) error, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if l, ok := m.locks[key]; ok && l.until.After(m.now()) {
-		return false, func() {}, nil
+		return false, func(ctxpkg.Context) error { return nil }, nil
 	}
 	m.nextID++
 	id := m.nextID
 	m.locks[key] = memLock{owner: id, until: m.now().Add(ttl)}
-	return true, func() {
+	return true, func(ctxpkg.Context) error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if l, ok := m.locks[key]; ok && l.owner == id {
 			delete(m.locks, key)
 		}
+		return nil
 	}, nil
 }
 

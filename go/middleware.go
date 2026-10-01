@@ -448,7 +448,7 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 
 			// 6a. Logout / superseded check (SPEC §10.1 step 6a): after verify,
 			// before the MFA check, on the realm's own TokensClient.
-			if gerr := r.Tokens.GateRequest(token); gerr != nil {
+			if gerr := r.Tokens.GateRequest(req.Context(), token); gerr != nil {
 				r.respondAuthFail(w, req, &opts, stageVerify, asRealmError(gerr))
 				return
 			}
@@ -583,7 +583,7 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 	}
 	if len(candidates) == 0 && bearer != "" {
 		if claims, verr := r.Verify(req.Context(), bearer, nil); verr == nil {
-			r.Tokens.RevokeSession(claims.SessionKey())
+			r.Tokens.RevokeSession(req.Context(), claims.SessionKey())
 			if r.revocation != nil && claims.SessionKey() != "" {
 				_ = r.revocation.Revoke(req.Context(), claims.SessionKey(), r.Tokens.until())
 			}

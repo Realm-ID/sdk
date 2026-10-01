@@ -14,7 +14,11 @@ import (
 )
 
 const (
-	refreshLockTTL       = 10 * time.Second
+	// refreshLockTTL is the mint bound (10 s) plus 5 s: the bound starts after the
+	// acquire and the stored-outcome read, so an equal TTL lets a full-length mint
+	// outlive its lock (SPEC §10.1 step 4a).
+	refreshLockTTL       = 15 * time.Second
+	storeOutcomeTimeout  = 2 * time.Second
 	refreshOutcomeTTL    = 5 * time.Second
 	refreshWaitInterval  = 50 * time.Millisecond
 	refreshWaitTries     = 60
@@ -76,11 +80,20 @@ func (r *Realm) loadOutcome(ctx ctxpkg.Context, key string) *refreshOutcome {
 	return &oc
 }
 
+// freshCtx is a bounded context detached from ctx's cancellation AND deadline:
+// the outcome store, the rotation record and the lock release must complete
+// even when the mint's own bound or the client's connection is already gone.
+func freshCtx(ctx ctxpkg.Context) (ctxpkg.Context, ctxpkg.CancelFunc) {
+	return ctxpkg.WithTimeout(ctxpkg.WithoutCancel(ctx), storeOutcomeTimeout)
+}
+
 func (r *Realm) storeOutcome(ctx ctxpkg.Context, key string, oc *refreshOutcome) {
 	raw, err := json.Marshal(oc)
 	if err != nil {
 		return
 	}
+	ctx, cancel := freshCtx(ctx)
+	defer cancel()
 	if err := r.cfg.SessionStore.PutRefreshResult(ctx, refreshOutcomeKey(key), raw, refreshOutcomeTTL); err != nil {
 		r.logger.Warn("realmid: storing refresh outcome failed", slog.Any("error", err))
 	}
@@ -96,6 +109,16 @@ func (r *Realm) waitOutcome(ctx ctxpkg.Context, key string) *refreshOutcome {
 		r.sleepFor(refreshWaitInterval)
 	}
 	return nil
+}
+
+// releaseLock frees the refresh lock on a fresh bounded context (the request's
+// may already be cancelled) and reports a failure.
+func (r *Realm) releaseLock(req *http.Request, release func(ctxpkg.Context) error) {
+	ctx, cancel := freshCtx(req.Context())
+	defer cancel()
+	if err := release(ctx); err != nil {
+		r.logger.Warn("realmid: refresh lock release failed", slog.Any("error", err))
+	}
 }
 
 func writeServerError(w http.ResponseWriter, message string, retry bool) {
@@ -143,7 +166,9 @@ func (r *Realm) mintRefresh(req *http.Request, candidates []string, tenantID str
 		oc.Mint = out
 		// Step 4b: record only a refresh that ROTATED the refresh token.
 		if out.RefreshToken != "" && out.RefreshToken != minter {
-			r.Tokens.RecordRefresh(out.AccessToken)
+			rctx, rcancel := freshCtx(ctx)
+			r.Tokens.RecordRefresh(rctx, out.AccessToken)
+			rcancel()
 		}
 	}
 	r.storeOutcome(ctx, candidates[0], oc)
@@ -170,6 +195,9 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		return
 	}
 	custom, _ := body["custom_claims"].(map[string]any)
+	if custom == nil {
+		custom, _ = body["customClaims"].(map[string]any)
+	}
 	fp := refreshFingerprint(tenantID, custom)
 	key := candidates[0]
 
@@ -181,7 +209,7 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 	}
 	var oc *refreshOutcome
 	if acquired {
-		defer release()
+		defer r.releaseLock(req, release)
 		// A request that lost the previous winner's response (a reload) is
 		// answered from the stored outcome, never by a second mint.
 		if oc = r.loadOutcome(req.Context(), key); oc == nil {
@@ -275,7 +303,7 @@ func (r *Realm) lockForMFAVerify(w http.ResponseWriter, req *http.Request, opts 
 			return "", nil, false
 		}
 		if acquired {
-			return key, rel, true
+			return key, func() { r.releaseLock(req, rel) }, true
 		}
 		r.sleepFor(refreshWaitInterval)
 	}

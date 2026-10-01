@@ -193,7 +193,7 @@ func TestSPEC10_1_3_IssuerFailureUsesBearerFallbackAndNeverFails(t *testing.T) {
 func TestSPEC10_1_6a_GateBeforeMFA_HandlerNotCalled(t *testing.T) {
 	e := newMWEnv(t)
 	tok := e.token("S1", "u", time.Now())
-	e.realm.Tokens.RevokeSession("S1")
+	e.realm.Tokens.RevokeSession(context.Background(), "S1")
 	w := e.do("GET", "/secure", tok, "")
 	if w.Code != 401 || !strings.Contains(w.Body.String(), `"revoked":true`) {
 		t.Fatalf("revoked on an MFA path must be 401, not 412: %d %s", w.Code, w.Body.String())

@@ -305,7 +305,7 @@ type lockErrStore struct {
 	acquires atomic.Int32
 }
 
-func (s *lockErrStore) AcquireRefreshLock(context.Context, string, time.Duration) (bool, func(), error) {
+func (s *lockErrStore) AcquireRefreshLock(context.Context, string, time.Duration) (bool, func(context.Context) error, error) {
 	s.acquires.Add(1)
 	return false, nil, errors.New("redis down")
 }
@@ -363,7 +363,7 @@ func TestSPEC10_1_4a_MintIsBoundedAndErrorStored(t *testing.T) {
 	if !ok {
 		t.Fatal("lock must be released")
 	}
-	rel()
+	_ = rel(context.Background())
 }
 
 func TestSPEC10_1_4a_OnAuthSuccessRunsForTheLoserAndItsErrorIsTheLosersOnly(t *testing.T) {
@@ -426,7 +426,7 @@ func TestSPEC10_1_5_MFAVerifyWaitsForTheLockThenCallsIssuerOnce(t *testing.T) {
 	if early != 0 {
 		t.Fatal("must wait for the lock before calling the issuer")
 	}
-	rel()
+	_ = rel(context.Background())
 	w := <-done
 	e.mu.Lock()
 	n := e.mfaCalls

@@ -1116,7 +1116,7 @@ func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 		}
 	}
 	for _, id := range ids {
-		a.realm.Tokens.RevokeSession(id)
+		a.realm.Tokens.RevokeSession(ctx, id)
 		if a.realm.revocation != nil {
 			_ = a.realm.revocation.Revoke(ctx, id, a.realm.Tokens.until())
 		}

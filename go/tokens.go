@@ -60,21 +60,21 @@ func (t *TokensClient) until() time.Time { return t.now().Add(sessionStateLifeti
 
 // MarkRevoked records the token's SESSION revoked until now+H. No-op when the
 // token has no session key. Peeks, never verifies.
-func (t *TokensClient) MarkRevoked(accessToken string) {
+func (t *TokensClient) MarkRevoked(ctx ctxpkg.Context, accessToken string) {
 	p, err := peekSession(accessToken)
 	if err != nil {
 		return
 	}
-	t.RevokeSession(p.Key)
+	t.RevokeSession(ctx, p.Key)
 }
 
 // RevokeSession records the named session revoked until now+H. No-op on an
 // empty key. A write error is logged, never returned.
-func (t *TokensClient) RevokeSession(sessionKey string) {
+func (t *TokensClient) RevokeSession(ctx ctxpkg.Context, sessionKey string) {
 	if sessionKey == "" {
 		return
 	}
-	if err := t.store.RevokeSession(ctxpkg.Background(), revokedKey(sessionKey), t.until()); err != nil {
+	if err := t.store.RevokeSession(ctx, revokedKey(sessionKey), t.until()); err != nil {
 		t.log.Warn("realmid: session store write failed", slog.String("op", "revoke"), slog.Any("error", err))
 	}
 }
@@ -82,13 +82,12 @@ func (t *TokensClient) RevokeSession(sessionKey string) {
 // RecordRefresh raises the session mark and the membership mark to the new
 // token's iat. Call it only for a refresh that ROTATED the refresh token.
 // No-op without a session key, sub or iat.
-func (t *TokensClient) RecordRefresh(newAccessToken string) {
+func (t *TokensClient) RecordRefresh(ctx ctxpkg.Context, newAccessToken string) {
 	p, err := peekSession(newAccessToken)
 	if err != nil || p.Key == "" || p.Sub == "" || p.IAT <= 0 {
 		return
 	}
 	nb := time.Unix(p.IAT, 0)
-	ctx := ctxpkg.Background()
 	for _, k := range []string{sessionMarkKey(p.Key), membershipMarkKey(p.Key, p.Sub)} {
 		if err := t.store.RaiseNotBefore(ctx, k, nb, t.until()); err != nil {
 			t.log.Warn("realmid: session store write failed", slog.String("op", "raise_not_before"), slog.Any("error", err))
@@ -99,12 +98,11 @@ func (t *TokensClient) RecordRefresh(newAccessToken string) {
 // IsRevoked reports whether the token's session is revoked, or the not-before
 // mark the realm's mode selects is live and the token's iat is strictly below
 // it. A store read error is FAIL-OPEN (logged). False on malformed input.
-func (t *TokensClient) IsRevoked(accessToken string) bool {
+func (t *TokensClient) IsRevoked(ctx ctxpkg.Context, accessToken string) bool {
 	p, err := peekSession(accessToken)
 	if err != nil || p.Key == "" {
 		return false
 	}
-	ctx := ctxpkg.Background()
 	keys := []string{revokedKey(p.Key), sessionMarkKey(p.Key)}
 	if p.Sub != "" {
 		keys = append(keys, membershipMarkKey(p.Key, p.Sub))
@@ -141,13 +139,14 @@ func (t *TokensClient) IsRevoked(accessToken string) bool {
 // GateRequest is the per-request gate: it returns ErrTokenRevoked (wrapped in
 // a *RealmError, code "unauthorized", details.revoked=true) when IsRevoked.
 // Nil otherwise, including for malformed tokens — the verifier surfaces those.
-func (t *TokensClient) GateRequest(accessToken string) error {
-	if !t.IsRevoked(accessToken) {
+func (t *TokensClient) GateRequest(ctx ctxpkg.Context, accessToken string) error {
+	if !t.IsRevoked(ctx, accessToken) {
 		return nil
 	}
 	return &RealmError{
-		Code:    ErrCodeUnauthorized,
-		Message: "access token revoked",
+		Code:       ErrCodeUnauthorized,
+		HTTPStatus: 401,
+		Message:    "access token revoked",
 		Details: map[string]any{"revoked": true},
 		Cause:   ErrTokenRevoked,
 	}
@@ -161,7 +160,7 @@ func (t *TokensClient) RevokeOnLogout(logoutFn LogoutFn) func(ctx ctxpkg.Context
 		p, perr := peekSession(accessToken)
 		err := logoutFn(ctx, req)
 		if perr == nil {
-			t.RevokeSession(p.Key)
+			t.RevokeSession(ctx, p.Key)
 		}
 		return err
 	}
@@ -170,8 +169,7 @@ func (t *TokensClient) RevokeOnLogout(logoutFn LogoutFn) func(ctx ctxpkg.Context
 // Evict drops a session's revoked entry, session mark and every membership
 // mark. An empty key clears everything an in-memory store holds; on any other
 // store it is a no-op that logs a warning.
-func (t *TokensClient) Evict(sessionKey string) {
-	ctx := ctxpkg.Background()
+func (t *TokensClient) Evict(ctx ctxpkg.Context, sessionKey string) {
 	if sessionKey == "" {
 		if m, ok := t.store.(*MemorySessionStore); ok {
 			_ = m.Evict(ctx, "")
