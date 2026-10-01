@@ -147,8 +147,8 @@ func (t *TokensClient) GateRequest(ctx ctxpkg.Context, accessToken string) error
 		Code:       ErrCodeUnauthorized,
 		HTTPStatus: 401,
 		Message:    "access token revoked",
-		Details: map[string]any{"revoked": true},
-		Cause:   ErrTokenRevoked,
+		Details:    map[string]any{"revoked": true},
+		Cause:      ErrTokenRevoked,
 	}
 }
 

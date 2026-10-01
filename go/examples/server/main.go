@@ -26,7 +26,9 @@ func main() {
 		RealmID: os.Getenv("REALM_ID"),
 		APIKey:  os.Getenv("REALM_API_KEY"),
 		BaseURL: envOr("BASE_URL", realmid.DefaultBaseURL),
-		Logger:  slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
+		// Required since v0.63.0; the in-memory store is right for ONE replica.
+		SessionStore: realmid.NewMemorySessionStore(),
+		Logger:       slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
 	})
 	if err != nil {
 		log.Fatalf("realmid: %v", err)
@@ -56,7 +58,7 @@ func main() {
 
 	mw := realm.Middleware(realmid.MiddlewareOptions{
 		ExemptPaths:       []string{"/health"},
-		MFAProtectedPaths: []string{"/admin/*"},
+		MFAProtectedPaths: []realmid.MFARule{{Path: "/admin/*"}},
 		CookieSecure:      false, // local dev — flip to true behind TLS
 	})
 

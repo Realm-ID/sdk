@@ -31,6 +31,7 @@ type rfEnv struct {
 	gate     chan struct{}   // when non-nil, /auth/token blocks until closed
 	failAll  bool
 	mfaCalls int
+	onToken  func(body map[string]any) // optional: sees each /auth/token body
 }
 
 type rfOpts struct {
@@ -57,6 +58,9 @@ func newRFEnv(t *testing.T, o rfOpts) *rfEnv {
 			reused := e.spent[rt]
 			e.spent[rt] = true
 			fail := e.failAll
+			if e.onToken != nil {
+				e.onToken(body)
+			}
 			e.mu.Unlock()
 			if gate != nil {
 				select {

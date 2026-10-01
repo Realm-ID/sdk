@@ -35,9 +35,10 @@ func main() {
 	}
 
 	realm, err := realmid.NewRealm(realmid.Config{
-		RealmID: *realmID,
-		APIKey:  *apiKey,
-		BaseURL: *baseURL,
+		RealmID:      *realmID,
+		APIKey:       *apiKey,
+		BaseURL:      *baseURL,
+		SessionStore: realmid.NewMemorySessionStore(),
 	})
 	if err != nil {
 		die("realmid: " + err.Error())

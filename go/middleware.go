@@ -667,6 +667,9 @@ func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *
 		"error": map[string]any{"code": string(err.Code), "message": err.Message},
 	}
 	for k, v := range err.Details {
+		if k == "error" {
+			continue // never clobber the envelope
+		}
 		body[k] = v
 	}
 	writeJSON(w, status, body)
@@ -774,6 +777,9 @@ func writeRealmError(w http.ResponseWriter, err *RealmError) {
 		"error": map[string]any{"code": string(err.Code), "message": err.Message},
 	}
 	for k, v := range err.Details {
+		if k == "error" {
+			continue // never clobber the envelope
+		}
 		body[k] = v
 	}
 	writeJSON(w, status, body)
