@@ -29,7 +29,7 @@ func TestOTP_Issue(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	resp, err := r.OTP.Issue(context.Background(), IssueRequest{
 		SubjectRef: "booking:X",
 		Purpose:    "delivery",
@@ -69,7 +69,7 @@ func TestOTP_Verify_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	resp, err := r.OTP.Verify(context.Background(), VerifyRequest{
 		SubjectRef: "booking:X", Purpose: "delivery", Presented: "123456",
 		UserID: "agent-svc",
@@ -93,7 +93,7 @@ func TestOTP_Verify_Invalid(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.OTP.Verify(context.Background(), VerifyRequest{
 		SubjectRef: "booking:X", Purpose: "delivery", Presented: "wrong",
 		UserBearer: "user-jwt",
@@ -122,7 +122,7 @@ func TestOTP_View_IssuerOnly(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	resp, err := r.OTP.View(context.Background(), "otp-1", ViewOptions{UserID: "manager-A"})
 	if err != nil {
 		t.Fatalf("View: %v", err)

@@ -4,13 +4,16 @@ package realmid
 // RealmID-specific extras (azp, tenant_id, role). Unknown fields land in
 // Extra.
 type Claims struct {
-	Issuer          string   `json:"iss,omitempty"`
-	Subject         string   `json:"sub,omitempty"`
-	Audience        string   `json:"aud,omitempty"`
-	IssuedAt        int64    `json:"iat,omitempty"`
-	NotBefore       int64    `json:"nbf,omitempty"`
-	Expiry          int64    `json:"exp,omitempty"`
-	JWTID           string   `json:"jti,omitempty"`
+	Issuer    string `json:"iss,omitempty"`
+	Subject   string `json:"sub,omitempty"`
+	Audience  string `json:"aud,omitempty"`
+	IssuedAt  int64  `json:"iat,omitempty"`
+	NotBefore int64  `json:"nbf,omitempty"`
+	Expiry    int64  `json:"exp,omitempty"`
+	JWTID     string `json:"jti,omitempty"`
+	// SessionID is the `sid` claim: the RealmID session this token belongs to
+	// (SPEC §6.7.1). Absent from issuers older than Issuer A.
+	SessionID       string   `json:"sid,omitempty"`
 	AuthorizedParty string   `json:"azp,omitempty"`
 	TenantID        string   `json:"tenant_id,omitempty"`
 	Role            string   `json:"role,omitempty"`
@@ -27,7 +30,7 @@ type Claims struct {
 // reservedClaimKeys must stay in sync with the Claims struct fields above.
 var reservedClaimKeys = map[string]struct{}{
 	"iss": {}, "sub": {}, "aud": {}, "iat": {}, "nbf": {}, "exp": {},
-	"jti": {}, "azp": {}, "tenant_id": {}, "role": {}, "amr": {}, "acr": {},
+	"jti": {}, "sid": {}, "azp": {}, "tenant_id": {}, "role": {}, "amr": {}, "acr": {},
 	"mfa_at": {},
 }
 
@@ -45,4 +48,16 @@ func (c *Claims) HasMFA() bool {
 		}
 	}
 	return c.ACR != ""
+}
+
+// SessionKey is the key every session-scoped check uses (SPEC §6.7.1): `sid`
+// when non-empty, else `jti`, else "" (no key: nothing recorded or refused).
+func (c *Claims) SessionKey() string {
+	if c == nil {
+		return ""
+	}
+	if c.SessionID != "" {
+		return c.SessionID
+	}
+	return c.JWTID
 }

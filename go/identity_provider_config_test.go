@@ -37,7 +37,7 @@ func TestIDPConfig_ListInjectsPlatformID(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	page, err := r.IdentityProviderConfig.List(context.Background(), &IDPConfigListOpts{TenantID: "t-1"})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -56,7 +56,7 @@ func TestIDPConfig_ListNormalizesNilItems(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	page, err := r.IdentityProviderConfig.List(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -97,7 +97,7 @@ func TestIDPConfig_CreateMapsWireShape(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	got, err := r.IdentityProviderConfig.Create(context.Background(), IDPConfigCreate{
 		Provider: "google", ClientType: "web", ClientID: "g-123",
 		AllowedOrigins: []string{"https://app.example.com"},
@@ -123,7 +123,7 @@ func TestIDPConfig_CreateConflictSurfacesErrIDPExists(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.IdentityProviderConfig.Create(context.Background(), IDPConfigCreate{
 		Provider: "google", ClientType: "web", ClientID: "g-123",
 		AllowedOrigins: []string{"https://app.example.com"},
@@ -164,7 +164,7 @@ func TestIDPConfig_UpdateSendsOnlyProvidedFields(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	disabled := false
 	got, err := r.IdentityProviderConfig.Update(context.Background(), "idp-1", IDPConfigPatch{Enabled: &disabled})
 	if err != nil {
@@ -187,7 +187,7 @@ func TestIDPConfig_DeleteHappy(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.IdentityProviderConfig.Delete(context.Background(), "idp-1")
 	if err != nil {
 		t.Fatalf("delete: %v", err)
@@ -210,7 +210,7 @@ func TestIDPConfig_Delete404SurfacesErrIDPNotFound(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.IdentityProviderConfig.Delete(context.Background(), "missing")
 	if err == nil {
 		t.Fatal("expected error")
@@ -250,7 +250,7 @@ func TestIDPConfig_CreateAndPatchSendConfig(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		defer srv.Close()
 
-		r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+		r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 		got, err := r.IdentityProviderConfig.Create(context.Background(), IDPConfigCreate{
 			Provider: "firebase", ClientType: "web", ClientID: "demo-app",
 			AllowedOrigins: []string{"https://app.example.com"}, Config: fb,
@@ -283,7 +283,7 @@ func TestIDPConfig_CreateAndPatchSendConfig(t *testing.T) {
 		srv := httptest.NewServer(mux)
 		defer srv.Close()
 
-		r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+		r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 		got, err := r.IdentityProviderConfig.Update(context.Background(), "idp-1", IDPConfigPatch{Config: &fb})
 		if err != nil {
 			t.Fatalf("update: %v", err)

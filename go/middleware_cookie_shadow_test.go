@@ -113,7 +113,7 @@ func TestRefresh_StaleShadowCookieDoesNotStrandTheSession(t *testing.T) {
 	calls := 0
 	srv := tokenServer(t, "live", &calls)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{CookieDomain: ".example.com"})
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }))
@@ -137,7 +137,7 @@ func TestRefresh_AllCandidatesInvalidStillReportsTheFirstError(t *testing.T) {
 	calls := 0
 	srv := tokenServer(t, "never-presented", &calls)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{})
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }))

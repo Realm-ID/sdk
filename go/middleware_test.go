@@ -87,7 +87,7 @@ func mintTestKey(t *testing.T, kid string) (signFn, jwk) {
 func TestMiddleware_ExemptPathPasses(t *testing.T) {
 	srv := mwTestServer(t, nil, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{ExemptPaths: []string{"/health"}})
 
 	called := false
@@ -112,7 +112,7 @@ func TestMiddleware_LoginRouteHandledBySDK(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{TokenDelivery: "body"})
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }))
 
@@ -135,7 +135,7 @@ func TestMiddleware_LoginRouteHandledBySDK(t *testing.T) {
 func TestMiddleware_Unauthenticated401(t *testing.T) {
 	srv := mwTestServer(t, nil, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{})
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
 
@@ -150,7 +150,7 @@ func TestMiddleware_ValidBearerAttachesClaims(t *testing.T) {
 	sign, pub := mintTestKey(t, "kid-1")
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{})
 
 	now := time.Now().Unix()
@@ -181,7 +181,7 @@ func TestMiddleware_MFAProtected412(t *testing.T) {
 	sign, pub := mintTestKey(t, "kid-1")
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{MFAProtectedPaths: []MFARule{{Path: "/admin/*"}}})
 
 	now := time.Now().Unix()
@@ -234,7 +234,7 @@ func TestLoggerRedactsCredentials(t *testing.T) {
 	logger := newCapturingLogger(&buf)
 	srv := mwTestServer(t, nil, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk_live_supersecret", BaseURL: srv.URL,
 		Logger: logger,
 	})
@@ -259,7 +259,7 @@ func TestMiddleware_MFAFresh_AcceptsWithinMaxAge(t *testing.T) {
 	sign, pub := mintTestKey(t, "kid-1")
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{
 		MFAProtectedPaths: []MFARule{{Path: "/admin/*", MaxAge: 15 * time.Minute}},
 	})
@@ -284,7 +284,7 @@ func TestMiddleware_MFAStale_Returns412StaleReason(t *testing.T) {
 	sign, pub := mintTestKey(t, "kid-1")
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{
 		MFAProtectedPaths: []MFARule{{Path: "/admin/*", MaxAge: 15 * time.Minute}},
 	})
@@ -316,7 +316,7 @@ func TestMiddleware_RequireFresh_RejectsLegacyMarker(t *testing.T) {
 	sign, pub := mintTestKey(t, "kid-1")
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{
 		MFAProtectedPaths: []MFARule{{Path: "/billing/*", RequireFresh: true}},
 	})
@@ -345,7 +345,7 @@ func TestMiddleware_RequireFresh_AcceptsRecentMfaAt(t *testing.T) {
 	sign, pub := mintTestKey(t, "kid-1")
 	srv := mwTestServer(t, []jwk{pub}, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	mw := r.Middleware(MiddlewareOptions{
 		MFAProtectedPaths: []MFARule{{Path: "/billing/*", RequireFresh: true}},
 	})

@@ -38,7 +38,7 @@ func TestMe_ChooseTenantSendsKeptTenantAndDecodesReleased(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Me.ChooseTenant(context.Background(), TenantChoiceRequest{
 		MeAuth:   MeAuth{UserBearer: "user-jwt"},
 		TenantID: "t-keep",
@@ -69,7 +69,7 @@ func TestMe_BFFModeSendsUserTokenBesidePlatformBearer(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.Me.ChooseTenant(context.Background(), TenantChoiceRequest{
 		MeAuth:   MeAuth{UserToken: "verified-jwt"},
 		TenantID: "t1",
@@ -97,7 +97,7 @@ func TestMe_CtxUserTokenIsUsedWhenNoneOnTheRequest(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	ctx := WithUserToken(context.Background(), "ctx-jwt")
 	if _, err := r.Me.LeaveMembership(ctx, MembershipRequest{TenantID: "t1"}); err != nil {
 		t.Fatalf("leave: %v", err)
@@ -126,7 +126,7 @@ func TestMe_RejectAndLeaveHitTheirOwnRoutes(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	// A tenant id is a path SEGMENT and must be escaped, not interpolated raw.
 	rej, err := r.Me.RejectInvitation(context.Background(), MembershipRequest{
 		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t one",
@@ -165,7 +165,7 @@ func TestMe_OwnerCannotBeRevokedSurfacesAsRealmError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Me.ChooseTenant(context.Background(), TenantChoiceRequest{
 		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t1",
 	})
@@ -202,7 +202,7 @@ func TestAuth_LoginDecodesTenantChoicePicker(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	s, err := r.Auth.Login(context.Background(), LoginRequest{Method: LoginGoogle, ProviderToken: "tok"})
 	if err != nil {
 		t.Fatalf("login: %v", err)
@@ -236,7 +236,7 @@ func TestAuth_LoginWithoutPickerLeavesTheFieldsZero(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	s, err := r.Auth.Login(context.Background(), LoginRequest{Method: LoginGoogle, ProviderToken: "tok"})
 	if err != nil {
 		t.Fatalf("login: %v", err)
@@ -259,7 +259,7 @@ func TestConfig_GetSurfacesPendingReconciliationBesideConfig(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Config.Get(context.Background())
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -289,7 +289,7 @@ func TestConfig_PendingReconciliationIsNilWhenTheRuleIsOff(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Config.Get(context.Background())
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -322,7 +322,7 @@ func TestMe_AcceptInvitationHitsItsOwnRoute(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	// A tenant id is a path SEGMENT and must be escaped, not interpolated raw.
 	acc, err := r.Me.AcceptInvitation(context.Background(), MembershipRequest{
 		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t one",
@@ -352,7 +352,7 @@ func TestMe_AcceptInvitationSurfacesNotPending(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Me.AcceptInvitation(context.Background(), MembershipRequest{
 		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t1",
 	})

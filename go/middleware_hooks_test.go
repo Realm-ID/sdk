@@ -34,7 +34,7 @@ func TestMiddleware_TenantIDForwarded_AndBeforeLoginMutates(t *testing.T) {
 		"/auth/login": captureLogin(&seen),
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{
 		TokenDelivery: "body",
@@ -69,7 +69,7 @@ func TestMiddleware_OnAuthSuccess_Login(t *testing.T) {
 		"/auth/login": captureLogin(&ignore),
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	var got *AuthSuccessEvent
 	mw := r.Middleware(MiddlewareOptions{
@@ -119,7 +119,7 @@ func TestMiddleware_OnAuthSuccess_Refresh_RecoversUserIDViaVerify(t *testing.T) 
 	defer srv.Close()
 	issuer = srv.URL + "/" + testRealmID
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var got *AuthSuccessEvent
 	mw := r.Middleware(MiddlewareOptions{
 		OnAuthSuccess: func(_ context.Context, ev *AuthSuccessEvent) error { got = ev; return nil },
@@ -154,7 +154,7 @@ func TestMiddleware_OnAuthSuccess_FailsClosed_NoCookie(t *testing.T) {
 		"/auth/login": captureLogin(&ignore),
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{
 		// cookie mode (default) so we can assert no Set-Cookie leaks
@@ -187,7 +187,7 @@ func TestMiddleware_OriginEnforcement_On_RejectsMissingOrigin(t *testing.T) {
 		"/auth/login": captureLogin(&ignore),
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{
 		TokenDelivery:     "body",
@@ -222,7 +222,7 @@ func TestMiddleware_OriginEnforcement_On_AllowsListedOrigin(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{
 		TokenDelivery:     "body",
@@ -245,7 +245,7 @@ func TestMiddleware_OriginEnforcement_Auto_FollowsRealmPolicy(t *testing.T) {
 	var ignore map[string]any
 	srv := mineServerWithOrigin(t, testAud, "required", captureLogin(&ignore))
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	mw := r.Middleware(MiddlewareOptions{TokenDelivery: "body"}) // Auto (default)
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(404) }))

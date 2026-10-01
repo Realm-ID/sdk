@@ -41,7 +41,7 @@ func TestTenants_ListPaginatesAcrossPages(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var ids []string
 	for tn, err := range r.Tenants.List(context.Background()).All(context.Background()) {
 		if err != nil {
@@ -71,7 +71,7 @@ func TestTenants_RejectsBadShape(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Tenants.List(context.Background()).Page(context.Background(), nil)
 	if !IsCode(err, ErrCodeServerError) {
 		t.Errorf("expected server_error, got %v", err)
@@ -96,7 +96,7 @@ func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	tnt, err := r.Tenants.Create(context.Background(), TenantCreate{
 		DisplayName: "Acme",
 		SignupMode:  SignupModeAllowlist,
@@ -132,7 +132,7 @@ func TestTenants_UpdateUserRole(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Tenants.UpdateUserRole(context.Background(), "t1", "u9", "admin")
 	if err != nil {
 		t.Fatalf("UpdateUserRole: %v", err)
@@ -169,7 +169,7 @@ func TestInvitations_CreateUsesIdentifier(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	inv, err := r.Tenants.Invitations.Create(context.Background(), "t1", InvitationCreate{Identifier: "[email protected]", Role: "member"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
@@ -208,7 +208,7 @@ func TestUpdateUserContact(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	u, err := r.Tenants.UpdateUserContact(context.Background(), "t1", "u9", UpdateContactInput{Email: "[email protected]", Phone: "+15551234567"})
 	if err != nil {
 		t.Fatalf("UpdateUserContact: %v", err)
@@ -257,7 +257,7 @@ func TestDriftReviews_AcceptAndList(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	page, err := r.Tenants.DriftReviews.List(context.Background(), "t1", &DriftReviewListOpts{UserID: "u9", Limit: 25}).Page(context.Background(), nil)
 	if err != nil {
@@ -312,7 +312,7 @@ func TestContactVerifications_Approve(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	page, err := r.Tenants.ContactVerifications.List(context.Background(), "t1", &ContactVerificationListOpts{State: "pending"}).Page(context.Background(), nil)
 	if err != nil {
@@ -355,7 +355,7 @@ func TestTenants_TransferOwner(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	// nil opts → owner_user_id only.
 	tnt, err := r.Tenants.TransferOwner(context.Background(), "t1", "u-new", nil)
@@ -421,7 +421,7 @@ func TestTenants_ImportUsers(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	res, err := r.Tenants.Users.ImportUsers(context.Background(), "t1", []ImportUserRow{
 		{UserID: "byo-1", Email: "a@x.com", Role: "member"},
 		{Email: "b@x.com", Role: "member"},
@@ -466,7 +466,7 @@ func TestTenants_ListFilters(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	if _, err := r.Tenants.Users.List(context.Background(), "t1", &UserListOpts{Role: "admin", Status: "active", Q: "acme"}).Page(context.Background(), nil); err != nil {
 		t.Fatalf("Users.List: %v", err)

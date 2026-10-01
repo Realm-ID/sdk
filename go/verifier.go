@@ -190,8 +190,8 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 	// + claim verification so a junk JTI never reaches the cache. Opt-in:
 	// nil cache → no-op. Cache errors fail closed (request rejected) so
 	// partner-supplied caches with reliability issues degrade safely.
-	if v.realm.revocation != nil && claims.JWTID != "" {
-		revoked, rerr := v.realm.revocation.IsRevoked(ctx, claims.JWTID)
+	if sk := claims.SessionKey(); v.realm.revocation != nil && sk != "" {
+		revoked, rerr := v.realm.revocation.IsRevoked(ctx, sk)
 		if rerr != nil {
 			return nil, v.fail(ErrCodeUnauthorized, "revocation cache: %v", rerr)
 		}

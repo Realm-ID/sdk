@@ -31,7 +31,7 @@ func TestAuth_SelfEnrollMFA_Happy(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.SelfEnrollMFA(context.Background(), SelfEnrollMFARequest{
 		RefreshToken: "rt-123", TenantID: "t1",
 	})
@@ -69,7 +69,7 @@ func TestAuth_SelfEnrollMFA_AlreadyEnrolled(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Auth.SelfEnrollMFA(context.Background(), SelfEnrollMFARequest{RefreshToken: "rt", TenantID: "t1"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -93,7 +93,7 @@ func TestAuth_DisableMFA_SendsCodeOnDelete(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	err := r.Auth.DisableMFA(WithUserToken(context.Background(), "user-jwt"), DisableMFARequest{UserID: "u9", Code: "654321"})
 	if err != nil {
 		t.Fatalf("disable: %v", err)
@@ -121,7 +121,7 @@ func TestAuth_DisableMFA_NotEnrolled(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	err := r.Auth.DisableMFA(context.Background(), DisableMFARequest{UserBearer: "u-jwt", Code: "111111"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -143,7 +143,7 @@ func TestAuth_RevokeAllSessions_OnBehalfOf(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	err := r.Auth.RevokeAllSessions(WithUserToken(context.Background(), "user-jwt"), RevokeAllSessionsRequest{UserID: "u-42"})
 	if err != nil {
 		t.Fatalf("revoke-all: %v", err)
@@ -157,7 +157,7 @@ func TestAuth_RevokeAllSessions_OnBehalfOf(t *testing.T) {
 }
 
 func TestAuth_RevokeAllSessions_RequiresSelector(t *testing.T) {
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
 	err := r.Auth.RevokeAllSessions(context.Background(), RevokeAllSessionsRequest{})
 	var re *RealmError
 	if !errors.As(err, &re) || re.Code != ErrCodeBadRequest {

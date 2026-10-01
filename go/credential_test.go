@@ -29,7 +29,7 @@ func TestSession_TokenExchangeCredential(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, err := NewRealm(Config{
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID:    testRealmID,
 		BaseURL:    srv.URL,
 		Credential: fakeCred{c: Credential{GrantType: grantTokenExchange, SubjectToken: "workload.jwt.tok"}},

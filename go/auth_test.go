@@ -76,7 +76,7 @@ func TestAuth_LoginHappy(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.Login(context.Background(), LoginRequest{
 		Method:        LoginMicrosoft,
 		ProviderToken: "pt-xyz",
@@ -123,7 +123,7 @@ func TestAuth_LoginMFARequiredEnvelope(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Auth.Login(context.Background(), LoginRequest{Method: LoginFirebase, ProviderToken: "pt"})
 	var re *RealmError
 	if !errors.As(err, &re) {
@@ -154,7 +154,7 @@ func TestAuth_TokenWithCustomClaims(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.Token(context.Background(), TokenRequest{
 		RefreshToken: "rtok",
 		TenantID:     "t1",
@@ -206,7 +206,7 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	sess, err := r.Auth.Login(context.Background(), LoginRequest{Method: LoginMicrosoft, ProviderToken: "pt"})
 	if err != nil {
@@ -240,7 +240,7 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 		},
 	})
 	defer srv2.Close()
-	r2, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv2.URL})
+	r2, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv2.URL})
 	s2, err := r2.Auth.Login(context.Background(), LoginRequest{Method: LoginMicrosoft, ProviderToken: "pt"})
 	if err != nil {
 		t.Fatalf("login2: %v", err)
@@ -262,7 +262,7 @@ func TestAuth_Logout(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if err := r.Auth.Logout(context.Background(), &LogoutRequest{RefreshToken: "rt"}); err != nil {
 		t.Fatalf("logout: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var ids []string
 	var createdAt, lastUsedAt int64
 	var origin string
@@ -350,7 +350,7 @@ func TestAuth_ListSessions_LegacyUserBearer(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{UserBearer: "u-jwt"}) {
 		if err != nil {
 			t.Fatalf("list: %v", err)
@@ -367,7 +367,7 @@ func TestAuth_ListSessions_LegacyUserBearer(t *testing.T) {
 // TestAuth_ListSessions_RequiresUserSelector enforces that callers pass
 // exactly one of UserID / UserBearer.
 func TestAuth_ListSessions_RequiresUserSelector(t *testing.T) {
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
 	saw := false
 	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{}) {
 		saw = true
@@ -426,7 +426,7 @@ func TestAuth_RevokeSession_OnBehalfOf(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if err := r.Auth.RevokeSession(WithUserToken(context.Background(), "user-jwt"), RevokeSessionRequest{
 		SessionID: "sess+1",
 		UserID:    "u-7",
@@ -454,7 +454,7 @@ func TestAuth_MFAVerify_OnBehalfOfIP(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.Auth.MFAVerify(context.Background(), MFAVerifyRequest{
 		ChallengeToken: "ch", Code: "123456",
 		OnBehalfOfIP: "198.51.100.5",
@@ -479,7 +479,7 @@ func TestAuth_MintMFAChallenge_OnBehalfOfIP(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	tok, _, err := r.Auth.MintMFAChallenge(context.Background(), MFAChallengeRequest{
 		AccessToken:  "u-jwt",
 		OnBehalfOfIP: "198.51.100.9",
@@ -536,7 +536,7 @@ func TestLoginDeviceNameIsHeaderSafe(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			if err != nil {
 				t.Fatalf("NewRealm: %v", err)
 			}
@@ -578,7 +578,7 @@ func TestBFFModeRequiresAUserToken(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if err != nil {
 		t.Fatalf("NewRealm: %v", err)
 	}

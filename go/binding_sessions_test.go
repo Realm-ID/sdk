@@ -19,7 +19,7 @@ func TestSessions_RevokeUser(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Sessions.RevokeUser(context.Background(), "t1", "u9")
 	if err != nil {
 		t.Fatalf("revoke-user: %v", err)
@@ -43,7 +43,7 @@ func TestSessions_RevokeAll(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Sessions.RevokeAll(context.Background())
 	if err != nil {
 		t.Fatalf("revoke-all: %v", err)
@@ -63,7 +63,7 @@ func TestUsers_DelinkContact(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Tenants.Users.DelinkContact(context.Background(), "t1", "u1", "c7")
 	if err != nil {
 		t.Fatalf("delink: %v", err)
@@ -87,7 +87,7 @@ func TestUsers_HandBack(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Tenants.Users.HandBack(context.Background(), "t1", "old", "new")
 	if err != nil {
 		t.Fatalf("hand-back: %v", err)
@@ -118,7 +118,7 @@ func TestDriftReviews_RejectSoftAndHard(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	soft, err := r.Tenants.DriftReviews.Reject(context.Background(), "t1", "rv1")
 	if err != nil {
 		t.Fatalf("soft reject: %v", err)
@@ -160,7 +160,7 @@ func TestAuth_ListAuthenticators(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.ListAuthenticators(WithUserToken(context.Background(), "user-jwt"), ListAuthenticatorsRequest{UserID: "u5"})
 	if err != nil {
 		t.Fatalf("list-authenticators: %v", err)
@@ -184,7 +184,7 @@ func TestAuth_RegenerateRecoveryCodes(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.RegenerateRecoveryCodes(WithUserToken(context.Background(), "user-jwt"), RegenerateRecoveryCodesRequest{UserID: "u5"})
 	if err != nil {
 		t.Fatalf("regenerate: %v", err)
@@ -206,7 +206,7 @@ func TestAuth_RegenerateRecoveryCodes_MFARequired(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Auth.RegenerateRecoveryCodes(WithUserToken(context.Background(), "user-jwt"), RegenerateRecoveryCodesRequest{UserID: "u5"})
 	if !IsCode(err, ErrCodeMFARequired) {
 		t.Errorf("want mfa_required, got %v", err)
@@ -226,7 +226,7 @@ func TestErrCodeContactAdminRequired(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Auth.Login(context.Background(), LoginRequest{Method: LoginGoogle, ProviderToken: "x", TenantID: "t1"})
 	if !IsCode(err, ErrCodeContactAdminRequired) {
 		t.Errorf("want contact_admin_required, got %v", err)

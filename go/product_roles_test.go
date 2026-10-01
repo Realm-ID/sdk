@@ -49,7 +49,7 @@ func TestProductRoles_SingleTenantLoginMints(t *testing.T) {
 	defer srv.Close()
 
 	var sawTenant, sawUser string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(_ context.Context, tenantID, userID string) ([]string, error) {
 			sawTenant, sawUser = tenantID, userID
@@ -110,7 +110,7 @@ func TestProductRoles_MultiTenantLoginDoesNotMint(t *testing.T) {
 	defer srv.Close()
 
 	var handlerTenants []string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(_ context.Context, tenantID, _ string) ([]string, error) {
 			handlerTenants = append(handlerTenants, tenantID)
@@ -157,7 +157,7 @@ func TestProductRoles_MultiTenantLoginDoesNotMint(t *testing.T) {
 // rather than as the caller bug it is.
 func TestProductRoles_CompleteLoginRefusesAnUnheldTenant(t *testing.T) {
 	s := &Session{Tenants: []TenantRef{{ID: "t1"}, {ID: "t2"}}}
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://127.0.0.1:1"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://127.0.0.1:1"})
 	if err := r.Auth.CompleteLogin(context.Background(), s, "t9", nil); err == nil {
 		t.Fatal("a tenant the session does not list must be refused before the request leaves")
 	}
@@ -187,7 +187,7 @@ func TestProductRoles_NoHandlerIsNotAnError(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	s, err := r.Auth.Login(context.Background(), LoginRequest{ProviderToken: "pt"})
 	if err != nil {
 		t.Fatalf("a login with no handler must succeed unchanged: %v", err)
@@ -215,7 +215,7 @@ func TestProductRoles_EmptyMintsNoClaim(t *testing.T) {
 			var calls int32
 			srv := loginThenTokenServer(t, &got, &calls)
 			defer srv.Close()
-			r, _ := NewRealm(Config{
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 				RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 				ProductRoles: func(context.Context, string, string) ([]string, error) {
 					return tc.roles, nil
@@ -242,7 +242,7 @@ func TestProductRoles_HandlerErrorRetriesThenRefuses(t *testing.T) {
 
 	var attempts int32
 	boom := errors.New("role db unavailable")
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(context.Context, string, string) ([]string, error) {
 			atomic.AddInt32(&attempts, 1)
@@ -297,7 +297,7 @@ func TestProductRoles_CancelledContextAbandons(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	var attempts int32
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(context.Context, string, string) ([]string, error) {
 			atomic.AddInt32(&attempts, 1)
@@ -327,7 +327,7 @@ func TestProductRoles_MintFailureHandsBackTheSession(t *testing.T) {
 	defer srv.Close()
 
 	boom := errors.New("role db unavailable")
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(context.Context, string, string) ([]string, error) {
 			return nil, boom

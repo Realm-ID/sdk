@@ -29,7 +29,7 @@ func invalidRules() []MFARule {
 }
 
 func TestMiddlewareE_RefusesAnInvalidRuleSet(t *testing.T) {
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "https://example.invalid"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "https://example.invalid"})
 
 	mw, err := r.MiddlewareE(MiddlewareOptions{MFAProtectedPaths: invalidRules()})
 	if err == nil {
@@ -51,7 +51,7 @@ func TestMiddlewareE_RefusesAnInvalidRuleSet(t *testing.T) {
 func TestMiddlewareE_BuildsAValidRuleSet(t *testing.T) {
 	// The control. Without it the refusal above is satisfied by a MiddlewareE
 	// that refuses everything, which would make the validation irrelevant.
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "https://example.invalid"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "https://example.invalid"})
 
 	mw, err := r.MiddlewareE(MiddlewareOptions{MFAProtectedPaths: []MFARule{
 		{Path: "/tenants/{id}", Method: "PATCH", RequireFresh: true},
@@ -79,7 +79,7 @@ func TestMiddleware_StillLogsAndBuildsOnAnInvalidRuleSet(t *testing.T) {
 	// has to actually be emitted, or the fail-open has no signal at all.
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: "https://example.invalid", Logger: logger,
 	})
 
@@ -102,7 +102,7 @@ func TestMiddleware_LogsNothingOnAValidRuleSet(t *testing.T) {
 	// nothing.
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: "https://example.invalid", Logger: logger,
 	})
 

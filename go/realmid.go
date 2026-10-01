@@ -82,6 +82,11 @@ type Config struct {
 	// a Redis/memcached-backed implementation for multi-replica deploys.
 	Revocation RevocationCache
 
+	// SessionStore holds all cross-request session state (SPEC §6.7.5). REQUIRED:
+	// NewRealm fails with ErrSessionStoreRequired without it. Use
+	// NewMemorySessionStore() for a single replica.
+	SessionStore SessionStateStore
+
 	// Authority is an optional SUBJECT-keyed staleness marker consulted by
 	// Verify after the jti denylist (ADR-107). It is what makes demotion and
 	// promotion expressible at all: the jti cache can only deny a token the
@@ -191,6 +196,7 @@ type Realm struct {
 	IdentityProviderConfig *IdentityProviderConfigClient
 	Origins                *OriginsClient
 	Tokens                 *TokensClient
+	modes                  *orgModeCache
 	Admin                  *AdminClient
 	// AuditEvents exposes the partner audit-event feed (ADR-055).
 	AuditEvents *AuditEventsClient
@@ -245,6 +251,9 @@ func NewRealm(cfg Config) (*Realm, error) {
 	if cfg.RealmID == "" {
 		return nil, errors.New("realmid: RealmID required")
 	}
+	if cfg.SessionStore == nil {
+		return nil, ErrSessionStoreRequired
+	}
 	// Resolve the bootstrap credential source (ADR-057): explicit Credential
 	// wins; else a static APIKey; else auto-detect an ambient workload
 	// identity (GCP / GitHub Actions).
@@ -289,7 +298,8 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.SigningKeys = &SigningKeysClient{realm: r}
 	r.IdentityProviderConfig = &IdentityProviderConfigClient{realm: r}
 	r.Origins = newOriginsClient(r)
-	r.Tokens = newTokensClient(cfg.Clock)
+	r.modes = newOrgModeCache(r)
+	r.Tokens = newTokensClient(cfg.Clock, cfg.SessionStore, cfg.Logger, r.modes.mode)
 	r.Admin = newAdminClient(r)
 	r.AuditEvents = newAuditEventsClient(r)
 	r.OTP = &OTPClient{realm: r}

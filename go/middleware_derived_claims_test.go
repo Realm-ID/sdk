@@ -116,7 +116,7 @@ func TestDerivedClaims_RefreshResolvesProductRoles(t *testing.T) {
 
 	var sawTenant, sawUser string
 	var handlerCalls int
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(_ context.Context, tenantID, userID string) ([]string, error) {
 			handlerCalls++
@@ -157,7 +157,7 @@ func TestDerivedClaims_RefreshResolvesScopes(t *testing.T) {
 	defer srv.Close()
 
 	var sawTenant, sawUser string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Scopes: func(_ context.Context, tenantID, userID string) ([]string, error) {
 			sawTenant, sawUser = tenantID, userID
@@ -189,7 +189,7 @@ func TestDerivedClaims_NoHandlerMintsExactlyOnce(t *testing.T) {
 	srv, _ := refreshServer(t, cap)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	driveRefresh(t, r)
 
 	if n := len(cap.snapshot()); n != 1 {
@@ -216,7 +216,7 @@ func TestDerivedClaims_EmptyResultMintsNoClaim(t *testing.T) {
 	srv, _ := refreshServer(t, cap)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(_ context.Context, _, _ string) ([]string, error) {
 			return []string{}, nil
@@ -253,7 +253,7 @@ func TestDerivedClaims_LoginResolvesScopes(t *testing.T) {
 	defer srv.Close()
 
 	var sawTenant, sawUser string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Scopes: func(_ context.Context, tenantID, userID string) ([]string, error) {
 			sawTenant, sawUser = tenantID, userID
@@ -281,7 +281,7 @@ func TestDerivedClaims_ScopesOnlyStillMintsOnLogin(t *testing.T) {
 	srv := loginThenTokenServer(t, &got, &calls)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Scopes: func(_ context.Context, _, _ string) ([]string, error) {
 			return []string{"invoices:read"}, nil
@@ -303,7 +303,7 @@ func TestDerivedClaims_ScopesHandlerErrorRefusesTheMint(t *testing.T) {
 	srv := loginThenTokenServer(t, &got, &calls)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Scopes: func(_ context.Context, _, _ string) ([]string, error) {
 			return nil, errScopesBoom

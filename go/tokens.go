@@ -1,30 +1,23 @@
-// Package realmid — access-token revocation cache (SPEC §6.7).
+// Package realmid — session revocation cache (SPEC §6.7).
 //
-// Server-side, RealmID revokes refresh tokens via POST /auth/logout.
-// Access tokens are stateless RS256 JWTs, so once minted they verify
-// on signature + exp alone until natural expiry. This client adds
-// partner-side defense-in-depth: on logout, the access token's jti
-// is parked in an in-memory cache with TTL = exp - now(). Subsequent
-// requests presenting that jti are rejected without a server round
-// trip.
-//
-// Multi-pod caveat: this cache is per-process. A logout served by
-// pod A does not propagate to pod B; a stolen access token can
-// still be replayed against pod B for up to its remaining TTL. v1.1
-// will ship a Redis-backed swap-in for cross-pod coherence.
+// RealmID revokes refresh tokens server-side (POST /auth/logout, reuse
+// detection). Access tokens are stateless RS256 JWTs, so a partner app learns
+// of neither. This client holds partner-side state about SESSIONS in the
+// realm's SessionStateStore and refuses an access token whose session is
+// revoked, or that a later refresh superseded (iat below the not-before mark).
 package realmid
 
 import (
 	ctxpkg "context"
 	"errors"
-	"sync"
+	"log/slog"
 	"time"
 )
 
-// ErrTokenRevoked is returned by TokensClient.GateRequest when the
-// access token's jti is in the per-process revoked cache. Wrapped in
-// a *RealmError so callers can unify on RealmError-style branching;
-// errors.Is(err, ErrTokenRevoked) also works.
+// ErrTokenRevoked is returned by TokensClient.GateRequest when the access
+// token's session is revoked or superseded. Wrapped in a *RealmError so
+// callers can unify on RealmError-style branching; errors.Is(err,
+// ErrTokenRevoked) also works.
 var ErrTokenRevoked = errors.New("realmid: access token revoked")
 
 // LogoutFn is the shape of AuthClient.Logout that TokensClient.RevokeOnLogout
@@ -32,69 +25,122 @@ var ErrTokenRevoked = errors.New("realmid: access token revoked")
 // logout helpers (e.g. ones that talk through a partner BFF).
 type LogoutFn func(ctx ctxpkg.Context, req *LogoutRequest) error
 
-// TokensClient is the access-token revocation cache surface. Concurrent-safe.
+// Org-session modes (SPEC §6.7.3).
+const (
+	OrgSessionsConcurrent = "concurrent"
+	OrgSessionsExclusive  = "exclusive"
+)
+
+// TokensClient is the session-revocation surface. Concurrent-safe (the store
+// is).
 type TokensClient struct {
-	mu      sync.RWMutex
-	entries map[string]time.Time
-	now     func() time.Time
+	store SessionStateStore
+	now   func() time.Time
+	log   *slog.Logger
+	// mode resolves the realm's org-session mode for the token's issuer.
+	mode func(ctx ctxpkg.Context, iss string) string
 }
 
-// newTokensClient builds a TokensClient with the realm's clock (or
-// time.Now when unset).
-func newTokensClient(now func() time.Time) *TokensClient {
+// newTokensClient builds a TokensClient over store. now defaults to time.Now,
+// mode to "always concurrent", log to a discarding logger.
+func newTokensClient(now func() time.Time, store SessionStateStore, log *slog.Logger, mode func(ctxpkg.Context, string) string) *TokensClient {
 	if now == nil {
 		now = time.Now
 	}
-	return &TokensClient{
-		entries: map[string]time.Time{},
-		now:     now,
+	if log == nil {
+		log = noopLogger()
 	}
+	if mode == nil {
+		mode = func(ctxpkg.Context, string) string { return OrgSessionsConcurrent }
+	}
+	return &TokensClient{store: store, now: now, log: log, mode: mode}
 }
 
-// MarkRevoked extracts jti+exp from accessToken and caches the jti
-// with TTL = exp - now(). No-op when the token is malformed, the
-// jti/exp claims are missing, or exp is already in the past.
+func (t *TokensClient) until() time.Time { return t.now().Add(sessionStateLifetime) }
+
+// MarkRevoked records the token's SESSION revoked until now+H. No-op when the
+// token has no session key. Peeks, never verifies.
 func (t *TokensClient) MarkRevoked(accessToken string) {
-	jti, exp, err := peekJWTRevokeFields(accessToken)
-	if err != nil || jti == "" || exp.IsZero() {
+	p, err := peekSession(accessToken)
+	if err != nil {
 		return
 	}
-	if !exp.After(t.now()) {
-		return
-	}
-	t.mu.Lock()
-	t.entries[jti] = exp
-	t.mu.Unlock()
+	t.RevokeSession(p.Key)
 }
 
-// IsRevoked returns true iff accessToken's jti is cached and the
-// entry has not expired. Lazy GC: stale entries are evicted on read.
-// Returns false on malformed input.
+// RevokeSession records the named session revoked until now+H. No-op on an
+// empty key. A write error is logged, never returned.
+func (t *TokensClient) RevokeSession(sessionKey string) {
+	if sessionKey == "" {
+		return
+	}
+	if err := t.store.RevokeSession(ctxpkg.Background(), revokedKey(sessionKey), t.until()); err != nil {
+		t.log.Warn("realmid: session store write failed", slog.String("op", "revoke"), slog.Any("error", err))
+	}
+}
+
+// RecordRefresh raises the session mark and the membership mark to the new
+// token's iat. Call it only for a refresh that ROTATED the refresh token.
+// No-op without a session key, sub or iat.
+func (t *TokensClient) RecordRefresh(newAccessToken string) {
+	p, err := peekSession(newAccessToken)
+	if err != nil || p.Key == "" || p.Sub == "" || p.IAT <= 0 {
+		return
+	}
+	nb := time.Unix(p.IAT, 0)
+	ctx := ctxpkg.Background()
+	for _, k := range []string{sessionMarkKey(p.Key), membershipMarkKey(p.Key, p.Sub)} {
+		if err := t.store.RaiseNotBefore(ctx, k, nb, t.until()); err != nil {
+			t.log.Warn("realmid: session store write failed", slog.String("op", "raise_not_before"), slog.Any("error", err))
+		}
+	}
+}
+
+// IsRevoked reports whether the token's session is revoked, or the not-before
+// mark the realm's mode selects is live and the token's iat is strictly below
+// it. A store read error is FAIL-OPEN (logged). False on malformed input.
 func (t *TokensClient) IsRevoked(accessToken string) bool {
-	jti, _, err := peekJWTRevokeFields(accessToken)
-	if err != nil || jti == "" {
+	p, err := peekSession(accessToken)
+	if err != nil || p.Key == "" {
 		return false
 	}
-	t.mu.RLock()
-	exp, ok := t.entries[jti]
-	t.mu.RUnlock()
-	if !ok {
+	ctx := ctxpkg.Background()
+	keys := []string{revokedKey(p.Key), sessionMarkKey(p.Key)}
+	if p.Sub != "" {
+		keys = append(keys, membershipMarkKey(p.Key, p.Sub))
+	}
+	states, err := t.store.SessionStates(ctx, keys)
+	if err != nil || len(states) != len(keys) {
+		t.log.Warn("realmid: session store read failed; failing open", slog.Any("error", err))
 		return false
 	}
-	if !exp.After(t.now()) {
-		t.mu.Lock()
-		delete(t.entries, jti)
-		t.mu.Unlock()
+	if states[0].Revoked {
+		return true
+	}
+	sessionNB := states[1].NotBefore
+	var memberNB time.Time
+	if len(states) == 3 {
+		memberNB = states[2].NotBefore
+	}
+	if sessionNB.IsZero() && memberNB.IsZero() {
+		return false // no live mark: the mode is never fetched
+	}
+	nb := memberNB
+	if t.mode(ctx, p.Iss) == OrgSessionsExclusive {
+		nb = sessionNB
+	}
+	if nb.IsZero() {
 		return false
 	}
-	return true
+	if p.IAT <= 0 {
+		return true // no numeric iat against a live selected mark
+	}
+	return p.IAT < nb.Unix()
 }
 
-// GateRequest is the per-request gate partner middleware calls before
-// forwarding upstream. Returns ErrTokenRevoked (wrapped in a *RealmError
-// with code "unauthorized" + details.revoked=true) when accessToken's
-// jti is in the cache. Returns nil otherwise (including for malformed
-// tokens — let the verifier surface that).
+// GateRequest is the per-request gate: it returns ErrTokenRevoked (wrapped in
+// a *RealmError, code "unauthorized", details.revoked=true) when IsRevoked.
+// Nil otherwise, including for malformed tokens — the verifier surfaces those.
 func (t *TokensClient) GateRequest(accessToken string) error {
 	if !t.IsRevoked(accessToken) {
 		return nil
@@ -107,39 +153,36 @@ func (t *TokensClient) GateRequest(accessToken string) error {
 	}
 }
 
-// RevokeOnLogout wraps a LogoutFn so that the access token's jti is
-// marked revoked on **either success or transport failure**. Rationale:
-// the partner backend should fail closed — if RealmID is unreachable,
-// the access token still gets blackholed locally so the user is logged
-// out from the partner's perspective. Returns the wrapped function;
-// the original logoutFn is called once per invocation.
+// RevokeOnLogout wraps a LogoutFn so the token's session is marked revoked on
+// **either success or failure** (fail closed). The token is peeked BEFORE the
+// network call.
 func (t *TokensClient) RevokeOnLogout(logoutFn LogoutFn) func(ctx ctxpkg.Context, accessToken string, req *LogoutRequest) error {
 	return func(ctx ctxpkg.Context, accessToken string, req *LogoutRequest) error {
-		jti, exp, perr := peekJWTRevokeFields(accessToken)
+		p, perr := peekSession(accessToken)
 		err := logoutFn(ctx, req)
-		if perr == nil && jti != "" && !exp.IsZero() && exp.After(t.now()) {
-			t.mu.Lock()
-			t.entries[jti] = exp
-			t.mu.Unlock()
+		if perr == nil {
+			t.RevokeSession(p.Key)
 		}
 		return err
 	}
 }
 
-// Evict drops a single jti, or all entries when jti == "".
-func (t *TokensClient) Evict(jti string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if jti == "" {
-		t.entries = map[string]time.Time{}
+// Evict drops a session's revoked entry, session mark and every membership
+// mark. An empty key clears everything an in-memory store holds; on any other
+// store it is a no-op that logs a warning.
+func (t *TokensClient) Evict(sessionKey string) {
+	ctx := ctxpkg.Background()
+	if sessionKey == "" {
+		if m, ok := t.store.(*MemorySessionStore); ok {
+			_ = m.Evict(ctx, "")
+			return
+		}
+		t.log.Warn("realmid: Evict with an empty key is a no-op on a shared session store")
 		return
 	}
-	delete(t.entries, jti)
-}
-
-// Len returns the current entry count. Useful for tests + instrumentation.
-func (t *TokensClient) Len() int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return len(t.entries)
+	for _, k := range []string{revokedKey(sessionKey), sessionMarkKey(sessionKey)} {
+		if err := t.store.Evict(ctx, k); err != nil {
+			t.log.Warn("realmid: session store evict failed", slog.Any("error", err))
+		}
+	}
 }

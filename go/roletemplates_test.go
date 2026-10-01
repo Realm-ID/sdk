@@ -29,7 +29,7 @@ func TestRoleTemplates_ListPassesLevelAndNeverReturnsNil(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.RoleTemplates.List(context.Background(), RoleTemplateLevelTenant)
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -75,7 +75,7 @@ func TestRoleTemplates_CreateSurfacesRealmsStamped(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.RoleTemplates.Create(context.Background(), RoleTemplateCreate{
 		Level: RoleTemplateLevelTenant, Name: "reporting", DisplayName: "Reporting",
 		Permissions: []string{"audit:read"}, AssignableTo: []string{"human"},
@@ -108,7 +108,7 @@ func TestRoleTemplates_UpdateKeepsUncountableDriftAsMinusOne(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	dn := "Reporting v2"
 	out, err := r.RoleTemplates.Update(context.Background(), "tpl1",
 		RoleTemplatePatch{DisplayName: &dn})
@@ -135,7 +135,7 @@ func TestRoleTemplates_PatchOmitsUnsetFields(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	dn := "only this"
 	if _, err := r.RoleTemplates.Update(context.Background(), "tpl1",
 		RoleTemplatePatch{DisplayName: &dn}); err != nil {
@@ -189,7 +189,7 @@ func TestRoleTemplates_UpdateSendsOverrideSeatedOnlyWhenSet(t *testing.T) {
 			srv := httptest.NewServer(mux)
 			defer srv.Close()
 
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			dn := "x"
 			if _, err := r.RoleTemplates.Update(context.Background(), "tpl1",
 				RoleTemplatePatch{DisplayName: &dn}, tc.opts...); err != nil {
@@ -211,7 +211,7 @@ func TestRoleTemplates_DeleteSendsOverrideSeatedOnlyWhenSet(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.RoleTemplates.Delete(context.Background(), "tpl1",
 		RoleTemplateWriteOpts{OverrideSeated: true}); err != nil {
 		t.Fatalf("delete: %v", err)
@@ -230,7 +230,7 @@ func TestRoleTemplates_DeleteOmitsOverrideSeatedByDefault(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.RoleTemplates.Delete(context.Background(), "tpl1"); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestRoleTemplates_DeleteReportsOrphans(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.RoleTemplates.Delete(context.Background(), "tpl1")
 	if err != nil {
 		t.Fatalf("delete: %v", err)
@@ -294,7 +294,7 @@ func TestRoleTemplates_ErrorsMapToSentinels(t *testing.T) {
 			srv := httptest.NewServer(mux)
 			defer srv.Close()
 
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			_, err := r.RoleTemplates.Create(context.Background(), RoleTemplateCreate{
 				Level: RoleTemplateLevelTenant, Name: "x", AssignableTo: []string{"human"},
 			})
@@ -324,7 +324,7 @@ func TestRoles_AuthoringRetiredMapsSentinel(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Roles.Create(context.Background(), RoleCreate{Name: "salesman"})
 	if !errors.Is(err, ErrRoleAuthoringRetired) {
 		t.Fatalf("got %v, want ErrRoleAuthoringRetired", err)

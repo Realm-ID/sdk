@@ -28,7 +28,7 @@ func TestServiceAccounts_Create(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.ServiceAccounts.Create(context.Background(), "t1", ServiceAccountCreate{
 		Handle: "bot@acme.test", Role: "member",
 	})
@@ -57,7 +57,7 @@ func TestServiceAccounts_HandleTakenMapsSentinel(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.ServiceAccounts.Create(context.Background(), "t1", ServiceAccountCreate{Handle: "x@y.z"})
 	if !errors.Is(err, ErrServiceAccountHandleTaken) {
 		t.Fatalf("want ErrServiceAccountHandleTaken, got %v", err)
@@ -84,7 +84,7 @@ func TestServiceAccounts_Lifecycle(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	ctx := context.Background()
 	if _, err := r.ServiceAccounts.Suspend(ctx, "t1", "sa-1"); err != nil {
 		t.Fatalf("Suspend: %v", err)
@@ -133,7 +133,7 @@ func TestOTP_Issue_DeliveryMode(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.OTP.Issue(context.Background(), IssueRequest{
 		SubjectRef: "user:sa-1", Purpose: "login",
 		DeliveryMode: DeliveryModeViewBFF, UserID: "u-owner",

@@ -43,7 +43,7 @@ func TestFederationBindings_CRUD(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	// List
 	page, err := r.FederationBindings.List(context.Background()).Page(context.Background(), nil)

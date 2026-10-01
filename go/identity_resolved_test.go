@@ -54,7 +54,7 @@ func TestIdentityResolvedRunsBeforeScopeResolution(t *testing.T) {
 	defer srv.Close()
 
 	mirror := newScopeMirror()
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		OnIdentityResolved: func(_ context.Context, ev *IdentityResolvedEvent) error {
 			mirror.rows[mirror.key(ev.TenantID, ev.UserID)] = []string{"orders:read"}
@@ -130,7 +130,7 @@ func TestIdentityResolvedFiresOnEveryDerivedClaimsLane(t *testing.T) {
 			defer srv.Close()
 
 			var fired []IdentityResolvedEvent
-			r, _ := NewRealm(Config{
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 				RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 				OnIdentityResolved: func(_ context.Context, ev *IdentityResolvedEvent) error {
 					fired = append(fired, *ev)
@@ -167,7 +167,7 @@ func TestIdentityResolvedFiresOnEveryDerivedClaimsLane(t *testing.T) {
 		defer srv.Close()
 
 		var fired []IdentityResolvedEvent
-		r, _ := NewRealm(Config{
+		r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 			RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 			OnIdentityResolved: func(_ context.Context, ev *IdentityResolvedEvent) error {
 				fired = append(fired, *ev)
@@ -215,7 +215,7 @@ func TestIdentityResolvedFiresOncePerTenant(t *testing.T) {
 	defer srv.Close()
 
 	var fired []IdentityResolvedEvent
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		OnIdentityResolved: func(_ context.Context, ev *IdentityResolvedEvent) error {
 			fired = append(fired, *ev)
@@ -270,7 +270,7 @@ func TestIdentityResolvedErrorRefusesTheMint(t *testing.T) {
 
 	boom := errors.New("mirror store down")
 	var resolverCalls int32
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		OnIdentityResolved: func(_ context.Context, _ *IdentityResolvedEvent) error {
 			return boom
@@ -323,7 +323,7 @@ func TestIdentityResolvedFiresExactlyOnceOnFailure(t *testing.T) {
 	defer srv.Close()
 
 	var fires int32
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		OnIdentityResolved: func(_ context.Context, _ *IdentityResolvedEvent) error {
 			atomic.AddInt32(&fires, 1)
@@ -352,7 +352,7 @@ func TestIdentityResolvedEventMutationIsInert(t *testing.T) {
 	defer srv.Close()
 
 	var sawTenant, sawUser string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		OnIdentityResolved: func(_ context.Context, ev *IdentityResolvedEvent) error {
 			ev.TenantID = "t-evil"
@@ -398,7 +398,7 @@ func TestIdentityResolvedRefusesRefreshWhenSubjectIsUnreadable(t *testing.T) {
 	}
 
 	t.Run("degrades without the hook", func(t *testing.T) {
-		r, _ := NewRealm(Config{
+		r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 			RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 			Scopes: func(_ context.Context, _, _ string) ([]string, error) {
 				return []string{"orders:read"}, nil
@@ -412,7 +412,7 @@ func TestIdentityResolvedRefusesRefreshWhenSubjectIsUnreadable(t *testing.T) {
 
 	t.Run("refuses with the hook", func(t *testing.T) {
 		var fires int32
-		r, _ := NewRealm(Config{
+		r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 			RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 			OnIdentityResolved: func(_ context.Context, _ *IdentityResolvedEvent) error {
 				atomic.AddInt32(&fires, 1)
@@ -444,7 +444,7 @@ func TestIdentityResolvedFiresOnRefreshWithNoResolvers(t *testing.T) {
 	defer srv.Close()
 
 	var fires int32
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		OnIdentityResolved: func(_ context.Context, _ *IdentityResolvedEvent) error {
 			atomic.AddInt32(&fires, 1)

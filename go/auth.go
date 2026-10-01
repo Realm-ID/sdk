@@ -1097,8 +1097,8 @@ func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 		return err
 	}
 	if req != nil && req.AccessToken != "" && a.realm.revocation != nil {
-		if jti, exp, perr := peekJWTRevokeFields(req.AccessToken); perr == nil && jti != "" {
-			_ = a.realm.revocation.Revoke(ctx, jti, exp)
+		if p, perr := peekSession(req.AccessToken); perr == nil && p.Key != "" {
+			_ = a.realm.revocation.Revoke(ctx, p.Key, a.realm.Tokens.until())
 		}
 	}
 	return nil

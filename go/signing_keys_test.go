@@ -26,7 +26,7 @@ func TestSigningKeys_ListReadsKeyringAndPolicy(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.SigningKeys.List(context.Background())
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -54,7 +54,7 @@ func TestSigningKeys_RotatePostsAndReturnsKIDs(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.SigningKeys.Rotate(context.Background())
 	if err != nil {
 		t.Fatalf("rotate: %v", err)

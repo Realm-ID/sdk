@@ -55,7 +55,7 @@ func TestSession_NoRefreshTokenInResponseStillWorks(t *testing.T) {
 	srv := httptest.NewServer(platformLoginMux(t, &loginCalls, nil))
 	defer srv.Close()
 
-	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
 	if err != nil {
 		t.Fatalf("NewRealm: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestSession_LoginCacheRemint(t *testing.T) {
 	srv := httptest.NewServer(platformLoginMux(t, &loginCalls, nil))
 	defer srv.Close()
 
-	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
 	if err != nil {
 		t.Fatalf("NewRealm: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestSession_ConcurrentRemintSingleFlight(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
 	if err != nil {
 		t.Fatalf("NewRealm: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestSession_UnauthorizedSurfaces(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
 	_, err := r.platformToken.get(context.Background())
 	if err == nil {
 		t.Fatal("expected error")

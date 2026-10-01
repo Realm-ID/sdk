@@ -59,7 +59,7 @@ func TestOrigins_ValidateCachesAcrossCalls(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	ctx := context.Background()
 	ok, err := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://app.acme.com"})
 	if err != nil || !ok {
@@ -92,7 +92,7 @@ func TestOrigins_TTLExpiry(t *testing.T) {
 
 	now := time.Unix(1_000_000, 0)
 	clock := func() time.Time { return now }
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL, Clock: clock})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL, Clock: clock})
 	ctx := context.Background()
 
 	if ok, _ := r.Origins.Validate(ctx, ValidateOriginOptions{RealmID: testRealmID, Origin: "https://app.acme.com"}); !ok {
@@ -134,7 +134,7 @@ func TestOrigins_RefreshOn401(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	ok, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{
 		RealmID: testRealmID, Origin: "https://app.acme.com",
 	})
@@ -156,7 +156,7 @@ func TestOrigins_PersistentUnauthorized(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{
 		RealmID: testRealmID, Origin: "https://app.acme.com",
 	})
@@ -182,7 +182,7 @@ func TestOrigins_ListPaginates(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	pg, err := r.Origins.List(context.Background(), ListOriginsOptions{RealmID: testRealmID})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -225,7 +225,7 @@ func TestOrigins_DecodesNumericCreatedAt(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	// Validate is the login hot path: it must not error on a populated row.
 	ok, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{
@@ -254,7 +254,7 @@ func TestOrigins_DecodesNumericCreatedAt(t *testing.T) {
 }
 
 func TestOrigins_ValidateRequiresRealmID(t *testing.T) {
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://localhost:0"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://localhost:0"})
 	_, err := r.Origins.Validate(context.Background(), ValidateOriginOptions{Origin: "https://x"})
 	if !IsCode(err, ErrCodeBadRequest) {
 		t.Errorf("want bad_request, got %v", err)

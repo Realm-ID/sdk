@@ -100,7 +100,7 @@ func TestNotifyAuthorityChanged_MarksTheSubjectStale(t *testing.T) {
 	defer srv.Close()
 	now := time.Now()
 	cache := NewMemAuthorityCache(func() time.Time { return now })
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Authority: cache,
 		Clock:     func() time.Time { return now },
@@ -134,7 +134,7 @@ func TestNotifyAuthorityChanged_MarksTheSubjectStale(t *testing.T) {
 func TestNotifyAuthorityChanged_IntentIsRequired(t *testing.T) {
 	srv := mwTestServer(t, nil, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Authority: NewMemAuthorityCache(nil),
 	})
@@ -162,7 +162,7 @@ func TestNotifyAuthorityChanged_IntentIsRequired(t *testing.T) {
 func TestNotifyAuthorityChanged_NoCacheIsAnError(t *testing.T) {
 	srv := mwTestServer(t, nil, testAud, nil)
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	err := r.NotifyAuthorityChanged(context.Background(), AuthorityChange{
 		Subject: "sub-1", Intent: AuthorityIntentDemoted,
@@ -184,7 +184,7 @@ func TestAuthorityAndRevocationAreSeparateFields(t *testing.T) {
 	defer srv.Close()
 	rev := NewMemRevocationCache(nil)
 	auth := NewMemAuthorityCache(nil)
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Revocation: rev, Authority: auth,
 	})
@@ -202,7 +202,7 @@ func staleVerifierRealm(t *testing.T, cache AuthorityCache, now time.Time) (*Rea
 	t.Helper()
 	sign, pub := mintKey(t, "kid-1")
 	srv := fakeServer(t, map[string][]jwk{testRealmID: {pub}}, testAud)
-	r, err := NewRealm(Config{
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL,
 		Authority: cache,
 		Clock:     func() time.Time { return now },
@@ -280,7 +280,7 @@ func TestVerify_StaleCheckCarriesTheVerifierLeeway(t *testing.T) {
 	sign, pub := mintKey(t, "kid-1")
 	srv := fakeServer(t, map[string][]jwk{testRealmID: {pub}}, testAud)
 	defer srv.Close()
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL,
 		Authority: cache,
 		Clock:     func() time.Time { return now },
@@ -364,7 +364,7 @@ func TestTokenManager_HandleStaleRefreshesOncePerToken(t *testing.T) {
 		},
 	})
 	defer srv.Close()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	tm := r.Auth.NewTokenManager("rtok")
 
 	fresh, err := tm.HandleStale(context.Background(), "atok-stale")
@@ -452,7 +452,7 @@ func TestMiddlewareIngressLanesAreDerivedAndUngated(t *testing.T) {
 	// The caller is demoted: their subject is marked stale for the whole test.
 	_ = cache.MarkStale(context.Background(), "01HUSER", now, now.Add(15*time.Minute))
 
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Authority: cache, Clock: func() time.Time { return now },
 	})

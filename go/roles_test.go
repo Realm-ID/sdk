@@ -57,7 +57,7 @@ func TestRoles_ListReturnsLockedEnvelope(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	page, err := r.Roles.List(context.Background(), &RoleListOpts{Cursor: "c1", Limit: 25})
 	if err != nil {
 		t.Fatalf("list: %v", err)
@@ -103,7 +103,7 @@ func TestRoles_CreateMapsWireShape(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	got, err := r.Roles.Create(context.Background(), RoleCreate{
 		Name: "salesman", DisplayName: "Field Sales", Permissions: []string{"bills:read"},
 	})
@@ -146,7 +146,7 @@ func TestRoles_UpdateSendsOnlyProvidedFields(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	perms := []string{"bills:read", "orders:all"}
 	got, err := r.Roles.Update(context.Background(), "role-salesman", RolePatch{Permissions: &perms})
 	if err != nil {
@@ -169,7 +169,7 @@ func TestRoles_DeleteHappy(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Roles.Delete(context.Background(), "role-old")
 	if err != nil {
 		t.Fatalf("delete: %v", err)
@@ -193,7 +193,7 @@ func TestRoles_Delete409SurfacesErrRoleInUse(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Roles.Delete(context.Background(), "role-salesman")
 	if err == nil {
 		t.Fatalf("expected error")
@@ -228,7 +228,7 @@ func TestRoles_RenamePostsTo(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	got, err := r.Roles.Rename(context.Background(), "role-oldname", "newname")
 	if err != nil {
 		t.Fatalf("rename: %v", err)
@@ -250,7 +250,7 @@ func TestRoles_ListForwardsIncludeSystem(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.Roles.List(context.Background(), &RoleListOpts{IncludeSystem: true}); err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestRoles_DisablePostsAndDecodesDisabledFields(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	got, err := r.Roles.Disable(context.Background(), "role-x")
 	if err != nil {
 		t.Fatalf("disable: %v", err)
@@ -300,7 +300,7 @@ func TestRoles_EnablePosts(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	got, err := r.Roles.Enable(context.Background(), "role-x")
 	if err != nil {
 		t.Fatalf("enable: %v", err)
@@ -338,7 +338,7 @@ func TestRoles_CreateForwardsAssignableTo(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	got, err := r.Roles.Create(context.Background(), RoleCreate{
 		Name: "bot", DisplayName: "Bot",
 		AssignableTo: []string{"service"},
@@ -383,7 +383,7 @@ func TestRoles_UpdateDecodesMigratedHolders(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	kinds := []string{"service"}
 	got, err := r.Roles.Update(context.Background(), "role-bot", RolePatch{AssignableTo: &kinds})
 	if err != nil {

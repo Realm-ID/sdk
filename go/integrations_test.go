@@ -11,7 +11,7 @@ import (
 
 func newIntegrationsRealm(t *testing.T, url string) *Realm {
 	t.Helper()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: url})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: url})
 	return r
 }
 

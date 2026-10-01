@@ -260,33 +260,6 @@ func peekJWTUserFields(jwt string) (sub, email, name string, err error) {
 	return c.Sub, c.Email, c.Name, nil
 }
 
-// peekJWTRevokeFields decodes the JWT payload (no signature check) and
-// returns its `jti` and `exp` claims. Used by AuthClient.Logout's
-// RevocationCache integration. Returns ("", zero time, error) on
-// malformed input. Signature verification stays the verifier's job.
-func peekJWTRevokeFields(jwt string) (string, time.Time, error) {
-	parts := strings.Split(jwt, ".")
-	if len(parts) != 3 {
-		return "", time.Time{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: expected 3 parts"}
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return "", time.Time{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
-	}
-	var c struct {
-		JTI string `json:"jti"`
-		Exp int64  `json:"exp"`
-	}
-	if err := json.Unmarshal(raw, &c); err != nil {
-		return "", time.Time{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not json"}
-	}
-	exp := time.Time{}
-	if c.Exp > 0 {
-		exp = time.Unix(c.Exp, 0)
-	}
-	return c.JTI, exp, nil
-}
-
 // invalidate clears the cached access token. Used after an auth failure to
 // force a re-mint from the bootstrap credential on the next call (ADR-089:
 // there is no refresh token to fall back to).

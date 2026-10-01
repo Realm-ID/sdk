@@ -112,7 +112,7 @@ func baseClaims(srv string, opts ...func(map[string]any)) map[string]any {
 
 func mustRealm(t *testing.T, srv string) *Realm {
 	t.Helper()
-	r, err := NewRealm(Config{
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID,
 		APIKey:  "rk_live_test",
 		BaseURL: srv,
@@ -216,7 +216,7 @@ func TestVerify_BadSignature(t *testing.T) {
 }
 
 func TestVerify_JWKSFetchFailed(t *testing.T) {
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: "http://127.0.0.1:1"})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://127.0.0.1:1"})
 	sign, _ := mintKey(t, "kid-1")
 	// Stub audience cache so the verifier does not block on info().
 	r.info.cached = &RealmInfo{ID: testRealmID, Audience: testAud}
@@ -232,20 +232,20 @@ func TestVerify_JWKSFetchFailed(t *testing.T) {
 }
 
 func TestNewRealm_Validation(t *testing.T) {
-	if _, err := NewRealm(Config{APIKey: "x"}); err == nil {
+	if _, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), APIKey: "x"}); err == nil {
 		t.Fatal("expected error for missing RealmID")
 	}
 	// ADR-057: APIKey is no longer required — with neither APIKey nor
 	// Credential, the SDK falls back to ambient workload-identity auto-detect
 	// (the credential is only fetched lazily at first login, so construction
 	// must succeed here).
-	if _, err := NewRealm(Config{RealmID: "x"}); err != nil {
+	if _, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: "x"}); err != nil {
 		t.Fatalf("RealmID-only config should construct (auto-detect credential), got %v", err)
 	}
-	if _, err := NewRealm(Config{RealmID: "x", APIKey: "rk_live_x"}); err != nil {
+	if _, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: "x", APIKey: "rk_live_x"}); err != nil {
 		t.Fatalf("APIKey config should construct, got %v", err)
 	}
-	if _, err := NewRealm(Config{RealmID: "x", Credential: GitHubActionsOIDC("", nil)}); err != nil {
+	if _, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: "x", Credential: GitHubActionsOIDC("", nil)}); err != nil {
 		t.Fatalf("explicit Credential config should construct, got %v", err)
 	}
 }

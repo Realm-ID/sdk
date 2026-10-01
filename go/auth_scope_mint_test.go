@@ -31,7 +31,7 @@ func TestAuth_TokenSendsScope(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.Auth.Token(context.Background(), TokenRequest{
 		RefreshToken: "rtok",
 		TenantID:     "t1",
@@ -75,7 +75,7 @@ func TestAuth_TokenOmitsAbsentScope(t *testing.T) {
 			})
 			defer srv.Close()
 
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			if _, err := r.Auth.Token(context.Background(), TokenRequest{
 				RefreshToken: "rtok", TenantID: "t1", Scope: tc.scope,
 			}); err != nil {
@@ -124,7 +124,7 @@ func TestAuth_TokenRefusesUnsendableScope(t *testing.T) {
 			})
 			defer srv.Close()
 
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			_, err := r.Auth.Token(context.Background(), TokenRequest{
 				RefreshToken: "rtok", TenantID: "t1",
 				Scope: []string{"orders:read", tc.entry},

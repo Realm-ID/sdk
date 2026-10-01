@@ -28,7 +28,7 @@ func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Auth.OTPLogin(context.Background(), OTPLoginRequest{
 		Identifier: "+15551234567",
 		Presented:  "123456",
@@ -66,7 +66,7 @@ func TestAuth_MFAVerifyOTP_SendsMethodOTP(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	if _, err := r.Auth.MFAVerifyOTP(context.Background(), MFAVerifyOTPRequest{
 		MFAToken:  "ch-9",
 		Presented: "654321",

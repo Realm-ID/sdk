@@ -71,7 +71,7 @@ func newV063Env(t *testing.T, cfg func(*Config)) *v063Env {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	c := Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL}
+	c := Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL}
 	if cfg != nil {
 		cfg(&c)
 	}

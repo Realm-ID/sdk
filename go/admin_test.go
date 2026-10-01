@@ -47,7 +47,7 @@ func TestAdmin_ListPlatforms_QueryAndDecode(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	hcd := true
 	out, err := r.Admin.ListPlatforms(context.Background(), ListPlatformsParams{
 		Q:               "ac",
@@ -91,7 +91,7 @@ func TestAdmin_Stats(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	s, err := r.Admin.Stats(context.Background())
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
@@ -121,7 +121,7 @@ func TestAdmin_ListEvents(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Admin.ListEvents(context.Background(), ListEventsParams{
 		PlatformID: "p1",
 		Kind:       []string{"platform.created", "platform.suspended"},
@@ -158,7 +158,7 @@ func TestAdmin_Search(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Admin.Search(context.Background(), "ac", 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -183,7 +183,7 @@ func TestAdmin_ForwardsForbidden(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Admin.Stats(context.Background())
 	if !IsCode(err, ErrCodeForbidden) {
 		t.Errorf("expected forbidden, got %v", err)

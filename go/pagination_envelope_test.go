@@ -112,7 +112,7 @@ func TestSourcesList_ExposesEnvelope(t *testing.T) {
 	)
 	defer done()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: base})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: base})
 	list := r.Sources.List(context.Background())
 	pg, err := list.Page(context.Background(), nil)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestServiceAccountsList_ExposesEnvelope(t *testing.T) {
 	)
 	defer done()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: base})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: base})
 	list := r.ServiceAccounts.List(context.Background(), "t1")
 	pg, err := list.Page(context.Background(), nil)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestUserAPIKeysList_ExposesEnvelope(t *testing.T) {
 	)
 	defer done()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: base})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: base})
 	list := r.UserAPIKeys.List(context.Background(), "t1", "u1")
 	pg, err := list.Page(context.Background(), &PageOpts{Limit: 1})
 	if err != nil {
@@ -209,7 +209,7 @@ func TestAPIKeysList_ExposesEnvelope(t *testing.T) {
 	)
 	defer done()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: base})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: base})
 	list := r.APIKeys.List(context.Background())
 	pg, err := list.Page(context.Background(), nil)
 	if err != nil {
@@ -248,7 +248,7 @@ func TestPagerStopsOnHasMoreFalse(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	var n int
 	for _, err := range r.Sources.List(context.Background()).All(context.Background()) {
 		if err != nil {
@@ -286,7 +286,7 @@ func TestUnsetLimitAndCursorAreOMITTEDFromTheQuery(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	// A bare .Page(ctx, nil): PageOpts is the zero value throughout.
 	if _, err := r.Sources.List(context.Background()).Page(context.Background(), nil); err != nil {
@@ -349,7 +349,7 @@ func TestEveryPagedListOmitsAnUnsetLimit(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	if _, err := r.Sources.List(ctx).Page(ctx, nil); err != nil {
 		t.Fatalf("sources: %v", err)
@@ -408,7 +408,7 @@ func TestPaginationInputErrorsReachCode(t *testing.T) {
 			})
 			defer srv.Close()
 
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			_, err := r.Sources.List(context.Background()).Page(context.Background(), nil)
 			if err == nil {
 				t.Fatal("expected an error")

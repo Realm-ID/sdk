@@ -35,7 +35,7 @@ func TestConfig_GetReturnsRealmIDAndLooseMap(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Config.Get(context.Background())
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -79,7 +79,7 @@ func TestConfig_GetEmptyBodyYieldsNonNilMap(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Config.Get(context.Background())
 	if err != nil {
 		t.Fatalf("get: %v", err)
@@ -115,7 +115,7 @@ func TestStats_GetDecodesRollup(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Stats.Get(context.Background())
 	if err != nil {
 		t.Fatalf("stats: %v", err)
@@ -146,7 +146,7 @@ func TestStats_NullPercentDecodesAsNilNotZero(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Stats.Get(context.Background())
 	if err != nil {
 		t.Fatalf("stats: %v", err)

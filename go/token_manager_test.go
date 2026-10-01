@@ -37,7 +37,7 @@ func tmServer(t *testing.T, tokenHandler func(w http.ResponseWriter, presentedRe
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	r, err := NewRealm(Config{RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})
 	if err != nil {
 		t.Fatalf("NewRealm: %v", err)
 	}

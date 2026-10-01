@@ -34,7 +34,7 @@ func TestRealm_Do_AttachesPlatformTokenAndOBO(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 
 	resp, err := r.Do(
 		context.Background(), http.MethodPost, "/tenants/t1/users",
@@ -83,7 +83,7 @@ func TestRealm_Do_UserBearerOverride(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	resp, err := r.Do(context.Background(), http.MethodDelete, "/auth/sessions/abc", nil, &PassthroughOptions{
 		UserBearer: "rt-one-shot-revocation",
 	})
@@ -140,7 +140,7 @@ func TestRealm_Do_ForwardsUserTokenAdditive(t *testing.T) {
 			})
 			defer srv.Close()
 
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			resp, err := tc.call(r)
 			if err != nil {
 				t.Fatalf("Do: %v", err)
@@ -165,7 +165,7 @@ func TestRealm_Do_Returns4xxResponseUnchanged(t *testing.T) {
 	})
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	resp, err := r.Do(context.Background(), http.MethodGet, "/tenants/missing", nil, nil)
 	if err != nil {
 		t.Fatalf("Do should not error on 4xx, got: %v", err)

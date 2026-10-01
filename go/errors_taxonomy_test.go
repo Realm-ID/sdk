@@ -164,7 +164,7 @@ func TestSentinelsSurviveRegistration(t *testing.T) {
 				},
 			})
 			defer srv.Close()
-			r, _ := NewRealm(Config{RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 			if err := c.call(r); !errors.Is(err, c.want) {
 				t.Fatalf("want sentinel %v, got %v", c.want, err)
 			}

@@ -255,7 +255,7 @@ func TestDerivedClaims_OTPLoginResolves(t *testing.T) {
 	defer srv.Close()
 
 	var sawTenant, sawUser string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Scopes: func(_ context.Context, tenantID, userID string) ([]string, error) {
 			sawTenant, sawUser = tenantID, userID
@@ -288,7 +288,7 @@ func TestDerivedClaims_MFAVerifyResolves(t *testing.T) {
 	defer srv.Close()
 
 	var sawTenant, sawUser string
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		ProductRoles: func(_ context.Context, tenantID, userID string) ([]string, error) {
 			sawTenant, sawUser = tenantID, userID
@@ -321,7 +321,7 @@ func TestDerivedClaims_MFAVerifyOTPInheritsTheMint(t *testing.T) {
 	srv := laneThenTokenServer(t, "/auth/mfa/verify", &got, &calls)
 	defer srv.Close()
 
-	r, _ := NewRealm(Config{
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Scopes: func(_ context.Context, _, _ string) ([]string, error) {
 			return []string{"invoices:read"}, nil
