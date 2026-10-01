@@ -249,6 +249,7 @@ export function statusToCode(status: number): ErrorCode {
 }
 
 const KNOWN_CODES = new Set<ErrorCode>([
+  "invalid_config", // ts-only: createRealm without sessionStore (SPEC §6.7.5; Go/Java use their own forms)
   "malformed", "wrong_algorithm", "bad_signature", "wrong_issuer",
   "wrong_audience", "expired", "not_yet_valid", "unknown_kid",
   "jwks_fetch_failed",

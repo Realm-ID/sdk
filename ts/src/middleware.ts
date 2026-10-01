@@ -66,6 +66,12 @@ export interface MiddlewareConfig {
   tokenDelivery?: "cookie" | "body";
   cookieName?: string;
   cookieDomain?: string;
+  /**
+   * Scopes a previous deployment wrote the refresh cookie under ("" = host-only).
+   * Emitted as deletions on every write and on logout (SPEC §10.2, "Changing
+   * `cookieDomain` on a live deployment"). Needed when TIGHTENING or removing a domain.
+   */
+  cookieDomainMigrateFrom?: string[];
   cookieSecure?: boolean;
   cookieSameSite?: "lax" | "strict" | "none";
   /** Override the default 401/412 response. */
@@ -123,6 +129,7 @@ interface Resolved {
   tokenDelivery: "cookie" | "body";
   cookieName: string;
   cookieDomain?: string;
+  cookieDomainMigrateFrom: string[];
   cookieSecure: boolean;
   cookieSameSite: "lax" | "strict" | "none";
 }
@@ -153,6 +160,7 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
     tokenDelivery: cfg.tokenDelivery ?? realm.tokenDelivery,
     cookieName: cfg.cookieName ?? "realmid_refresh",
     cookieDomain: cfg.cookieDomain,
+    cookieDomainMigrateFrom: cfg.cookieDomainMigrateFrom ?? [],
     cookieSecure: cfg.cookieSecure ?? true,
     cookieSameSite: cfg.cookieSameSite ?? "lax",
   };
@@ -265,15 +273,18 @@ async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: 
 }
 
 async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
-  const refreshToken = readRefreshToken(req, cfg);
+  const candidates = readRefreshCandidates(req, cfg, await readJsonBody(req).catch(() => ({} as Record<string, unknown>)));
   // §10.1 step 3a: `auth.logout` revokes the session the ISSUER names; the
   // bearer is only the fallback, and is VERIFIED there (expiry included).
   const auth = headerStr(req.headers["authorization"]);
   const accessToken = auth && auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : undefined;
-  try {
-    await realm.auth.logout({ refreshToken, accessToken });
-  } catch {
-    // best-effort logout — clear cookie regardless; logout never 401s
+  // Every candidate is revoked, not just the first (SPEC §10.2).
+  for (const refreshToken of candidates.length > 0 ? candidates : [undefined]) {
+    try {
+      await realm.auth.logout({ refreshToken, accessToken });
+    } catch {
+      // best-effort logout — clear cookie regardless; logout never 401s
+    }
   }
   if (cfg.tokenDelivery === "cookie") {
     clearRefreshCookie(res, cfg);
@@ -294,6 +305,8 @@ interface RefreshOutcome {
   ok: boolean;
   /** The refresh token the winner's response hands out. */
   refreshToken?: string;
+  /** The candidate that actually minted (rotation is judged against it, §10.1 step 4b). */
+  minter?: string;
   mint?: { accessToken: string; expiresIn: number; tenantId: string; role: string };
   mode?: string;
   status?: number;
@@ -359,7 +372,8 @@ async function readOutcome(store: Realm["sessionStore"], key: string): Promise<R
 
 async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>));
-  const refreshToken = readRefreshToken(req, cfg, body);
+  const candidates = readRefreshCandidates(req, cfg, body);
+  const refreshToken = candidates[0];
   if (!refreshToken) {
     sendError(res, new RealmError({
       code: "unauthorized",
@@ -400,11 +414,11 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
     const prior = await readOutcome(store, ok).catch(() => undefined);
     if (prior) return respondOutcome(res, cfg, fp, prior);
 
-    const outcome = await mintBounded(realm, refreshToken, tenantId, customClaims, fp);
+    const outcome = await mintBounded(realm, candidates, tenantId, customClaims, fp);
     await store.putRefreshResult(ok, JSON.stringify(outcome), OUTCOME_TTL_MS).catch(() => undefined);
     // §10.1 step 4b: only a ROTATING refresh supersedes older tokens; compare
     // against the candidate that MINTED. A loser never reaches here.
-    if (outcome.ok && outcome.refreshToken && outcome.refreshToken !== refreshToken && outcome.mint) {
+    if (outcome.ok && outcome.refreshToken && outcome.refreshToken !== outcome.minter && outcome.mint) {
       await realm.tokens.recordRefresh(outcome.mint.accessToken);
     }
     respondOutcome(res, cfg, fp, outcome);
@@ -416,19 +430,31 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
 /** The mint runs independent of the request and is bounded at 10 s. */
 async function mintBounded(
   realm: Realm,
-  refreshToken: string,
+  candidates: string[],
   tenantId: string,
   customClaims: Record<string, unknown> | undefined,
   fp: string,
 ): Promise<RefreshOutcome> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const run = (async (): Promise<RefreshOutcome> => {
-    const out = await realm.auth.token({ refreshToken, tenantId, customClaims });
+    let out: Awaited<ReturnType<Realm["auth"]["token"]>> | undefined;
+    let minter = "";
+    let lastErr: unknown;
+    for (const refreshToken of candidates) {
+      try {
+        out = await realm.auth.token({ refreshToken, tenantId, customClaims });
+        minter = refreshToken;
+        break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!out) throw lastErr;
     // The derived claims (ADR-102 `product_roles`, ADR-097 `scope`) are resolved
     // PER MINT, and a refresh is a mint — see derived-claims-refresh.ts.
     await realm.auth.enrichRefresh(out, tenantId);
     return {
-      fp, ok: true, refreshToken: out.refreshToken, mode: await realm.orgSessionMode(),
+      fp, ok: true, refreshToken: out.refreshToken, minter, mode: await realm.orgSessionMode(),
       mint: { accessToken: out.accessToken, expiresIn: out.expiresIn, tenantId: out.tenantId, role: out.role },
     } as RefreshOutcome;
   })();
@@ -509,8 +535,19 @@ function finishSession(res: ConnectRes, cfg: Resolved, out: SessionEnvelope, org
   }
 }
 
+/**
+ * Every refresh-token candidate, in the order the browser sent them,
+ * deduplicated, capped at 3 (SPEC §10.2). A cookieDomain change leaves a
+ * browser holding two same-named cookies; the live one may be either.
+ */
+function readRefreshCandidates(req: ConnectReq, cfg: Resolved, body?: Record<string, unknown>): string[] {
+  if (cfg.tokenDelivery === "cookie") return readCookies(req, cfg.cookieName).slice(0, 3);
+  const one = readRefreshToken(req, cfg, body);
+  return one ? [one] : [];
+}
+
 function readRefreshToken(req: ConnectReq, cfg: Resolved, body?: Record<string, unknown>): string | undefined {
-  if (cfg.tokenDelivery === "cookie") return readCookie(req, cfg.cookieName);
+  if (cfg.tokenDelivery === "cookie") return readCookies(req, cfg.cookieName)[0];
   if (body && typeof body["refresh_token"] === "string") return body["refresh_token"] as string;
   if (body && typeof body["refreshToken"] === "string") return body["refreshToken"] as string;
   return undefined;
@@ -672,6 +709,27 @@ function setRefreshCookie(res: ConnectRes, cfg: Resolved, value: string) {
   if (cfg.cookieSecure) parts.push("Secure");
   if (cfg.cookieDomain) parts.push(`Domain=${cfg.cookieDomain}`);
   appendSetCookie(res, parts.join("; "));
+  evictOtherScopes(res, cfg);
+}
+
+const normScope = (d: string): string => d.replace(/^\./, "").toLowerCase();
+
+/** Deletions for the scopes this config no longer (or never) writes (SPEC §10.2). */
+function evictOtherScopes(res: ConnectRes, cfg: Resolved): void {
+  const current = cfg.cookieDomain ? normScope(cfg.cookieDomain) : "";
+  const scopes = new Set<string>();
+  if (cfg.cookieDomain) scopes.add(""); // widening: evict the host-only twin
+  for (const d of cfg.cookieDomainMigrateFrom) scopes.add(normScope(d));
+  for (const sc of scopes) {
+    if (sc === current) continue; // never delete the scope being written
+    const parts = [
+      `${cfg.cookieName}=`, "HttpOnly", `SameSite=${sameSiteToken(cfg.cookieSameSite)}`, "Path=/",
+      "Max-Age=0", "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    ];
+    if (cfg.cookieSecure) parts.push("Secure");
+    if (sc) parts.push(`Domain=${sc}`);
+    appendSetCookie(res, parts.join("; "));
+  }
 }
 
 function clearRefreshCookie(res: ConnectRes, cfg: Resolved) {
@@ -686,6 +744,7 @@ function clearRefreshCookie(res: ConnectRes, cfg: Resolved) {
   if (cfg.cookieSecure) parts.push("Secure");
   if (cfg.cookieDomain) parts.push(`Domain=${cfg.cookieDomain}`);
   appendSetCookie(res, parts.join("; "));
+  evictOtherScopes(res, cfg);
 }
 
 function sameSiteToken(s: "lax" | "strict" | "none"): string {
@@ -707,17 +766,18 @@ function appendSetCookie(res: ConnectRes, cookie: string) {
   }
 }
 
-function readCookie(req: ConnectReq, name: string): string | undefined {
+function readCookies(req: ConnectReq, name: string): string[] {
   const raw = headerStr(req.headers["cookie"]);
-  if (!raw) return undefined;
+  const out: string[] = [];
+  if (!raw) return out;
   for (const pair of raw.split(/;\s*/)) {
     const eq = pair.indexOf("=");
     if (eq < 0) continue;
-    const k = pair.slice(0, eq);
-    const v = pair.slice(eq + 1);
-    if (k === name) return decodeURIComponent(v);
+    if (pair.slice(0, eq) !== name) continue;
+    const v = decodeURIComponent(pair.slice(eq + 1));
+    if (v && !out.includes(v)) out.push(v);
   }
-  return undefined;
+  return out;
 }
 
 // ---- request helpers ----
