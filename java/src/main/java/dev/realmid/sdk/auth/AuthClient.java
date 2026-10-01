@@ -619,6 +619,7 @@ public final class AuthClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
         body.put("refresh_token", req.refreshToken());
+        if (req.all()) body.put("all", true);
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/logout").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw;

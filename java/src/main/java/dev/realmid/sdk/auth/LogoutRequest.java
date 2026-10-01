@@ -12,13 +12,24 @@ package dev.realmid.sdk.auth;
  *                     expiry (ADR-041). Failing to push does NOT fail the
  *                     logout: the server-side refresh revocation is the
  *                     load-bearing operation and has already happened.
+ * @param all          when true, sends {@code all: true}: the issuer ends EVERY
+ *                     session of the presenting identity (log out everywhere) and
+ *                     answers {@code revoked_sids}; each is revoked locally
+ *                     (SPEC 10.1 step 3a.2, owner ruling 2026-10-01)
  */
-public record LogoutRequest(String refreshToken, String origin, String accessToken) {
-    public LogoutRequest(String refreshToken, String origin) { this(refreshToken, origin, null); }
-    public static LogoutRequest empty() { return new LogoutRequest(null, null, null); }
-    public static LogoutRequest of(String refreshToken) { return new LogoutRequest(refreshToken, null, null); }
+public record LogoutRequest(String refreshToken, String origin, String accessToken, boolean all) {
+    public LogoutRequest(String refreshToken, String origin, String accessToken) {
+        this(refreshToken, origin, accessToken, false);
+    }
+    public LogoutRequest(String refreshToken, String origin) { this(refreshToken, origin, null, false); }
+    public static LogoutRequest empty() { return new LogoutRequest(null, null, null, false); }
+    public static LogoutRequest of(String refreshToken) { return new LogoutRequest(refreshToken, null, null, false); }
     /** Revoke the refresh token AND deny the access token's jti locally. */
     public static LogoutRequest of(String refreshToken, String accessToken) {
-        return new LogoutRequest(refreshToken, null, accessToken);
+        return new LogoutRequest(refreshToken, null, accessToken, false);
+    }
+    /** Log out everywhere: every session of the presenting identity. */
+    public static LogoutRequest ofAll(String refreshToken) {
+        return new LogoutRequest(refreshToken, null, null, true);
     }
 }

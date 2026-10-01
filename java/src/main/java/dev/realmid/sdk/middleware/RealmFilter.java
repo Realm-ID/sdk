@@ -286,7 +286,9 @@ public class RealmFilter implements Filter {
         // never 401s.
         List<String> candidates = readRefreshCandidates(req);
         if (cfg.tokenDelivery == TokenDelivery.BODY) {
-            Object br = readJson(req).get("refresh_token");
+            Map<String, Object> lb = readJson(req);
+            Object br = lb.get("refresh_token");
+            if (br == null) br = lb.get("refreshToken");
             if (br instanceof String s && !s.isEmpty()) candidates = List.of(s);
         }
         String bearer = bearerOrNull(req);
@@ -313,7 +315,7 @@ public class RealmFilter implements Filter {
 
     // ---- refresh single-flight (SPEC 10.1 step 4a / 4b) ----
 
-    private static final Duration LOCK_TTL = Duration.ofSeconds(10);
+    private static final Duration LOCK_TTL = Duration.ofSeconds(15); // mint bound (10 s) + 5 s: the bound starts after acquire + a reload read
     private static final Duration RESULT_TTL = Duration.ofSeconds(5);
     private static final long MINT_BOUND_SECONDS = 10;
     private static final String MFA_FINGERPRINT = "mfa-verify";
