@@ -327,6 +327,12 @@ export interface MfaVerifyRequest {
 export interface LogoutRequest {
   refreshToken?: string;
   /**
+   * End EVERY session of the user, not only the presented token's (owner
+   * ruling 2026-10-01). Sent as `all: true` (omitted otherwise); the issuer
+   * answers with `revoked_sids`, each of which is revoked locally.
+   */
+  all?: boolean;
+  /**
    * When set AND a RevocationCache is configured on the Realm, the
    * access token's `jti` is added to the cache on successful logout —
    * bridging the gap between user logout and the access token's
@@ -1014,6 +1020,7 @@ export class AuthClient {
         body: {
           realm_id: this.realmId,
           refresh_token: req?.refreshToken,
+          ...(req?.all ? { all: true } : {}),
         },
       });
     } catch (e) {
@@ -1030,17 +1037,27 @@ export class AuthClient {
       if (sids.size > 0) {
         for (const id of sids) await this.revokeLocally(id);
       } else if (req?.accessToken) {
-        try {
-          await this.session.verify(req.accessToken); // full verify, expiry included
-          const { sessionKey } = (await import("./revocation.js")).peekJwtRevokeFields(req.accessToken);
-          await this.revokeLocally(sessionKey);
-        } catch {
-          // unverifiable / expired / typed wrong: revoke nothing locally.
-        }
+        await this.revokeFromBearer(req.accessToken);
       }
     }
     if (failure !== undefined) throw failure;
     return out as { status: string };
+  }
+
+  /**
+   * SPEC §10.1 step 3a fallback with no issuer call: revoke the session of a
+   * VERIFIED, UNEXPIRED bearer; anything unverifiable revokes nothing.
+   * @internal the middleware's logout route uses it when no refresh token exists.
+   */
+  async revokeFromBearer(accessToken: string): Promise<void> {
+    if (!this.session) return;
+    try {
+      await this.session.verify(accessToken); // full verify, expiry included
+      const { sessionKey } = (await import("./revocation.js")).peekJwtRevokeFields(accessToken);
+      await this.revokeLocally(sessionKey);
+    } catch {
+      // unverifiable / expired / typed wrong: revoke nothing locally.
+    }
   }
 
   private async revokeLocally(sessionKey: string): Promise<void> {
