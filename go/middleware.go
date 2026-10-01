@@ -446,6 +446,13 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 				return
 			}
 
+			// 6a. Logout / superseded check (SPEC §10.1 step 6a): after verify,
+			// before the MFA check, on the realm's own TokensClient.
+			if gerr := r.Tokens.GateRequest(token); gerr != nil {
+				r.respondAuthFail(w, req, &opts, stageVerify, asRealmError(gerr))
+				return
+			}
+
 			// MFA-protected path check (SPEC §10.4).
 			//
 			// The body is read ONLY when some rule declares a WhenJSONField
@@ -544,10 +551,11 @@ func (r *Realm) handleLogin(w http.ResponseWriter, req *http.Request, opts *Midd
 	}
 
 	resp := map[string]any{
-		"access_token": out.AccessToken,
-		"expires_in":   out.ExpiresIn,
-		"user":         out.User,
-		"tenants":      out.Tenants,
+		"access_token":     out.AccessToken,
+		"expires_in":       out.ExpiresIn,
+		"user":             out.User,
+		"tenants":          out.Tenants,
+		"org_session_mode": r.orgSessionModeOf(req.Context(), out.AccessToken),
 	}
 	if opts.TokenDelivery == "body" {
 		resp["refresh_token"] = out.RefreshToken
@@ -562,8 +570,24 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 	// migration the browser holds two, and revoking only the one the old
 	// first-match read happened to return left a live session behind a cookie
 	// the user could not see or clear.
-	for _, refresh := range readRefreshTokens(req, opts) {
-		_ = r.Auth.Logout(req.Context(), &LogoutRequest{RefreshToken: refresh})
+	// SPEC §10.1 step 3: the issuer's response names the session(s) to revoke;
+	// an UNEXPIRED, VERIFIED bearer is the fallback (AuthClient.Logout does
+	// both). Logout never 401s.
+	bearer := ""
+	if authz := req.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+		bearer = strings.TrimSpace(authz[len("bearer "):])
+	}
+	candidates := readRefreshTokens(req, opts)
+	for _, refresh := range candidates {
+		_ = r.Auth.Logout(req.Context(), &LogoutRequest{RefreshToken: refresh, AccessToken: bearer})
+	}
+	if len(candidates) == 0 && bearer != "" {
+		if claims, verr := r.Verify(req.Context(), bearer, nil); verr == nil {
+			r.Tokens.RevokeSession(claims.SessionKey())
+			if r.revocation != nil && claims.SessionKey() != "" {
+				_ = r.revocation.Revoke(req.Context(), claims.SessionKey(), r.Tokens.until())
+			}
+		}
 	}
 	if opts.TokenDelivery != "body" {
 		clearRefreshCookie(w, opts)
@@ -600,6 +624,7 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 	var (
 		out      *MintResult
 		firstErr error
+		minter   string
 	)
 	for _, refresh := range candidates {
 		res, err := r.Auth.Token(req.Context(), TokenRequest{
@@ -609,6 +634,7 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		})
 		if err == nil {
 			out = res
+			minter = refresh
 			break
 		}
 		if firstErr == nil {
@@ -650,11 +676,17 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		}
 	}
 
+	// SPEC §10.1 step 4b: record only a refresh that ROTATED the refresh token.
+	if out.RefreshToken != "" && out.RefreshToken != minter {
+		r.Tokens.RecordRefresh(out.AccessToken)
+	}
+
 	resp := map[string]any{
-		"access_token": out.AccessToken,
-		"expires_in":   out.ExpiresIn,
-		"tenant_id":    out.TenantID,
-		"role":         out.Role,
+		"access_token":     out.AccessToken,
+		"expires_in":       out.ExpiresIn,
+		"tenant_id":        out.TenantID,
+		"role":             out.Role,
+		"org_session_mode": r.orgSessionModeOf(req.Context(), out.AccessToken),
 	}
 	if opts.TokenDelivery == "body" {
 		resp["refresh_token"] = out.RefreshToken
@@ -687,10 +719,11 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 	}
 
 	resp := map[string]any{
-		"access_token": out.AccessToken,
-		"expires_in":   out.ExpiresIn,
-		"user":         out.User,
-		"tenants":      out.Tenants,
+		"access_token":     out.AccessToken,
+		"expires_in":       out.ExpiresIn,
+		"user":             out.User,
+		"tenants":          out.Tenants,
+		"org_session_mode": r.orgSessionModeOf(req.Context(), out.AccessToken),
 	}
 	if opts.TokenDelivery == "body" {
 		resp["refresh_token"] = out.RefreshToken

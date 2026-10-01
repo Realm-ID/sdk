@@ -374,6 +374,9 @@ type LogoutRequest struct {
 	// stateless natural expiry per ADR-041 follow-up. The server-side
 	// refresh revocation is independent and always happens.
 	AccessToken string
+	// All asks the issuer to end every session of the user; its response then
+	// carries `revoked_sids` and the SDK revokes each locally (SPEC §10.1 step 3a).
+	All bool
 }
 
 // SessionInfo is one entry in realm.Auth.ListSessions.
@@ -1088,20 +1091,59 @@ func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 	if req != nil && req.RefreshToken != "" {
 		body["refresh_token"] = req.RefreshToken
 	}
-	if err := a.realm.http.do(ctx, requestOptions{
+	if req != nil && req.All {
+		body["all"] = true
+	}
+	var resp struct {
+		SID         string `json:"sid"`
+		RevokedSIDs any    `json:"revoked_sids"`
+	}
+	callErr := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/logout",
 		Bearer: tok,
 		Body:   body,
-	}, nil); err != nil {
-		return err
-	}
-	if req != nil && req.AccessToken != "" && a.realm.revocation != nil {
-		if p, perr := peekSession(req.AccessToken); perr == nil && p.Key != "" {
-			_ = a.realm.revocation.Revoke(ctx, p.Key, a.realm.Tokens.until())
+	}, &resp)
+	// SPEC §10.1 step 3: the issuer NAMES the session(s) to revoke (`sid`, and
+	// `revoked_sids` for all=true). Failing that, a VERIFIED, UNEXPIRED bearer.
+	// Anything else revokes nothing locally.
+	ids := logoutSessionIDs(resp.SID, resp.RevokedSIDs)
+	if len(ids) == 0 && req != nil && req.AccessToken != "" {
+		if claims, verr := a.realm.Verify(ctx, req.AccessToken, nil); verr == nil {
+			if k := claims.SessionKey(); k != "" {
+				ids = []string{k}
+			}
 		}
 	}
-	return nil
+	for _, id := range ids {
+		a.realm.Tokens.RevokeSession(id)
+		if a.realm.revocation != nil {
+			_ = a.realm.revocation.Revoke(ctx, id, a.realm.Tokens.until())
+		}
+	}
+	return callErr
+}
+
+// logoutSessionIDs merges the logout response's `sid` with `revoked_sids`,
+// de-duplicated, skipping empties. A non-list `revoked_sids` is ignored.
+func logoutSessionIDs(sid string, revoked any) []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	add(sid)
+	if list, ok := revoked.([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok {
+				add(s)
+			}
+		}
+	}
+	return out
 }
 
 // RevokeSession removes a session by id. The caller identifies the
