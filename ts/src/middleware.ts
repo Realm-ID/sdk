@@ -22,6 +22,7 @@ import type { Claims } from "./claims.js";
 import type { LoginRequest } from "./auth.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
+import { lockKey, outKey } from "./session-store.js";
 
 /**
  * One entry in {@link MiddlewareConfig.mfaProtectedPaths}.
@@ -207,6 +208,17 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
         return void await respondAuthFailure(res, err, req, onFail);
       }
 
+      // 6a (SPEC §10.1): the §6.7 logout / superseded check, on the realm's own
+      // TokensClient, before the MFA check and before claims are attached. A
+      // revoked token on an MFA-protected route is a 401, never the 412.
+      try {
+        await realm.tokens.gateRequest(token);
+      } catch (e) {
+        const err = e instanceof RealmError ? e : new RealmError({ code: "unauthorized", message: "access token revoked", cause: e });
+        logger.warn("realmid: auth failure", { path, code: err.code });
+        return void await respondAuthFailure(res, err, req, onFail);
+      }
+
       // MFA gating (SPEC §10.1, §10.4).
       if (merged.mfaRules.length > 0) {
         const rule = findMfaRule(merged.mfaRules, path);
@@ -237,7 +249,7 @@ async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: 
   };
   try {
     const out = await realm.auth.login(loginReq);
-    finishSession(res, cfg, out);
+    finishSession(res, cfg, out, await realm.orgSessionMode());
   } catch (e) {
     if (e instanceof RealmError && e.code === "mfa_required") {
       const d = e.details ?? {};
@@ -254,15 +266,95 @@ async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: 
 
 async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const refreshToken = readRefreshToken(req, cfg);
+  // §10.1 step 3a: `auth.logout` revokes the session the ISSUER names; the
+  // bearer is only the fallback, and is VERIFIED there (expiry included).
+  const auth = headerStr(req.headers["authorization"]);
+  const accessToken = auth && auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : undefined;
   try {
-    await realm.auth.logout({ refreshToken });
+    await realm.auth.logout({ refreshToken, accessToken });
   } catch {
-    // best-effort logout — clear cookie regardless
+    // best-effort logout — clear cookie regardless; logout never 401s
   }
   if (cfg.tokenDelivery === "cookie") {
     clearRefreshCookie(res, cfg);
   }
   sendJson(res, 200, { status: "ok" });
+}
+
+const LOCK_TTL_MS = 10_000;
+const OUTCOME_TTL_MS = 5_000;
+const MINT_BOUND_MS = 10_000;
+const POLL_MS = 50;
+const POLL_TRIES = 60;
+const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** What a winner stores for losers (SPEC §10.1 step 4a). Holds live credentials: 5 s TTL, secret. */
+interface RefreshOutcome {
+  fp: string;
+  ok: boolean;
+  /** The refresh token the winner's response hands out. */
+  refreshToken?: string;
+  mint?: { accessToken: string; expiresIn: number; tenantId: string; role: string };
+  mode?: string;
+  status?: number;
+  body?: unknown;
+}
+
+function stableJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return "[" + v.map(stableJson).join(",") + "]";
+  const o = v as Record<string, unknown>;
+  return "{" + Object.keys(o).sort().map((k) => JSON.stringify(k) + ":" + stableJson(o[k])).join(",") + "}";
+}
+
+function errorOutcome(fp: string, e: unknown): RefreshOutcome {
+  if (e instanceof RealmError) {
+    return { fp, ok: false, status: e.httpStatus ?? 500, body: { error: { code: e.code, message: e.message }, ...(e.details ?? {}) } };
+  }
+  return { fp, ok: false, status: 500, body: { error: { code: "server_error", message: (e as Error).message ?? "unknown" } } };
+}
+
+function send503(res: ConnectRes, message: string, extra: Record<string, unknown> = {}): void {
+  sendJson(res, 503, { error: { code: "server_error", message }, ...extra });
+}
+
+/** Hands over a rotated refresh token exactly as a winner's response does. */
+function handOver(res: ConnectRes, cfg: Resolved, refreshToken: string | undefined): Record<string, unknown> {
+  if (!refreshToken) return {};
+  if (cfg.tokenDelivery === "cookie") {
+    setRefreshCookie(res, cfg, refreshToken);
+    return {};
+  }
+  return { refresh_token: refreshToken };
+}
+
+function respondOutcome(res: ConnectRes, cfg: Resolved, fp: string, o: RefreshOutcome): void {
+  if (!o.ok) {
+    sendJson(res, o.status ?? 500, o.body);
+    return;
+  }
+  if (o.fp !== fp) {
+    // Different request than the winner's (tenant, custom_claims, or an MFA
+    // verify): the loser does NOT mint. Both responses set the SAME token.
+    send503(res, "refresh superseded, retry", { retry: true, ...handOver(res, cfg, o.refreshToken) });
+    return;
+  }
+  const m = o.mint!;
+  const base = { access_token: m.accessToken, expires_in: m.expiresIn, tenant_id: m.tenantId, role: m.role };
+  if (cfg.tokenDelivery === "cookie") {
+    setRefreshCookie(res, cfg, o.refreshToken ?? "");
+    sendJson(res, 200, { ...base, org_session_mode: o.mode });
+  } else {
+    sendJson(res, 200, {
+      access_token: m.accessToken, refresh_token: o.refreshToken, expires_in: m.expiresIn,
+      tenant_id: m.tenantId, role: m.role, org_session_mode: o.mode,
+    });
+  }
+}
+
+async function readOutcome(store: Realm["sessionStore"], key: string): Promise<RefreshOutcome | undefined> {
+  const raw = await store.getRefreshResult(key);
+  return raw === undefined ? undefined : (JSON.parse(raw) as RefreshOutcome);
 }
 
 async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
@@ -282,32 +374,71 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
     return;
   }
   const customClaims = (body["custom_claims"] ?? body["customClaims"]) as Record<string, unknown> | undefined;
+  const fp = tenantId + "\u0000" + stableJson(customClaims ?? null);
+  const store = realm.sessionStore;
+  const lk = await lockKey(refreshToken);
+  const ok = await outKey(refreshToken);
+
+  let lock;
   try {
-    const out = await realm.auth.token({ refreshToken, tenantId, customClaims });
-    // The derived claims (ADR-102 `product_roles`, ADR-097 `scope`) are
-    // resolved PER MINT, and a refresh is a mint. Without this the middleware
-    // handed back a token missing both, one access-TTL into every session —
-    // see derived-claims-refresh.ts for why the resolution follows the mint.
-    await realm.auth.enrichRefresh(out, tenantId);
-    if (cfg.tokenDelivery === "cookie") {
-      setRefreshCookie(res, cfg, out.refreshToken);
-      sendJson(res, 200, {
-        access_token: out.accessToken,
-        expires_in: out.expiresIn,
-        tenant_id: out.tenantId,
-        role: out.role,
-      });
-    } else {
-      sendJson(res, 200, {
-        access_token: out.accessToken,
-        refresh_token: out.refreshToken,
-        expires_in: out.expiresIn,
-        tenant_id: out.tenantId,
-        role: out.role,
-      });
+    lock = await store.acquireRefreshLock(lk, LOCK_TTL_MS);
+  } catch {
+    return send503(res, "session store unavailable");
+  }
+
+  try {
+    if (!lock.acquired) {
+      // Loser: wait for the winner's outcome (50 ms x 60).
+      for (let i = 0; i < POLL_TRIES; i++) {
+        const o = await readOutcome(store, ok).catch(() => undefined);
+        if (o) return respondOutcome(res, cfg, fp, o);
+        await sleepMs(POLL_MS);
+      }
+      return send503(res, "refresh in progress");
     }
-  } catch (e) {
-    sendError(res, e);
+    // Winner. A request that lost the previous winner's response gets its outcome.
+    const prior = await readOutcome(store, ok).catch(() => undefined);
+    if (prior) return respondOutcome(res, cfg, fp, prior);
+
+    const outcome = await mintBounded(realm, refreshToken, tenantId, customClaims, fp);
+    await store.putRefreshResult(ok, JSON.stringify(outcome), OUTCOME_TTL_MS).catch(() => undefined);
+    // §10.1 step 4b: only a ROTATING refresh supersedes older tokens; compare
+    // against the candidate that MINTED. A loser never reaches here.
+    if (outcome.ok && outcome.refreshToken && outcome.refreshToken !== refreshToken && outcome.mint) {
+      await realm.tokens.recordRefresh(outcome.mint.accessToken);
+    }
+    respondOutcome(res, cfg, fp, outcome);
+  } finally {
+    await lock.release().catch(() => undefined);
+  }
+}
+
+/** The mint runs independent of the request and is bounded at 10 s. */
+async function mintBounded(
+  realm: Realm,
+  refreshToken: string,
+  tenantId: string,
+  customClaims: Record<string, unknown> | undefined,
+  fp: string,
+): Promise<RefreshOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const run = (async (): Promise<RefreshOutcome> => {
+    const out = await realm.auth.token({ refreshToken, tenantId, customClaims });
+    // The derived claims (ADR-102 `product_roles`, ADR-097 `scope`) are resolved
+    // PER MINT, and a refresh is a mint — see derived-claims-refresh.ts.
+    await realm.auth.enrichRefresh(out, tenantId);
+    return {
+      fp, ok: true, refreshToken: out.refreshToken, mode: await realm.orgSessionMode(),
+      mint: { accessToken: out.accessToken, expiresIn: out.expiresIn, tenantId: out.tenantId, role: out.role },
+    } as RefreshOutcome;
+  })();
+  const bound = new Promise<RefreshOutcome>((resolve) => {
+    timer = setTimeout(() => resolve(errorOutcome(fp, new RealmError({ code: "server_error", message: "refresh timed out", httpStatus: 504 }))), MINT_BOUND_MS);
+  });
+  try {
+    return await Promise.race([run.catch((e) => errorOutcome(fp, e)), bound]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -315,11 +446,36 @@ async function handleMfaVerify(realm: Realm, req: ConnectReq, res: ConnectRes, c
   const body = await readJsonBody(req);
   const challengeToken = String(body["mfa_challenge_token"] ?? body["challenge_token"] ?? body["challengeToken"] ?? "");
   const code = String(body["code"] ?? "");
+  // SPEC §10.1 step 5: a verify that carries a refresh-token candidate ROTATES
+  // that session's token, so it runs under the same lock. It never adopts a
+  // refresh outcome (its challenge is single-use) — it waits for the lock itself.
+  const candidate = readRefreshToken(req, cfg, body);
+  let release: (() => Promise<void>) | undefined;
+  if (candidate) {
+    const lk = await lockKey(candidate);
+    for (let i = 0; ; i++) {
+      let l;
+      try {
+        l = await realm.sessionStore.acquireRefreshLock(lk, LOCK_TTL_MS);
+      } catch {
+        return send503(res, "session store unavailable");
+      }
+      if (l.acquired) { release = l.release; break; }
+      if (i + 1 >= POLL_TRIES) return send503(res, "refresh in progress");
+      await sleepMs(POLL_MS);
+    }
+  }
   try {
     const out = await realm.auth.mfaVerify({ challengeToken, code });
-    finishSession(res, cfg, out);
+    if (candidate) {
+      const o: RefreshOutcome = { fp: "mfa-verify", ok: true, refreshToken: out.refreshToken };
+      await realm.sessionStore.putRefreshResult(await outKey(candidate), JSON.stringify(o), OUTCOME_TTL_MS).catch(() => undefined);
+    }
+    finishSession(res, cfg, out, await realm.orgSessionMode());
   } catch (e) {
     sendError(res, e);
+  } finally {
+    await release?.().catch(() => undefined);
   }
 }
 
@@ -331,7 +487,7 @@ interface SessionEnvelope {
   tenants: unknown;
 }
 
-function finishSession(res: ConnectRes, cfg: Resolved, out: SessionEnvelope): void {
+function finishSession(res: ConnectRes, cfg: Resolved, out: SessionEnvelope, orgSessionMode: string): void {
   if (cfg.tokenDelivery === "cookie") {
     setRefreshCookie(res, cfg, out.refreshToken);
     sendJson(res, 200, {
@@ -339,6 +495,7 @@ function finishSession(res: ConnectRes, cfg: Resolved, out: SessionEnvelope): vo
       expires_in: out.expiresIn,
       user: out.user,
       tenants: out.tenants,
+      org_session_mode: orgSessionMode,
     });
   } else {
     sendJson(res, 200, {
@@ -347,6 +504,7 @@ function finishSession(res: ConnectRes, cfg: Resolved, out: SessionEnvelope): vo
       expires_in: out.expiresIn,
       user: out.user,
       tenants: out.tenants,
+      org_session_mode: orgSessionMode,
     });
   }
 }
@@ -474,7 +632,11 @@ async function respondAuthFailure(res: ConnectRes, err: RealmError, req: Connect
     await hook(req, err);
     return;
   }
-  sendJson(res, err.httpStatus ?? 401, { error: { code: err.code, message: err.message } });
+  const revoked = err.details?.["revoked"] === true;
+  sendJson(res, err.httpStatus ?? 401, {
+    error: { code: err.code, message: err.message },
+    ...(revoked ? { revoked: true } : {}),
+  });
 }
 
 function sendJson(res: ConnectRes, status: number, body: unknown): void {
