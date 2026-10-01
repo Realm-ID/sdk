@@ -40,6 +40,12 @@ import sys
 # Reviewed exceptions. An entry here is a DECISION with a reason, not a
 # silenced failure — the gate prints it every run so it cannot rot unnoticed.
 EXCEPTIONS = {
+    "invalid_config": (
+        "ts-only by design (SPEC §6.7.5): raised while the config is being "
+        "built (createRealm without sessionStore), never sent on the wire. "
+        "SPEC fixes a different form per language: Go ErrSessionStoreRequired, "
+        "Java IllegalStateException."
+    ),
     "not_service": (
         "declared by ts + Java, emitted by NO issuer handler (its only "
         "near-match is the distinct `role_not_service_typed`). Deliberately "
