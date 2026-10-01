@@ -595,107 +595,6 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
-func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {
-	candidates := readRefreshTokens(req, opts)
-	if len(candidates) == 0 {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": map[string]any{"code": "unauthorized", "message": "refresh token missing"}})
-		return
-	}
-	body, _ := readJSON(req)
-	tenantID, _ := body["tenant_id"].(string)
-	if tenantID == "" {
-		tenantID, _ = body["tenantId"].(string)
-	}
-	if tenantID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "tenant_required", "message": "tenant_id required"}})
-		return
-	}
-	custom, _ := body["custom_claims"].(map[string]any)
-
-	// Try each candidate until one mints. With the ordinary single cookie this
-	// is exactly the old behaviour, including which error surfaces; with a
-	// shadowed jar it is the difference between a working session and a
-	// permanent, unrecoverable logout.
-	//
-	// The FIRST failure is what we report, not the last: with one candidate
-	// the two are identical, and with several the first is the one the old
-	// code would have surfaced — so no partner's error handling changes shape
-	// because a browser happened to be carrying a stale twin.
-	var (
-		out      *MintResult
-		firstErr error
-		minter   string
-	)
-	for _, refresh := range candidates {
-		res, err := r.Auth.Token(req.Context(), TokenRequest{
-			RefreshToken: refresh,
-			TenantID:     tenantID,
-			CustomClaims: custom,
-		})
-		if err == nil {
-			out = res
-			minter = refresh
-			break
-		}
-		if firstErr == nil {
-			firstErr = err
-		}
-	}
-	if out == nil {
-		r.respondAuthFail(w, req, opts, stageRefresh, asRealmError(firstErr))
-		return
-	}
-
-	// The derived claims (ADR-102 product_roles, ADR-097 scope) are resolved
-	// PER MINT, and a refresh is a mint. Without this the middleware handed back
-	// a token missing both, one access-TTL into every session — see
-	// derived_claims_refresh.go for why the resolution has to follow the mint.
-	if err := r.enrichRefreshMint(req.Context(), out, tenantID); err != nil {
-		r.respondAuthFail(w, req, opts, stageRefresh, asRealmError(err))
-		return
-	}
-
-	// OnAuthSuccess (ADR-065). MintResult carries no user object, so recover
-	// UserID by verifying the freshly-minted access token's sub — only when
-	// a hook is registered.
-	if opts.OnAuthSuccess != nil {
-		ev := &AuthSuccessEvent{
-			Flow:        FlowRefresh,
-			TenantID:    out.TenantID,
-			Role:        out.Role,
-			AccessToken: out.AccessToken,
-			Request:     req,
-		}
-		if claims, verr := r.Verify(req.Context(), out.AccessToken, nil); verr == nil && claims != nil {
-			ev.UserID = claims.Subject
-			ev.Claims = claims
-		}
-		if herr := opts.OnAuthSuccess(req.Context(), ev); herr != nil {
-			r.respondAuthFail(w, req, opts, stageOnSuccess, hookError(herr))
-			return
-		}
-	}
-
-	// SPEC §10.1 step 4b: record only a refresh that ROTATED the refresh token.
-	if out.RefreshToken != "" && out.RefreshToken != minter {
-		r.Tokens.RecordRefresh(out.AccessToken)
-	}
-
-	resp := map[string]any{
-		"access_token":     out.AccessToken,
-		"expires_in":       out.ExpiresIn,
-		"tenant_id":        out.TenantID,
-		"role":             out.Role,
-		"org_session_mode": r.orgSessionModeOf(req.Context(), out.AccessToken),
-	}
-	if opts.TokenDelivery == "body" {
-		resp["refresh_token"] = out.RefreshToken
-	} else {
-		setRefreshCookie(w, opts, out.RefreshToken)
-	}
-	writeJSON(w, http.StatusOK, resp)
-}
-
 func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {
 	body, err := readJSON(req)
 	if err != nil {
@@ -708,10 +607,23 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 	}
 	code, _ := body["code"].(string)
 
+	lockKey, release, ok := r.lockForMFAVerify(w, req, opts)
+	if !ok {
+		return
+	}
+	defer release()
+
 	out, err := r.Auth.MFAVerify(req.Context(), MFAVerifyRequest{ChallengeToken: ct, Code: code})
 	if err != nil {
 		r.respondAuthFail(w, req, opts, stageMFAVerify, asRealmError(err))
 		return
+	}
+	if lockKey != "" {
+		// A refresh loser waiting on this key is handed the rotated token.
+		r.storeOutcome(req.Context(), lockKey, &refreshOutcome{
+			Fingerprint: mfaVerifyFingerprint,
+			Mint:        &MintResult{RefreshToken: out.RefreshToken},
+		})
 	}
 
 	if !r.fireSessionSuccess(w, req, opts, FlowMFAVerify, "", out) {
@@ -881,6 +793,7 @@ func readJSON(req *http.Request) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Body = io.NopCloser(bytes.NewReader(buf)) // re-seat: later readers (refresh candidates, MFA lock) see it
 	if len(bytes.TrimSpace(buf)) == 0 {
 		return map[string]any{}, nil
 	}
@@ -919,6 +832,10 @@ func readRefreshTokens(req *http.Request, opts *MiddlewareOptions) []string {
 	if opts.TokenDelivery == "body" {
 		body, _ := readJSON(req)
 		if v, ok := body["refresh_token"].(string); ok && v != "" {
+			return []string{v}
+		}
+		// The browser SDK retries a 503 `retry:true` with `refreshToken`.
+		if v, ok := body["refreshToken"].(string); ok && v != "" {
 			return []string{v}
 		}
 		return nil

@@ -197,6 +197,8 @@ type Realm struct {
 	Origins                *OriginsClient
 	Tokens                 *TokensClient
 	modes                  *orgModeCache
+	refreshSleep           func(time.Duration) // SPEC §10.1 4a: nil = time.Sleep
+	refreshMintTimeout     time.Duration       // SPEC §10.1 4a: zero = 10s
 	Admin                  *AdminClient
 	// AuditEvents exposes the partner audit-event feed (ADR-055).
 	AuditEvents *AuditEventsClient
