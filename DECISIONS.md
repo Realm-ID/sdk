@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-105 entries total — 50 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+106 entries total — 51 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-02 (Go v0.63.1) — cancellation is not a store error: detach the revocation store calls](#2026-10-02-go-v0631--cancellation-is-not-a-store-error-detach-the-revocation-store-calls)
 - [2026-10-02 (Go v0.63.0, final critic M1) — `Config.Revocation` is checked under the session key AND the jti](#2026-10-02-go-v0630-final-critic-m1--configrevocation-is-checked-under-the-session-key-and-the-jti)
 - [2026-10-01 (SPEC v0.63.0) — sessions, not tokens: logout and refresh revoke by `sid`, refresh is serialized, and only an access token verifies](#2026-10-01-spec-v0630--sessions-not-tokens-logout-and-refresh-revoke-by-sid-refresh-is-serialized-and-only-an-access-token-verifies)
 - [2026-10-01 (SPEC, owner rulings Q1-Q4) — the SDK owns the auth decisions a partner kept re-implementing, and two of them were holes](#2026-10-01-spec-owner-rulings-q1-q4--the-sdk-owns-the-auth-decisions-a-partner-kept-re-implementing-and-two-of-them-were-holes)
@@ -118,6 +119,25 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-02 (Go v0.63.1) — cancellation is not a store error: detach the revocation store calls
+
+**Context.** `IsRevoked` passed the request ctx to the session store; a client
+disconnect cancelled the read, the error took the documented fail-open branch, and a
+revoked bearer passed. Found by Traide, who had worked around it in its own store.
+
+**Decision.** SPEC §6.7.2 now states the revocation path's store reads and writes are
+detached from caller cancellation and bounded by the existing 2 s `storeOutcomeTimeout`
+(reusing `freshCtx`; no new Config field). Applied to `IsRevoked` (incl. the mode
+lookup), `RevokeSession`, `RecordRefresh`, and the `Config.Revocation.Revoke` writes on
+logout (`AuthClient.Logout`, middleware logout). Left alone: `AcquireRefreshLock`
+(cancel aborts, fails closed 503), `Evict` (a miss leaves a revoked entry, the safe
+direction), the verifier's `RevocationCache.IsRevoked` / authority reads (already fail
+closed, so cancellation refuses rather than admits).
+
+**Tradeoff.** A hung store now holds a cancelled request up to 2 s instead of releasing
+it at once; accepted, since the alternative is admitting a revoked token. ts/java not
+changed (held); see `TODO.md` ts/java item (6).
 
 ## 2026-10-02 (Go v0.63.0, final critic M1) — `Config.Revocation` is checked under the session key AND the jti
 

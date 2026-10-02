@@ -1849,6 +1849,22 @@ fail-closed makes the store a hard dependency of every authenticated request. A
 write error in `markRevoked`/`revokeSession`/`recordRefresh` is logged and
 never changes the response. The in-memory store never errors.
 
+**Cancellation is not a store error (go 0.63.1).** Every store read or write the
+revocation path makes (`isRevoked`'s `SessionStates`, the `mode` lookup it
+triggers, `markRevoked`/`revokeSession`'s `RevokeSession`, `recordRefresh`'s
+`RaiseNotBefore`) is **detached from the caller's cancellation** (Go:
+`context.WithoutCancel`; values survive) and **bounded by its own 2 s timeout**
+(the SDK's existing store timeout, `storeOutcomeTimeout`). A client hang-up or a
+request deadline therefore can neither turn the read into the fail-open above (a
+revoked bearer passing because the caller disconnected) nor drop a revoke write.
+Only a genuine store failure or the store's own timeout fails open / is logged.
+The refresh-lock acquisition (§10.1) is NOT detached: a cancelled request
+correctly aborts it, and it fails closed (`503`). `evict` is not detached: a
+missed evict only leaves a revoked entry standing, the safe direction.
+Languages without a caller-cancelled context have nothing to detach; ts/java
+must be checked for an equivalent (aborted request signal, interrupted call)
+before they ship.
+
 **Clock skew (accepted limits).** `iat` and the mark `T` are both stamped by
 the issuer, so the partner host's clock never enters the `iat < T` comparison;
 it enters only the `now + H` lifetimes, where a skew of minutes against 24 h is

@@ -13,6 +13,30 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.63.1` — a client disconnect no longer makes the revocation check fail open (2026-10-02)
+
+Go only; ts and java stay held. Patch, no API change, no new `Config` field.
+
+### Fixed — go `0.63.1`
+
+- **A client hang-up made `IsRevoked` / `GateRequest` fail OPEN (SPEC §6.7.2).** Every
+  store read/write of the revocation path (`IsRevoked`, `RevokeSession`/`MarkRevoked`,
+  `RecordRefresh`, and the `Config.Revocation` writes on logout) is now detached from the
+  caller's cancellation and bounded by the SDK's existing 2 s store timeout.
+  - **Symptom:** a revoked bearer was let through when the request was cancelled
+    mid-check; Traide logged "session store read failed; failing open" 5 times in one
+    e2e run. The fail-open path was client-triggerable. The same cancellation also dropped
+    a logout's revoke write.
+  - **Root cause:** `TokensClient.IsRevoked` passed the REQUEST ctx straight to
+    `store.SessionStates`; cancellation surfaced as a store error and took the fail-open
+    branch. `RevokeSession`/`RecordRefresh` did the same on writes.
+  - **Why it wasn't caught:** `sessionstoretest` and every revocation test used only
+    `context.Background()`, and the in-memory store ignores ctx, so no test could cancel.
+  - **Fix:** `freshCtx` (`WithoutCancel` + `storeOutcomeTimeout`) around those store calls;
+    SPEC §6.7.2 amended first. The refresh-lock acquisition still honours cancellation
+    (fails closed, 503); `Evict` is unchanged (a miss is the safe direction).
+  - **Prevention:** `tokens_cancel_test.go` uses a ctx-aware store and a cancelled ctx.
+
 ## go `0.63.0` · `web` `0.9.0` — session-keyed revocation, refresh single-flight, required session store (2026-10-02)
 
 Released together; **ts and java are NOT in this release** (held 2026-10-02, owner

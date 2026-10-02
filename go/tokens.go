@@ -74,6 +74,8 @@ func (t *TokensClient) RevokeSession(ctx ctxpkg.Context, sessionKey string) {
 	if sessionKey == "" {
 		return
 	}
+	ctx, cancel := freshCtx(ctx) // SPEC §6.7.2: a hang-up must not drop the revoke
+	defer cancel()
 	if err := t.store.RevokeSession(ctx, revokedKey(sessionKey), t.until()); err != nil {
 		t.log.Warn("realmid: session store write failed", slog.String("op", "revoke"), slog.Any("error", err))
 	}
@@ -88,6 +90,8 @@ func (t *TokensClient) RecordRefresh(ctx ctxpkg.Context, newAccessToken string) 
 		return
 	}
 	nb := time.Unix(p.IAT, 0)
+	ctx, cancel := freshCtx(ctx) // SPEC §6.7.2
+	defer cancel()
 	for _, k := range []string{sessionMarkKey(p.Key), membershipMarkKey(p.Key, p.Sub)} {
 		if err := t.store.RaiseNotBefore(ctx, k, nb, t.until()); err != nil {
 			t.log.Warn("realmid: session store write failed", slog.String("op", "raise_not_before"), slog.Any("error", err))
@@ -97,12 +101,16 @@ func (t *TokensClient) RecordRefresh(ctx ctxpkg.Context, newAccessToken string) 
 
 // IsRevoked reports whether the token's session is revoked, or the not-before
 // mark the realm's mode selects is live and the token's iat is strictly below
-// it. A store read error is FAIL-OPEN (logged). False on malformed input.
+// it. A store read error is FAIL-OPEN (logged);
+// the read is detached from ctx cancellation and bounded by storeOutcomeTimeout,
+// so a client disconnect is never that error (SPEC §6.7.2). False on malformed input.
 func (t *TokensClient) IsRevoked(ctx ctxpkg.Context, accessToken string) bool {
 	p, err := peekSession(accessToken)
 	if err != nil || p.Key == "" {
 		return false
 	}
+	ctx, cancel := freshCtx(ctx) // SPEC §6.7.2: a hang-up is not a store error
+	defer cancel()
 	keys := []string{revokedKey(p.Key), sessionMarkKey(p.Key)}
 	if p.Sub != "" {
 		keys = append(keys, membershipMarkKey(p.Key, p.Sub))

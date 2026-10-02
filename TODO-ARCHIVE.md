@@ -833,3 +833,16 @@ item moved to `TODO.md` § *Go SDK only*; its records are below, verbatim.
   handler (so it cannot silently become the normal path); the both-handlers-
   empty branch is a genuine no-op, because a re-mint could only reproduce the
   token already held. Verified against source 2026-09-03.
+
+- [x] **A client disconnect makes the revocation check fail OPEN** (Traide, 2026-10-02; mechanism
+  verified in `go/tokens.go` `TokensClient.IsRevoked`). The REQUEST ctx is passed straight to
+  `store.SessionStates`, so a disconnect cancels the read, the error takes the "store read failed;
+  failing open" branch, and a revoked bearer is let through for whatever server-side work continues
+  after the hang-up. That makes the fail-open path client-triggerable. Traide logged it 5 times in one
+  e2e run and works around it in its own store (`context.WithoutCancel(ctx)` + 2s timeout). The fix
+  belongs in the SDK, around the store read in `IsRevoked`: `WithoutCancel` plus a bounded timeout.
+  SPEC §6.7 says "fail-open on a store error" and is silent on cancellation, so this is a spec bug:
+  spec first, then a red test using a CANCELLED ctx (`sessionstoretest` uses only
+  `context.Background()`, which is why it could not catch this), then a Go patch release. Check the
+  held ts/java v0.63 code for the same shape before they ship.
+  **CLOSED 2026-10-02, go `0.63.1`** (SPEC §6.7.2 "Cancellation is not a store error"; RCA in `CHANGELOG.md` and `DECISIONS.md`).

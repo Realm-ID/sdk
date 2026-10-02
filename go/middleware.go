@@ -590,7 +590,9 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 		if claims, verr := r.Verify(req.Context(), bearer, nil); verr == nil {
 			r.Tokens.RevokeSession(req.Context(), claims.SessionKey())
 			if r.revocation != nil && claims.SessionKey() != "" {
-				_ = r.revocation.Revoke(req.Context(), claims.SessionKey(), r.Tokens.until())
+				rctx, rcancel := freshCtx(req.Context())
+				_ = r.revocation.Revoke(rctx, claims.SessionKey(), r.Tokens.until())
+				rcancel()
 			}
 		}
 	}

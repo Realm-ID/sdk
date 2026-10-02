@@ -40,6 +40,12 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   `writeDenied`. (5) Release: bump versions, per-language CHANGELOG headings with the
   Breaking block (SPEC front matter lists it), remove the SPEC "PARTLY RELEASED" note,
   then `make release-check LANGUAGE=ts|java`.
+  (6) **Cancellation shape (checked 2026-10-02 against go 0.63.1's fix, SPEC §6.7.2):**
+  ts `TokensClient.isRevoked` (`ts/src/tokens.ts`) and java `TokensClient` (`TokensClient.java:126`)
+  carry the same fail-open-on-store-error catch, but neither threads a request
+  signal/context into `sessionStates`, so the SDK itself cannot hand a client-cancelled
+  read to the store; a partner store that aborts on its own request scope can still
+  hit it. Decide before release whether to document that or detach. NOT changed (held).
 - [ ] **`@realm-id/web` peer ranges exclude `0.9.0`** — `web-admin`, `web-react`,
   `bff-realmid`, `firebase` and `google` declare `@realm-id/web` `^0.4.0 … ^0.8.0`
   (a `0.x` caret never reaches `0.9.0`). Not released with core `0.9.0`; widen the
@@ -463,17 +469,6 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
-- [ ] **A client disconnect makes the revocation check fail OPEN** (Traide, 2026-10-02; mechanism
-  verified in `go/tokens.go` `TokensClient.IsRevoked`). The REQUEST ctx is passed straight to
-  `store.SessionStates`, so a disconnect cancels the read, the error takes the "store read failed;
-  failing open" branch, and a revoked bearer is let through for whatever server-side work continues
-  after the hang-up. That makes the fail-open path client-triggerable. Traide logged it 5 times in one
-  e2e run and works around it in its own store (`context.WithoutCancel(ctx)` + 2s timeout). The fix
-  belongs in the SDK, around the store read in `IsRevoked`: `WithoutCancel` plus a bounded timeout.
-  SPEC §6.7 says "fail-open on a store error" and is silent on cancellation, so this is a spec bug:
-  spec first, then a red test using a CANCELLED ctx (`sessionstoretest` uses only
-  `context.Background()`, which is why it could not catch this), then a Go patch release. Check the
-  held ts/java v0.63 code for the same shape before they ship.
 - [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the
   same `user → jti` index to work around it.** (Traide, 2026-09-03. FEATURE —
   needs an owner decision before any code; do not implement on this note.)
