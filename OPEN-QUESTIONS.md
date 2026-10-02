@@ -2,6 +2,33 @@
 
 Needs an ADR or an owner ruling before any code. See [`TODO.md`](TODO.md) for open, actionable items.
 
+## A direct `MFAVerify` / `RedeemRecoveryCode` call cannot take the refresh lock by itself (OQ-7, filed 2026-10-02)
+
+Owner ruling 2026-10-02 (root `DECISIONS.md`, evening): "the SDK protects direct callers too" —
+under issuer ADR-109 Issuer B, an MFA verify or recovery redeem that races a refresh of the same
+session is treated as token reuse and the session is revoked. The middleware already serializes
+them; a DIRECT `AuthClient` call does not.
+
+**Why it cannot simply be done:** the per-session lock is keyed on the REFRESH TOKEN
+(`refreshLockKey(candidates[0])`, `go/refresh_flight.go:202-204`, `:294-299`). A direct call
+carries only `{ChallengeToken, Code, Method, OnBehalfOfIP}` (`go/auth.go:360`); the challenge token
+resolves to a session only inside the issuer. So the AuthClient has no key that the refresh path
+also uses, and a lock it took could not exclude a refresh.
+
+**Options (owner to choose):**
+- (a) Add an optional `RefreshToken` field to `MFAVerifyRequest` / `RedeemRecoveryCodeRequest`;
+  when set the method takes `refreshLockKey(RefreshToken)`, when empty it runs unlocked (first-login
+  MFA has no session yet). Protection is then opt-in — a caller who omits the field is unprotected.
+  New exported field → ts/java parity in their held work.
+- (b) Key on a caller-supplied session id — only works if refresh is ALSO re-keyed on the session id,
+  which it is not today (a larger change to refresh_flight.go).
+- (c) Export a helper, e.g. `Realm.WithRefreshLock(ctx, refreshToken, fn)`, and document that direct
+  callers must wrap the call themselves.
+
+**Who is exposed today: nobody live.** Our BFF calls `MFAVerify` under its OWN Redis lock keyed on the
+session (`api` v0.34.0+, `WithSessionLock`); Traide uses only the middleware route. A per-replica SDK
+lock would add no cross-replica exclusion for the BFF either way.
+
 ## `onAuthSuccess` exists only in Go, and only in middleware (OQ-4, deferred 2026-09-05)
 
 `OnAuthSuccess` is a field on Go's `MiddlewareOptions` (`go/middleware.go:186`).
