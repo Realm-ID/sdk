@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-106 entries total — 51 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+107 entries total — 52 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in](#2026-10-02-go-v0641--the-middleware-recovery-route-is-opt-in)
 - [2026-10-02 (Go v0.64.0) — recovery-code redeem: its own flow value, and a locked middleware route](#2026-10-02-go-v0640--recovery-code-redeem-its-own-flow-value-and-a-locked-middleware-route)
 - [2026-10-02 (Go v0.63.1) — cancellation is not a store error: detach the revocation store calls](#2026-10-02-go-v0631--cancellation-is-not-a-store-error-detach-the-revocation-store-calls)
 - [2026-10-02 (Go v0.63.0, final critic M1) — `Config.Revocation` is checked under the session key AND the jti](#2026-10-02-go-v0630-final-critic-m1--configrevocation-is-checked-under-the-session-key-and-the-jti)
@@ -120,6 +121,20 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in
+
+**Problem.** `0.64.0` defaulted `RecoveryPath` to `/mfa/recovery` with no way to disable it. A partner
+that does not use recovery codes (Traide) got a route it never declared, and its openapi/rbac gates
+refuse undeclared routes.
+
+**Decision (owner ruling 2026-10-02).** The middleware recovery route is OFF unless the partner sets
+`MiddlewareOptions.RecoveryPath`; an empty RecoveryPath serves nothing. The `switch` case guards the
+empty value explicitly so an empty path can never match a request path. Other paths keep defaults.
+
+**Tradeoff.** A `0.64.0` consumer relying on the default must set the path (breaking for them, but
+the owner ruled the default wrong). The ingress-lane guard test now sets the path so the lane is
+still proven ungated when enabled. ts/java parity item (0) says opt-in.
 
 ## 2026-10-02 (Go v0.64.0) — recovery-code redeem: its own flow value, and a locked middleware route
 

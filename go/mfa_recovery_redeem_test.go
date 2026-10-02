@@ -115,7 +115,7 @@ func (e *rfEnv) recoveryCalls() int {
 }
 
 func TestMiddlewareRecovery_TakesTheRefreshLockAndStoresOutcome(t *testing.T) {
-	e := newRFEnv(t, rfOpts{})
+	e := newRFEnv(t, rfOpts{opts: MiddlewareOptions{RecoveryPath: "/mfa/recovery"}})
 	ok, rel, _ := e.store.AcquireRefreshLock(context.Background(), refreshLockKey("rt-old"), time.Hour)
 	if !ok {
 		t.Fatal("setup")
@@ -136,7 +136,7 @@ func TestMiddlewareRecovery_TakesTheRefreshLockAndStoresOutcome(t *testing.T) {
 }
 
 func TestMiddlewareRecovery_BodyCarriesReenrollRequired(t *testing.T) {
-	e := newRFEnv(t, rfOpts{})
+	e := newRFEnv(t, rfOpts{opts: MiddlewareOptions{RecoveryPath: "/mfa/recovery"}})
 	w := e.post("/mfa/recovery", "", recBody)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"reenroll_required":true`) {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
@@ -147,6 +147,7 @@ func TestMiddlewareRecovery_FiresSuccessWithFlowMFARecovery(t *testing.T) {
 	var flow atomic.Int32
 	flow.Store(-1)
 	e := newRFEnv(t, rfOpts{opts: MiddlewareOptions{
+		RecoveryPath: "/mfa/recovery",
 		OnAuthSuccess: func(_ context.Context, ev *AuthSuccessEvent) error {
 			flow.Store(int32(ev.Flow))
 			return nil
@@ -159,7 +160,7 @@ func TestMiddlewareRecovery_FiresSuccessWithFlowMFARecovery(t *testing.T) {
 }
 
 func TestMiddlewareRecovery_WaitingTooLongIs503AndIssuerNotCalled(t *testing.T) {
-	e := newRFEnv(t, rfOpts{})
+	e := newRFEnv(t, rfOpts{opts: MiddlewareOptions{RecoveryPath: "/mfa/recovery"}})
 	e.realm.refreshSleep = func(time.Duration) {}
 	_, _, _ = e.store.AcquireRefreshLock(context.Background(), refreshLockKey("rt-old"), time.Hour)
 	w := e.post("/mfa/recovery", "rt-old", recBody)
@@ -172,5 +173,28 @@ func TestMiddlewareRecovery_PathCanBeRenamed(t *testing.T) {
 	e := newRFEnv(t, rfOpts{opts: MiddlewareOptions{RecoveryPath: "/x/recover"}})
 	if w := e.post("/x/recover", "", recBody); w.Code != 200 {
 		t.Fatalf("renamed: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// Owner ruling 2026-10-02: the recovery route is OFF unless RecoveryPath is set.
+func TestMiddlewareRecovery_UnsetPathServesNothing(t *testing.T) {
+	e := newRFEnv(t, rfOpts{})
+	w := e.post("/mfa/recovery", "", recBody)
+	if e.recoveryCalls() != 0 {
+		t.Fatalf("recovery handler ran with RecoveryPath unset: %d %s", w.Code, w.Body.String())
+	}
+	if w.Code == 200 && strings.Contains(w.Body.String(), "reenroll_required") {
+		t.Fatalf("recovery body served with RecoveryPath unset: %s", w.Body.String())
+	}
+}
+
+// An empty RecoveryPath must not match any request path (including the bare prefix).
+func TestMiddlewareRecovery_UnsetPathMatchesNoPath(t *testing.T) {
+	e := newRFEnv(t, rfOpts{})
+	for _, p := range []string{"/", "/recovery", "/mfa"} {
+		e.post(p, "", recBody)
+	}
+	if e.recoveryCalls() != 0 {
+		t.Fatalf("recovery handler ran %d times with RecoveryPath unset", e.recoveryCalls())
 	}
 }

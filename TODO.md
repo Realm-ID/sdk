@@ -28,7 +28,7 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   umbrella `.scratch/sdk-v063/` are not durable:
   (0) **Recovery-code redeem parity (go `0.64.0` shipped it, ts/java did not):** add
   `redeemRecoveryCode` / `redeemRecoveryCode(...)` (SPEC §4.3a), the `reenroll_required` field,
-  a distinct `mfa_recovery` flow value, and the middleware `recoveryPath` route (SPEC §10.1 step
+  a distinct `mfa_recovery` flow value, and the middleware `recoveryPath` route, OPT-IN with no default (SPEC §10.1 step
   5a — same per-session lock as the MFA-verify route, same outcome fingerprint) in ts and java.
   (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
   commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then

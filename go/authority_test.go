@@ -458,7 +458,9 @@ func TestMiddlewareIngressLanesAreDerivedAndUngated(t *testing.T) {
 		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
 		Authority: cache, Clock: func() time.Time { return now },
 	})
-	mw := r.Middleware(MiddlewareOptions{TokenDelivery: "body"})
+	// RecoveryPath is opt-in (no default), so the guard sets it: the lane
+	// must still be proven ungated whenever a partner turns it on.
+	mw := r.Middleware(MiddlewareOptions{TokenDelivery: "body", RecoveryPath: exercised["RecoveryPath"]})
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
 
 	// A stale token, presented on every lane.

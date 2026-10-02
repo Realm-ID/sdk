@@ -120,8 +120,10 @@ type MiddlewareOptions struct {
 	RefreshPath   string // default "/token"
 	MFAVerifyPath string // default "/mfa/verify"
 	// RecoveryPath redeems a recovery code (SPEC §10.1 step 5a). It takes the
-	// same per-session refresh lock as MFAVerifyPath.
-	RecoveryPath string // default "/mfa/recovery"
+	// same per-session refresh lock as MFAVerifyPath. It is OPT-IN with NO default
+	// (owner ruling 2026-10-02): empty serves nothing, so a partner that does not
+	// use recovery codes gets no route it never asked for.
+	RecoveryPath string // no default; empty = route off
 
 	// TokenDelivery is "cookie" (default) or "body". Cookie mode sets
 	// a HttpOnly cookie carrying the refresh token; body mode returns
@@ -218,9 +220,6 @@ func (o *MiddlewareOptions) applyDefaults() {
 	}
 	if o.MFAVerifyPath == "" {
 		o.MFAVerifyPath = "/mfa/verify"
-	}
-	if o.RecoveryPath == "" {
-		o.RecoveryPath = "/mfa/recovery"
 	}
 	if o.TokenDelivery == "" {
 		o.TokenDelivery = "cookie"
@@ -432,6 +431,9 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 					r.handleMFAVerify(w, req, &opts)
 					return
 				case opts.RecoveryPath:
+					if opts.RecoveryPath == "" {
+						break // opt-in: an unset path must match nothing, not the empty path
+					}
 					if !r.enforceOrigin(w, req, &opts) {
 						return
 					}

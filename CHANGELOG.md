@@ -13,6 +13,18 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.64.1` — the middleware recovery route is opt-in (2026-10-02)
+
+Go only. SPEC §10.1 step 5a.
+
+### Changed — go `0.64.1` (behaviour)
+
+- **`MiddlewareOptions.RecoveryPath` has no default; an empty value serves nothing.** `0.64.0`
+  served `POST /mfa/recovery` by default with no way to turn it off, which hands a partner that
+  does not use recovery codes a route its openapi/rbac gates refuse. **A consumer of `0.64.0` who
+  relied on the default must now set `RecoveryPath: "/mfa/recovery"`.** The other paths keep
+  their defaults.
+
 ## go `0.64.0` — `AuthClient.RedeemRecoveryCode` and the middleware recovery route (2026-10-02)
 
 Go only; ts and java stay held (parity filed in `TODO.md`). SPEC §4.3a and §10.1 step 5a.

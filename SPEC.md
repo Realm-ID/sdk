@@ -3123,9 +3123,14 @@ For every inbound request, the middleware:
    it runs under the step 4a lock when a refresh-token candidate is present**
    (step 4a, "The MFA-verify route takes the same lock").
 
-5a. **Recovery route? (go `0.64.0`)** Default `POST /mfa/recovery`
-   (`recoveryPath`; Go `MiddlewareOptions.RecoveryPath`; empty takes the default,
-   like the other paths). Body
+5a. **Recovery route? (go `0.64.0`, opt-in from `0.64.1`)** `POST` on
+   `recoveryPath` (Go `MiddlewareOptions.RecoveryPath`), which has **NO default**.
+   Owner ruling 2026-10-02: the middleware recovery route is OFF unless the
+   partner sets `MiddlewareOptions.RecoveryPath`; an empty RecoveryPath serves
+   nothing (a partner that does not use recovery codes must not get a route it
+   never asked for, since its openapi/rbac gates refuse undeclared routes). The
+   other paths keep their defaults. `0.64.0` served `/mfa/recovery` by default.
+   Body
    `{ challenge_token, code }` (`mfa_challenge_token` also accepted); calls
    `redeemRecoveryCode` (§4.3a). **It takes the SAME per-session refresh lock
    as step 5 and stores its outcome with the same `mfa-verify` fingerprint**
@@ -3227,7 +3232,7 @@ const middleware = realm.middleware({
   logoutPath: "/logout",                            // default
   refreshPath: "/token",                            // default
   mfaVerifyPath: "/mfa/verify",                     // default
-  recoveryPath: "/mfa/recovery",                    // default (go 0.64.0; ts/java held)
+  recoveryPath: "/mfa/recovery",                    // OPT-IN, no default: unset = no route (go 0.64.1; ts/java held)
 
   // Token delivery — inherited from createRealm({ tokenDelivery }) but
   // overridable per middleware instance.
