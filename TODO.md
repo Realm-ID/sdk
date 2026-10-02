@@ -463,6 +463,17 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
+- [ ] **A client disconnect makes the revocation check fail OPEN** (Traide, 2026-10-02; mechanism
+  verified in `go/tokens.go` `TokensClient.IsRevoked`). The REQUEST ctx is passed straight to
+  `store.SessionStates`, so a disconnect cancels the read, the error takes the "store read failed;
+  failing open" branch, and a revoked bearer is let through for whatever server-side work continues
+  after the hang-up. That makes the fail-open path client-triggerable. Traide logged it 5 times in one
+  e2e run and works around it in its own store (`context.WithoutCancel(ctx)` + 2s timeout). The fix
+  belongs in the SDK, around the store read in `IsRevoked`: `WithoutCancel` plus a bounded timeout.
+  SPEC §6.7 says "fail-open on a store error" and is silent on cancellation, so this is a spec bug:
+  spec first, then a red test using a CANCELLED ctx (`sessionstoretest` uses only
+  `context.Background()`, which is why it could not catch this), then a Go patch release. Check the
+  held ts/java v0.63 code for the same shape before they ship.
 - [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the
   same `user → jti` index to work around it.** (Traide, 2026-09-03. FEATURE —
   needs an owner decision before any code; do not implement on this note.)
