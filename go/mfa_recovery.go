@@ -89,3 +89,75 @@ func (a *AuthClient) RegenerateRecoveryCodes(ctx ctxpkg.Context, req RegenerateR
 	}
 	return &out, nil
 }
+
+// finishMFASession is the post-verify handling shared by every lane that
+// completes an MFA challenge (MFAVerify, RedeemRecoveryCode): normalise the
+// tenants and user id, then run the ADR-102 D10 mint under the given flow.
+// On a mint failure it returns a *LoginMintError carrying the session.
+func (a *AuthClient) finishMFASession(ctx ctxpkg.Context, resp *Session, flow AuthFlow) error {
+	// The same normalisation every other session-producing lane does. MFAVerify
+	// did none of it and returned the raw response, which is why the mint below
+	// had no user id to resolve against even once it was added.
+	for i := range resp.Tenants {
+		if resp.Tenants[i].ID == "" && resp.Tenants[i].IDLegacy != "" {
+			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
+		}
+	}
+	if resp.User.ID == "" && resp.AccessToken != "" {
+		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
+			resp.User.ID = sub
+			if resp.User.Email == "" {
+				resp.User.Email = email
+			}
+			if resp.User.DisplayName == "" {
+				resp.User.DisplayName = name
+			}
+		}
+	}
+	// ADR-102 D10 — a step-up is the point at which the token the user carries
+	// for the rest of the session is issued, so it is the LAST lane that may
+	// hand back a claim-blind one. Without this, a partner who requires MFA has
+	// every human denied by their own ScopePolicy gate immediately after
+	// passing the second factor — the worst possible moment for it.
+	if tenantID := settledTenant(resp); tenantID != "" {
+		if err := a.mintProductRoles(ctx, resp, flow, tenantID, nil); err != nil {
+			return &LoginMintError{Session: resp, TenantID: tenantID, Err: err}
+		}
+	}
+	return nil
+}
+
+// RedeemRecoveryCode completes an MFA challenge with a single-use recovery code
+// in place of the TOTP code, via POST /auth/mfa/recovery (ADR-077 §2, SPEC
+// §4.3a). Post-verify handling is identical to MFAVerify, under FlowMFARecovery.
+// The code is consumed and the returned Session has ReenrollRequired set: the
+// old authenticator is cleared, so the user must re-enroll. Errors: 401 for an
+// invalid challenge or code, 429 mfa_too_many_fails.
+func (a *AuthClient) RedeemRecoveryCode(ctx ctxpkg.Context, req RedeemRecoveryCodeRequest) (*Session, error) {
+	tok, err := a.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{}
+	if req.OnBehalfOfIP != "" {
+		headers["X-On-Behalf-Of-IP"] = req.OnBehalfOfIP
+	}
+	var resp Session
+	if err := a.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/auth/mfa/recovery",
+		Bearer: tok,
+		Body: map[string]any{
+			"realm_id":            a.realm.realmID,
+			"mfa_challenge_token": req.ChallengeToken,
+			"code":                req.Code,
+		},
+		Headers: headers,
+	}, &resp); err != nil {
+		return nil, err
+	}
+	if err := a.finishMFASession(ctx, &resp, FlowMFARecovery); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

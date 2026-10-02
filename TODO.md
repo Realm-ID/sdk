@@ -26,6 +26,10 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   2026-10-02: no active ts/java consumers). Their v0.63 code is on `main`, UNRELEASED
   (SPEC header says so). Open items, summarised here because the critic notes in the
   umbrella `.scratch/sdk-v063/` are not durable:
+  (0) **Recovery-code redeem parity (go `0.64.0` shipped it, ts/java did not):** add
+  `redeemRecoveryCode` / `redeemRecoveryCode(...)` (SPEC §4.3a), the `reenroll_required` field,
+  a distinct `mfa_recovery` flow value, and the middleware `recoveryPath` route (SPEC §10.1 step
+  5a — same per-session lock as the MFA-verify route, same outcome fingerprint) in ts and java.
   (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
   commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then
   re-run the critic pass against SPEC §5.1/§5.1.1/§6.7/§6.7.6/§10.1/§10.2/§11.4-11.5.

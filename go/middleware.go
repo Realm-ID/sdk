@@ -56,6 +56,7 @@ const (
 	stageLogin       = "login"
 	stageRefresh     = "refresh"
 	stageMFAVerify   = "mfa_verify"
+	stageMFARecovery = "mfa_recovery"
 	stageOnSuccess   = "on_success"
 	stageVerify      = "verify"
 )
@@ -72,7 +73,7 @@ const (
 // login/mfa and nil/empty on refresh; Claims is populated where the SDK
 // verified (the refresh path).
 type AuthSuccessEvent struct {
-	Flow        AuthFlow      // FlowLogin | FlowRefresh | FlowMFAVerify
+	Flow        AuthFlow      // FlowLogin | FlowRefresh | FlowMFAVerify | FlowMFARecovery
 	Method      LoginMethod   // login method ("" on refresh/mfa)
 	UserID      string        // normalized subject id
 	TenantID    string        // pinned tenant
@@ -118,6 +119,9 @@ type MiddlewareOptions struct {
 	LogoutPath    string // default "/logout"
 	RefreshPath   string // default "/token"
 	MFAVerifyPath string // default "/mfa/verify"
+	// RecoveryPath redeems a recovery code (SPEC §10.1 step 5a). It takes the
+	// same per-session refresh lock as MFAVerifyPath.
+	RecoveryPath string // default "/mfa/recovery"
 
 	// TokenDelivery is "cookie" (default) or "body". Cookie mode sets
 	// a HttpOnly cookie carrying the refresh token; body mode returns
@@ -214,6 +218,9 @@ func (o *MiddlewareOptions) applyDefaults() {
 	}
 	if o.MFAVerifyPath == "" {
 		o.MFAVerifyPath = "/mfa/verify"
+	}
+	if o.RecoveryPath == "" {
+		o.RecoveryPath = "/mfa/recovery"
 	}
 	if o.TokenDelivery == "" {
 		o.TokenDelivery = "cookie"
@@ -423,6 +430,12 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 						return
 					}
 					r.handleMFAVerify(w, req, &opts)
+					return
+				case opts.RecoveryPath:
+					if !r.enforceOrigin(w, req, &opts) {
+						return
+					}
+					r.handleMFARecovery(w, req, &opts)
 					return
 				}
 			}
@@ -643,6 +656,63 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 		"user":             out.User,
 		"tenants":          out.Tenants,
 		"org_session_mode": r.orgSessionModeOf(req.Context(), out.AccessToken),
+	}
+	if opts.TokenDelivery == "body" {
+		resp["refresh_token"] = out.RefreshToken
+	} else {
+		setRefreshCookie(w, opts, out.RefreshToken)
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleMFARecovery is the recovery-code twin of handleMFAVerify (SPEC §10.1
+// step 5a). The issuer's redeem ROTATES the session's refresh token, so it
+// takes the same per-session lock and stores its outcome the same way: a redeem
+// that lost a race to a refresh would be a reuse, and reuse revokes the session.
+func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {
+	body, err := readJSON(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "bad_request", "message": err.Error()}})
+		return
+	}
+	ct, _ := body["challenge_token"].(string)
+	if ct == "" {
+		ct, _ = body["mfa_challenge_token"].(string)
+	}
+	if ct == "" {
+		ct, _ = body["challengeToken"].(string)
+	}
+	code, _ := body["code"].(string)
+
+	lockKey, release, ok := r.lockForMFAVerify(w, req, opts)
+	if !ok {
+		return
+	}
+	defer release()
+
+	out, err := r.Auth.RedeemRecoveryCode(req.Context(), RedeemRecoveryCodeRequest{ChallengeToken: ct, Code: code})
+	if err != nil {
+		r.respondAuthFail(w, req, opts, stageMFARecovery, asRealmError(err))
+		return
+	}
+	if lockKey != "" {
+		r.storeOutcome(req.Context(), lockKey, &refreshOutcome{
+			Fingerprint: mfaVerifyFingerprint,
+			Mint:        &MintResult{RefreshToken: out.RefreshToken},
+		})
+	}
+
+	if !r.fireSessionSuccess(w, req, opts, FlowMFARecovery, "", out) {
+		return
+	}
+
+	resp := map[string]any{
+		"access_token":      out.AccessToken,
+		"expires_in":        out.ExpiresIn,
+		"user":              out.User,
+		"tenants":           out.Tenants,
+		"org_session_mode":  r.orgSessionModeOf(req.Context(), out.AccessToken),
+		"reenroll_required": out.ReenrollRequired,
 	}
 	if opts.TokenDelivery == "body" {
 		resp["refresh_token"] = out.RefreshToken

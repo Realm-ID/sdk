@@ -172,9 +172,12 @@ type Session struct {
 	// human/provider logins and M2M sessions. Surfaced from the issuer's
 	// `initiated_by_user_id` session provenance; omitempty so a human session
 	// keeps it off the wire.
-	InitiatedByUserID string      `json:"initiated_by_user_id,omitempty"`
-	User              UserSummary `json:"user"`
-	Tenants           []TenantRef `json:"tenants"`
+	InitiatedByUserID string `json:"initiated_by_user_id,omitempty"`
+	// ReenrollRequired is true on a recovery-code redeem (SPEC §4.3a): the code
+	// is consumed and the old authenticator cleared, so the user must re-enroll.
+	ReenrollRequired bool        `json:"reenroll_required,omitempty"`
+	User             UserSummary `json:"user"`
+	Tenants          []TenantRef `json:"tenants"`
 	// TenantChoiceRequired (ADR-092 D5, the picker) reports that the caller
 	// holds more than one ACTIVE membership in a realm that requires
 	// single-tenant membership and must give the extras up. The REQUIREMENT
@@ -361,6 +364,17 @@ type MFAVerifyRequest struct {
 	// OnBehalfOfIP forwards the end-user's IP to the issuer via
 	// X-On-Behalf-Of-IP so per-IP rate limits on /auth/mfa/verify see the
 	// SPA's IP rather than the BFF's egress (ADR-050 plan §8.2).
+	OnBehalfOfIP string
+}
+
+// RedeemRecoveryCodeRequest is the input to AuthClient.RedeemRecoveryCode.
+type RedeemRecoveryCodeRequest struct {
+	// ChallengeToken is the mfa_challenge_token the MFA gate minted.
+	ChallengeToken string
+	// Code is a single-use recovery code from enrollment.
+	Code string
+	// OnBehalfOfIP forwards the end-user's IP via X-On-Behalf-Of-IP so the
+	// issuer's per-IP limits see the SPA, not the BFF's egress.
 	OnBehalfOfIP string
 }
 
@@ -1043,34 +1057,8 @@ func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Sessi
 	}, &resp); err != nil {
 		return nil, err
 	}
-	// The same normalisation every other session-producing lane does. MFAVerify
-	// did none of it and returned the raw response, which is why the mint below
-	// had no user id to resolve against even once it was added.
-	for i := range resp.Tenants {
-		if resp.Tenants[i].ID == "" && resp.Tenants[i].IDLegacy != "" {
-			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
-		}
-	}
-	if resp.User.ID == "" && resp.AccessToken != "" {
-		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
-			resp.User.ID = sub
-			if resp.User.Email == "" {
-				resp.User.Email = email
-			}
-			if resp.User.DisplayName == "" {
-				resp.User.DisplayName = name
-			}
-		}
-	}
-	// ADR-102 D10 — a step-up is the point at which the token the user carries
-	// for the rest of the session is issued, so it is the LAST lane that may
-	// hand back a claim-blind one. Without this, a partner who requires MFA has
-	// every human denied by their own ScopePolicy gate immediately after
-	// passing the second factor — the worst possible moment for it.
-	if tenantID := settledTenant(&resp); tenantID != "" {
-		if err := a.mintProductRoles(ctx, &resp, FlowMFAVerify, tenantID, nil); err != nil {
-			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
-		}
+	if err := a.finishMFASession(ctx, &resp, FlowMFAVerify); err != nil {
+		return nil, err
 	}
 	return &resp, nil
 }

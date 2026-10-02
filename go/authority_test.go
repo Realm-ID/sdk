@@ -419,6 +419,7 @@ func TestMiddlewareIngressLanesAreDerivedAndUngated(t *testing.T) {
 		"LogoutPath":    "/logout",
 		"RefreshPath":   "/token",
 		"MFAVerifyPath": "/mfa/verify",
+		"RecoveryPath":  "/mfa/recovery",
 	}
 	var unexercised []string
 	for _, f := range declared {
@@ -443,7 +444,8 @@ func TestMiddlewareIngressLanesAreDerivedAndUngated(t *testing.T) {
 		"/auth/logout": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 		},
-		"/auth/mfa/verify": func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(loginBody) },
+		"/auth/mfa/verify":   func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(loginBody) },
+		"/auth/mfa/recovery": func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(loginBody) },
 	})
 	defer srv.Close()
 
@@ -466,10 +468,11 @@ func TestMiddlewareIngressLanesAreDerivedAndUngated(t *testing.T) {
 	})
 
 	bodies := map[string]string{
-		"/login":      `{"grant_type":"provider_token","provider_token":"pt"}`,
-		"/logout":     `{"refresh_token":"rtok"}`,
-		"/token":      `{"refresh_token":"rtok"}`,
-		"/mfa/verify": `{"mfa_challenge_token":"ct","code":"000000"}`,
+		"/login":        `{"grant_type":"provider_token","provider_token":"pt"}`,
+		"/logout":       `{"refresh_token":"rtok"}`,
+		"/token":        `{"refresh_token":"rtok"}`,
+		"/mfa/verify":   `{"mfa_challenge_token":"ct","code":"000000"}`,
+		"/mfa/recovery": `{"mfa_challenge_token":"ct","code":"abcd-efgh"}`,
 	}
 	for field, path := range exercised {
 		t.Run(field, func(t *testing.T) {

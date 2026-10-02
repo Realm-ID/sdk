@@ -49,6 +49,11 @@ const (
 	// FlowTenantChoice is AuthClient.CompleteLogin — a multi-tenant login
 	// settling on one tenant, or a later switch to another.
 	FlowTenantChoice
+	// FlowMFARecovery is AuthClient.RedeemRecoveryCode and the middleware
+	// recovery route — a sign-in with a single-use recovery code (SPEC §4.3a).
+	// Deliberately NOT FlowMFAVerify: it is security-relevant and partners alert
+	// on it.
+	FlowMFARecovery
 )
 
 // IdentityResolvedHandler is called once per derived-claims resolution, with the
@@ -145,7 +150,7 @@ type IdentityResolvedHandler func(ctx ctxpkg.Context, ev *IdentityResolvedEvent)
 // surface expansion for nothing.
 type IdentityResolvedEvent struct {
 	// Flow names the lane: FlowLogin, FlowOTP, FlowPassword, FlowMFAVerify,
-	// FlowTenantChoice or FlowRefresh.
+	// FlowTenantChoice, FlowMFARecovery or FlowRefresh.
 	Flow AuthFlow
 	// RealmID is the realm this handle was constructed for. Never empty.
 	RealmID string

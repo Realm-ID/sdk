@@ -1100,6 +1100,37 @@ hitting HTTP directly should match.
 
 Response: same shape as `login()` (refresh + access).
 
+### 4.3a `redeemRecoveryCode(req)` — go `0.64.0` (ts/java held)
+
+Completes an MFA challenge with a single-use **recovery (backup) code** in
+place of the TOTP code, for a user who has lost their authenticator
+(`POST /auth/mfa/recovery`, ADR-077 §2).
+
+Request: `{ challengeToken, code, onBehalfOfIp? }`. On the wire the body is
+`{ realm_id, mfa_challenge_token, code }`; the code alone is useless without
+the challenge token the MFA gate minted, so this never substitutes for primary
+authentication. Go: `Auth.RedeemRecoveryCode(ctx, RedeemRecoveryCodeRequest)`.
+
+Response: same shape as `mfaVerify` plus `reenroll_required` (Go
+`Session.ReenrollRequired bool`), which is `true` on a successful redeem: the
+code is consumed and the old authenticator is cleared, so the next login drives
+ADR-061 enrollment and a fresh code set. The caller should send the user to
+re-enroll. Errors map like `mfaVerify`: `401` for an invalid challenge or
+code, `429` `mfa_too_many_fails` once the shared lockout counter trips.
+
+**Post-verify handling is identical to `mfaVerify`**: the same tenant and
+user-id normalisation, and the same ADR-102 D10 product-roles / scopes mint
+(§4.1.1), so the returned token is never claim-blind; a mint failure comes back
+as `LoginMintError`.
+
+**It has its own flow identifier, `FlowMFARecovery`** (owner ruling
+2026-10-02). It is appended after `FlowTenantChoice` in the Go enum and is
+**not** a reuse of `FlowMFAVerify`: signing in with a recovery code is
+security-relevant and applications alert on it, so a handler switching on
+`Flow` (`OnAuthSuccess`, `OnIdentityResolved`) must be able to tell it apart
+from an ordinary second factor. ts and java mirror the value (`recovery`
+lane) when their held v0.63 work is finished.
+
 ### 4.4 `logout(req?)`
 
 Revokes the current refresh token (or any caller-supplied refresh).
@@ -1190,11 +1221,11 @@ admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
   **enroll-scoped** `mfaChallengeToken` to `mfaVerify` (§4.x): a single
   verify confirms the new secret **and** mints tokens. There is **no**
   separate `confirmMfa` step.
-  > **Recovery codes are not yet redeemable.** `recoveryCodes` are
-  > generated and hash-stored, but there is **no redemption endpoint**
-  > today — losing the authenticator is currently an unrecoverable
-  > lockout. Do not present them to end users as a recovery mechanism
-  > until the redeem path ships (tracked in the project punch list).
+  > **Recovery codes are redeemable (§4.3a, go `0.64.0`).** `recoveryCodes`
+  > are single-use backup codes: `redeemRecoveryCode` (`POST
+  > /auth/mfa/recovery`, ADR-077 §2) consumes one in place of the TOTP
+  > step-up and forces re-enrollment. This note said "no redemption
+  > endpoint" until 2026-10-02, after the endpoint had shipped.
   Returns `already_enrolled` (409) if a
   confirmed factor already exists (reset/disable first),
   `not_a_member` (403), or `refresh_invalid` (401).
@@ -3092,6 +3123,19 @@ For every inbound request, the middleware:
    it runs under the step 4a lock when a refresh-token candidate is present**
    (step 4a, "The MFA-verify route takes the same lock").
 
+5a. **Recovery route? (go `0.64.0`)** Default `POST /mfa/recovery`
+   (`recoveryPath`; Go `MiddlewareOptions.RecoveryPath`; empty takes the default,
+   like the other paths). Body
+   `{ challenge_token, code }` (`mfa_challenge_token` also accepted); calls
+   `redeemRecoveryCode` (§4.3a). **It takes the SAME per-session refresh lock
+   as step 5 and stores its outcome with the same `mfa-verify` fingerprint**
+   (owner ruling 2026-10-02): the issuer's recovery redeem ROTATES the
+   session's refresh token, and under ADR-109 Issuer B (Q4) a redeem that loses
+   a race to a refresh is a refresh-token reuse that REVOKES the session. On
+   success it fires `OnAuthSuccess` with `FlowMFARecovery`, and the response
+   body is the MFA-verify body plus `"reenroll_required": true`. The failure
+   `stage` is `mfa_recovery`.
+
 6. **Otherwise:** require `Authorization: Bearer <access-token>`,
    call `realm.verify(token)`. On success, attach the verified `Claims`
    to the request context (`req.realmid` in TS, `r.Context()` value
@@ -3183,6 +3227,7 @@ const middleware = realm.middleware({
   logoutPath: "/logout",                            // default
   refreshPath: "/token",                            // default
   mfaVerifyPath: "/mfa/verify",                     // default
+  recoveryPath: "/mfa/recovery",                    // default (go 0.64.0; ts/java held)
 
   // Token delivery — inherited from createRealm({ tokenDelivery }) but
   // overridable per middleware instance.

@@ -13,7 +13,26 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go `0.63.1` — a client disconnect no longer makes the revocation check fail open (2026-10-02)
+## go `0.64.0` — `AuthClient.RedeemRecoveryCode` and the middleware recovery route (2026-10-02)
+
+Go only; ts and java stay held (parity filed in `TODO.md`). SPEC §4.3a and §10.1 step 5a.
+
+### Added — go `0.64.0`
+
+- **`AuthClient.RedeemRecoveryCode(ctx, RedeemRecoveryCodeRequest)`** — `POST
+  /auth/mfa/recovery` (ADR-077 §2). Same post-verify handling as `MFAVerify` (tenant/user-id
+  normalisation, ADR-102 D10 product-roles/scopes mint, `*LoginMintError` on a mint failure),
+  and `Session.ReenrollRequired` carries the issuer's `reenroll_required`.
+- **`FlowMFARecovery`** — a new `AuthFlow`, appended after `FlowTenantChoice`, so
+  `OnAuthSuccess` / `OnIdentityResolved` can tell a recovery-code sign-in from an ordinary
+  second factor. Not a reuse of `FlowMFAVerify`.
+- **`MiddlewareOptions.RecoveryPath`** (default `/mfa/recovery`) — the middleware route. It
+  takes the same per-session refresh lock as the MFA-verify route and stores its outcome the
+  same way: the redeem rotates the refresh token, and under ADR-109 Issuer B a redeem racing a
+  refresh is a reuse that revokes the session. The response body carries `reenroll_required`.
+- SPEC: the stale "recovery codes are not yet redeemable" note is corrected.
+
+ disconnect no longer makes the revocation check fail open (2026-10-02)
 
 Go only; ts and java stay held. Patch, no API change, no new `Config` field.
 

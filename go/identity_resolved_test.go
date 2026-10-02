@@ -115,6 +115,12 @@ func TestIdentityResolvedFiresOnEveryDerivedClaimsLane(t *testing.T) {
 			})
 			return err
 		}},
+		{"RedeemRecoveryCode", "/auth/mfa/recovery", FlowMFARecovery, func(r *Realm) error {
+			_, err := r.Auth.RedeemRecoveryCode(context.Background(), RedeemRecoveryCodeRequest{
+				ChallengeToken: "mfa", Code: "abcd-efgh",
+			})
+			return err
+		}},
 		{"MFAVerifyOTP", "/auth/mfa/verify", FlowMFAVerify, func(r *Realm) error {
 			_, err := r.Auth.MFAVerifyOTP(context.Background(), MFAVerifyOTPRequest{
 				MFAToken: "mfa", Presented: "000000",
@@ -479,6 +485,7 @@ func TestAuthFlowValuesAreDistinct(t *testing.T) {
 		{FlowOTP, "FlowOTP"},
 		{FlowPassword, "FlowPassword"},
 		{FlowTenantChoice, "FlowTenantChoice"},
+		{FlowMFARecovery, "FlowMFARecovery"},
 	} {
 		if prev, dup := seen[f.v]; dup {
 			t.Errorf("%s and %s are both %d — a partner switching on Flow cannot tell "+

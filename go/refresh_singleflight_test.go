@@ -31,6 +31,7 @@ type rfEnv struct {
 	gate     chan struct{}   // when non-nil, /auth/token blocks until closed
 	failAll  bool
 	mfaCalls int
+	recCalls int                       // /auth/mfa/recovery
 	onToken  func(body map[string]any) // optional: sees each /auth/token body
 }
 
@@ -83,6 +84,16 @@ func newRFEnv(t *testing.T, o rfOpts) *rfEnv {
 				"access_token":  e.mint(tenant, n),
 				"refresh_token": fmt.Sprintf("rt-new-%d", n),
 				"expires_in":    900, "tenant_id": tenant, "role": "member",
+			})
+		},
+		"/auth/mfa/recovery": func(w http.ResponseWriter, r *http.Request) {
+			e.mu.Lock()
+			e.recCalls++
+			n := e.recCalls
+			e.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": e.mint("t1", 200+n), "refresh_token": fmt.Sprintf("rt-rec-%d", n),
+				"expires_in": 900, "reenroll_required": true,
 			})
 		},
 		"/auth/mfa/verify": func(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@ Newest first.
 
 106 entries total — 51 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-02 (Go v0.64.0) — recovery-code redeem: its own flow value, and a locked middleware route](#2026-10-02-go-v0640--recovery-code-redeem-its-own-flow-value-and-a-locked-middleware-route)
 - [2026-10-02 (Go v0.63.1) — cancellation is not a store error: detach the revocation store calls](#2026-10-02-go-v0631--cancellation-is-not-a-store-error-detach-the-revocation-store-calls)
 - [2026-10-02 (Go v0.63.0, final critic M1) — `Config.Revocation` is checked under the session key AND the jti](#2026-10-02-go-v0630-final-critic-m1--configrevocation-is-checked-under-the-session-key-and-the-jti)
 - [2026-10-01 (SPEC v0.63.0) — sessions, not tokens: logout and refresh revoke by `sid`, refresh is serialized, and only an access token verifies](#2026-10-01-spec-v0630--sessions-not-tokens-logout-and-refresh-revoke-by-sid-refresh-is-serialized-and-only-an-access-token-verifies)
@@ -119,6 +120,29 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-02 (Go v0.64.0) — recovery-code redeem: its own flow value, and a locked middleware route
+
+**Problem.** The issuer has redeemed recovery codes (`POST /auth/mfa/recovery`) for a long time, but
+the SDK had no method for it (SPEC even said "not yet redeemable"). The BFF would have to hand-roll
+the call, skipping the product-roles mint that `MFAVerify` runs, and — worse — calling it unlocked.
+
+**Decisions (owner rulings 2026-10-02).** (1) Add it to the SDK first. (2) It gets its OWN
+`FlowMFARecovery`, not `FlowMFAVerify`: a recovery-code sign-in is security-relevant and apps alert
+on it, so a handler switching on `Flow` must be able to tell it apart. The value is appended after
+`FlowTenantChoice` (declared relative to `FlowMFAVerify` in identity_resolved.go), guarded by
+`TestAuthFlowValuesAreDistinct`. (3) The middleware route is built now, not filed: it takes
+`lockForMFAVerify` and stores its outcome with the `mfa-verify` fingerprint, because the redeem
+ROTATES the refresh token and under issuer ADR-109 Issuer B (Q4) a redeem that loses a race to a
+refresh is a reuse and revokes the session. A partner on middleware would otherwise call it
+directly, unlocked.
+
+**Shape.** The post-verify tail of `MFAVerify` moved into one private `finishMFASession` shared by
+both lanes, so they cannot drift. Public signatures unchanged. ts/java mirror in their held v0.63
+work (TODO.md).
+
+**Tradeoff.** A new exported enum value is a (minor) API addition that ts/java must mirror; accepted
+for the alerting distinction.
 
 ## 2026-10-02 (Go v0.63.1) — cancellation is not a store error: detach the revocation store calls
 
