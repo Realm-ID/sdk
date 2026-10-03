@@ -30,6 +30,10 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   `redeemRecoveryCode` / `redeemRecoveryCode(...)` (SPEC §4.3a), the `reenroll_required` field,
   a distinct `mfa_recovery` flow value, and the middleware `recoveryPath` route, OPT-IN with no default (SPEC §10.1 step
   5a — same per-session lock as the MFA-verify route, same outcome fingerprint) in ts and java.
+  **Also the optional `refreshToken` field on `mfaVerify` / `mfaVerifyOtp` / `redeemRecoveryCode`
+  (go `0.64.2`, SPEC §4.3/§4.3a):** when set, the direct call takes the per-session refresh lock,
+  waits for it, and stores the `mfa-verify` outcome under the key; never sent on the wire; the
+  middleware handlers must NOT set it (lock is not re-entrant). Needs a pinning test that they don't.
   (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
   commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then
   re-run the critic pass against SPEC §5.1/§5.1.1/§6.7/§6.7.6/§10.1/§10.2/§11.4-11.5.

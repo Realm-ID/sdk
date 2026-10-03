@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-107 entries total — 52 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+108 entries total — 53 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-03 (Go v0.64.2, OQ-7) — a direct MFA verify / recovery redeem opts into the refresh lock by taking the refresh token](#2026-10-03-go-v0642-oq-7--a-direct-mfa-verify--recovery-redeem-opts-into-the-refresh-lock-by-taking-the-refresh-token)
 - [2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in](#2026-10-02-go-v0641--the-middleware-recovery-route-is-opt-in)
 - [2026-10-02 (Go v0.64.0) — recovery-code redeem: its own flow value, and a locked middleware route](#2026-10-02-go-v0640--recovery-code-redeem-its-own-flow-value-and-a-locked-middleware-route)
 - [2026-10-02 (Go v0.63.1) — cancellation is not a store error: detach the revocation store calls](#2026-10-02-go-v0631--cancellation-is-not-a-store-error-detach-the-revocation-store-calls)
@@ -121,6 +122,31 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-03 (Go v0.64.2, OQ-7) — a direct MFA verify / recovery redeem opts into the refresh lock by taking the refresh token
+
+**Problem.** Under issuer ADR-109 Issuer B, `MFAVerify` / `RedeemRecoveryCode` rotate the session's
+refresh token; racing a refresh of the same session is a reuse and revokes it. The middleware
+serialises them on a lock keyed on the refresh token; a direct `AuthClient` call carries only
+`{ChallengeToken, Code, ...}`, which resolves to a session only inside the issuer, so it had no key
+the refresh path also uses. Nobody live was exposed (our BFF holds its own Redis session lock;
+Traide uses the middleware route).
+
+**Options.** (a) optional `RefreshToken` on the requests, lock when set; (b) key on a session id, which
+needs refresh re-keyed too; (c) export a lock helper callers must wrap around the call.
+
+**Decision (owner ruling 2026-10-03): (a).** The protection sits at the call site and is the smallest
+change to the refresh path every partner uses (untouched here: `lockForMFAVerify` now shares one
+`acquireSessionLock` loop with the direct path). On success the direct path stores the same `mfa-verify`
+outcome the middleware stores, so a waiting refresh adopts the rotated token. Lock failures are
+`server_error` / 503 ("session store unavailable", "refresh in progress"), the same classes the
+middleware answers.
+
+**Tradeoff.** Opt-in: a caller who omits the field is unprotected, so the partner guide tells them to
+pass it whenever a session exists. The middleware must never set it (the lock is not re-entrant: a set
+field there would wait out the 15 s TTL); a test pins one acquire per middleware request. ts/java
+parity filed in `TODO.md` under the held v0.63 work. The derived-claims AST guard forced the lock
+wrapper to return only an error, so the session-returning lanes stay visible to it.
 
 ## 2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in
 

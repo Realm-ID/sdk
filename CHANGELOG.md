@@ -13,6 +13,24 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.64.2` — direct MFA verify / recovery redeem can take the per-session lock (2026-10-03)
+
+Go only; ts/java parity held with their v0.63 work (`TODO.md`). SPEC §4.3, §4.3a, §10.1 steps 5/5a.
+
+### Added — go `0.64.2`
+
+- **`RefreshToken` on `MFAVerifyRequest`, `MFAVerifyOTPRequest` and `RedeemRecoveryCodeRequest`**
+  (optional; OQ-7 option (a), owner ruling 2026-10-03). Pass the session's CURRENT refresh token and
+  the direct `AuthClient` call takes the same per-session lock as refresh, waits for it (50 ms x 60),
+  and on success stores the rotated token as the outcome a refresh waiting on the lock adopts. Under
+  issuer ADR-109 Issuer B a verify/redeem rotates the refresh token, so one that races a refresh of
+  the same session is a reuse and revokes it; the middleware already serialised this, a direct call
+  did not. Never sent on the wire. **Empty = no lock and no behaviour change** (first-login MFA has no
+  session). **Omitting it leaves a direct caller unprotected.** A lock that cannot be taken is an error
+  and the issuer is not called: `server_error` (HTTP 503) "session store unavailable" or "refresh in
+  progress", both retryable. The middleware handlers still call these methods without the field (the
+  lock is not re-entrant), pinned by a test.
+
 ## go `0.64.1` — the middleware recovery route is opt-in (2026-10-02)
 
 Go only. SPEC §10.1 step 5a.

@@ -295,18 +295,63 @@ func (r *Realm) lockForMFAVerify(w http.ResponseWriter, req *http.Request, opts 
 		return "", func() {}, true // first-login MFA: no session yet
 	}
 	key = candidates[0]
+	release, rerr := r.acquireSessionLock(req.Context(), key)
+	if rerr != nil {
+		writeServerError(w, rerr.Message, false)
+		return "", nil, false
+	}
+	return key, release, true
+}
+
+// acquireSessionLock takes the per-session refresh lock keyed on refreshToken,
+// WAITING for it (refreshWaitTries x refreshWaitInterval) when it is held. It
+// is the one wait-and-acquire loop shared by the middleware's MFA routes and a
+// direct AuthClient call that was given a RefreshToken. The returned release
+// frees the lock on a fresh bounded context. On failure it returns a retryable
+// server_error (HTTP 503): "session store unavailable" when the store errored,
+// "refresh in progress" when the lock was never acquired.
+func (r *Realm) acquireSessionLock(ctx ctxpkg.Context, refreshToken string) (release func(), rerr *RealmError) {
 	for i := 0; i < refreshWaitTries; i++ {
-		acquired, rel, err := r.cfg.SessionStore.AcquireRefreshLock(req.Context(), refreshLockKey(key), refreshLockTTL)
+		acquired, rel, err := r.cfg.SessionStore.AcquireRefreshLock(ctx, refreshLockKey(refreshToken), refreshLockTTL)
 		if err != nil {
 			r.logger.Warn("realmid: refresh lock failed", slog.Any("error", err))
-			writeServerError(w, "session store unavailable", false)
-			return "", nil, false
+			return nil, &RealmError{Code: ErrCodeServerError, Message: "session store unavailable", HTTPStatus: http.StatusServiceUnavailable, Cause: err}
 		}
 		if acquired {
-			return key, func() { r.releaseLock(req, rel) }, true
+			return func() {
+				fctx, cancel := freshCtx(ctx)
+				defer cancel()
+				if err := rel(fctx); err != nil {
+					r.logger.Warn("realmid: refresh lock release failed", slog.Any("error", err))
+				}
+			}, nil
 		}
 		r.sleepFor(refreshWaitInterval)
 	}
-	writeServerError(w, "refresh in progress", false)
-	return "", nil, false
+	return nil, &RealmError{Code: ErrCodeServerError, Message: "refresh in progress", HTTPStatus: http.StatusServiceUnavailable}
+}
+
+// withSessionLock runs fn under the per-session lock when refreshToken is set
+// (a direct MFAVerify / RedeemRecoveryCode call, SPEC §4.3), and on success
+// stores rotated() as the same outcome the middleware stores so a refresh
+// waiting on the lock is handed the rotated token. Empty refreshToken = no lock,
+// fn runs bare. It returns only an error, never a *Session: the session lanes
+// stay the callers, where the derived-claims guard can see them.
+func (r *Realm) withSessionLock(ctx ctxpkg.Context, refreshToken string, fn func() error, rotated func() string) error {
+	if refreshToken == "" {
+		return fn()
+	}
+	release, rerr := r.acquireSessionLock(ctx, refreshToken)
+	if rerr != nil {
+		return rerr
+	}
+	defer release()
+	if err := fn(); err != nil {
+		return err
+	}
+	r.storeOutcome(ctx, refreshToken, &refreshOutcome{
+		Fingerprint: mfaVerifyFingerprint,
+		Mint:        &MintResult{RefreshToken: rotated()},
+	})
+	return nil
 }

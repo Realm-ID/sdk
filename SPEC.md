@@ -1100,6 +1100,27 @@ hitting HTTP directly should match.
 
 Response: same shape as `login()` (refresh + access).
 
+**Optional per-session lock for direct callers (go `0.64.2`, owner ruling
+2026-10-03, OQ-7 option (a); ts/java parity pending in their HELD v0.63 work).**
+Under issuer ADR-109 Issuer B this call ROTATES the session's refresh token, so
+one that races a refresh of the same session is a reuse and revokes the session.
+The middleware already serialises them (§10.1 steps 4a/5/5a); a direct call does
+not unless told which session it belongs to. `Auth.MFAVerify(MFAVerifyRequest)` / `Auth.MFAVerifyOTP(MFAVerifyOTPRequest)` therefore has an optional
+`RefreshToken` field: the session's CURRENT refresh token. When set, the call
+takes the same per-session lock as refresh (`refreshLockKey(RefreshToken)`),
+waits for it like the middleware MFA-verify route does (50 ms x 60), calls the
+issuer, and on success stores the same outcome the middleware stores
+(fingerprint `mfa-verify`, `Mint.RefreshToken` = the rotated token) under that
+key before releasing, so a refresh waiting behind it is handed the rotated token
+instead of re-presenting the spent one. It is NEVER sent on the wire. When empty
+(first-login MFA has no session; and every pre-0.64.2 caller) no lock is taken.
+**Omitting the field leaves a direct caller unprotected** against that race.
+Lock failure is an error and the issuer is NOT called: the session store erroring
+returns `server_error` (HTTP 503, "session store unavailable"); the lock still
+held after the waits returns `server_error` (HTTP 503, "refresh in progress");
+both are retryable. The lock is not re-entrant: the middleware calls the method
+WITHOUT `RefreshToken` because it already holds the lock.
+
 ### 4.3a `redeemRecoveryCode(req)` — go `0.64.0` (ts/java held)
 
 Completes an MFA challenge with a single-use **recovery (backup) code** in
@@ -1117,6 +1138,27 @@ code is consumed and the old authenticator is cleared, so the next login drives
 ADR-061 enrollment and a fresh code set. The caller should send the user to
 re-enroll. Errors map like `mfaVerify`: `401` for an invalid challenge or
 code, `429` `mfa_too_many_fails` once the shared lockout counter trips.
+
+**Optional per-session lock for direct callers (go `0.64.2`, owner ruling
+2026-10-03, OQ-7 option (a); ts/java parity pending in their HELD v0.63 work).**
+Under issuer ADR-109 Issuer B this call ROTATES the session's refresh token, so
+one that races a refresh of the same session is a reuse and revokes the session.
+The middleware already serialises them (§10.1 steps 4a/5/5a); a direct call does
+not unless told which session it belongs to. `Auth.RedeemRecoveryCode(RedeemRecoveryCodeRequest)` therefore has an optional
+`RefreshToken` field: the session's CURRENT refresh token. When set, the call
+takes the same per-session lock as refresh (`refreshLockKey(RefreshToken)`),
+waits for it like the middleware MFA-verify route does (50 ms x 60), calls the
+issuer, and on success stores the same outcome the middleware stores
+(fingerprint `mfa-verify`, `Mint.RefreshToken` = the rotated token) under that
+key before releasing, so a refresh waiting behind it is handed the rotated token
+instead of re-presenting the spent one. It is NEVER sent on the wire. When empty
+(first-login MFA has no session; and every pre-0.64.2 caller) no lock is taken.
+**Omitting the field leaves a direct caller unprotected** against that race.
+Lock failure is an error and the issuer is NOT called: the session store erroring
+returns `server_error` (HTTP 503, "session store unavailable"); the lock still
+held after the waits returns `server_error` (HTTP 503, "refresh in progress");
+both are retryable. The lock is not re-entrant: the middleware calls the method
+WITHOUT `RefreshToken` because it already holds the lock.
 
 **Post-verify handling is identical to `mfaVerify`**: the same tenant and
 user-id normalisation, and the same ADR-102 D10 product-roles / scopes mint
@@ -3094,6 +3136,10 @@ For every inbound request, the middleware:
      cookie's session (INFERRED from the login flow, not line-verified). The
      issuer half of this race — not treating an MFA-path compare-and-swap loss
      as reuse — is ADR-109's (Issuer B), not the SDK's.
+     **A DIRECT `AuthClient.MFAVerify` / `MFAVerifyOTP` / `RedeemRecoveryCode`
+     call can take this same lock (go `0.64.2`)** by passing the session's current
+     refresh token as `RefreshToken` (§4.3); omitted, it is unprotected. The
+     middleware handlers never set it (the lock is not re-entrant).
 
    **4b. A ROTATING refresh refuses the session's older access tokens (owner
    rulings 2026-10-01, v0.63.0, UNRELEASED).** After a winner's successful
@@ -3140,6 +3186,8 @@ For every inbound request, the middleware:
    success it fires `OnAuthSuccess` with `FlowMFARecovery`, and the response
    body is the MFA-verify body plus `"reenroll_required": true`. The failure
    `stage` is `mfa_recovery`.
+   A direct `Auth.RedeemRecoveryCode` can opt into the same lock via
+   `RefreshToken` (go `0.64.2`, §4.3a); this handler leaves it unset.
 
 6. **Otherwise:** require `Authorization: Bearer <access-token>`,
    call `realm.verify(token)`. On success, attach the verified `Claims`

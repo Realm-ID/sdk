@@ -1255,6 +1255,15 @@ sess, err = realm.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
 })
 ```
 
+> **Calling `MFAVerify`, `MFAVerifyOTP` or `RedeemRecoveryCode` directly for a user who already has
+> a session (a step-up)? Pass that session's CURRENT refresh token as `RefreshToken`** (Go SDK
+> 0.64.2+). The verify rotates the refresh token, and one that races a refresh of the same session
+> is treated as token reuse, which revokes the session. With `RefreshToken` set the SDK takes the
+> same per-session lock as refresh, so they cannot overlap. Omit it and you are unprotected; leave
+> it empty only for first-login MFA, where no session exists yet. A lock failure comes back as a
+> retryable `server_error` (503, "refresh in progress" or "session store unavailable") and the
+> issuer is not called. The SDK middleware's MFA routes do this for you; do not set the field there.
+
 ```ts
 // TS SDK
 try {

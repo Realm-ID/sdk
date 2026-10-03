@@ -365,6 +365,14 @@ type MFAVerifyRequest struct {
 	// X-On-Behalf-Of-IP so per-IP rate limits on /auth/mfa/verify see the
 	// SPA's IP rather than the BFF's egress (ADR-050 plan §8.2).
 	OnBehalfOfIP string
+	// RefreshToken is the session's CURRENT refresh token (SPEC §4.3). When set
+	// the call takes the same per-session lock as refresh, waits for it, and on
+	// success stores the rotated token as the outcome a waiting refresh adopts —
+	// under ADR-109 Issuer B a verify that races a refresh of the same session
+	// is a reuse and revokes it. Empty = no lock (first-login MFA has no
+	// session). Omitting it leaves a direct caller unprotected. Never sent on
+	// the wire; the middleware leaves it unset because it already holds the lock.
+	RefreshToken string
 }
 
 // RedeemRecoveryCodeRequest is the input to AuthClient.RedeemRecoveryCode.
@@ -376,6 +384,14 @@ type RedeemRecoveryCodeRequest struct {
 	// OnBehalfOfIP forwards the end-user's IP via X-On-Behalf-Of-IP so the
 	// issuer's per-IP limits see the SPA, not the BFF's egress.
 	OnBehalfOfIP string
+	// RefreshToken is the session's CURRENT refresh token (SPEC §4.3). When set
+	// the call takes the same per-session lock as refresh, waits for it, and on
+	// success stores the rotated token as the outcome a waiting refresh adopts —
+	// under ADR-109 Issuer B a verify that races a refresh of the same session
+	// is a reuse and revokes it. Empty = no lock (first-login MFA has no
+	// session). Omitting it leaves a direct caller unprotected. Never sent on
+	// the wire; the middleware leaves it unset because it already holds the lock.
+	RefreshToken string
 }
 
 // LogoutRequest optionally targets a specific refresh token. If
@@ -823,6 +839,8 @@ type MFAVerifyOTPRequest struct {
 	MFAToken     string
 	Presented    string
 	OnBehalfOfIP string
+	// RefreshToken: see MFAVerifyRequest.RefreshToken.
+	RefreshToken string
 }
 
 // OTPLogin exchanges an identifier + manager-issued OTP for a realm-
@@ -1024,11 +1042,26 @@ func (a *AuthClient) MFAVerifyOTP(ctx ctxpkg.Context, req MFAVerifyOTPRequest) (
 		Code:           req.Presented,
 		Method:         otpMethodMFA,
 		OnBehalfOfIP:   req.OnBehalfOfIP,
+		RefreshToken:   req.RefreshToken,
 	})
 }
 
-// MFAVerify completes an MFA challenge. Same response shape as Login.
+// MFAVerify completes an MFA challenge. Same response shape as Login. When
+// req.RefreshToken is set it runs under the per-session refresh lock (see
+// MFAVerifyRequest.RefreshToken).
 func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Session, error) {
+	var out *Session
+	err := a.realm.withSessionLock(ctx, req.RefreshToken, func() (err error) {
+		out, err = a.mfaVerify(ctx, req)
+		return err
+	}, func() string { return out.RefreshToken })
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (a *AuthClient) mfaVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Session, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err

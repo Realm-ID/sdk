@@ -31,6 +31,7 @@ type rfEnv struct {
 	gate     chan struct{}   // when non-nil, /auth/token blocks until closed
 	failAll  bool
 	mfaCalls int
+	mfaGate  chan struct{}             // when non-nil, /auth/mfa/verify and /auth/mfa/recovery block until closed
 	recCalls int                       // /auth/mfa/recovery
 	onToken  func(body map[string]any) // optional: sees each /auth/token body
 }
@@ -91,6 +92,9 @@ func newRFEnv(t *testing.T, o rfOpts) *rfEnv {
 			e.recCalls++
 			n := e.recCalls
 			e.mu.Unlock()
+			if g := e.mfaGate; g != nil {
+				<-g
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": e.mint("t1", 200+n), "refresh_token": fmt.Sprintf("rt-rec-%d", n),
 				"expires_in": 900, "reenroll_required": true,
@@ -101,6 +105,9 @@ func newRFEnv(t *testing.T, o rfOpts) *rfEnv {
 			e.mfaCalls++
 			n := e.mfaCalls
 			e.mu.Unlock()
+			if g := e.mfaGate; g != nil {
+				<-g
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "ok", "access_token": e.mint("t1", 100+n), "refresh_token": fmt.Sprintf("rt-mfa-%d", n),
 				"expires_in": 900,

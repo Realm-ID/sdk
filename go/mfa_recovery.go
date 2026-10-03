@@ -133,7 +133,22 @@ func (a *AuthClient) finishMFASession(ctx ctxpkg.Context, resp *Session, flow Au
 // The code is consumed and the returned Session has ReenrollRequired set: the
 // old authenticator is cleared, so the user must re-enroll. Errors: 401 for an
 // invalid challenge or code, 429 mfa_too_many_fails.
+//
+// When req.RefreshToken is set the call runs under the per-session refresh lock
+// (go 0.64.2; see RedeemRecoveryCodeRequest.RefreshToken).
 func (a *AuthClient) RedeemRecoveryCode(ctx ctxpkg.Context, req RedeemRecoveryCodeRequest) (*Session, error) {
+	var out *Session
+	err := a.realm.withSessionLock(ctx, req.RefreshToken, func() (err error) {
+		out, err = a.redeemRecoveryCode(ctx, req)
+		return err
+	}, func() string { return out.RefreshToken })
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (a *AuthClient) redeemRecoveryCode(ctx ctxpkg.Context, req RedeemRecoveryCodeRequest) (*Session, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
