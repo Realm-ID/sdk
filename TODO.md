@@ -34,6 +34,11 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   (go `0.64.2`, SPEC §4.3/§4.3a):** when set, the direct call takes the per-session refresh lock,
   waits for it, and stores the `mfa-verify` outcome under the key; never sent on the wire; the
   middleware handlers must NOT set it (lock is not re-entrant). Needs a pinning test that they don't.
+  go `0.64.2` ALSO changed, all needing parity: `Token`/TokenManager serialize on the same lock
+  (`go/token_lock.go`, only token-level 401/`refresh_invalid` outcomes shared across request
+  shapes); an outcome-store READ error answers 503 and never re-mints (middleware refresh too);
+  the in-memory store sweeps expired entries; the superseded give-up is a typed error with a
+  redacted token. Sdk `DECISIONS.md` 2026-10-03 lists each with its RCA.
   (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
   commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then
   re-run the critic pass against SPEC §5.1/§5.1.1/§6.7/§6.7.6/§10.1/§10.2/§11.4-11.5.
@@ -358,6 +363,11 @@ in the same repo.
 
 ## Drift gates and test infra
 
+- [ ] `ts/src/v063-middleware.test.ts` — "SPEC10_1_4a body mode: loser's 503 carries
+      refresh_token" FLAKES under full-suite load: got `200` where it expected `503` once in the
+      pre-push `make check` (2026-10-03, failed the go 0.64.2 main push), then passed 6/6 in
+      isolation and on the re-push. Its loser/winner ordering is timing-dependent; gate it on an
+      explicit barrier, not a sleep, when the held ts v0.63 work resumes.
 - [ ] `java/src/test/java/dev/realmid/sdk/roles/RolePredicatesDriftTest.java` —
       the drift gate compares `RolePredicates` against the issuer's own Go
       source, but `Realm-ID/issuer` is a separate private repo that this repo's
