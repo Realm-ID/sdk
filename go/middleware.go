@@ -635,17 +635,22 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 	}
 	defer release()
 
-	out, err := r.Auth.MFAVerify(req.Context(), MFAVerifyRequest{ChallengeToken: ct, Code: code})
+	wctx, wcancel := r.lockedWorkCtx(req.Context())
+	out, err := r.Auth.MFAVerify(wctx, MFAVerifyRequest{ChallengeToken: ct, Code: code})
+	wcancel()
+	if lockKey != "" {
+		// A refresh loser waiting on this key is handed the rotated token, also
+		// when the post-verify mint failed after the issuer rotated.
+		if tok := rotatedRefreshToken(out, err); tok != "" {
+			r.storeOutcome(req.Context(), lockKey, &refreshOutcome{
+				Fingerprint: mfaVerifyFingerprint,
+				Mint:        &MintResult{RefreshToken: tok},
+			})
+		}
+	}
 	if err != nil {
 		r.respondAuthFail(w, req, opts, stageMFAVerify, asRealmError(err))
 		return
-	}
-	if lockKey != "" {
-		// A refresh loser waiting on this key is handed the rotated token.
-		r.storeOutcome(req.Context(), lockKey, &refreshOutcome{
-			Fingerprint: mfaVerifyFingerprint,
-			Mint:        &MintResult{RefreshToken: out.RefreshToken},
-		})
 	}
 
 	if !r.fireSessionSuccess(w, req, opts, FlowMFAVerify, "", out) {
@@ -692,16 +697,22 @@ func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts
 	}
 	defer release()
 
-	out, err := r.Auth.RedeemRecoveryCode(req.Context(), RedeemRecoveryCodeRequest{ChallengeToken: ct, Code: code})
+	wctx, wcancel := r.lockedWorkCtx(req.Context())
+	out, err := r.Auth.RedeemRecoveryCode(wctx, RedeemRecoveryCodeRequest{ChallengeToken: ct, Code: code})
+	wcancel()
+	if lockKey != "" {
+		// A refresh loser waiting on this key is handed the rotated token, also
+		// when the post-verify mint failed after the issuer rotated.
+		if tok := rotatedRefreshToken(out, err); tok != "" {
+			r.storeOutcome(req.Context(), lockKey, &refreshOutcome{
+				Fingerprint: mfaVerifyFingerprint,
+				Mint:        &MintResult{RefreshToken: tok},
+			})
+		}
+	}
 	if err != nil {
 		r.respondAuthFail(w, req, opts, stageMFARecovery, asRealmError(err))
 		return
-	}
-	if lockKey != "" {
-		r.storeOutcome(req.Context(), lockKey, &refreshOutcome{
-			Fingerprint: mfaVerifyFingerprint,
-			Mint:        &MintResult{RefreshToken: out.RefreshToken},
-		})
 	}
 
 	if !r.fireSessionSuccess(w, req, opts, FlowMFARecovery, "", out) {

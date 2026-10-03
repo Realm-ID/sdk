@@ -1263,6 +1263,15 @@ sess, err = realm.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
 > it empty only for first-login MFA, where no session exists yet. A lock failure comes back as a
 > retryable `server_error` (503, "refresh in progress" or "session store unavailable") and the
 > issuer is not called. The SDK middleware's MFA routes do this for you; do not set the field there.
+>
+> **Which entry points this serialises:** the SDK middleware's refresh and MFA routes,
+> `AuthClient.Token`, the `TokenManager` refresh (Go SDK 0.64.2+), and a direct MFA call given
+> `RefreshToken`. It holds only across replicas that share one `SessionStore`; a raw HTTP call to
+> the issuer is NOT covered, so do not mix those with the SDK calls on one session. A `Token` call
+> that loses to a concurrent rotation of the same session never re-presents the spent token: it
+> retries on the winner's rotated token (the result carries the newest `RefreshToken`; if it gives
+> up it returns a 503 whose `Details["refresh_token"]` is that token). Pass the newest refresh
+> token you hold: a token a refresh just rotated is spent.
 
 ```ts
 // TS SDK

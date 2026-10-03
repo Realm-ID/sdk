@@ -31,6 +31,32 @@ Go only; ts/java parity held with their v0.63 work (`TODO.md`). SPEC §4.3, §4.
   progress", both retryable. The middleware handlers still call these methods without the field (the
   lock is not re-entrant), pinned by a test.
 
+### Changed — go `0.64.2` (behaviour)
+
+- **`AuthClient.Token` and the `TokenManager` refresh now take the per-session refresh lock** (owner
+  ruling 2026-10-03, "fix all"), with the middleware's refresh semantics: one issuer mint per session
+  at a time, a concurrent identical call adopts the winner's result, a repeat inside the 5 s outcome
+  window is answered from it. A call that loses to a rotation minted for a DIFFERENT request (other
+  tenant/claims/`RolePermissions`/`ProductRoles`/`Scope`, or an MFA verify) retries on the winner's
+  rotated token, never the spent one, up to 3 hops, then returns `server_error` (503, "refresh
+  superseded, retry") with the newest token in `Details["refresh_token"]` (the `TokenManager` keeps it).
+  New failure modes on a refresh: 503 "refresh in progress" after a 3 s wait, 503 "session store
+  unavailable". The issuer call is bounded at 10 s on a context detached from the caller's
+  cancellation. An empty `RefreshToken` takes no lock. It excludes only across replicas that share one
+  `SessionStore`; a raw HTTP call to the issuer is not covered.
+
+### Fixed — go `0.64.2`
+
+- **A post-verify mint failure no longer strands a waiting refresh.** When the issuer rotated the
+  refresh token but the derived-claims mint then failed (`LoginMintError` carrying the rotated token),
+  the middleware's MFA-verify / recovery routes stored no outcome, so a refresh waiting on the lock got
+  a 503 with no token, the client re-presented the spent one, and under Issuer B that revoked the
+  session. Both middleware routes and the direct calls now store the rotated token in that case.
+- The work under the lock (MFA verify / recovery redeem, `Token`) is bounded at the 10 s mint timeout,
+  below the 15 s lock TTL, on a context detached from the caller's cancellation (as `mintRefresh`).
+- A caller context that ends while waiting for the lock returns the context's error immediately
+  (the wait no longer sleeps on), still failing closed: the issuer is not called.
+
 ## go `0.64.1` — the middleware recovery route is opt-in (2026-10-02)
 
 Go only. SPEC §10.1 step 5a.

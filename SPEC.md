@@ -1010,6 +1010,27 @@ creation, so refresh preserves it rather than re-arming it.
   Service refresh TTL reuses `realms.config.refresh_ttl_seconds` (no new
   TTL knob).
 
+**Per-session lock (go `0.64.2`, owner ruling 2026-10-03).** `AuthClient.Token`
+(and so the `TokenManager` refresh) takes the same per-session lock as the
+middleware's refresh route, with its semantics (§10.1 step 4a): the winner of
+`refreshLockKey(RefreshToken)` first looks for a stored outcome, else mints
+(bounded at the 10 s mint timeout on a context detached from the caller's
+cancellation) and stores its outcome, errors included, before releasing; a loser
+waits (50 ms x 60) and adopts it. The outcome fingerprint is the full request
+(tenant, custom claims, `RolePermissions`, `ProductRoles`, `Scope`) under a
+prefix no middleware outcome shares, so a loser never adopts a token minted for
+different claims or for the middleware. **A loser that finds an outcome with a
+DIFFERENT fingerprint (including an `mfa-verify` one) never re-presents the spent
+token: it RETRIES ONCE MORE, up to 3 hops, on the winner's rotated token**, as an
+ordinary winner there (the Go-API form of the middleware's `503 retry` hand-over).
+If the hops run out it returns `server_error` (HTTP 503, "refresh superseded,
+retry") with the newest token in `Details["refresh_token"]`. A stored ERROR outcome
+is returned as that error. Lock failures are as §4.3 (`server_error` 503 "session
+store unavailable" / "refresh in progress"; a done context returns its own error;
+the issuer is not called). The middleware's own mint, the derived-claims re-mint
+and the post-login mint call an UNLOCKED inner and never re-take the lock (it is
+not re-entrant). An empty `RefreshToken` takes no lock.
+
 ### 4.2.1 Token manager (long-lived clients)
 
 A convenience wrapper over §4.2 `token()` for **long-lived,
@@ -1112,13 +1133,31 @@ waits for it like the middleware MFA-verify route does (50 ms x 60), calls the
 issuer, and on success stores the same outcome the middleware stores
 (fingerprint `mfa-verify`, `Mint.RefreshToken` = the rotated token) under that
 key before releasing, so a refresh waiting behind it is handed the rotated token
-instead of re-presenting the spent one. It is NEVER sent on the wire. When empty
+instead of re-presenting the spent one. The outcome is stored on a post-verify
+MINT FAILURE too: when the issuer rotated but the derived-claims mint failed
+(`LoginMintError` carrying a non-empty `Session.RefreshToken`), that rotated token
+is stored, because the rotation already happened and a waiting refresh must adopt
+it, not re-present the spent token. The same holds for the middleware routes.
+It is NEVER sent on the wire. When empty
 (first-login MFA has no session; and every pre-0.64.2 caller) no lock is taken.
 **Omitting the field leaves a direct caller unprotected** against that race.
+**Scope of the protection:** one lock, `refreshLockKey(refreshToken)` in the
+`SessionStore`, taken by exactly these entry points: the middleware's refresh
+route (§10.1 step 4a), its MFA-verify and recovery routes (steps 5, 5a),
+`AuthClient.Token` and the `TokenManager` refresh (§4.2, go `0.64.2`), and a direct
+MFA call given `RefreshToken`. It excludes only across replicas that share one
+`SessionStore`; a raw HTTP call to the issuer's `/auth/token` or `/auth/mfa/*` is
+NOT covered. Pass the newest refresh token you hold: a token a refresh
+just rotated keys a lock nothing else uses. The work under the lock is bounded at
+the mint timeout (10 s, under the 15 s lock TTL) on a context detached from the
+caller's cancellation, like the refresh mint, so a cancelled caller cannot
+abandon a rotation the issuer already performed and the lock cannot expire under
+the work.
 Lock failure is an error and the issuer is NOT called: the session store erroring
 returns `server_error` (HTTP 503, "session store unavailable"); the lock still
 held after the waits returns `server_error` (HTTP 503, "refresh in progress");
-both are retryable. The lock is not re-entrant: the middleware calls the method
+both are retryable. A caller context that ends while waiting returns the
+context's own error (fail closed: the issuer is not called). The lock is not re-entrant: the middleware calls the method
 WITHOUT `RefreshToken` because it already holds the lock.
 
 ### 4.3a `redeemRecoveryCode(req)` — go `0.64.0` (ts/java held)
@@ -1151,13 +1190,31 @@ waits for it like the middleware MFA-verify route does (50 ms x 60), calls the
 issuer, and on success stores the same outcome the middleware stores
 (fingerprint `mfa-verify`, `Mint.RefreshToken` = the rotated token) under that
 key before releasing, so a refresh waiting behind it is handed the rotated token
-instead of re-presenting the spent one. It is NEVER sent on the wire. When empty
+instead of re-presenting the spent one. The outcome is stored on a post-verify
+MINT FAILURE too: when the issuer rotated but the derived-claims mint failed
+(`LoginMintError` carrying a non-empty `Session.RefreshToken`), that rotated token
+is stored, because the rotation already happened and a waiting refresh must adopt
+it, not re-present the spent token. The same holds for the middleware routes.
+It is NEVER sent on the wire. When empty
 (first-login MFA has no session; and every pre-0.64.2 caller) no lock is taken.
 **Omitting the field leaves a direct caller unprotected** against that race.
+**Scope of the protection:** one lock, `refreshLockKey(refreshToken)` in the
+`SessionStore`, taken by exactly these entry points: the middleware's refresh
+route (§10.1 step 4a), its MFA-verify and recovery routes (steps 5, 5a),
+`AuthClient.Token` and the `TokenManager` refresh (§4.2, go `0.64.2`), and a direct
+MFA call given `RefreshToken`. It excludes only across replicas that share one
+`SessionStore`; a raw HTTP call to the issuer's `/auth/token` or `/auth/mfa/*` is
+NOT covered. Pass the newest refresh token you hold: a token a refresh
+just rotated keys a lock nothing else uses. The work under the lock is bounded at
+the mint timeout (10 s, under the 15 s lock TTL) on a context detached from the
+caller's cancellation, like the refresh mint, so a cancelled caller cannot
+abandon a rotation the issuer already performed and the lock cannot expire under
+the work.
 Lock failure is an error and the issuer is NOT called: the session store erroring
 returns `server_error` (HTTP 503, "session store unavailable"); the lock still
 held after the waits returns `server_error` (HTTP 503, "refresh in progress");
-both are retryable. The lock is not re-entrant: the middleware calls the method
+both are retryable. A caller context that ends while waiting returns the
+context's own error (fail closed: the issuer is not called). The lock is not re-entrant: the middleware calls the method
 WITHOUT `RefreshToken` because it already holds the lock.
 
 **Post-verify handling is identical to `mfaVerify`**: the same tenant and
@@ -3139,7 +3196,10 @@ For every inbound request, the middleware:
      **A DIRECT `AuthClient.MFAVerify` / `MFAVerifyOTP` / `RedeemRecoveryCode`
      call can take this same lock (go `0.64.2`)** by passing the session's current
      refresh token as `RefreshToken` (§4.3); omitted, it is unprotected. The
-     middleware handlers never set it (the lock is not re-entrant).
+     middleware handlers never set it (the lock is not re-entrant). The middleware
+     MFA routes also store the `mfa-verify` outcome when the issuer rotated but the
+     post-verify mint failed, and run the issuer call bounded at the mint timeout on
+     a context detached from the request.
 
    **4b. A ROTATING refresh refuses the session's older access tokens (owner
    rulings 2026-10-01, v0.63.0, UNRELEASED).** After a winner's successful

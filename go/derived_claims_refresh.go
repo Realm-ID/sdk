@@ -115,7 +115,7 @@ func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID 
 
 	// Re-mint against the ROTATED refresh token. The first mint already spent
 	// the one the caller presented; re-using it would fail as a replay.
-	mint, err := r.Auth.Token(ctx, TokenRequest{
+	mint, err := r.Auth.token(ctx, TokenRequest{
 		RefreshToken: out.RefreshToken,
 		TenantID:     tenantID,
 		ProductRoles: roles,

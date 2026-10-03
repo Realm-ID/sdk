@@ -372,6 +372,12 @@ type MFAVerifyRequest struct {
 	// is a reuse and revokes it. Empty = no lock (first-login MFA has no
 	// session). Omitting it leaves a direct caller unprotected. Never sent on
 	// the wire; the middleware leaves it unset because it already holds the lock.
+	//
+	// SCOPE: it is the one lock the middleware's refresh and MFA routes,
+	// AuthClient.Token and the TokenManager refresh also take, so those are all
+	// serialised against this call. It holds only across replicas that share one
+	// SessionStore; a raw HTTP call to the issuer is not covered. Pass the newest
+	// refresh token you hold.
 	RefreshToken string
 }
 
@@ -391,6 +397,12 @@ type RedeemRecoveryCodeRequest struct {
 	// is a reuse and revokes it. Empty = no lock (first-login MFA has no
 	// session). Omitting it leaves a direct caller unprotected. Never sent on
 	// the wire; the middleware leaves it unset because it already holds the lock.
+	//
+	// SCOPE: it is the one lock the middleware's refresh and MFA routes,
+	// AuthClient.Token and the TokenManager refresh also take, so those are all
+	// serialised against this call. It holds only across replicas that share one
+	// SessionStore; a raw HTTP call to the issuer is not covered. Pass the newest
+	// refresh token you hold.
 	RefreshToken string
 }
 
@@ -737,7 +749,7 @@ func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, flow AuthF
 	if err != nil {
 		return err
 	}
-	mint, err := a.Token(ctx, TokenRequest{
+	mint, err := a.token(ctx, TokenRequest{
 		RefreshToken:    s.RefreshToken,
 		TenantID:        tenantID,
 		ProductRoles:    roles,
@@ -763,9 +775,11 @@ func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, flow AuthF
 	return nil
 }
 
-// Token rotates a refresh token, optionally switching tenants and
-// merging custom claims into the minted access token.
-func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, error) {
+// token is Token's UNLOCKED inner: one /auth/token call. Everything that already
+// holds the per-session lock (the middleware's mint, the derived-claims re-mint,
+// the post-login mint on a freshly rotated token) calls this, never Token — the
+// lock is not re-entrant.
+func (a *AuthClient) token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
@@ -1051,10 +1065,11 @@ func (a *AuthClient) MFAVerifyOTP(ctx ctxpkg.Context, req MFAVerifyOTPRequest) (
 // MFAVerifyRequest.RefreshToken).
 func (a *AuthClient) MFAVerify(ctx ctxpkg.Context, req MFAVerifyRequest) (*Session, error) {
 	var out *Session
-	err := a.realm.withSessionLock(ctx, req.RefreshToken, func() (err error) {
-		out, err = a.mfaVerify(ctx, req)
-		return err
-	}, func() string { return out.RefreshToken })
+	err := a.realm.withSessionLock(ctx, req.RefreshToken, func(c ctxpkg.Context) (string, error) {
+		var err error
+		out, err = a.mfaVerify(c, req)
+		return rotatedRefreshToken(out, err), err
+	})
 	if err != nil {
 		return nil, err
 	}

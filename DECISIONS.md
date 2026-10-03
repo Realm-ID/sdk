@@ -148,6 +148,54 @@ field there would wait out the 15 s TTL); a test pins one acquire per middleware
 parity filed in `TODO.md` under the held v0.63 work. The derived-claims AST guard forced the lock
 wrapper to return only an error, so the session-returning lanes stay visible to it.
 
+**Critic round (FIX-FIRST on b5dcf14), same day.** Five findings, all fixed in a follow-up commit.
+
+- **Owner ruling "fix all": `AuthClient.Token` and the `TokenManager` refresh take the lock too.** The
+  critic found the lock excluded only the middleware's refresh route; a partner refreshing through
+  `AuthClient.Token` raced a direct MFA call unprotected. First answer was to document it and file OQ-8;
+  the owner ruled to fix it. `Token` is now `tokenLockedOnce` (winner: load outcome, else mint, store,
+  release; loser: wait and adopt) around an UNLOCKED inner `token`. Every caller that already holds the
+  lock (the middleware's `mintRefresh`, the derived-claims re-mint, the post-login mint) calls the inner;
+  tests count acquires (exactly 1) on the refresh route and on a direct verify. The outcome fingerprint
+  is the WHOLE request under a `token\x00` prefix, deliberately disjoint from the middleware's: a
+  middleware outcome is enriched with product roles and a plain `Token` result is not, so adopting
+  across them would hand out a claim-blind (or over-claimed) token. A loser whose request differs
+  RETRIES on the winner's rotated token (up to 3 hops) rather than returning the 503-with-token the HTTP
+  route does, because a Go caller has no client to retry for it; the give-up error still carries the
+  token. Cost: a refresh can now fail with 503 "refresh in progress" (3 s wait) or "session store
+  unavailable", and every refresher needs a working SessionStore (already required).
+- **Bound (finding 3), chosen: 10 s mint timeout, detached from the caller's cancellation** (the
+  `mintRefresh` shape). Two ways to lose: cancel mid-flight (the issuer may have rotated and the token is
+  lost, so the client's next call re-presents a spent one: a reuse and a revoked session), or let the work
+  outlive the 15 s lock TTL (a second caller takes the lock while the first is still rotating: the same
+  reuse). Neither is ruled out absolutely; detaching removes the first (a caller cancel can no longer
+  strand a rotation) and the 10 s bound, under the TTL, removes the second except when the issuer
+  itself takes longer than 10 s, in which case the call fails as a timeout. That residual window (a
+  rotation completing at the issuer after our 10 s deadline) is the smaller one and is the one the
+  middleware already accepts. The cost is that a direct caller's own ctx cancel no longer aborts an
+  in-flight verify; it only stops the wait for the lock.
+- **Ctx while waiting returns the ctx error** (not "session store unavailable"), the wait loop stops
+  sleeping on `ctx.Done`, and it still fails closed: the issuer is never called.
+
+**RCA — a mint failure after rotation stored no outcome (finding 1).**
+
+- *Symptom.* A direct `MFAVerify{RefreshToken}` whose `OnIdentityResolved` hook failed returned a
+  `*LoginMintError` carrying the valid rotated token; a refresh waiting on the lock got 503 with no
+  cookie, the client re-presented the spent token, and Issuer B treated it as reuse: session revoked.
+  The middleware MFA routes had the same hole.
+- *Root cause.* The outcome was stored only on the success path (`out` non-nil). The issuer's rotation
+  is complete before the derived-claims mint runs, so "the call errored" does not mean "nothing was
+  rotated"; the error path discarded the one fact the waiter needed.
+- *Why it wasn't caught.* The test fixture's `/auth/mfa/verify` mock returned no `tenant_id`, so
+  `finishMFASession` never reached the mint and no test could produce a `LoginMintError` there. The
+  middleware routes copied the same shape in 0.64.0.
+- *Fix.* `rotatedRefreshToken(out, err)` reads the token from the result or from a `LoginMintError`'s
+  session; the direct wrapper and both middleware routes store the `mfa-verify` outcome whenever it is
+  non-empty, before releasing.
+- *Prevention.* The fixture now has `mfaTenant`, tests cover the direct calls and both routes with a
+  failing hook, and mutation M8 (drop the mint-failure token) goes red. Mutations M3 (release before
+  store) and M4 (single try) went red after the ordering and wait-then-proceed tests were added.
+
 ## 2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in
 
 **Problem.** `0.64.0` defaulted `RecoveryPath` to `/mfa/recovery` with no way to disable it. A partner

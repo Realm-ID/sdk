@@ -138,10 +138,11 @@ func (a *AuthClient) finishMFASession(ctx ctxpkg.Context, resp *Session, flow Au
 // (go 0.64.2; see RedeemRecoveryCodeRequest.RefreshToken).
 func (a *AuthClient) RedeemRecoveryCode(ctx ctxpkg.Context, req RedeemRecoveryCodeRequest) (*Session, error) {
 	var out *Session
-	err := a.realm.withSessionLock(ctx, req.RefreshToken, func() (err error) {
-		out, err = a.redeemRecoveryCode(ctx, req)
-		return err
-	}, func() string { return out.RefreshToken })
+	err := a.realm.withSessionLock(ctx, req.RefreshToken, func(c ctxpkg.Context) (string, error) {
+		var err error
+		out, err = a.redeemRecoveryCode(c, req)
+		return rotatedRefreshToken(out, err), err
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -14,25 +14,29 @@ import (
 )
 
 type directCall struct {
-	name   string
-	calls  func(e *rfEnv) int
-	invoke func(e *rfEnv, refresh string) (*Session, error)
-	rotate string // refresh token the issuer rotates to on the first call
+	name      string
+	calls     func(e *rfEnv) int
+	invokeCtx func(e *rfEnv, ctx context.Context, refresh string) (*Session, error)
+	rotate    string // refresh token the issuer rotates to on the first call
+}
+
+func (d directCall) invoke(e *rfEnv, rt string) (*Session, error) {
+	return d.invokeCtx(e, context.Background(), rt)
 }
 
 func directCalls() []directCall {
 	return []directCall{
 		{"MFAVerify", func(e *rfEnv) int { e.mu.Lock(); defer e.mu.Unlock(); return e.mfaCalls },
-			func(e *rfEnv, rt string) (*Session, error) {
-				return e.realm.Auth.MFAVerify(context.Background(), MFAVerifyRequest{ChallengeToken: "c", Code: "1", RefreshToken: rt})
+			func(e *rfEnv, ctx context.Context, rt string) (*Session, error) {
+				return e.realm.Auth.MFAVerify(ctx, MFAVerifyRequest{ChallengeToken: "c", Code: "1", RefreshToken: rt})
 			}, "rt-mfa-1"},
 		{"MFAVerifyOTP", func(e *rfEnv) int { e.mu.Lock(); defer e.mu.Unlock(); return e.mfaCalls },
-			func(e *rfEnv, rt string) (*Session, error) {
-				return e.realm.Auth.MFAVerifyOTP(context.Background(), MFAVerifyOTPRequest{MFAToken: "c", Presented: "1", RefreshToken: rt})
+			func(e *rfEnv, ctx context.Context, rt string) (*Session, error) {
+				return e.realm.Auth.MFAVerifyOTP(ctx, MFAVerifyOTPRequest{MFAToken: "c", Presented: "1", RefreshToken: rt})
 			}, "rt-mfa-1"},
 		{"RedeemRecoveryCode", func(e *rfEnv) int { e.mu.Lock(); defer e.mu.Unlock(); return e.recCalls },
-			func(e *rfEnv, rt string) (*Session, error) {
-				return e.realm.Auth.RedeemRecoveryCode(context.Background(), RedeemRecoveryCodeRequest{ChallengeToken: "c", Code: "abcd-efgh", RefreshToken: rt})
+			func(e *rfEnv, ctx context.Context, rt string) (*Session, error) {
+				return e.realm.Auth.RedeemRecoveryCode(ctx, RedeemRecoveryCodeRequest{ChallengeToken: "c", Code: "abcd-efgh", RefreshToken: rt})
 			}, "rt-rec-1"},
 	}
 }

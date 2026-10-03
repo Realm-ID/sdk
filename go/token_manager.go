@@ -2,6 +2,7 @@ package realmid
 
 import (
 	ctxpkg "context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -144,6 +145,19 @@ func (m *TokenManager) fetch(ctx ctxpkg.Context, refresh string) (string, error)
 		// refresh_invalid (and any other error) bubbles up unchanged: a
 		// long-lived user client has no API key to fall back on, so a dead
 		// refresh is terminal — re-authentication is required.
+		//
+		// Except a "superseded" give-up (Token lost to concurrent rotations of
+		// this session more times than it follows): its Details carry the
+		// newest live token, which the next attempt must present, not the spent
+		// one. Held in memory only; no sink call, the caller is retrying.
+		var re *RealmError
+		if errors.As(err, &re) {
+			if nt, _ := re.Details["refresh_token"].(string); nt != "" {
+				m.mu.Lock()
+				m.refreshToken = nt
+				m.mu.Unlock()
+			}
+		}
 		return "", err
 	}
 	if mr.AccessToken == "" {

@@ -24,16 +24,17 @@ type rfEnv struct {
 	store *MemorySessionStore
 	sign  signFn
 
-	mu       sync.Mutex
-	calls    int
-	seen     []string        // refresh tokens presented to /auth/token
-	spent    map[string]bool // reuse detector
-	gate     chan struct{}   // when non-nil, /auth/token blocks until closed
-	failAll  bool
-	mfaCalls int
-	mfaGate  chan struct{}             // when non-nil, /auth/mfa/verify and /auth/mfa/recovery block until closed
-	recCalls int                       // /auth/mfa/recovery
-	onToken  func(body map[string]any) // optional: sees each /auth/token body
+	mu        sync.Mutex
+	calls     int
+	seen      []string        // refresh tokens presented to /auth/token
+	spent     map[string]bool // reuse detector
+	gate      chan struct{}   // when non-nil, /auth/token blocks until closed
+	failAll   bool
+	mfaCalls  int
+	mfaTenant string                    // when set, the mfa mocks answer tenant_id (reaches the post-verify mint)
+	mfaGate   chan struct{}             // when non-nil, /auth/mfa/verify and /auth/mfa/recovery block until closed
+	recCalls  int                       // /auth/mfa/recovery
+	onToken   func(body map[string]any) // optional: sees each /auth/token body
 }
 
 type rfOpts struct {
@@ -93,11 +94,15 @@ func newRFEnv(t *testing.T, o rfOpts) *rfEnv {
 			n := e.recCalls
 			e.mu.Unlock()
 			if g := e.mfaGate; g != nil {
-				<-g
+				select {
+				case <-g:
+				case <-r.Context().Done():
+					return
+				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": e.mint("t1", 200+n), "refresh_token": fmt.Sprintf("rt-rec-%d", n),
-				"expires_in": 900, "reenroll_required": true,
+				"expires_in": 900, "reenroll_required": true, "tenant_id": e.mfaTenant,
 			})
 		},
 		"/auth/mfa/verify": func(w http.ResponseWriter, r *http.Request) {
@@ -106,11 +111,15 @@ func newRFEnv(t *testing.T, o rfOpts) *rfEnv {
 			n := e.mfaCalls
 			e.mu.Unlock()
 			if g := e.mfaGate; g != nil {
-				<-g
+				select {
+				case <-g:
+				case <-r.Context().Done():
+					return
+				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "ok", "access_token": e.mint("t1", 100+n), "refresh_token": fmt.Sprintf("rt-mfa-%d", n),
-				"expires_in": 900,
+				"expires_in": 900, "tenant_id": e.mfaTenant,
 			})
 		},
 	})
