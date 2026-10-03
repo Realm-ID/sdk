@@ -133,8 +133,11 @@ func (a *AuthClient) tokenLockedOnce(ctx ctxpkg.Context, req TokenRequest) (mr *
 			return nil, "", oc.Err.realmError()
 		}
 		// Another request's shape-specific failure says nothing about this one.
-		// Nothing was rotated by it: go round again on the same token (the lock is
-		// free now, so this call mints for itself).
+		// Every issuer 4xx on /auth/token is returned before the rotation is
+		// written, so the token is still live: go round again on it (the lock is
+		// free now, so this call mints for itself). A 5xx or timeout may follow a
+		// committed rotation whose token reached no one; that session is lost
+		// whatever this call does, and re-minting only surfaces it sooner.
 		return nil, key, nil
 	}
 	if oc.Mint == nil {
