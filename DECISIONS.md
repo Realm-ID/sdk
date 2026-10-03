@@ -245,6 +245,23 @@ wrapper to return only an error, so the session-returning lanes stay visible to 
 - *Prevention.* A test using the store's overridable `now` asserts the map sizes after an hour; M19
   (never sweep) goes red.
 
+**Critic round 3 (SHIP, LOWs closed before the tag because `go/v0.64.2` is immutable).**
+
+- **Which stored errors are shared across request shapes: only token-level ones.** `tokenLevelErr` =
+  `refresh_invalid` or any HTTP 401 (the refresh token is dead, revoked, expired or already spent: true
+  for every shape). Everything else is the shape's own (403 for one tenant's `RolePermissions`
+  narrowing, 400 for claims/scope, 5xx/transient) and is not adopted by a different request: the winner
+  path treats it as no outcome and mints; a loser that waited goes round again on the same token. A
+  same-shape repeat still gets its own stored error. Cost: a transient error is no longer shared across
+  shapes (one extra mint attempt), which is the safe direction.
+- **`TokenManager` persists the token adopted from a superseded give-up** through its existing
+  `WithRefreshSink`, as after a normal rotation (a sink failure is joined onto the returned error, the
+  superseded error stays matchable). Before, only memory held it and a restart would present the spent
+  token.
+- **`MemorySessionStore` godoc states the sweep's cost** (per replica, walks all maps under the store
+  lock at most every 30 s; small deployments only; use the shared Redis store otherwise). No redesign.
+- Test gap closed: the sweep is pinned to spare live revocations (mutation: sweep evicts every entry).
+
 ## 2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in
 
 **Problem.** `0.64.0` defaulted `RecoveryPath` to `/mfa/recovery` with no way to disable it. A partner

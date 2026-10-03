@@ -105,6 +105,13 @@ type memResult struct {
 
 // MemorySessionStore is the single-process SessionStateStore. Two Realms given
 // two stores share nothing.
+//
+// It is per replica and meant for small deployments: every write may, at most
+// once per 30 s, walk all of its maps (locks, refresh outcomes, revocation
+// entries) under the one store lock to drop expired entries. That is cheap for
+// a few thousand live entries and a stall for very many. A multi-replica or
+// large deployment should use a shared store (the Redis one): it also shares
+// the refresh lock and outcomes across replicas, which this one cannot.
 type MemorySessionStore struct {
 	mu      sync.Mutex
 	now     func() time.Time

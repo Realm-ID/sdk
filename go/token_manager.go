@@ -149,12 +149,18 @@ func (m *TokenManager) fetch(ctx ctxpkg.Context, refresh string) (string, error)
 		// Except a "superseded" give-up (Token lost to concurrent rotations of
 		// this session more times than it follows): its error carries the
 		// newest live token, which the next attempt must present, not the spent
-		// one. Held in memory only; no sink call, the caller is retrying.
+		// one. Committed to memory, then handed to the sink exactly as after a
+		// normal rotation, so a restart does not present the spent token.
 		var se *RefreshSupersededError
 		if errors.As(err, &se) && se.RefreshToken() != "" {
 			m.mu.Lock()
 			m.refreshToken = se.RefreshToken()
 			m.mu.Unlock()
+			if m.sink != nil {
+				if serr := m.sink(ctx, se.RefreshToken()); serr != nil {
+					return "", fmt.Errorf("%w; realmid token manager: persist rotated refresh token: %v", err, serr)
+				}
+			}
 		}
 		return "", err
 	}

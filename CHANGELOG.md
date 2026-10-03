@@ -63,6 +63,12 @@ Go only; ts/java parity held with their v0.63 work (`TODO.md`). SPEC §4.3, §4.
 - **`MemorySessionStore` leaked refresh outcomes (live access + refresh tokens) forever** unless the
   same key was read again; expired entries are now swept on write (amortised, no goroutine), locks and
   revocation entries included. Affects every in-memory-store user of the middleware (the BFF).
+- **Stored error outcomes are shared across request shapes only when they are about the refresh token
+  itself** (`refresh_invalid` or any 401: dead, revoked, already spent). A shape-specific failure (a 403
+  for one tenant's `RolePermissions` narrowing, a 400 for claims/scope, a 5xx) is not handed to a
+  different request: that call mints for itself.
+- A `TokenManager` that adopts the newest token from a superseded give-up now also hands it to its
+  `WithRefreshSink`, exactly as after a normal rotation, so a restart does not present the spent token.
 - `selfEnrollMfa` needs no lock: the issuer neither rotates the refresh token there nor revokes on a
   spent one (SPEC §4.8).
 - The work under the lock (MFA verify / recovery redeem, `Token`) is bounded at the 10 s mint timeout,

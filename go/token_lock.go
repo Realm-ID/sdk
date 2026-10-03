@@ -129,7 +129,13 @@ func (a *AuthClient) tokenLockedOnce(ctx ctxpkg.Context, req TokenRequest) (mr *
 		return nil, "", &RealmError{Code: ErrCodeServerError, Message: "refresh in progress", HTTPStatus: http.StatusServiceUnavailable}
 	}
 	if oc.Err != nil {
-		return nil, "", oc.Err.realmError()
+		if oc.Fingerprint == fp || tokenLevelErr(oc.Err) {
+			return nil, "", oc.Err.realmError()
+		}
+		// Another request's shape-specific failure says nothing about this one.
+		// Nothing was rotated by it: go round again on the same token (the lock is
+		// free now, so this call mints for itself).
+		return nil, key, nil
 	}
 	if oc.Mint == nil {
 		return nil, "", &RealmError{Code: ErrCodeServerError, Message: "refresh outcome unreadable", HTTPStatus: http.StatusServiceUnavailable}
@@ -176,8 +182,20 @@ func (e *RefreshSupersededError) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"code": e.re.Code, "message": e.re.Message, "status": e.re.HTTPStatus})
 }
 
+// tokenLevelErr reports whether a stored error is about the refresh token
+// ITSELF (dead, expired, revoked, already spent: refresh_invalid or any 401),
+// so it is the same for every request shape. Anything else (a 403 for one
+// tenant's narrowing, a 400 for bad claims or scope, a 5xx) belongs to the shape
+// that produced it and must not be handed to a different request.
+func tokenLevelErr(e *storedErr) bool {
+	return e.Code == string(ErrCodeRefreshInvalid) || e.Status == http.StatusUnauthorized
+}
+
 func tokenOutcomeUsable(oc *refreshOutcome, fp, key string) bool {
-	if oc.Err != nil || oc.Fingerprint == fp {
+	if oc.Err != nil {
+		return oc.Fingerprint == fp || tokenLevelErr(oc.Err)
+	}
+	if oc.Fingerprint == fp {
 		return true
 	}
 	return oc.Mint != nil && oc.Mint.RefreshToken != "" && oc.Mint.RefreshToken != key
