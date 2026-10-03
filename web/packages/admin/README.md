@@ -85,10 +85,6 @@ Tracked so the next reader doesn't have to grep the consuming UI:
 - `RolesClient` is bound to a single `realmId` at `createAdmin`
   construction time. Cross-realm ops UIs that want a per-call `realmId`
   parameter need a follow-up.
-- `bff.home()` and `bff.tenantFull()` return loose
-  `{ [k: string]: unknown }` shapes; the rich response types live in
-  `@realm-id/sdk/internal` and the admin aggregates package types need a
-  refresh before they can be re-exported here.
 
 ## Contract
 

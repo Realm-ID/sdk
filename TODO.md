@@ -113,30 +113,16 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   realm origin bind/detach (`POST` / `DELETE /platforms/{id}/origins[/{id}]`).
   Operator/base-realm surfaces (platform create/rename, `/admin/*`
   suspend/rotate/notes) are intentionally out of the partner SDK.
-- [ ] **`@realm-id/web` `completeSignIn` should recognize an OIDC *error* return**
-  (`?error=&state=`, no `code`) — clean the URL and throw a typed `RealmError`
-  instead of returning `null`. Today `ui/web/src/AuthGate.tsx` detects `?error=`
-  itself (`humanizeOidcError`) because `readCallback` requires `code`; folding it
-  into the SDK removes the app-side special case. Needs a version bump + a
-  vendored-tarball re-pin in `ui/web`.
 
 ## `@realm-id/web-admin` gaps (the UI carries shims until these land)
 
 Consolidated from `ui/TODO.md` — the UI-side shim locations are tracked there;
 this is the SDK-side work.
 
-- [ ] **Email-based ownership transfer.** `admin.tenants.transferOwner` accepts
-  only a resolved `ownerUserId`; `OwnershipTransferDialog` needs an email variant
-  the BFF resolves server-side. *Cross-check before building:* the ADR-076 handler
-  already accepts a `new_owner_email` fallback — this may be a pure type/method
-  addition rather than new behavior.
 - [ ] **`RolesClient` is realmId-bound at construction.** A per-call `realmId`
   override would help cross-realm ops UIs. Not blocking today — the UI works
   around it with `useAdminForRealm(realmId)`, which returns a realm-scoped cached
   `Admin`.
-- [ ] **`bff.home()` / `bff.tenantFull()` return loose `{ [k: string]: unknown }`.**
-  Rich types live in `@realm-id/sdk/internal`; the aggregates package types need a
-  refresh before the admin SDK can re-export them.
 
 ## Web-package test infra
 
@@ -272,25 +258,6 @@ in the same repo.
       predicate). Three languages, two shapes, and reaching for the wrong one in
       ts offers `owner`. Pick one shape before the SDKs are released together.
       *(Filed 2026-08-30.)*
-- [ ] `ts/src/errors.ts` + `go/errors.go` + `java/.../ErrorCode.java` —
-      `membership_not_found` is emitted by the issuer
-      (`internal/httpapi/me_memberships.go`, three call sites) and is in NONE of
-      the three taxonomies, so it falls back to `not_found` and the specific
-      remedy is lost. Adding it to one language alone fails
-      `scripts/taxonomy-parity.py`, which is why it was not done with the
-      ADR-092 D5 `MembershipActionCode` type — that union carries the code, the
-      SDK taxonomy does not. Three-language change. *(Filed 2026-08-30.)*
-
-      ✅ **STILL LIVE — re-verified 2026-09-13, and it is live in the PUBLISHED
-      packages, not merely in this tree.** `/usr/bin/grep -c
-      membership_not_found` returns **0** for both `ts/src/errors.ts` and
-      `go/errors.go` (java the same), while the issuer emits it from
-      `internal/httpapi/me_memberships.go:62,116,228`. The shipped versions
-      carrying the gap are npm `0.51.0`, Go proxy `go/v0.59.0` and Maven
-      `0.48.0` — i.e. every partner integrating today gets the generic
-      `not_found` and loses the specific remedy. That makes this the
-      highest-value of the SDK items here: it is the only one a partner can hit
-      without doing anything unusual.
 - [ ] `ts/src/memberships.ts` — `MembershipActionCode`'s nine codes are all
       really emitted (verified 2026-08-30 against `internal/httpapi/`), but they
       are the ONE set `ts/src/roles-drift.test.ts` still cannot compare: the

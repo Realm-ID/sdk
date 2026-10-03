@@ -2,6 +2,13 @@
 
 Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TODO.md) for open, actionable items.
 
+## Closed 2026-10-03 — verified already done (owner-approved sweep)
+
+- **`@realm-id/web` `completeSignIn` should recognize an OIDC *error* return** — done in `9506e7f`; `web/packages/core/src/realm.ts:268-271` calls `readCallbackError` before the code check.
+- **Email-based ownership transfer** (`admin.tenants.transferOwner`) — done in `e1be615`; `web/packages/admin/src/tenants.ts:99-100` sends `new_owner_email`; covered by `tenants-owner.test.ts`.
+- **`bff.home()` / `bff.tenantFull()` return loose `{ [k: string]: unknown }`** — typed `HomeResponse` (`web/packages/admin/src/types.ts:492`) and `TenantFullResponse` (`:499`).
+- **`membership_not_found` in NONE of the three taxonomies** — done in `9506e7f`; present in `ts/src/errors.ts`, `go/errors.go`, `java/.../ErrorCode.java`.
+
 > ⚠️ **DOWNGRADED 2026-09-02 after validating it against source — this is NOT a
 > live defect, and the version below (filed 2026-09-01) was wrong in the way that
 > would have cost the most: it prescribed a three-language redesign for a path no
