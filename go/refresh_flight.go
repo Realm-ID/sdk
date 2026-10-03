@@ -69,16 +69,26 @@ func (r *Realm) mintTimeout() time.Duration {
 	return defaultMintTimeout
 }
 
-func (r *Realm) loadOutcome(ctx ctxpkg.Context, key string) *refreshOutcome {
-	raw, ok, err := r.cfg.SessionStore.GetRefreshResult(ctx, refreshOutcomeKey(key))
-	if err != nil || !ok {
-		return nil
+// loadOutcome reads the stored outcome for key. (nil, nil) is "none stored";
+// an error is "could not find out" and MUST NOT be read as "none": a caller that
+// mints on it re-presents a spent token (a reuse, which revokes the session).
+// The read runs on a fresh bounded context so a caller that went away after
+// taking the lock cannot turn a stored outcome into a miss.
+func (r *Realm) loadOutcome(ctx ctxpkg.Context, key string) (*refreshOutcome, error) {
+	fctx, cancel := freshCtx(ctx)
+	defer cancel()
+	raw, ok, err := r.cfg.SessionStore.GetRefreshResult(fctx, refreshOutcomeKey(key))
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
 	}
 	var oc refreshOutcome
-	if json.Unmarshal(raw, &oc) != nil {
-		return nil
+	if err := json.Unmarshal(raw, &oc); err != nil {
+		return nil, err
 	}
-	return &oc
+	return &oc, nil
 }
 
 // freshCtx is a bounded context detached from ctx's cancellation AND deadline:
@@ -104,7 +114,8 @@ func (r *Realm) storeOutcome(ctx ctxpkg.Context, key string, oc *refreshOutcome)
 // 60 tries (3 s). nil means none arrived.
 func (r *Realm) waitOutcome(ctx ctxpkg.Context, key string) *refreshOutcome {
 	for i := 0; i < refreshWaitTries; i++ {
-		if oc := r.loadOutcome(ctx, key); oc != nil {
+		// A read error here keeps polling: a loser never mints, so waiting is safe.
+		if oc, err := r.loadOutcome(ctx, key); err == nil && oc != nil {
 			return oc
 		}
 		if ctx.Err() != nil {
@@ -216,7 +227,15 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		defer r.releaseLock(req, release)
 		// A request that lost the previous winner's response (a reload) is
 		// answered from the stored outcome, never by a second mint.
-		if oc = r.loadOutcome(req.Context(), key); oc == nil {
+		var lerr error
+		if oc, lerr = r.loadOutcome(req.Context(), key); lerr != nil {
+			// Could not find out whether a previous winner already rotated: minting
+			// now could re-present a spent token. Fail closed.
+			r.logger.Warn("realmid: reading refresh outcome failed", slog.Any("error", lerr))
+			writeServerError(w, "session store unavailable", false)
+			return
+		}
+		if oc == nil {
 			oc = r.mintRefresh(req, candidates, tenantID, custom, fp)
 		}
 	} else if oc = r.waitOutcome(req.Context(), key); oc == nil {

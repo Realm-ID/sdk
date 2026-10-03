@@ -196,6 +196,55 @@ wrapper to return only an error, so the session-returning lanes stay visible to 
   failing hook, and mutation M8 (drop the mint-failure token) goes red. Mutations M3 (release before
   store) and M4 (single try) went red after the ordering and wait-then-proceed tests were added.
 
+**Critic round 2 (FIX-FIRST on b054567), same day, owner ruling "fix all" stands.**
+
+- **`selfEnrollMfa` needs no lock (verdict, with evidence).** It sends the refresh token but the issuer
+  does not rotate it there: `issuer/internal/authsvc/service.go:1846-1899` only looks the session up by
+  refresh hash (`:1853`), via `issuer/internal/storage/pg/session.go:106-124`, a plain SELECT; the
+  response (`selfEnrollResp`, `issuer/internal/httpapi/mfa_self.go`) carries no refresh token. A spent
+  token there is `401 refresh_invalid`, not a reuse revoke (ADR-109 D6 is about rotations). It can fail
+  transiently when it races a rotation; retry with the newest token. A test pins "takes no lock".
+- **The give-up error is typed, not a `Details` entry.** A live refresh token in a generic map is
+  printed by any `%+v` or JSON log of the error. `*RefreshSupersededError` unwraps to the `*RealmError`
+  (so `IsCode` still works), keeps the token in an unexported field behind `RefreshToken()`, and
+  redacts it from `Error()`, every fmt verb including `%#v`, and JSON. The `TokenManager` reads it via
+  `errors.As`. Cost: callers must use the accessor instead of `Details`.
+
+**RCA — a failed outcome READ was treated as "no outcome", so a spent token was re-presented.**
+
+- *Symptom.* `Token(rt-old)`, then one store GET error inside the 5 s window: the issuer saw
+  `[rt-old rt-old]`, a reuse, and under ADR-109 Issuer B the session was revoked. Same when the caller
+  cancelled after taking the lock (the read ran on the caller's context). `handleRefresh` had the same
+  hole since 0.63.0.
+- *Root cause.* `loadOutcome` returned nil for both "nothing stored" and "the read failed", and its
+  callers read nil as "I am the first": they minted. The one fact that mattered (a rotation may already
+  have happened) was erased by the error handling.
+- *Why it wasn't caught.* Every store fake returned reads successfully; no test made the GET fail, and
+  none cancelled the context after the lock was taken.
+- *Fix.* `loadOutcome` returns `(outcome, error)` and reads on a fresh bounded context. A read error on
+  the winner path (Token, handleRefresh) is `503` "session store unavailable" and never mints; the
+  loser path keeps polling (it never mints). Residual, stated honestly: if the OUTCOME STORE is down
+  after a successful mint, the outcome cannot be recorded and a later holder of the spent token can
+  still reach the issuer; the SDK logs it and cannot prevent it.
+- *Prevention.* `getErrStore` and `ctxStore` fakes; tests for Token and the refresh route; mutations
+  M18 (read error as miss) and M20 (read on the caller's ctx) go red.
+
+**RCA — `MemorySessionStore` never evicted an expired outcome unless the same key was read again.**
+
+- *Symptom.* 50 refreshes then +1h: 51 outcomes and 51 locks still held. Each outcome carries a live
+  access and refresh token, so the BFF (which uses `NewMemorySessionStore()`) kept every token it ever
+  rotated for the life of the process; 0.64.2's `Token` locking would have extended that to every
+  `Token` caller.
+- *Root cause.* Expiry was lazy and per key (`GetRefreshResult` deletes the entry it reads). A refresh
+  token is used once, so its key is never read again.
+- *Why it wasn't caught.* The store's tests checked that an expired entry reads as absent, never how
+  many entries the maps held.
+- *Fix.* `sweepLocked` on `PutRefreshResult` and `AcquireRefreshLock`, at most once per 30 s, covering
+  outcomes, locks and revocation entries: amortised, no goroutine (the store has no Close). Worst case
+  an outcome lingers 30 s past its 5 s window, in memory only.
+- *Prevention.* A test using the store's overridable `now` asserts the map sizes after an hour; M19
+  (never sweep) goes red.
+
 ## 2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in
 
 **Problem.** `0.64.0` defaulted `RecoveryPath` to `/mfa/recovery` with no way to disable it. A partner

@@ -1024,8 +1024,16 @@ DIFFERENT fingerprint (including an `mfa-verify` one) never re-presents the spen
 token: it RETRIES ONCE MORE, up to 3 hops, on the winner's rotated token**, as an
 ordinary winner there (the Go-API form of the middleware's `503 retry` hand-over).
 If the hops run out it returns `server_error` (HTTP 503, "refresh superseded,
-retry") with the newest token in `Details["refresh_token"]`. A stored ERROR outcome
-is returned as that error. Lock failures are as §4.3 (`server_error` 503 "session
+retry"); the newest token is carried on a typed `*RefreshSupersededError`
+(`errors.As`, accessor `RefreshToken()`), NOT in `Details`, and the error's
+`Error()` / formatting / JSON redact it (it is a live credential). A stored ERROR
+outcome is returned as that error. **A store error while reading the stored
+outcome is `503` `server_error` "session store unavailable" and NEVER a mint**
+(not-found and error are different answers; the read runs on a fresh bounded
+context, so a cancelled caller cannot turn a found outcome into a miss). The one
+residual case: if the OUTCOME STORE itself is down after a successful mint, the
+outcome is not recorded and a later presenter of the spent token reaches the
+issuer; the SDK logs it and cannot prevent it. Lock failures are as §4.3 (`server_error` 503 "session
 store unavailable" / "refresh in progress"; a done context returns its own error;
 the issuer is not called). The middleware's own mint, the derived-claims re-mint
 and the post-login mint call an UNLOCKED inner and never re-take the lock (it is
@@ -1307,6 +1315,14 @@ Self-service TOTP MFA for the **current user** (distinct from the
 admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
 §6.2, which act on an admin-named target).
 
+- **`selfEnrollMfa` takes NO per-session lock (settled 2026-10-03).** It carries a
+  refresh token but does not rotate it: the issuer only looks the session up by
+  refresh hash (`issuer/internal/authsvc/service.go:1853`, `SelfEnrollMFA` at
+  `:1846-1899`; the lookup `issuer/internal/storage/pg/session.go:106-124` is
+  read-only) and its response carries no refresh token (`selfEnrollResp`,
+  `issuer/internal/httpapi/mfa_self.go`). A spent token is therefore `401
+  refresh_invalid`, not a reuse revoke (ADR-109 D6 concerns rotations). Racing a
+  rotation can make it fail transiently; retry with the newest token.
 - `selfEnrollMfa(req)` → `POST /auth/mfa/enroll` (ADR-061).
   **Refresh-authed**: the request carries the user's `refreshToken` (the
   handle to their login session) + `tenantId` (+ `method?`, defaults
@@ -2194,7 +2210,10 @@ token. Nothing else is required to be atomic.
 - **The in-memory store** (`NewMemorySessionStore()` / `createMemorySessionStore()`
   / `new MemorySessionStore()`) additionally lets a lock loser wait on the
   winner's completion instead of polling; the observable behaviour (§10.1 step
-  4a) is the same. Two `Realm`s given two in-memory stores share nothing.
+  4a) is the same. Two `Realm`s given two in-memory stores share nothing. The Go
+  in-memory store sweeps expired locks, refresh outcomes and revocation entries
+  (amortised, on write; go `0.64.2`) — outcomes hold live tokens, so they must
+  not outlive their 5 s window.
 - **The v0.62 "multi-pod staleness window" is now the partner's stated
   choice**: with an in-memory store a logout on pod A is not seen by pod B;
   with a shared store it is.
@@ -3114,7 +3133,9 @@ For every inbound request, the middleware:
         the stored outcome; a different fingerprint -> the `503 retry` hand-over
         of its rotated token. A winner never returns tokens minted for a
         different fingerprint, and never mints while an outcome for the key is
-        stored.
+        stored. **A store ERROR on this read answers `503` "session store
+        unavailable" and never mints** (go `0.64.2`; before it, any read error was
+        treated as "no outcome" and the winner re-presented a spent token).
      2. Otherwise run the existing candidate loop and `enrichRefreshMint` on a
         context **detached from the request** and bounded at **10 s**, so a
         client disconnect cannot abort a rotation the issuer already performed.

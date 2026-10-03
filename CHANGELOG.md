@@ -39,7 +39,8 @@ Go only; ts/java parity held with their v0.63 work (`TODO.md`). SPEC §4.3, §4.
   window is answered from it. A call that loses to a rotation minted for a DIFFERENT request (other
   tenant/claims/`RolePermissions`/`ProductRoles`/`Scope`, or an MFA verify) retries on the winner's
   rotated token, never the spent one, up to 3 hops, then returns `server_error` (503, "refresh
-  superseded, retry") with the newest token in `Details["refresh_token"]` (the `TokenManager` keeps it).
+  superseded, retry"), the newest token on a typed `*RefreshSupersededError` (`RefreshToken()`; redacted
+  from `Error()`/formatting/JSON; the `TokenManager` keeps it).
   New failure modes on a refresh: 503 "refresh in progress" after a 3 s wait, 503 "session store
   unavailable". The issuer call is bounded at 10 s on a context detached from the caller's
   cancellation. An empty `RefreshToken` takes no lock. It excludes only across replicas that share one
@@ -52,6 +53,18 @@ Go only; ts/java parity held with their v0.63 work (`TODO.md`). SPEC §4.3, §4.
   the middleware's MFA-verify / recovery routes stored no outcome, so a refresh waiting on the lock got
   a 503 with no token, the client re-presented the spent one, and under Issuer B that revoked the
   session. Both middleware routes and the direct calls now store the rotated token in that case.
+- **A store error reading a stored outcome no longer re-presents a spent token.** `loadOutcome` returned
+  nil on ANY store error, so a failed GET inside the 5 s window made `Token` AND the middleware
+  refresh route (`handleRefresh`, pre-existing) mint again on the spent token: a reuse, and under
+  Issuer B a revoked session. Not-found and error are now distinct; an error is `503` "session store
+  unavailable" and never mints, on every reader. The read runs on a fresh bounded context. Residual:
+  if the outcome store is down AFTER a successful mint, nothing is recorded and a later presenter of the
+  spent token reaches the issuer (logged, not preventable).
+- **`MemorySessionStore` leaked refresh outcomes (live access + refresh tokens) forever** unless the
+  same key was read again; expired entries are now swept on write (amortised, no goroutine), locks and
+  revocation entries included. Affects every in-memory-store user of the middleware (the BFF).
+- `selfEnrollMfa` needs no lock: the issuer neither rotates the refresh token there nor revokes on a
+  spent one (SPEC §4.8).
 - The work under the lock (MFA verify / recovery redeem, `Token`) is bounded at the 10 s mint timeout,
   below the 15 s lock TTL, on a context detached from the caller's cancellation (as `mintRefresh`).
 - A caller context that ends while waiting for the lock returns the context's error immediately

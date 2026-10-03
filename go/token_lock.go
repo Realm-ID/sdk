@@ -8,6 +8,8 @@ package realmid
 import (
 	ctxpkg "context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 )
@@ -42,7 +44,7 @@ func tokenFingerprint(req TokenRequest) string {
 // the issuer: a concurrent identical request adopts the winner's result; one
 // whose request differs retries on the winner's ROTATED token (never the spent
 // one), up to tokenMaxHops, then fails with a retryable 503 server_error
-// carrying the newest token in Details["refresh_token"]. The issuer call runs
+// (a *RefreshSupersededError) carrying the newest token. The issuer call runs
 // bounded at the mint timeout on a context detached from ctx's cancellation.
 // The lock holds only across replicas sharing one SessionStore; a raw HTTP
 // call to the issuer is not covered.
@@ -62,9 +64,9 @@ func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 		}
 		req.RefreshToken = next
 	}
-	return nil, &RealmError{
-		Code: ErrCodeServerError, Message: "refresh superseded, retry", HTTPStatus: http.StatusServiceUnavailable,
-		Details: map[string]any{"refresh_token": req.RefreshToken},
+	return nil, &RefreshSupersededError{
+		re:           &RealmError{Code: ErrCodeServerError, Message: "refresh superseded, retry", HTTPStatus: http.StatusServiceUnavailable},
+		refreshToken: req.RefreshToken,
 	}
 }
 
@@ -98,7 +100,14 @@ func (a *AuthClient) tokenLockedOnce(ctx ctxpkg.Context, req TokenRequest) (mr *
 		// An outcome already stored (a repeat inside the window) answers the
 		// call, unless it was minted for another request AND did not rotate the
 		// token: then there is no spent token to protect and this call mints.
-		if oc = r.loadOutcome(ctx, key); oc != nil && !tokenOutcomeUsable(oc, fp, key) {
+		var lerr error
+		if oc, lerr = r.loadOutcome(ctx, key); lerr != nil {
+			// Could not find out whether a previous winner already rotated:
+			// minting could re-present a spent token. Fail closed.
+			r.logger.Warn("realmid: reading refresh outcome failed", slog.Any("error", lerr))
+			return nil, "", &RealmError{Code: ErrCodeServerError, Message: "session store unavailable", HTTPStatus: http.StatusServiceUnavailable, Cause: lerr}
+		}
+		if oc != nil && !tokenOutcomeUsable(oc, fp, key) {
 			oc = nil
 		}
 		if oc == nil {
@@ -135,6 +144,36 @@ func (a *AuthClient) tokenLockedOnce(ctx ctxpkg.Context, req TokenRequest) (mr *
 		return nil, next, nil
 	}
 	return oc.Mint, "", nil
+}
+
+// RefreshSupersededError is Token's give-up after tokenMaxHops hand-overs: it
+// is a retryable 503 server_error (it unwraps to the *RealmError, so IsCode and
+// errors.As(&*RealmError) see it) that carries the newest LIVE refresh token for
+// the caller's next attempt. The token is a credential, so it lives in an
+// unexported field behind RefreshToken() and is redacted from Error(), every
+// fmt verb (including %#v) and JSON, which is what a logger reaches.
+type RefreshSupersededError struct {
+	re           *RealmError
+	refreshToken string
+}
+
+// RefreshToken returns the newest live refresh token; present it on the next call.
+func (e *RefreshSupersededError) RefreshToken() string { return e.refreshToken }
+
+func (e *RefreshSupersededError) Error() string { return e.re.Error() }
+
+// Unwrap exposes the underlying *RealmError (server_error, HTTP 503).
+func (e *RefreshSupersededError) Unwrap() error { return e.re }
+
+// Format prints Error() for every verb so no formatting path reaches the token.
+func (e *RefreshSupersededError) Format(s fmt.State, _ rune) { _, _ = io.WriteString(s, e.Error()) }
+
+// GoString keeps %#v (and anything using it) from printing the field.
+func (e *RefreshSupersededError) GoString() string { return e.Error() }
+
+// MarshalJSON emits the error's code, message and status only.
+func (e *RefreshSupersededError) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"code": e.re.Code, "message": e.re.Message, "status": e.re.HTTPStatus})
 }
 
 func tokenOutcomeUsable(oc *refreshOutcome, fp, key string) bool {

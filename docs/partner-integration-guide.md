@@ -1270,7 +1270,11 @@ sess, err = realm.Auth.MFAVerifyOTP(ctx, realmid.MFAVerifyOTPRequest{
 > the issuer is NOT covered, so do not mix those with the SDK calls on one session. A `Token` call
 > that loses to a concurrent rotation of the same session never re-presents the spent token: it
 > retries on the winner's rotated token (the result carries the newest `RefreshToken`; if it gives
-> up it returns a 503 whose `Details["refresh_token"]` is that token). Pass the newest refresh
+> up it returns a 503 `*RefreshSupersededError`; read the token with `errors.As` and `RefreshToken()`
+> (it is redacted from the error's text and JSON). A store error while reading a stored outcome is a
+> retryable 503 and never a mint. One residual: if the session store is down right after a successful
+> rotation, the outcome cannot be recorded and a later caller holding the spent token can still reach
+> the issuer; `selfEnrollMfa` needs no lock, since it does not rotate the refresh token). Pass the newest refresh
 > token you hold: a token a refresh just rotated is spent.
 
 ```ts

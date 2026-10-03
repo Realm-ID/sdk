@@ -112,6 +112,41 @@ type MemorySessionStore struct {
 	locks   map[string]memLock
 	results map[string]memResult
 	nextID  int64
+	// nextSweep is when the next amortised sweep of expired locks, outcomes and
+	// revocation entries runs (see sweepLocked).
+	nextSweep time.Time
+}
+
+// memSweepInterval is how often a write sweeps expired entries. Outcomes hold
+// LIVE tokens for a 5 s window, so they must not outlive it by more than this;
+// a goroutine would need a Close and this store has none.
+const memSweepInterval = 30 * time.Second
+
+// sweepLocked drops every expired lock, outcome and revocation entry, at most
+// once per memSweepInterval. Called with m.mu held, from the write paths: an
+// entry nobody reads again (a refresh token used once) is otherwise never
+// evicted, and an outcome carries a live access and refresh token.
+func (m *MemorySessionStore) sweepLocked() {
+	now := m.now()
+	if now.Before(m.nextSweep) {
+		return
+	}
+	m.nextSweep = now.Add(memSweepInterval)
+	for k, l := range m.locks {
+		if !l.until.After(now) {
+			delete(m.locks, k)
+		}
+	}
+	for k, r := range m.results {
+		if !r.until.After(now) {
+			delete(m.results, k)
+		}
+	}
+	for k, e := range m.entries {
+		if !e.until.After(now) {
+			delete(m.entries, k)
+		}
+	}
 }
 
 // NewMemorySessionStore returns an empty in-memory store.
@@ -218,6 +253,7 @@ func (m *MemorySessionStore) Len() int {
 func (m *MemorySessionStore) AcquireRefreshLock(_ ctxpkg.Context, key string, ttl time.Duration) (bool, func(ctxpkg.Context) error, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.sweepLocked()
 	if l, ok := m.locks[key]; ok && l.until.After(m.now()) {
 		return false, func(ctxpkg.Context) error { return nil }, nil
 	}
@@ -237,6 +273,7 @@ func (m *MemorySessionStore) AcquireRefreshLock(_ ctxpkg.Context, key string, tt
 func (m *MemorySessionStore) PutRefreshResult(_ ctxpkg.Context, key string, result []byte, ttl time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.sweepLocked()
 	m.results[key] = memResult{val: append([]byte(nil), result...), until: m.now().Add(ttl)}
 	return nil
 }
