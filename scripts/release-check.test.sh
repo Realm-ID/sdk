@@ -45,19 +45,23 @@ assert_rc() {
   # (correct for standalone use, where that IS the process exit code) rather
   # than `return` — sourcing the script for these tests means a bare `exit`
   # would otherwise kill this whole test runner instead of failing one case.
-  ( "$@" ) >/tmp/release-check-test.out 2>&1 || rc=$?
+  ( "$@" ) >"$WORK/assert.out" 2>&1 || rc=$?
   if [ "$rc" = "$want_rc" ]; then
     PASS=$((PASS + 1))
   else
     echo "FAIL: $desc — want rc=$want_rc got rc=$rc"
-    echo "  output: $(cat /tmp/release-check-test.out)"
+    echo "  output: $(cat "$WORK/assert.out")"
     FAILED=1
   fi
 }
 
 ## ── field readers ─────────────────────────────────────────────────────────────
 
-WORK=$(mktemp -d)
+# Fixtures live under the repo's own .scratch/, never /tmp (pruned, and shared
+# by every process on the box), and ONE trap removes all of them.
+SCRATCH="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.scratch"
+mkdir -p "$SCRATCH"
+WORK=$(mktemp -d "$SCRATCH/release-check-test.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 
 cat > "$WORK/realmid.go" <<'EOF'
@@ -109,7 +113,10 @@ assert_eq "read_java_version reads the declaration" "0.48.0" "$(read_java_versio
 
 ## ── tag existence, against a throwaway git repo ────────────────────────────────
 
-GITWORK=$(mktemp -d)
+# Run from the pre-push hook, this shell inherits GIT_DIR/GIT_INDEX_FILE; a
+# `git init` here would then re-initialise the HOOKED repo. Scrub them first.
+unset $(git rev-parse --local-env-vars)
+GITWORK="$WORK/git"
 git -c init.defaultBranch=main init -q "$GITWORK"
 git -C "$GITWORK" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 git -C "$GITWORK" tag -a "go/v1.0.0" -m "go/v1.0.0"

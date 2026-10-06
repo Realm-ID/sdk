@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-108 entries total — 53 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+111 entries total — 56 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env](#2026-10-06-test-hygiene--release-checktestsh-keeps-its-fixtures-in-scratch-and-scrubs-hook-inherited-git-env)
 - [2026-10-03 (Go v0.64.2, OQ-7) — a direct MFA verify / recovery redeem opts into the refresh lock by taking the refresh token](#2026-10-03-go-v0642-oq-7--a-direct-mfa-verify--recovery-redeem-opts-into-the-refresh-lock-by-taking-the-refresh-token)
 - [2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in](#2026-10-02-go-v0641--the-middleware-recovery-route-is-opt-in)
 - [2026-10-02 (Go v0.64.0) — recovery-code redeem: its own flow value, and a locked middleware route](#2026-10-02-go-v0640--recovery-code-redeem-its-own-flow-value-and-a-locked-middleware-route)
@@ -122,6 +123,24 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env
+
+**Problem.** `scripts/release-check.test.sh` wrote its assertion output to a fixed
+`/tmp/release-check-test.out`. That path is shared by every process on the box and pruned
+by the OS, and two concurrent runs would read each other's output. Its git fixture dir
+(`GITWORK`) came from a second `mktemp -d` that the `EXIT` trap never removed, so every run
+leaked one. And the script runs from the pre-push hook (`make check`), so its `git init`
+inherited the hook's `GIT_DIR`. On 2026-09-27, in AutoMahn, that exact shape re-initialised
+the hooked repo as bare.
+
+**Decision.** All fixtures go under one `mktemp -d "$REPO/.scratch/release-check-test.XXXXXX"`
+that the existing trap removes. The script also runs `unset $(git rev-parse --local-env-vars)`
+before the git fixture. Proven both ways: the suite passes, and a run with a poisoned
+`GIT_DIR` passes and leaves the poisoned dir empty.
+
+**Why now.** Found by the umbrella's repeat-work tooling sweep for host-`/tmp` writers (root
+`DECISIONS.md` 2026-10-06). It was the only committed one.(DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
 ## 2026-10-03 (Go v0.64.2, OQ-7) — a direct MFA verify / recovery redeem opts into the refresh lock by taking the refresh token
 
