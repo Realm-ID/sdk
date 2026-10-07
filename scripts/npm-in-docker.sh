@@ -77,7 +77,8 @@ vol="realmid_sdk_node_$(printf '%s' "$pkg" | tr '/' '_')"
 
 echo "==> $NODE_IMAGE :: npm ci && npm $* (in $pkg, node_modules shadowed by $vol)"
 
-exec docker run --rm -t \
+# --cpus 2: the Docker VM's 4 vCPUs are shared by every project on the laptop.
+exec docker run --rm -t --cpus 2 \
   -v "$pkg_dir":/w \
   -v "$vol":/w/node_modules \
   -w /w \
