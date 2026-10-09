@@ -13,6 +13,18 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.65.0` — ADR-111 credential reset, change at sign-in, password policy (UNRELEASED)
+
+Go only in this entry; Java is out of this release (`TODO.md` "Java has no ADR-111 credential-reset surface"). SPEC §3.1, §4.1.4, §4.1.8, §4.10, §6.3. Issuer spec `0.53.0`.
+
+### Added — go `0.65.0`
+
+- **`PasswordLoginRequest.NewPassword`** (`new_password`, omitted when empty): change at sign-in after `403 password_must_change`. The doc comment that told callers to use `PUT /me/password` first is rewritten.
+- **`AuthClient.InspectPasswordReset` / `ConsumePasswordReset`** (anonymous routes; the SDK sends its platform bearer, which pins the realm). Consume mints no session and is never retried.
+- **`UsersClient.SendPasswordReset`** (`PasswordResetSent`) and **`UsersClient.SetCredentials`** (`SetCredentialsRequest`) on `realm.Tenants.Users`. Both are new methods; no SDK wrapped these routes before.
+- **Ten typed error codes**: `password_unchanged`, `password_change_not_required`, `reset_link_required`, `verified_email_required`, `no_verified_email`, `reset_throttled`, `reset_token_invalid`, `reset_token_expired`, `reset_token_used`, `reset_token_superseded`. `password_must_change` / `password_too_short` / `password_too_long` stay unregistered (they arrive as `Details["server_code"]`).
+- **`IdentityProvidersResponse.PasswordPolicy *PasswordPolicy`** (`password_policy`): nil = the server did not say.
+
 ## go `0.64.2` — direct MFA verify / recovery redeem can take the per-session lock (2026-10-03)
 
 Go only; ts/java parity held with their v0.63 work (`TODO.md`). SPEC §4.3, §4.3a, §10.1 steps 5/5a.

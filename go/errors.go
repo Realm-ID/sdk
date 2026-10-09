@@ -233,6 +233,21 @@ const (
 	ErrCodeOwnerCannotLeave       ErrorCode = "owner_cannot_leave"
 	ErrCodeAlreadyLeft            ErrorCode = "already_left"
 
+	// Password-credential codes (SPEC §3.1; ADR-104 amendment + ADR-111, issuer
+	// spec 0.53.0). password_must_change / password_too_short / password_too_long
+	// are deliberately NOT registered: they predate this and arrive as
+	// Details["server_code"].
+	ErrCodePasswordUnchanged         ErrorCode = "password_unchanged"
+	ErrCodePasswordChangeNotRequired ErrorCode = "password_change_not_required"
+	ErrCodeResetLinkRequired         ErrorCode = "reset_link_required"
+	ErrCodeVerifiedEmailRequired     ErrorCode = "verified_email_required"
+	ErrCodeNoVerifiedEmail           ErrorCode = "no_verified_email"
+	ErrCodeResetThrottled            ErrorCode = "reset_throttled"
+	ErrCodeResetTokenInvalid         ErrorCode = "reset_token_invalid"
+	ErrCodeResetTokenExpired         ErrorCode = "reset_token_expired"
+	ErrCodeResetTokenUsed            ErrorCode = "reset_token_used"
+	ErrCodeResetTokenSuperseded      ErrorCode = "reset_token_superseded"
+
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
 	ErrCodeForbidden    ErrorCode = "forbidden"
@@ -403,6 +418,12 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeInvalidScope: {}, ErrCodeTooManyScopes: {}, ErrCodeScopeTooLong: {},
 	ErrCodeScopeNotSupported: {}, ErrCodeReservedClaimKey: {},
 	ErrCodeRealmIDAudienceImmutable: {}, ErrCodeInvalidRename: {},
+	// SPEC §3.1 password-credential codes.
+	ErrCodePasswordUnchanged: {}, ErrCodePasswordChangeNotRequired: {},
+	ErrCodeResetLinkRequired: {}, ErrCodeVerifiedEmailRequired: {},
+	ErrCodeNoVerifiedEmail: {}, ErrCodeResetThrottled: {},
+	ErrCodeResetTokenInvalid: {}, ErrCodeResetTokenExpired: {},
+	ErrCodeResetTokenUsed: {}, ErrCodeResetTokenSuperseded: {},
 }
 
 func isKnownCode(s string) bool {

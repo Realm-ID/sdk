@@ -97,6 +97,11 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeInvalidScope, ErrCodeTooManyScopes, ErrCodeScopeTooLong,
 		ErrCodeScopeNotSupported, ErrCodeReservedClaimKey,
 		ErrCodeRealmIDAudienceImmutable, ErrCodeInvalidRename,
+		// ADR-104 amendment + ADR-111 (SPEC §3.1 password-credential codes).
+		ErrCodePasswordUnchanged, ErrCodePasswordChangeNotRequired,
+		ErrCodeResetLinkRequired, ErrCodeVerifiedEmailRequired, ErrCodeNoVerifiedEmail,
+		ErrCodeResetThrottled, ErrCodeResetTokenInvalid, ErrCodeResetTokenExpired,
+		ErrCodeResetTokenUsed, ErrCodeResetTokenSuperseded,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

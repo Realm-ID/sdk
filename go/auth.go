@@ -941,7 +941,11 @@ type PasswordLoginRequest struct {
 	// identity. The three grammars are disjoint by construction.
 	Identifier string
 	Presented  string
-	Origin     string
+	// NewPassword changes the password at sign-in (SPEC §4.1.8): set it only
+	// after a `403 password_must_change`, with Presented = the current
+	// password. Sent as `new_password`; empty is omitted from the wire.
+	NewPassword string
+	Origin      string
 	// TenantID is OPTIONAL for an email or phone and LOAD-BEARING for a
 	// USERNAME.
 	//
@@ -970,9 +974,15 @@ type PasswordLoginRequest struct {
 //
 // ⚠️ `403 password_must_change` is DIFFERENT and is not collapsed: the password
 // was CORRECT, but an administrator set it, so it is an assertion rather than a
-// proof and the holder must replace it through `PUT /me/password` first. Saying
-// "invalid credentials" there would send them to a reset flow that does not
-// exist.
+// proof. The holder replaces it IN THE SAME CALL that signs them in: resend the
+// identical request with NewPassword added (Presented is then the CURRENT,
+// temporary password). Send NewPassword only after that 403; the SDK does not
+// pre-validate its length (the issuer owns the rule: password_too_short /
+// password_too_long arrive as Details["server_code"], password_unchanged and
+// password_change_not_required are typed). Success is an ordinary login and
+// revokes every other session of the membership. A 5xx may leave the NEW
+// password in force: retry with Presented = the new password and NO NewPassword.
+// The SDK never retries this call.
 //
 // A `kind=service` account cannot hold a password: its lanes are `api_key` and
 // `otp`/`view_bff` (ADR-071), and a service account with a human-chosen secret
@@ -1004,6 +1014,9 @@ func (a *AuthClient) PasswordLogin(ctx ctxpkg.Context, req PasswordLoginRequest)
 		"grant_type": grantPassword,
 		"identifier": req.Identifier,
 		"presented":  req.Presented,
+	}
+	if req.NewPassword != "" {
+		body["new_password"] = req.NewPassword
 	}
 	if req.TenantID != "" {
 		body["tenant_id"] = req.TenantID

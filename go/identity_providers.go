@@ -44,6 +44,21 @@ type IdentityProvidersResponse struct {
 	// issuer omits the field, and reading absence as an empty list tells a
 	// login screen credential login is off when it is not.
 	CredentialMethods []string `json:"credential_methods,omitempty"`
+
+	// PasswordPolicy is the promise a login screen shows (ADR-111 P9; SPEC
+	// §4.1.4). Present exactly when CredentialMethods contains "password". A
+	// POINTER: nil means the server did not say, never "false". Like
+	// CredentialMethods it must live here so a BFF re-serialising this struct
+	// does not delete it.
+	PasswordPolicy *PasswordPolicy `json:"password_policy,omitempty"`
+}
+
+// PasswordPolicy is the discovery view of a realm's password promise.
+// RequireVerifiedEmail true: the password is set by its holder through a link
+// sent to their verified email. False: an administrator may set a first
+// password, which the holder must change at first sign-in.
+type PasswordPolicy struct {
+	RequireVerifiedEmail bool `json:"require_verified_email"`
 }
 
 // IdentityProvidersOptions tunes the IdentityProviders call.

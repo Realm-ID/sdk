@@ -39,7 +39,20 @@ import sys
 
 # Reviewed exceptions. An entry here is a DECISION with a reason, not a
 # silenced failure — the gate prints it every run so it cannot rot unnoticed.
+_ADR111_WHY = (
+    "ADR-111 / ADR-104 amendment password-credential code (SPEC §3.1): go "
+    "0.65.0 (+ ts if it ships in this release); Java is out of this release "
+    "- see sdk/TODO.md \"Java has no ADR-111 credential-reset surface\". "
+    "Delete this entry in the Java parity change."
+)
+
 EXCEPTIONS = {
+    **{c: _ADR111_WHY for c in (
+        "password_unchanged", "password_change_not_required",
+        "reset_link_required", "verified_email_required", "no_verified_email",
+        "reset_throttled", "reset_token_invalid", "reset_token_expired",
+        "reset_token_used", "reset_token_superseded",
+    )},
     "invalid_config": (
         "ts-only by design (SPEC §6.7.5): raised while the config is being "
         "built (createRealm without sessionStore), never sent on the wire. "
