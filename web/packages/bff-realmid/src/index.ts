@@ -110,6 +110,8 @@ interface RealmidProvidersBody {
   tenant_id?: string | null;
   /** ADR-103/104 — the non-IdP login methods, absent on an older issuer. */
   credential_methods?: string[];
+  /** ADR-111 — the realm's password promise; absent on an older issuer. */
+  password_policy?: { require_verified_email?: unknown };
 }
 
 function mapTenant(t: RealmidLoginTenant): TenantRef {
@@ -211,6 +213,10 @@ const adaptProviders: NonNullable<ResponseAdapters["providers"]> = (raw, _ctx): 
     ...(Array.isArray(body.credential_methods)
       ? { credentialMethods: body.credential_methods as string[] }
       : {}),
+    // ADR-111 — only when the server stated a boolean; absent = "did not say".
+    ...(typeof body.password_policy?.require_verified_email === "boolean"
+      ? { passwordPolicy: { requireVerifiedEmail: body.password_policy.require_verified_email } }
+      : {}),
     allowedSignupDomains: body.allowed_signup_domains,
     // Origin-bound discovery states the tenant it resolved to, or nothing at a
     // realm-root origin. Dropping it forced every console to re-fetch the same
@@ -261,6 +267,9 @@ export const realmidBffRequestAdapters: RequestAdapters = {
     // why no layer here may reshape the handle.
     if (canonical.identifier) body.identifier = canonical.identifier;
     if (canonical.presented) body.presented = canonical.presented;
+    // ADR-111 §4.1.8 — change-at-sign-in. This body is built field by field, so
+    // an unlisted key is silently dropped and the must-change step would loop.
+    if (canonical.newPassword) body.new_password = canonical.newPassword;
     return body;
   },
   // /token is bearer-only on the reference BFF; send no body.

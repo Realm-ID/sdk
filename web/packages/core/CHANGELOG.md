@@ -14,6 +14,26 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.10.0 — password reset links + change-at-sign-in (ADR-111) (2026-10-09)
+
+Pairs with SPEC §4.1.4, §4.1.8, §4.10, §3.1. Additive. Needs `@realm-id/web-bff-realmid` 0.7.0 to emit
+`new_password` and map `password_policy`.
+
+- **`LoginRequest.newPassword`** — send it after a `403 password_must_change`,
+  with `presented` = the current (administrator-set) password.
+- **`ProvidersResponse.passwordPolicy?: { requireVerifiedEmail: boolean }`** —
+  discovery's password promise. Absent = the server did not say.
+- **`createPasswordReset({ baseUrl })`** → `inspectPasswordReset(token)` →
+  `{ expiresAt }` and `consumePasswordReset(token, newPassword)` → `void`, against
+  the BFF's anonymous `POST /auth/password/reset/inspect` and `/auth/password/reset`
+  (token in the body, no cookies, `no-referrer`, never retried). `passwordResetCode(err)`
+  and `PASSWORD_RESET_CODES` name `reset_token_invalid` / `_expired` / `_used` /
+  `_superseded` and `password_too_short` / `_too_long` / `_unchanged`. A test reads
+  SPEC.md so the list cannot drift from §3.1.
+- **`password_must_change` is NOT registered in `ErrorCode`** (SPEC §3.1 note): the
+  403 keeps `code: "forbidden"` and callers branch on the server code
+  (`details.server_code` per SPEC §3.3; in this package it is on `RealmError.body`).
+
 ## 0.9.0 — cross-tab refresh, `logout({ all })`, 503 retry (2026-10-02)
 
 **Additive; no breaking change.** Released alongside Go `v0.63.0`.

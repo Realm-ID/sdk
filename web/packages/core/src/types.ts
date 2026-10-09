@@ -29,6 +29,14 @@ export interface LoginRequest {
   identifier?: string;
   /** The password (ADR-104) or the OTP value (ADR-103). */
   presented?: string;
+  /**
+   * ADR-111 (SPEC §4.1.8) — the replacement password, sent ONLY after a login
+   * answered `403 password_must_change`; `presented` is then the CURRENT
+   * (administrator-set) password. Wire: `new_password`. Not pre-validated here:
+   * the issuer answers `password_too_short` / `password_too_long` /
+   * `password_unchanged`.
+   */
+  newPassword?: string;
   /** Optional tenant pin — server may use to scope discovery / signup. */
   tenantId?: string;
   /** Pass-through for partner-specific fields (e.g. realmId, captchaToken). */
@@ -109,6 +117,12 @@ export interface IdentityProvider {
 
 export interface ProvidersResponse {
   providers: IdentityProvider[];
+  /**
+   * ADR-111 (SPEC §4.1.4) — the realm's password promise, from discovery's
+   * `password_policy`. ABSENT means "the server did not say": show no line,
+   * never default to either copy.
+   */
+  passwordPolicy?: { requireVerifiedEmail: boolean };
   /**
    * The tenant the BFF resolved this discovery call to, when it resolved one.
    * Origin-bound and anonymous: a login page needs it to carry the tenant into

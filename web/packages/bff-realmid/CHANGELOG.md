@@ -16,6 +16,19 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.7.0 — `newPassword` on login, `password_policy` on discovery (2026-10-09)
+
+ADR-111 (SPEC §4.1.4, §4.1.8). Additive.
+
+- The login request adapter forwards `LoginRequest.newPassword` as `new_password`.
+  It builds the body field by field, so before this the key was silently dropped
+  and the change-at-sign-in step looped on `403 password_must_change`.
+- The providers adapter maps `password_policy.require_verified_email` to
+  `ProvidersResponse.passwordPolicy.requireVerifiedEmail`, only when it is a
+  boolean (absent stays absent).
+- Peer range now accepts `@realm-id/web` `^0.9.0 || ^0.10.0`. Use core 0.10.0 for
+  the `newPassword` / `passwordPolicy` types.
+
 ## 0.6.1 — accept `@realm-id/web` 0.8.x as a peer (2026-09-18)
 
 No source change. `@realm-id/web` 0.8.0 ships the `completeSignIn` OIDC-error

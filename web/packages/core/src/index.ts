@@ -95,6 +95,15 @@ export type {
   TenantChoiceResult,
 } from "./memberships.js";
 
+/** Password-reset page calls (ADR-111, SPEC §4.10) + their error CODE taxonomy. */
+export { createPasswordReset, PASSWORD_RESET_CODES, passwordResetCode } from "./password-reset.js";
+export type {
+  PasswordReset,
+  PasswordResetCode,
+  PasswordResetInspection,
+  PasswordResetOptions,
+} from "./password-reset.js";
+
 /** The pre-session revocation-token flow behind the session-limit 412 gate. */
 export { createRevocationSessions } from "./revocation-sessions.js";
 export type {

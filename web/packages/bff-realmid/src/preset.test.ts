@@ -384,3 +384,67 @@ test("realmid preset: providers adapter maps wire `type` → `provider`", async 
   assert.equal(out.providers[0]?.clientId, "5076b28d");
   realm.close();
 });
+
+// ADR-111 (SPEC §4.1.8): the login request adapter builds the body field by
+// field, so an unlisted key is silently dropped. Without new_password the
+// must-change step re-sends the temporary password alone and loops forever.
+test("realmid preset: login forwards newPassword as new_password", async () => {
+  const { fetch, calls } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    if (call.url.endsWith("/login")) return { status: 403, body: { code: "password_must_change" } };
+    return { status: 404 };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  // The error CODE is core's concern (core/src/password.test.ts): this package's
+  // dev install resolves a registry core, not the workspace one, so only the
+  // adapter's own output is asserted here.
+  await assert.rejects(
+    realm.login({ method: "password", identifier: "a@b.c", presented: "tmp", newPassword: "a-much-longer-one" }),
+    (e: unknown) => e instanceof RealmError && e.status === 403,
+  );
+  const body = calls.find((c) => c.url.endsWith("/login"))!.body as Record<string, unknown>;
+  assert.equal(body.new_password, "a-much-longer-one");
+  assert.equal(body.newPassword, undefined, "no camelCase leakage");
+  realm.close();
+});
+
+test("realmid preset: login without newPassword sends no new_password key", async () => {
+  const { fetch, calls } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    return { status: 403, body: {} };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  await realm.login({ method: "password", identifier: "a", presented: "p" }).catch(() => {});
+  const body = calls.find((c) => c.url.endsWith("/login"))!.body as Record<string, unknown>;
+  assert.ok(!("new_password" in body));
+  realm.close();
+});
+
+test("realmid preset: providers maps password_policy.require_verified_email", async () => {
+  for (const flag of [true, false]) {
+    const { fetch } = mockFetch((call) => {
+      if (call.url.includes("/identity-providers")) {
+        return { status: 200, body: { providers: [], password_policy: { require_verified_email: flag } } };
+      }
+      return { status: 401 };
+    });
+    const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+    await realm.ready();
+    const out = await realm.providers({ clientType: "web" });
+    assert.deepEqual(out.passwordPolicy, { requireVerifiedEmail: flag });
+    realm.close();
+  }
+});
+
+test("realmid preset: providers without password_policy leaves passwordPolicy absent", async () => {
+  const { fetch } = mockFetch((call) =>
+    call.url.includes("/identity-providers") ? { status: 200, body: { providers: [] } } : { status: 401 },
+  );
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  const out = await realm.providers({ clientType: "web" });
+  assert.ok(!("passwordPolicy" in out), "absent means the server did not say");
+  realm.close();
+});
