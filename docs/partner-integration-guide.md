@@ -387,7 +387,9 @@ which would make an identity depend on which store answered first.
   `invalid_credentials`, because the password was correct and saying otherwise
   sends the holder to a reset flow that does not exist. There is no
   "forgot my password" flow; an admin set is the v1 recovery path, stated as the
-  real product gap it is.
+  real product gap it is. **This changes with issuer spec `0.53.0`** — an admin
+  sends a reset link to a member with a verified email instead, and a handed-over
+  password is replaced in the sign-in call itself. See the next section.
 - **`delivery_mode: "sms"`** on `POST /auth/otp/issue` texts the code to the
   subject's phone, and `purpose=login` now accepts it for a principal of ANY
   kind. There is no fallback between modes: a subject with no phone is
@@ -411,6 +413,191 @@ re-serialises it, use go `0.53.1` / ts `0.46.1` / java `0.43.1` or later. The
 `.0` releases had no field for `credential_methods` and therefore DELETED it in
 transit, silently — credential sign-in was unreachable from any BFF-fronted
 console.
+
+### Password reset links and change at sign-in (ADR-111, ADR-104 amendment — issuer spec `0.53.0`, NOT YET RELEASED)
+
+> **Status, 2026-10-09: specified, not shipped.** Targets issuer `v0.134.0` (spec `0.53.0`),
+> go SDK `v0.65.0`, ts `0.55.0`, `@realm-id/web-admin` `0.22.0`. **No Java SDK support in that
+> release** — Java callers use the HTTP routes below. Until the issuer release is live, the
+> previous section describes production. SDK contract: [`SPEC.md`](../SPEC.md) §3.1, §4.1.4,
+> §4.1.8, §4.10, §6.3.
+
+**The rule, in one line:** an administrator never chooses the password of a member who has a
+verified email — they send that member a single-use link, and the member chooses it. Only a
+member with NO verified email can be handed a temporary password, and they must replace it the
+first time they sign in. "Verified email" means an active email contact with `verified_at` set
+(bulk import and `POST /platforms` set it; an admin invitation does not). Phones do not count
+until SMS delivery ships.
+
+| How a password comes to exist | Who types it | Allowed when |
+|---|---|---|
+| The member's own change, `PUT /me/password` | the member, signed in | always (unless the knob below is on and they have no verified email) |
+| **Reset link** (new) | the member, from the mail | the member has a verified email |
+| **Admin hand-over**, `PUT …/credentials` | the admin, then the member at first sign-in | the member has NO verified email, and the knob is off |
+
+#### 1. If your backend calls `PUT /tenants/{tid}/users/{uid}/credentials` — this is the breaking part
+
+A body with a `password`, for a member who has a verified email, now answers
+**`409 reset_link_required`** where it answered `200`, and writes NOTHING — a `username` in the
+same body is not written either. The fix is to send a link instead:
+
+```http
+POST /tenants/{tid}/users/{uid}/password-reset          (no body; needs users:manage)
+→ 202 {"status":"sent","to":"a***@example.com","expires_at":"2026-10-09T10:30:00Z"}
+```
+
+Go: `realm.Tenants.Users.SendPasswordReset(ctx, tid, uid)`. ts:
+`realm.tenants.users.sendPasswordReset(tid, uid)`. Sending changes no credential and signs the
+member out of nothing, so it cannot lock anyone out; their current password keeps working until
+they use the link. The address is chosen by RealmID (the member's first verified email) — no
+field names one — and `to` is masked. Errors: `409 no_verified_email` (hand over a temporary
+password instead), `429 reset_throttled` (more than 5 links for this member in an hour),
+`404 user_not_found` (also for a member of another tenant), `400 unknown_method` (password login
+off for the realm).
+
+If you still want to set a USERNAME for such a member, send it alone, with no `password`.
+
+`PUT …/credentials` also gains `409 verified_email_required` — see §3 below. The SDKs wrap this
+route for the first time as `Tenants.Users.SetCredentials` / `tenants.users.setCredentials`; a
+console offering "Set temporary password" must handle `reset_link_required` by offering the link
+instead (the member can become verified between your read and your write).
+
+#### 2. The reset page you serve, if your realm has its own domain
+
+The mail links to:
+
+```
+https://<realm domain>/reset-password#token=<43 characters>
+```
+
+`<realm domain>` is your realm's own domain when it has one; otherwise a RealmID host
+(`https://<slug>.realmid.dev`, else `https://app.realmid.dev`). **On your own domain, only you can
+serve that page.** If you have not built it, members get a link to a 404 — tell us before you
+send your first link and we will discuss pointing your realm's links elsewhere (a configurable
+link address is a candidate follow-up, not built).
+
+**The token is in the FRAGMENT (`#token=`), not the query (`?token=`), on purpose.** A browser
+never sends the part after `#` to any server, so the token reaches no access log, no CDN log and
+no `Referer` header. Keep it that way. The page MUST:
+
+1. **Read the token from `location.hash`**, not from the query string.
+2. **Remove it from the address bar at once** with `history.replaceState`, before any other
+   request, so it is not left in history, a bookmark or a screenshot.
+3. **Serve the page with `Referrer-Policy: no-referrer`** (a response header; add the
+   `<meta name="referrer" content="no-referrer">` tag too if your host cannot set headers).
+4. **Send the token only in a POST body** — to your backend, which calls RealmID. Never put it
+   in a URL, and never log the request body of those two endpoints.
+5. Load no third-party script (analytics, chat, tag managers) on this page: anything running
+   there can read `location.hash` before step 2 runs. *(Our recommendation, not an issuer rule.)*
+
+```js
+// reset-password page, on load
+async function onLoad() {
+  const token = new URLSearchParams(location.hash.slice(1)).get("token");
+  history.replaceState(null, "", location.pathname);        // token leaves the URL bar
+  if (!token) return showState("invalid");
+  const r = await fetch("/your-backend/password-reset/inspect", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  // 200 → show the form (keep `token` in memory for the submit);
+  // otherwise map the error code (table below)
+}
+```
+
+Your backend then makes two calls (anonymous at the issuer — the token is the credential; the
+SDK sends its platform bearer, which must belong to the token's realm or the answer is
+`reset_token_invalid`):
+
+```go
+// 1. on page load — writes nothing
+insp, err := realm.Auth.InspectPasswordReset(ctx, token)      // insp.ExpiresAt
+// 2. on submit
+err = realm.Auth.ConsumePasswordReset(ctx, token, newPassword) // nil = password set
+```
+
+```http
+POST /auth/password/reset/inspect   {"token":"…"}                        → 200 {"expires_at":"…"}
+POST /auth/password/reset           {"token":"…","new_password":"…"}     → 200 {"status":"password_set"}
+```
+
+What the page shows:
+
+| Answer | Code | Tell the member |
+|---|---|---|
+| inspect `200` | — | the form: new password + confirm (12 to 1024 characters, no other rules) |
+| `400` | `reset_token_invalid` (or no token in the hash) | the link isn't valid; ask your administrator for a new one |
+| `410` | `reset_token_expired` | links work for 30 minutes; ask for a new one |
+| `410` | `reset_token_used` | already used; if that wasn't you, contact your administrator |
+| `410` | `reset_token_superseded` | a newer link was sent, or the password changed; use the newest mail |
+| consume `400` | `password_too_short` / `password_too_long` | inline on the field; the link is still good |
+| consume `200` | — | password set, and they have been signed out everywhere; send them to sign in |
+| `5xx` / network | — | nothing changed; try again |
+
+Three things to get right:
+
+- **A consume mints no session.** Send the member to your normal sign-in afterwards. Do not
+  sign them in behind the scenes — every MFA and eligibility gate lives on the login path.
+- **Do not auto-retry a consume.** If the response was lost, a replay answers
+  `reset_token_used` even though the password WAS set. If you get `reset_token_used` straight
+  after your own submit, say "your password may already be set — try signing in".
+- **A successful consume signs the member out of every session**, everywhere, and RealmID mails
+  them a "your password changed" notice (no link).
+
+If your realm has no domain of its own, the link points at a RealmID host and RealmID's console
+is the page. Confirm with us before relying on that for a `<slug>.realmid.dev` realm.
+
+#### 3. The realm knob, and the promise your login screen shows
+
+New realm setting `password_policy.require_verified_email` (default **off**; PATCH merges into
+the `password_policy` object, and an unknown sub-key is a `400`). When **on**: no admin can ever
+hand over a password (`409 verified_email_required` on a member with no verified email,
+`reset_link_required` on one with); a member with no verified email cannot be given a username
+either, and cannot set a password themselves. Credentials that already exist keep working.
+
+Login discovery reports it, so your sign-in screen can state which promise applies:
+
+```json
+{"providers":[…], "credential_methods":["password"], "password_policy":{"require_verified_email":true}}
+```
+
+- `true` → "Your password is set by you, through a link sent to your verified email.
+  Administrators never see it."
+- `false` → "An administrator may set your first password. If they do, you must change it the
+  first time you sign in."
+- **absent → show nothing.** It appears exactly when `credential_methods` contains `password`;
+  absent means "the server did not say", never `false`.
+
+⚠️ If your BFF decodes discovery into the Go SDK struct and re-serialises it, use go `v0.65.0`
+or later: an older struct has no field for `password_policy` and DELETES it in transit, exactly
+as go `0.53.0` did to `credential_methods`.
+
+#### 4. Change at sign-in — your login screen's second step
+
+A handed-over password signs in with **`403 password_must_change`** (the password was correct;
+it was set by someone else). Ask for a new password and resend the SAME login with
+`new_password` added — one call replaces the password and signs in:
+
+```go
+sess, err := realm.Auth.PasswordLogin(ctx, realmid.PasswordLoginRequest{
+    Identifier: id, Presented: temporaryPassword, NewPassword: chosen,
+})
+```
+
+| Answer | Meaning |
+|---|---|
+| `200` | an ordinary login; MFA may still follow (`412`), exactly as without the field |
+| `400 password_unchanged` | the new password equals the temporary one |
+| `400 password_too_short` / `password_too_long` | 12..1024 bytes |
+| `400 password_change_not_required` | this password was not handed over — nothing changed; use `PUT /me/password` |
+| `401 invalid_credentials` | the temporary password is wrong; start again |
+| `429 login_throttled` | too many attempts; wait |
+| `5xx` | the NEW password may already be in force: retry with `presented = <new>` and no `new_password` |
+
+Success signs the member out of every other session. In the SDKs, `password_must_change`,
+`password_too_short` and `password_too_long` still arrive as `details.server_code` (code
+`forbidden` / `bad_request`); the codes new in this release arrive as `error.code`
+(SPEC §3.1).
 
 ### Attaching partner-owned DATA (not authority)
 

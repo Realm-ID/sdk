@@ -1,7 +1,26 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-10-02 — go `go/v0.63.0` · web `web-v0.9.0` (released); ts and
-java v0.63 HELD (unreleased, ts `ts-v0.54.0` · java `java-v0.50.0` are the latest tags)** (see §12 for the tag matrix).
+**Current as of 2026-10-09 — go `go/v0.64.2` · web `web-v0.9.0` (released); ts and
+java v0.63 HELD (unreleased, ts `ts-v0.54.0` · java `java-v0.50.0` are the latest tags)** (see §13 for the tag matrix).
+Tags read off `git tag` on 2026-10-09; this line said `go/v0.63.0` and "§12" until then.
+
+> ⚠️ **UNRELEASED, 2026-10-09 — password reset links and change at sign-in (issuer ADR-111 +
+> ADR-104 § Amendment 2026-10-09, issuer spec `0.53.0`).** Specified here AHEAD of code. Targets:
+> go `0.65.0`, ts `0.55.0` (its PUBLISH waits on an owner ruling, because sdk `main`
+> also carries the held ts v0.63 work), `@realm-id/web-admin` `0.22.0`. **Java parity is NOT in
+> this release** — every section below says so where it applies. None of these tags exists yet;
+> this note is deleted in the commit that releases them, and the version cells move to §13.
+>
+> | § | Surface | Visible to an existing partner? |
+> |---|---|---|
+> | **§3.1** | Ten new codes: `password_unchanged`, `password_change_not_required`, `reset_link_required`, `no_verified_email`, `verified_email_required`, `reset_throttled`, `reset_token_invalid`, `reset_token_expired`, `reset_token_used`, `reset_token_superseded`. | No — the issuer emits none of them before `0.53.0`. |
+> | **§4.1.4** | Discovery gains `password_policy` (absent ≠ `false`). | No — additive. ⚠️ A BFF re-serialising discovery through an older SDK struct DELETES it. |
+> | **§4.1.8** | `passwordLogin` gains `newPassword` — change at sign-in after `403 password_must_change`. | No — additive. |
+> | **§4.10** | `auth.inspectPasswordReset` / `auth.consumePasswordReset` — the reset page's two calls. | No — new. |
+> | **§6.3** | `tenants.users.sendPasswordReset` and `tenants.users.setCredentials` (new: NO SDK wrapped `PUT …/credentials` before this). | **Yes, at the ISSUER, not the SDK**: `PUT …/credentials` with a `password` on a member with a verified email answers `409 reset_link_required` where it answered `200` (ADR-111 P1). |
+>
+> **Cite as** `SPEC3_1_password`, `SPEC4_1_4_policy`, `SPEC4_1_8`, `SPEC4_10`, `SPEC6_3_reset`,
+> `SPEC6_3_credentials` in test names, so a parity sweep can find each across languages.
 
 > ⚠️ **PARTLY RELEASED, 2026-10-02 — go `0.63.0` and `@realm-id/web` `0.9.0` are RELEASED; ts and java v0.63 are HELD (UNRELEASED; held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`; see `TODO.md`).** The ts and java columns of the table below stay UNRELEASED. The v0.63.0 behaviours were specified
 > here ahead of code (owner rulings Q1-Q4 and the same-day v0.63.0 widening,
@@ -307,6 +326,50 @@ SDK failure. It carries:
 > It never distinguishes "not yours" from "never existed" — the issuer answers
 > both identically on purpose (issuer `v0.78.0` oracle rule). That is a
 > security property and no taxonomy change may erode it.
+
+**Password-credential codes** (issuer spec `0.53.0`: ADR-104 § Amendment 2026-10-09 and
+ADR-111; go `0.65.0` · ts `0.55.0` · web-admin `0.22.0`, UNRELEASED; **not in Java this
+release**):
+
+| Code | HTTP | Raised by | Meaning / remedy |
+|---|---|---|---|
+| `password_unchanged` | 400 | `passwordLogin` with `newPassword` (§4.1.8) | `newPassword` equals `presented`. Ask for a different one. |
+| `password_change_not_required` | 400 | `passwordLogin` with `newPassword` | The credential is not must-change. Nothing changed and no session was created; change a self-chosen password with `PUT /me/password`. Decided only after `presented` verifies. |
+| `reset_link_required` | 409 | `tenants.users.setCredentials` (§6.3) | The body carried a `password` and the member has a verified email. Nothing was written, the `username` included. Call `tenants.users.sendPasswordReset` instead. |
+| `verified_email_required` | 409 | `tenants.users.setCredentials`; the issuer's `PUT /me/password` | The realm's `password_policy.require_verified_email` is on and the member has no verified email, so they may be given neither a password nor a username. |
+| `no_verified_email` | 409 | `tenants.users.sendPasswordReset` | Nothing to send a link to. Hand over a temporary password with `setCredentials` instead, unless the realm's knob is on. |
+| `reset_throttled` | 429 | `tenants.users.sendPasswordReset` | More than 5 links for this member in the last hour (counted per member, never per address). |
+| `reset_token_invalid` | 400 | `auth.inspectPasswordReset` / `auth.consumePasswordReset` (§4.10) | Unknown or malformed token, the address it went to is no longer active and verified on that membership, or the platform bearer belongs to another realm. |
+| `reset_token_expired` | 410 | same | Older than 30 minutes. Ask the administrator for a new link. |
+| `reset_token_used` | 410 | same | Already consumed (including by a concurrent submission that won the compare-and-swap). |
+| `reset_token_superseded` | 410 | same | A newer link was sent, or the password changed some other way. Use the newest mail. |
+
+> **Registered as KNOWN codes in go, ts and web-admin**, so each reaches
+> `error.code` instead of collapsing to `bad_request` / `conflict` / `rate_limited` / the
+> generic 410 mapping: every one has its own remedy and the status alone cannot tell them
+> apart (three different 409s; three different 410s). All ten are new to the wire in issuer
+> spec `0.53.0`, so registering them breaks no existing `details.server_code` branch.
+>
+> **A 410 is new to the taxonomy's status mapping.** An SDK with no 410 entry falls back to
+> its generic status-derived code; that fallback is never what a caller sees for these three,
+> because the code is registered.
+>
+> **Java is out of this release, and `scripts/taxonomy-parity.py` will say so.** The gate
+> requires set-equal taxonomies across ts, go and java. Each of the ten codes therefore needs a
+> reviewed `EXCEPTIONS` entry ("go + ts only until Java parity, ADR-111; see `TODO.md`
+> § Cross-language parity gaps") in the same commit that registers it, and the entries are
+> deleted by the Java parity change. An exception added without the TODO item is a silenced
+> failure, not a decision.
+>
+> **Deliberately NOT registered in this release: `password_must_change` (403),
+> `password_too_short` and `password_too_long` (400).** They predate it (ADR-104) and today
+> reach callers as `details.server_code` (§3.3) with `code` = `forbidden` / `bad_request`.
+> Registering them would MOVE them off `details.server_code`, because a registered code is never
+> duplicated there — a silent break for any caller already branching on `server_code`. Branch
+> on both, as `@realm-id/web-admin`'s `isContactAdminRequired` does for its code. Whether to
+> register them (with a changelog **Breaking** line) is an open question for a later release.
+> `invalid_credentials` (401) and `login_throttled` (429) likewise stay `unauthorized` /
+> `rate_limited` with the server code preserved.
 
 **Management / generic codes:**
 
@@ -739,6 +802,9 @@ work. A hand-mirrored surface with a hole in it is how that hole survived.
   password. The SDK does not guess a tenant and does not fall back to
   `tenants[0]`.
   `kind=service` accounts may not hold a password.
+  An ADMIN-set password answers `403 password_must_change` (code `forbidden`,
+  `details.server_code` = `password_must_change`, §3.1); the remedy is the
+  `newPassword` resend in §4.1.8, not a reset flow.
 - **Phone OTP login** (ADR-103) — `otp.issue` accepts
   `deliveryMode: "sms"`, and `purpose: "login"` now accepts it for principals of
   ANY kind, not only `kind=service`. `view_bff` on a login OTP is still
@@ -758,13 +824,43 @@ happened to RealmID's own console, whose `password` label and keyboard shortcut
 predated any button that could render.
 
 **Advertised only when COMPLETABLE.** `password` appears only when the
-deployment has a credential store wired; `otp` only when the realm's
-`otp_login_enabled` is set. Offering a method the deployment cannot finish is
-the "coming soon" failure — a user picks it and nothing happens.
+deployment has a credential store wired AND the realm's `password_login_enabled`
+is set (issuer `v0.131.0`; before it, the knob was not consulted and a realm
+with it off advertised a button that answered `400 unknown_method`); `otp` only
+when the realm's `otp_login_enabled` is set. Offering a method the deployment
+cannot finish is the "coming soon" failure — a user picks it and nothing happens.
 
 **ABSENT means "the server did not say", never "none".** An older issuer omits
 the field; do not read absence as "credential login is off" and hide a working
 method.
+
+**`passwordPolicy` — the promise a login screen shows (ADR-111 P9; go `0.65.0` ·
+ts `0.55.0`, UNRELEASED; not in Java this release).** Discovery gains
+`password_policy: { require_verified_email: boolean }`, present EXACTLY when
+`credential_methods` contains `password`.
+
+| Language | Field |
+|---|---|
+| Go | `IdentityProvidersResponse.PasswordPolicy *PasswordPolicy` with `json:"password_policy,omitempty"`; `PasswordPolicy{ RequireVerifiedEmail bool \`json:"require_verified_email"\` }`. A POINTER: `nil` = absent, never `false`. |
+| ts (`@realm-id/sdk`) | `password_policy?: { require_verified_email: boolean }` — the ts discovery type keeps the wire's snake_case, as its `credential_methods` does. |
+| `@realm-id/web` | `passwordPolicy?: { requireVerifiedEmail: boolean }`, camelCase like its `credentialMethods` — IF this release adds it (not yet decided: it is needed only where a login screen reads discovery through `@realm-id/web`). |
+
+- `require_verified_email: true` → "Your password is set by you, through a link
+  sent to your verified email. Administrators never see it."
+- `false` → "An administrator may set your first password. If they do, you must
+  change it the first time you sign in."
+- **ABSENT → show no promise.** Absent means "the server did not say" (an issuer
+  older than spec `0.53.0`, or `password` not advertised); it is never `false`.
+  A screen that reads absence as `false` makes the weaker promise on the
+  server's behalf.
+
+⚠️ **Same trap as `credential_methods` in go `0.53.0`:** a BFF that decodes
+discovery into the Go struct and re-serialises it to the browser DELETES any field
+the struct lacks, silently. The reference BFF does exactly that, so the field must
+exist on the Go type even though no Go code reads it, and a round-trip test
+(decode → encode → field still present, and still absent when absent) is the
+proof. A pointer is required for the second half: a plain `bool` would encode
+`false` for an absent policy and invent a promise.
 
 #### 4.1.5 `login` is not the only lane that mints
 
@@ -861,6 +957,43 @@ Rules:
    credential re-presents into.
 
 Design and the full reasoning: `docs/design/pre-mint-hook.md`.
+
+#### 4.1.8 Change at sign-in — `newPassword` (ADR-104 § Amendment R14-R21; go `0.65.0` · ts `0.55.0`, UNRELEASED; not in Java this release)
+
+A password an administrator handed over is an assertion, not a proof, so the
+login that presents it answers `403 password_must_change` (the password was
+CORRECT). The holder replaces it IN THE SAME CALL that signs them in: resend the
+identical request with `newPassword` added.
+
+| Language | Field | Wire |
+|---|---|---|
+| Go | `PasswordLoginRequest.NewPassword string` | `new_password`, omitted when empty |
+| ts | `passwordLogin({ identifier, presented, tenantId?, newPassword? })` | same |
+
+- **Send it only after `password_must_change`.** `presented` is then the CURRENT
+  (temporary) password. An empty `newPassword` is treated as absent and is not
+  put on the wire.
+- **Input is validated first, never counted by the per-identifier throttle:**
+  `400 password_too_short` (< 12 bytes), `password_too_long` (> 1024),
+  `password_unchanged` (equal to `presented`). The SDK does NOT pre-validate
+  length: the issuer owns the rule, and a client copy is a second list that
+  drifts. A UI may check that two typed copies match; that is not a policy.
+- `presented` wrong → `401 invalid_credentials`, as without the field; nothing is stored.
+- Credential not must-change → `400 password_change_not_required`, decided only
+  after `presented` verifies. Nothing changes and no session is created.
+- Identifier throttled → `429 login_throttled`; nothing changes.
+- **Success is an ordinary login** (§4.1, §4.1.1 minting included): the new
+  password is stored, the obligation cleared, EVERY other session of that
+  membership revoked, and the holder notified (no link, no code). MFA gates apply
+  unchanged, so `mfa_required` / `mfa_registration_required` may still follow,
+  carrying the session as in §4.1.6.
+- **A `5xx` may leave the NEW password in force.** The SDK does not retry this
+  call. The caller's recovery is to retry with `presented = <the new password>`
+  and NO `newPassword`; a retry that resends `newPassword` would answer
+  `password_change_not_required` (or `invalid_credentials`) and look like a
+  failure of a change that succeeded.
+- Ignored on every other `grant_type` (the issuer answers with a `Warning: 299`),
+  so the SDK never sends it outside `passwordLogin`.
 
 ### 4.2 `token(req)`
 
@@ -1392,6 +1525,63 @@ admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
 > result. The SDK stores nothing — persistence and refresh of the user
 > JWT stay the caller's responsibility.
 
+### 4.10 Password reset links — `auth.inspectPasswordReset` / `auth.consumePasswordReset` (ADR-111; go `0.65.0` · ts `0.55.0`, UNRELEASED; not in Java this release)
+
+The two calls a **reset page** makes. An administrator sends the link with
+`tenants.users.sendPasswordReset` (§6.3); the member opens it, and the page sets
+the password. The link is
+
+```
+<base>/reset-password#token=<43-char base64url>
+```
+
+`<base>` is the realm's domain, else `https://<slug>.realmid.dev`, else
+`https://app.realmid.dev` (issuer `consoleURLForRealm`). **The token is in the URL
+FRAGMENT**, which a browser never sends to a server, so it reaches no access log
+and no `Referer`. A page MUST: read it from `location.hash`; remove it from the
+address bar with `history.replaceState` before any other request; serve itself
+with `Referrer-Policy: no-referrer`; and send the token only in a POST body. The
+SDK takes the token as an argument and never reads or builds a URL; parsing the
+fragment is the page's job (partner guide § Password reset links).
+
+| Call | Go | ts | Wire | Success |
+|---|---|---|---|---|
+| inspect | `AuthClient.InspectPasswordReset(ctx, token string) (*PasswordResetInspection, error)` | `auth.inspectPasswordReset(token)` | `POST /auth/password/reset/inspect {token}` | `200 {expires_at}` → `{ ExpiresAt time.Time }` / `{ expires_at: string }` |
+| consume | `AuthClient.ConsumePasswordReset(ctx, token, newPassword string) error` | `auth.consumePasswordReset(token, newPassword)` | `POST /auth/password/reset {token, new_password}` | `200 {status: "password_set"}` → `nil` / resolves `void` |
+
+- **Inspect writes nothing.** It exists so a page can show invalid / expired /
+  used / superseded BEFORE asking for a password. A `200` is not a reservation:
+  the token can still expire or be used before consume.
+- **Consume** validates `new_password` as input first (`400 password_too_short` /
+  `password_too_long`, no lookup), then claims the token by ONE compare-and-swap —
+  two concurrent submissions yield exactly one success and one
+  `410 reset_token_used`. On success the password is stored with no must-change,
+  EVERY session of that membership is revoked, and the holder is notified.
+- **Consume mints NO session.** The page sends the holder to sign in with
+  `passwordLogin`, where every MFA and eligibility gate lives. An SDK MUST NOT
+  chain a login onto a consume: the SDK does not know the identifier, and a
+  silent sign-in would bypass the one path where the gates are.
+- **Errors** (§3.1): `reset_token_invalid` (400), `reset_token_expired` /
+  `reset_token_used` / `reset_token_superseded` (410), plus the two length codes
+  on consume (which arrive as `details.server_code`, §3.1). **Never retried**: a
+  consume replayed after a lost response answers `reset_token_used` even though
+  the password WAS set. A page that gets `reset_token_used` right after its own
+  submit should say "your password may already be set — try signing in", not
+  "link invalid".
+- **Authentication.** Both routes are anonymous at the issuer: the token IS the
+  credential. A platform bearer, if sent, must belong to the token's realm,
+  otherwise `reset_token_invalid`. The SDK sends its platform bearer as on every
+  `auth.*` call, which pins the call to the configured realm (the ADR-041 pin):
+  a link minted in another realm is refused rather than consumed by the wrong
+  deployment. There is no `realm_id` in either body.
+- **Logging.** The token and `new_password` are secrets: the SDK never logs
+  either, and never puts the token in a query string.
+- **`@realm-id/web`.** A browser cannot hold a platform bearer, so a browser page
+  calls its own backend (RealmID's reference BFF exposes
+  `POST /auth/password/reset/inspect` and `POST /auth/password/reset`, same bodies,
+  no session cookie read or written). Whether `@realm-id/web` wraps those BFF
+  routes in this release is not yet decided; if it does, the names above apply.
+
 ## 5. Verifier surface (`realm.verify`)
 
 ```ts
@@ -1757,6 +1947,47 @@ the invitee accepts → user record is provisioned.
 - `enrollMfa(tenantId, userId)`, `confirmMfa(tenantId, userId, code)`,
   `resetMfa(tenantId, userId)` — admin-initiated MFA flows. The
   self-service equivalents on `auth.mfa.*` are roadmap (§11).
+- **Passwords: an admin SENDS A LINK; only a member with no verified email is
+  HANDED a password (ADR-111; go `0.65.0` · ts `0.55.0` · web-admin `0.22.0`,
+  UNRELEASED; not in Java this release).** Which path applies is decided by the
+  MEMBER's row, not by the admin: "verified email" = an active email contact with
+  `verified_at` set (phones do not count until SMS delivery ships). Both need
+  `users:manage` in the tenant, and both collapse a missing member and a member of
+  another tenant into `404 user_not_found` (no existence oracle).
+  - `sendPasswordReset(tenantId, userId)` — Go
+    `UsersClient.SendPasswordReset(ctx, tenantID, userID string) (*PasswordResetSent, error)`.
+    `POST /tenants/{tid}/users/{uid}/password-reset`, no body: no field names the
+    address, the issuer picks the member's first active verified email. Answers
+    `202 { status: "sent", to: "a***@example.com", expires_at }` → Go
+    `PasswordResetSent{ Status, To string; ExpiresAt time.Time }`. `to` is MASKED
+    (first character + domain); show it as-is, never try to unmask it. Supersedes
+    the member's outstanding links; the new one is single-use and valid 30 minutes.
+    **It changes no credential and revokes no session** — sending a link cannot
+    lock anyone out. Errors: `409 no_verified_email`, `429 reset_throttled`,
+    `400 unknown_method` (no credential store, or the realm's
+    `password_login_enabled` off) and `400 bad_request` (a `kind=service` row) —
+    those two arrive as `details.server_code` / the generic code.
+  - `setCredentials(tenantId, userId, { username?, password? })` — Go
+    `UsersClient.SetCredentials(ctx, tenantID, userID string, req SetCredentialsRequest) error`
+    with `SetCredentialsRequest{ Username, Password string }` (empty = not sent; at
+    least one required, else the issuer's `400 bad_request`).
+    `PUT /tenants/{tid}/users/{uid}/credentials`. **NEW in this release** — no SDK
+    wrapped this route before; partners called it over HTTP. A `password` set here
+    is the HAND-OVER path: stored must-change, and the holder replaces it at first
+    sign-in (§4.1.8). Errors:
+    - `409 reset_link_required` — a `password` for a member WITH a verified email.
+      **Nothing is written, the `username` in the same body included.** Remedy:
+      `sendPasswordReset`. A caller that wants the username anyway re-sends it alone.
+    - `409 verified_email_required` — the realm's
+      `password_policy.require_verified_email` is on and the member has no verified
+      email: they may be given neither a password nor a username.
+    - `409 identifier_collision` (username taken in this org), `400 invalid_username`,
+      `password_too_short`, `password_too_long`, `unknown_method`, `bad_request` —
+      pre-existing, via `details.server_code` (§3.3) where not registered.
+    The SDK does not pre-check the member's contacts to choose a path: the issuer
+    decides at write time, and a member can become verified between a read and the
+    call. A console that offers "Set temporary password" MUST handle
+    `reset_link_required` by switching to the link action.
 - `importUsers(tenantId, rows)` — **bulk user import** (ADR-073
   Release B), `POST /tenants/{id}/users/import`, owner/admin. Two-phase,
   **whole-file-atomic** import of pre-provisioned `status='active'`
@@ -4204,10 +4435,10 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.63.0`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved` and the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5). |
+| Go       | `go/v0.64.2`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) targets `go/v0.65.0`, UNRELEASED. |
 | Web core | `web-v0.9.0`        | `@realm-id/web@0.9.0` on npm. Cross-tab refresh, `logout({ all })`. |
 | TS       | `ts-v0.54.0`        | `@realm-id/sdk@0.54.0` on npm. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. |
-| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. |
+| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. **No ADR-111 surface** (§4.1.8, §4.10, §6.3 passwords, the §3.1 password codes): Java parity is deliberately NOT in that release — the one place the "lockstep" rule below is broken on purpose, and `taxonomy-parity.py` carries it as reviewed exceptions. |
 
 > ⚠️ **This table was stale by TWO releases on every language** until 2026-09-21 — it
 > read `go/v0.58.0` / `ts-v0.51.0` / `java-v0.48.0` while the repo held `go/v0.60.0`,

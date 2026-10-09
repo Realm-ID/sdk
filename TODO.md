@@ -222,6 +222,15 @@ in the same repo.
 
 ## Cross-language parity gaps
 
+- [ ] **Java has no ADR-111 credential-reset surface** (`setCredentials`,
+      `sendPasswordReset`, `inspectPasswordReset`, `consumePasswordReset`,
+      `PasswordLoginRequest.newPassword`, `password_policy` discovery, the 10
+      new codes in SPEC §3.1). Left out of the 2026-10-09 release on purpose:
+      `java/` on `main` carries the HELD v0.63 work (root `DECISIONS.md`
+      2026-10-02), so a Java release would ship it. `scripts/taxonomy-parity.py`
+      carries reviewed `EXCEPTIONS` for the 10 codes until this lands; delete
+      them with it.
+
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
       taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes
       against `ts/src/errors.ts`'s **60** (measured 2026-08-24). So the admin
