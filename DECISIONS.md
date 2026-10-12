@@ -10,7 +10,7 @@ Newest first.
 
 ## Index
 
-112 entries total — 57 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+113 entries total — 58 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
 - [2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown](#2026-10-12-go-v0660-adr-104-r-d--typed-user_suspended--escort_suspended-relayed-without-session-teardown)
 - [2026-10-12 (Go v0.65.0, ADR-104 R-e) — whole-identity revokes feed the SessionStore through Logout's helper](#2026-10-12-go-v0650-adr-104-r-e--whole-identity-revokes-feed-the-sessionstore-through-logouts-helper)
