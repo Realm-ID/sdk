@@ -65,7 +65,7 @@ func TestInspectPasswordReset(t *testing.T) {
 			if r.URL.RawQuery != "" {
 				t.Errorf("token must not be in the query: %q", r.URL.RawQuery)
 			}
-			_, _ = w.Write([]byte(`{"expires_at":"2026-10-09T12:30:00Z"}`))
+			_, _ = w.Write([]byte(`{"data":{"expires_at":"2026-10-09T12:30:00Z"}}`))
 		},
 	})
 	defer srv.Close()
@@ -90,7 +90,7 @@ func TestConsumePasswordReset_Body(t *testing.T) {
 	srv := meServer(t, map[string]http.HandlerFunc{
 		"/auth/password/reset": func(w http.ResponseWriter, r *http.Request) {
 			got = decodeBody(t, r)
-			_, _ = w.Write([]byte(`{"status":"password_set"}`))
+			_, _ = w.Write([]byte(`{"data":{"status":"password_set"}}`))
 		},
 	})
 	defer srv.Close()
@@ -143,7 +143,7 @@ func TestSendPasswordReset(t *testing.T) {
 			b, _ := io.ReadAll(r.Body)
 			bodyLen = len(b)
 			w.WriteHeader(202)
-			_, _ = w.Write([]byte(`{"status":"sent","to":"a***@example.com","expires_at":"2026-10-09T12:30:00Z"}`))
+			_, _ = w.Write([]byte(`{"data":{"status":"sent","to":"a***@example.com","expires_at":"2026-10-09T12:30:00Z"}}`))
 		},
 	})
 	defer srv.Close()

@@ -38,6 +38,14 @@ type SetCredentialsRequest struct {
 	Password string
 }
 
+// gofrData is GoFr's success envelope, `{"data": …}`. The issuer returns a plain
+// map from these routes (PUT /me/password, the ADR-111 reset routes), which GoFr
+// wraps; only handlers returning raw(...) (logout, login) go out bare. Decode
+// every wrapped route through this ONE type. Never assume a top-level shape.
+type gofrData[T any] struct {
+	Data T `json:"data"`
+}
+
 type passwordResetStatus struct {
 	Status string `json:"status"`
 }
@@ -57,16 +65,16 @@ func (a *AuthClient) InspectPasswordReset(ctx ctxpkg.Context, token string) (*Pa
 	if err != nil {
 		return nil, err
 	}
-	var out PasswordResetInspection
+	var env gofrData[PasswordResetInspection]
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/password/reset/inspect",
 		Bearer: tok,
 		Body:   map[string]any{"token": token},
-	}, &out); err != nil {
+	}, &env); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &env.Data, nil
 }
 
 // ConsumePasswordReset sets the password a reset link was sent for (ADR-111,
@@ -90,19 +98,19 @@ func (a *AuthClient) ConsumePasswordReset(ctx ctxpkg.Context, token, newPassword
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
+	var env gofrData[struct {
 		passwordResetStatus
 		RevokedSIDs any `json:"revoked_sids"`
-	}
+	}]
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/password/reset",
 		Bearer: tok,
 		Body:   map[string]any{"token": token, "new_password": newPassword},
-	}, &out); err != nil {
+	}, &env); err != nil {
 		return nil, err
 	}
-	ids := logoutSessionIDs("", out.RevokedSIDs)
+	ids := logoutSessionIDs("", env.Data.RevokedSIDs)
 	a.revokeLocally(ctx, ids)
 	return &PasswordResetConsumed{RevokedSIDs: ids}, nil
 }
@@ -118,15 +126,15 @@ func (c *UsersClient) SendPasswordReset(ctx ctxpkg.Context, tenantID, userID str
 	if err != nil {
 		return nil, err
 	}
-	var out PasswordResetSent
+	var env gofrData[PasswordResetSent]
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/tenants/" + url.PathEscape(tenantID) + "/users/" + url.PathEscape(userID) + "/password-reset",
 		Bearer: tok,
-	}, &out); err != nil {
+	}, &env); err != nil {
 		return nil, err
 	}
-	return &out, nil
+	return &env.Data, nil
 }
 
 // SetCredentials sets a member's username and/or hands over a TEMPORARY password

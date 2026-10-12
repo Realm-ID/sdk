@@ -13,7 +13,7 @@ func TestMe_SetPasswordRequestShapePerLane(t *testing.T) {
 		"/me/password": func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotAuth, gotUT = r.Method, r.Header.Get("Authorization"), r.Header.Get("X-User-Token")
 			gotBody = decodeBody(t, r)
-			_, _ = w.Write([]byte(`{"status":"updated","revoked_sids":[]}`))
+			_, _ = w.Write([]byte(`{"data":{"status":"updated","revoked_sids":[]}}`))
 		},
 	})
 	defer srv.Close()

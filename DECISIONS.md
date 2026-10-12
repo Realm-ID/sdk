@@ -131,6 +131,14 @@ Newest first.
 
 **Decision (owner ruling R-e, 2026-10-12).** The issuer returns `revoked_sids` (logout's shape); the Go wrappers write each into the SessionStore via `AuthClient.revokeLocally`, extracted from `Logout` so there is one copy of the policy, including its error handling (a store write error is logged, never returned). Absent / `[]` / non-list is a no-op. `ConsumePasswordReset` now returns `(*PasswordResetConsumed, error)`: the only way to expose `RevokedSIDs`, and v0.65.0 is unreleased. ts/java stay held (`TODO.md`). The third call, `PUT /me/password`, is `MeClient.SetPassword` (owner ruling: build it in v0.65.0); it sits on `realm.Me` with `MeAuth` rather than `AuthClient`, because every other `/me/*` wrapper takes that lane option.
 
+### RCA (2026-10-12) — the R-e decoders read top-level fields; the issuer wraps these routes in `{"data":{...}}`
+
+- **Symptom.** Against the real issuer `MeClient.SetPassword` and `ConsumePasswordReset` returned an empty `RevokedSIDs` and wrote nothing to the SessionStore; `PasswordSet.Status`, `PasswordResetSent` and `PasswordResetInspection` (`ExpiresAt`) came back zero.
+- **Root cause.** The issuer handlers for `PUT /me/password` and the ADR-111 reset routes (send, inspect, consume) return plain maps (`credentials.go:172`, `password_reset.go:88,111,148`), which GoFr wraps as `{"data":{...}}`. Only handlers returning `raw(...)` (logout, login) go out bare. The SDK decoded top-level. Shipped unreleased in `5244b3f` / `3214e8b` / `27dcbda`; never tagged.
+- **Why it wasn't caught.** The SDK's fake issuers answered with the bare shape the SDK expected, so tests proved the decoder against itself, not the wire.
+- **Fix.** One generic `gofrData[T]` envelope type decodes every wrapped route; fakes now answer with the real envelope; a test proves a bare top-level `revoked_sids` on a wrapped route is not consumed. The issuer wire does not change (`/me/password` has shipped since issuer v0.116.0).
+- **Prevention.** Before writing a decoder, read the issuer handler's `return` (`raw(...)` = bare, plain map = `data`-wrapped) and build the fake from that. Recorded as a trap in `CLAUDE.md`.
+
 ## 2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env
 
 **Problem.** `scripts/release-check.test.sh` wrote its assertion output to a fixed

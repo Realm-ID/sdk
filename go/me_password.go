@@ -42,20 +42,20 @@ func (c *MeClient) SetPassword(ctx ctxpkg.Context, req SetPasswordRequest) (*Pas
 	if req.CurrentPassword != "" {
 		body["current_password"] = req.CurrentPassword
 	}
-	var out struct {
+	var env gofrData[struct {
 		Status      string `json:"status"`
 		RevokedSIDs any    `json:"revoked_sids"`
-	}
+	}]
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method:  "PUT",
 		Path:    "/me/password",
 		Bearer:  bearer,
 		Headers: headers,
 		Body:    body,
-	}, &out); err != nil {
+	}, &env); err != nil {
 		return nil, err
 	}
-	ids := logoutSessionIDs("", out.RevokedSIDs)
+	ids := logoutSessionIDs("", env.Data.RevokedSIDs)
 	c.realm.Auth.revokeLocally(ctx, ids)
-	return &PasswordSet{Status: out.Status, RevokedSIDs: ids}, nil
+	return &PasswordSet{Status: env.Data.Status, RevokedSIDs: ids}, nil
 }

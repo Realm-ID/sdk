@@ -91,6 +91,14 @@ One locked spec, multiple language-idiomatic implementations.
   tarball actually carries the bundled dep. This bites every
   release.
 
+## Traps
+
+- **Issuer response shape is per handler: `raw(...)` is bare, a plain map is `{"data":{...}}`.**
+  GoFr wraps plain maps. Logout and login are bare; `PUT /me/password` and the ADR-111 reset routes are
+  wrapped. Read the handler's `return` in `issuer/internal/httpapi` before writing a decoder, build the
+  test's fake server from that shape, and use `gofrData[T]` (`go/password_reset.go`) for wrapped routes.
+  A fake that answers what the decoder expects proves nothing about the wire.
+
 ## v0.4.0 (deployed 2026-04-27)
 
 Auto-attaches platform JWT; ships optional revocation cache. New partner

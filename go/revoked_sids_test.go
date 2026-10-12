@@ -28,21 +28,33 @@ type rsidEnv struct {
 // newRSIDEnv serves /auth/login (password grant) and /auth/password/reset, both
 // answering with `extra` merged in.
 func newRSIDEnv(t *testing.T, store SessionStateStore, extra map[string]any) *rsidEnv {
+	return newRSIDEnvShape(t, store, extra, true)
+}
+
+// newRSIDEnvShape: wrap=true answers the GoFr-wrapped routes (/me/password, the
+// reset consume) with the REAL `{"data":{...}}` envelope, as the issuer does
+// (plain-map handlers); wrap=false answers them bare, which the issuer never does.
+// /auth/login returns raw(...) so it is always bare.
+func newRSIDEnvShape(t *testing.T, store SessionStateStore, extra map[string]any, wrap bool) *rsidEnv {
 	t.Helper()
 	sign, key := mintTestKey(t, "k1")
 	e := &rsidEnv{sign: sign}
-	reply := func(base map[string]any) http.HandlerFunc {
+	reply := func(base map[string]any, wrapped bool) http.HandlerFunc {
 		return func(w http.ResponseWriter, _ *http.Request) {
 			for k, v := range extra {
 				base[k] = v
+			}
+			if wrapped && wrap {
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": base})
+				return
 			}
 			_ = json.NewEncoder(w).Encode(base)
 		}
 	}
 	srv := mwTestServer(t, []jwk{key}, testAud, map[string]http.HandlerFunc{
-		"/auth/login":          reply(map[string]any{"access_token": "a", "refresh_token": "r", "user": map[string]any{"id": "u"}}),
-		"/auth/password/reset": reply(map[string]any{"status": "password_set"}),
-		"/me/password":         reply(map[string]any{"status": "updated"}),
+		"/auth/login":          reply(map[string]any{"access_token": "a", "refresh_token": "r", "user": map[string]any{"id": "u"}}, false),
+		"/auth/password/reset": reply(map[string]any{"status": "password_set"}, true),
+		"/me/password":         reply(map[string]any{"status": "updated"}, true),
 	})
 	t.Cleanup(srv.Close)
 	e.srv = srv.URL
@@ -150,6 +162,27 @@ func TestRevokedSIDs_StoreWriteErrorIsNotReturned(t *testing.T) {
 			}
 			if len(got) != 1 || got[0] != "s1" {
 				t.Errorf("RevokedSIDs = %v", got)
+			}
+		})
+	}
+}
+
+// The issuer wraps /me/password and the reset consume in {"data":{...}} (GoFr, plain-map
+// handlers). A top-level revoked_sids on those routes is NOT what the SDK relies on:
+// answering bare must write nothing. Login (raw) is the opposite and is covered above.
+func TestRevokedSIDs_UnwrappedTopLevelIsNotRelied_OnWrappedRoutes(t *testing.T) {
+	for _, c := range rsidCalls {
+		if c.name == "password_login_change_at_sign_in" {
+			continue // raw(...) route: bare is its real shape
+		}
+		t.Run(c.name, func(t *testing.T) {
+			e := newRSIDEnvShape(t, NewMemorySessionStore(), map[string]any{"revoked_sids": []string{"s1"}}, false)
+			got, err := c.do(e)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 0 || e.revoked("s1") {
+				t.Errorf("bare top-level revoked_sids must not be consumed: got %v", got)
 			}
 		})
 	}
