@@ -22,6 +22,14 @@ type PasswordResetSent struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// PasswordResetConsumed is the result of AuthClient.ConsumePasswordReset.
+// RevokedSIDs (ADR-104 R-e) are the sessions the issuer ended (the whole
+// identity in the realm); the SDK has already written each into the
+// SessionStore. Empty when none ended or the issuer predates the field.
+type PasswordResetConsumed struct {
+	RevokedSIDs []string
+}
+
 // SetCredentialsRequest is the body of UsersClient.SetCredentials. An empty
 // field is not sent; at least one is required (the issuer answers
 // `400 bad_request` otherwise).
@@ -73,18 +81,30 @@ func (a *AuthClient) InspectPasswordReset(ctx ctxpkg.Context, token string) (*Pa
 // (`password_too_short` / `password_too_long` arrive as
 // Details["server_code"]); the SDK does not pre-validate. The token and
 // newPassword are secrets and are never logged.
-func (a *AuthClient) ConsumePasswordReset(ctx ctxpkg.Context, token, newPassword string) error {
+//
+// ADR-104 R-e: the consume ends every session of the person in the realm; the
+// response's `revoked_sids` are written into the SessionStore before this
+// returns (a store write error is logged, never returned, as in Logout).
+func (a *AuthClient) ConsumePasswordReset(ctx ctxpkg.Context, token, newPassword string) (*PasswordResetConsumed, error) {
 	tok, err := a.realm.platformToken.get(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var out passwordResetStatus
-	return a.realm.http.do(ctx, requestOptions{
+	var out struct {
+		passwordResetStatus
+		RevokedSIDs any `json:"revoked_sids"`
+	}
+	if err := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/password/reset",
 		Bearer: tok,
 		Body:   map[string]any{"token": token, "new_password": newPassword},
-	}, &out)
+	}, &out); err != nil {
+		return nil, err
+	}
+	ids := logoutSessionIDs("", out.RevokedSIDs)
+	a.revokeLocally(ctx, ids)
+	return &PasswordResetConsumed{RevokedSIDs: ids}, nil
 }
 
 // SendPasswordReset emails the member a single-use, 30-minute password-reset

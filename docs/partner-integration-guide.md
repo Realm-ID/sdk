@@ -513,7 +513,7 @@ SDK sends its platform bearer, which must belong to the token's realm or the ans
 // 1. on page load — writes nothing
 insp, err := realm.Auth.InspectPasswordReset(ctx, token)      // insp.ExpiresAt
 // 2. on submit
-err = realm.Auth.ConsumePasswordReset(ctx, token, newPassword) // nil = password set
+_, err = realm.Auth.ConsumePasswordReset(ctx, token, newPassword) // nil = password set; sessions ended by it are revoked locally (revoked_sids)
 ```
 
 ```http

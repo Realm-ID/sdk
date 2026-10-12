@@ -193,6 +193,13 @@ type Session struct {
 	TenantChoiceRequired bool `json:"tenant_choice_required,omitempty"`
 	// TenantChoices are the memberships the picker may choose between.
 	TenantChoices []TenantChoice `json:"tenant_choices,omitempty"`
+	// RevokedSIDs (ADR-104 R-e) lists the sessions the issuer ended as a side
+	// effect of this call; set only by PasswordLogin with NewPassword (change at
+	// sign-in ends the holder's whole identity in the realm). The SDK has
+	// ALREADY written each into the SessionStore before returning, so a partner
+	// needs no action; it is exposed for audit. Empty when none ended or the
+	// issuer predates the field.
+	RevokedSIDs []string `json:"-"`
 }
 
 // TenantChoice is one option in the ADR-092 D5 single-tenant picker.
@@ -1021,16 +1028,24 @@ func (a *AuthClient) PasswordLogin(ctx ctxpkg.Context, req PasswordLoginRequest)
 	if req.TenantID != "" {
 		body["tenant_id"] = req.TenantID
 	}
-	var resp Session
+	var wire struct {
+		Session
+		RevokedSIDs any `json:"revoked_sids"`
+	}
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method:  "POST",
 		Path:    "/auth/login",
 		Bearer:  tok,
 		Body:    body,
 		Headers: headers,
-	}, &resp); err != nil {
+	}, &wire); err != nil {
 		return nil, err
 	}
+	resp := wire.Session
+	// ADR-104 R-e: the change at sign-in ended the holder's other sessions; write
+	// them into the SessionStore like Logout does so local verify refuses them.
+	resp.RevokedSIDs = logoutSessionIDs("", wire.RevokedSIDs)
+	a.revokeLocally(ctx, resp.RevokedSIDs)
 	for i := range resp.Tenants {
 		if resp.Tenants[i].ID == "" && resp.Tenants[i].IDLegacy != "" {
 			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
@@ -1166,6 +1181,15 @@ func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 			}
 		}
 	}
+	a.revokeLocally(ctx, ids)
+	return callErr
+}
+
+// revokeLocally writes each session id into the partner's SessionStore (and the
+// RevocationCache when configured). The one copy of the policy shared by Logout
+// and the whole-identity revokes (ADR-104 R-e): a store write error is logged by
+// TokensClient.RevokeSession and never returned.
+func (a *AuthClient) revokeLocally(ctx ctxpkg.Context, ids []string) {
 	for _, id := range ids {
 		a.realm.Tokens.RevokeSession(ctx, id)
 		if a.realm.revocation != nil {
@@ -1174,7 +1198,6 @@ func (a *AuthClient) Logout(ctx ctxpkg.Context, req *LogoutRequest) error {
 			rcancel()
 		}
 	}
-	return callErr
 }
 
 // logoutSessionIDs merges the logout response's `sid` with `revoked_sids`,

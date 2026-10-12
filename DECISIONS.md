@@ -12,6 +12,7 @@ Newest first.
 
 111 entries total — 56 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-12 (Go v0.65.0, ADR-104 R-e) — whole-identity revokes feed the SessionStore through Logout's helper](#2026-10-12-go-v0650-adr-104-r-e--whole-identity-revokes-feed-the-sessionstore-through-logouts-helper)
 - [2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env](#2026-10-06-test-hygiene--release-checktestsh-keeps-its-fixtures-in-scratch-and-scrubs-hook-inherited-git-env)
 - [2026-10-03 (Go v0.64.2, OQ-7) — a direct MFA verify / recovery redeem opts into the refresh lock by taking the refresh token](#2026-10-03-go-v0642-oq-7--a-direct-mfa-verify--recovery-redeem-opts-into-the-refresh-lock-by-taking-the-refresh-token)
 - [2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in](#2026-10-02-go-v0641--the-middleware-recovery-route-is-opt-in)
@@ -123,6 +124,12 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-12 (Go v0.65.0, ADR-104 R-e) — whole-identity revokes feed the SessionStore through Logout's helper
+
+**Problem.** Change at sign-in and reset-link consume end every session of the person in the realm, but a partner verifying tokens locally kept accepting those sessions' access tokens until expiry.
+
+**Decision (owner ruling R-e, 2026-10-12).** The issuer returns `revoked_sids` (logout's shape); the Go wrappers write each into the SessionStore via `AuthClient.revokeLocally`, extracted from `Logout` so there is one copy of the policy, including its error handling (a store write error is logged, never returned). Absent / `[]` / non-list is a no-op. `ConsumePasswordReset` now returns `(*PasswordResetConsumed, error)`: the only way to expose `RevokedSIDs`, and v0.65.0 is unreleased. ts/java stay held (`TODO.md`). `PUT /me/password` has no Go wrapper, so that third call is NOT covered; filed in `TODO.md` for an owner call on its shape.
 
 ## 2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env
 

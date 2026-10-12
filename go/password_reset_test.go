@@ -95,7 +95,7 @@ func TestConsumePasswordReset_Body(t *testing.T) {
 	})
 	defer srv.Close()
 	r := newPWRealm(t, srv.URL)
-	if err := r.Auth.ConsumePasswordReset(context.Background(), "tok43", "a-long-new-password"); err != nil {
+	if _, err := r.Auth.ConsumePasswordReset(context.Background(), "tok43", "a-long-new-password"); err != nil {
 		t.Fatal(err)
 	}
 	if got["token"] != "tok43" || got["new_password"] != "a-long-new-password" {
@@ -123,7 +123,7 @@ func TestConsumePasswordReset_ErrorsAreTypedAndNotRetried(t *testing.T) {
 			},
 		})
 		r := newPWRealm(t, srv.URL)
-		err := r.Auth.ConsumePasswordReset(context.Background(), "t", "pw-long-enough-12")
+		_, err := r.Auth.ConsumePasswordReset(context.Background(), "t", "pw-long-enough-12")
 		if !IsCode(err, c.code) {
 			t.Errorf("%d %s: err = %v", c.status, c.code, err)
 		}

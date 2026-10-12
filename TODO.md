@@ -222,6 +222,13 @@ in the same repo.
 
 ## Cross-language parity gaps
 
+- [ ] **ADR-104 R-e `revoked_sids` parity (ts/java HELD; Go done in `0.65.0`):** ts/java `passwordLogin`
+      (change at sign-in) and `consumePasswordReset` must read `revoked_sids` and write each sid into the
+      session store like their logout `{all:true}` path, and expose it on the typed result
+      (`sdk/ts`, `sdk/java`).
+- [ ] **No Go wrapper for `PUT /me/password`** (ADR-104 R7e, the third R-e call; `sdk/go`). It must
+      read `revoked_sids` via `AuthClient.revokeLocally` and expose `RevokedSIDs`. Needs an owner call
+      on name, request shape and auth lane (user bearer vs BFF on-behalf-of) before building.
 - [ ] **Java has no ADR-111 credential-reset surface** (`setCredentials`,
       `sendPasswordReset`, `inspectPasswordReset`, `consumePasswordReset`,
       `PasswordLoginRequest.newPassword`, `password_policy` discovery, the 10
