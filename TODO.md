@@ -21,6 +21,8 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
+- [ ] **ts/java carry `user_suspended` / `escort_suspended` in source, UNRELEASED (go `0.65.1`, ADR-104 R-d; HELD with the v0.63 session).** ts has `isUserSuspended`/`isEscortSuspended` + the union/array entries; java has `ErrorCode.USER_SUSPENDED`/`ESCORT_SUSPENDED`. Versions not bumped. Still to do when the hold lifts: the java predicates, any ts/java middleware relay (escort_suspended as 503), and tests.
+
 - [ ] **Finish and release ts `0.55.0` / java `0.51.0` (the v0.63 session surface) — HELD 2026-10-02.**
   Go `0.63.0` and web `0.9.0` shipped without them (owner ruling, root `DECISIONS.md`
   2026-10-02: no active ts/java consumers). Their v0.63 code is on `main`, UNRELEASED

@@ -102,6 +102,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeResetLinkRequired, ErrCodeVerifiedEmailRequired, ErrCodeNoVerifiedEmail,
 		ErrCodeResetThrottled, ErrCodeResetTokenInvalid, ErrCodeResetTokenExpired,
 		ErrCodeResetTokenUsed, ErrCodeResetTokenSuperseded,
+		// ADR-104 R-d: a suspended/deactivated row, and a disabled BFF escort.
+		ErrCodeUserSuspended, ErrCodeEscortSuspended,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

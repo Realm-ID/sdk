@@ -224,7 +224,18 @@ SDK failure. It carries:
 `provider_token_invalid`, `mfa_required`, `mfa_registration_required`,
 `session_limit_reached`, `tenant_required`, `tenant_invalid`,
 `account_suspended`, `account_deactivated`, `realm_origin_mismatch`,
-`realm_mismatch`, `missing_origin`, `refresh_invalid`, `token_stale`.
+`realm_mismatch`, `missing_origin`, `refresh_invalid`, `token_stale`,
+`user_suspended`, `escort_suspended`.
+
+> `user_suspended` (403, issuer ADR-104 R-d) means the token's subject row in
+> THAT org is suspended or deactivated. `escort_suspended` (403 from the issuer)
+> means the BFF's own `/auth/*` escort account is suspended or deactivated. The
+> Go BFF middleware relays both with their real code and NEVER tears the session
+> down (no cookie clear, no SessionStore revoke), because a session spans orgs:
+> a person suspended in org B may still be active in org A.
+> `user_suspended` reaches the SPA as **403**; `escort_suspended` reaches it as
+> **503** (a service problem, not the user's own sign-out). `ProxyStatus` applies
+> the same mapping. Neither code is a token-level failure.
 
 > `mfa_registration_required` (412) is the first-factor-ENROLLMENT variant of
 > `mfa_required`: the realm or tenant requires MFA and the user has no

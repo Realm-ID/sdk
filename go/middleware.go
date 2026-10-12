@@ -753,6 +753,9 @@ func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *
 	if status == 0 {
 		status = 401
 	}
+	// Relay only: user_suspended / escort_suspended never tear the session down
+	// (a session spans orgs); escort_suspended is shown as a 503.
+	status = relayStatus(err, status)
 	body := map[string]any{
 		"error": map[string]any{"code": string(err.Code), "message": err.Message},
 	}

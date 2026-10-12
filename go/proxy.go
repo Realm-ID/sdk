@@ -51,7 +51,18 @@ func ProxyStatus(err error) (status int, code string, details map[string]any) {
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
-		return status, string(re.Code), re.Details
+		return relayStatus(re, status), string(re.Code), re.Details
 	}
 	return http.StatusBadGateway, "", nil
+}
+
+// relayStatus is the status a BFF shows its SPA for an issuer refusal. It is
+// the issuer's own, except escort_suspended (403 upstream): that is the BFF's
+// escort account being disabled, so the SPA gets 503 and reads a service
+// problem rather than its own user being refused (ADR-104 R-d).
+func relayStatus(re *RealmError, status int) int {
+	if re.Code == ErrCodeEscortSuspended {
+		return http.StatusServiceUnavailable
+	}
+	return status
 }

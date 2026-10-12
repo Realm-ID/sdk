@@ -87,6 +87,12 @@ export type ErrorCode =
   // just widened their access. Branch on this code BEFORE any generic 401
   // handling.
   | "token_stale"
+  // `user_suspended` (403, issuer ADR-104 R-d): the subject's row in THAT org is
+  // suspended or deactivated. Not a sign-out; the person may be active elsewhere.
+  | "user_suspended"
+  // `escort_suspended` (403 from the issuer, ADR-104 R-d): the BFF's own /auth/*
+  // escort account is disabled. A service problem, not the user's.
+  | "escort_suspended"
   // `last_owner` (409) comes from BOTH owner-protection paths: changing the
   // owner's role, and DEACTIVATING the owner. Transfer ownership first
   // (ADR-076).
@@ -232,6 +238,16 @@ export function isTokenStale(e: unknown): boolean {
   return e instanceof RealmError && e.code === "token_stale";
 }
 
+/** True when `e` is the issuer's 403 `user_suspended` (ADR-104 R-d). */
+export function isUserSuspended(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "user_suspended";
+}
+
+/** True when `e` is the issuer's 403 `escort_suspended` (ADR-104 R-d). */
+export function isEscortSuspended(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "escort_suspended";
+}
+
 /**
  * Map an HTTP status code to a fallback ErrorCode when the server response
  * does not carry an explicit `code` field.
@@ -259,6 +275,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "account_deactivated", "contact_admin_required",
   "realm_origin_mismatch", "realm_mismatch",
   "missing_origin", "refresh_invalid", "token_stale", "last_owner",
+  "user_suspended", "escort_suspended",
   "invalid_scope", "too_many_scopes", "scope_too_long", "scope_not_supported",
   "reserved_claim_key", "realmid_audience_immutable", "invalid_rename",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",

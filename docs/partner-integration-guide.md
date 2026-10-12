@@ -873,6 +873,8 @@ change. Branch on the **code**, before any generic 401 handling:
 | `token_stale` | authority changed | refresh once, replay |
 | `refresh_invalid` | session is dead | re-authenticate |
 | `unauthorized` | not allowed | show the error |
+| `user_suspended` (403) | the user is suspended or deactivated in THIS org | show "not allowed in this org"; do not sign the user out of their other orgs |
+| `escort_suspended` (503 from the SDK middleware) | your backend's escort account is disabled | a service problem, not the user's: alert your operators; do not sign the user out |
 
 If you collapse every 401 into "sign the user out", you will sign people out on
 **promotion** — on a grant that just widened their access. The browser SDK

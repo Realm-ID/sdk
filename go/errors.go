@@ -75,6 +75,15 @@ const (
 	// just widened their access. Branch on this code BEFORE IsUnauthorized,
 	// which is also true of it (it is a 401).
 	ErrCodeTokenStale ErrorCode = "token_stale"
+	// ErrCodeUserSuspended (403, issuer ADR-104 R-d): the token's subject row in
+	// THAT org is suspended or deactivated. Not a sign-out: a session spans orgs,
+	// and the person may still be active in another. The BFF middleware relays it
+	// as 403 and never tears the session down.
+	ErrCodeUserSuspended ErrorCode = "user_suspended"
+	// ErrCodeEscortSuspended (403 from the issuer, ADR-104 R-d): the BFF's own
+	// /auth/* escort account is suspended or deactivated. A service problem, not
+	// the user's; the BFF middleware relays it as 503, session untouched.
+	ErrCodeEscortSuspended ErrorCode = "escort_suspended"
 	// ErrCodeLastOwner (409) is returned by BOTH owner-protection paths on the
 	// issuer: changing the owner's role, and DEACTIVATING the owner. The remedy
 	// is to transfer ownership first (ADR-076).
@@ -338,6 +347,27 @@ func IsTokenStale(err error) bool {
 	return re.Code == ErrCodeTokenStale
 }
 
+// IsUserSuspended reports whether err is the issuer's 403 user_suspended: the
+// subject's row in this org is suspended or deactivated (ADR-104 R-d). Do not
+// sign the user out of their other orgs.
+func IsUserSuspended(err error) bool {
+	var re *RealmError
+	if !errors.As(err, &re) {
+		return false
+	}
+	return re.Code == ErrCodeUserSuspended
+}
+
+// IsEscortSuspended reports whether err is the issuer's 403 escort_suspended:
+// the BFF's own escort account is disabled (ADR-104 R-d). A service problem.
+func IsEscortSuspended(err error) bool {
+	var re *RealmError
+	if !errors.As(err, &re) {
+		return false
+	}
+	return re.Code == ErrCodeEscortSuspended
+}
+
 // IsTimeout reports whether err originated from a context cancellation
 // or deadline (the request context was cut before the issuer replied),
 // regardless of how many layers of *RealmError wrap it. Callers map
@@ -392,6 +422,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeRealmMismatch:       {},
 	ErrCodeMissingOrigin:       {}, ErrCodeRefreshInvalid: {},
 	ErrCodeTokenStale: {}, ErrCodeLastOwner: {},
+	ErrCodeUserSuspended: {}, ErrCodeEscortSuspended: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},

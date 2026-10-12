@@ -13,6 +13,14 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.65.1` — typed `user_suspended` / `escort_suspended` (issuer ADR-104 R-d)
+
+Go only; ts/java register the codes in source (taxonomy parity) but stay HELD, unreleased (`TODO.md`). SPEC §3.1.
+
+### Added — go `0.65.1`
+- `ErrCodeUserSuspended`, `ErrCodeEscortSuspended` (in `knownCodes`) and `IsUserSuspended(err)` / `IsEscortSuspended(err)`.
+- The BFF middleware (`respondAuthFail`: refresh, login, MFA verify/recovery) and `ProxyStatus` relay `user_suspended` as 403 and `escort_suspended` as **503** with the real code. Neither clears the refresh cookie nor writes the SessionStore: a session spans orgs, so a suspension in one org must not end it. Neither is a token-level refresh failure (`tokenLevelErr`).
+
 ## go `0.65.0` — ADR-111 credential reset, change at sign-in, password policy (UNRELEASED)
 
 Go only in this entry; Java is out of this release (`TODO.md` "Java has no ADR-111 credential-reset surface"). SPEC §3.1, §4.1.4, §4.1.8, §4.10, §6.3. Issuer spec `0.53.0`.

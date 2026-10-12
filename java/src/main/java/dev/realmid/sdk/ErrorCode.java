@@ -121,6 +121,19 @@ public enum ErrorCode {
     TOKEN_STALE("token_stale"),
 
     /**
+     * {@code user_suspended} (403, issuer ADR-104 R-d): the subject's row in THAT
+     * org is suspended or deactivated. Not a sign-out; the person may be active
+     * in another org.
+     */
+    USER_SUSPENDED("user_suspended"),
+
+    /**
+     * {@code escort_suspended} (403 from the issuer, ADR-104 R-d): the BFF's own
+     * /auth/* escort account is disabled. A service problem, not the user's.
+     */
+    ESCORT_SUSPENDED("escort_suspended"),
+
+    /**
      * {@code last_owner} (409) is returned by BOTH owner-protection paths:
      * changing the owner's role, and DEACTIVATING the owner. Transfer ownership
      * first (ADR-076).
