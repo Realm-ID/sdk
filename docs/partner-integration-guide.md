@@ -514,6 +514,7 @@ SDK sends its platform bearer, which must belong to the token's realm or the ans
 insp, err := realm.Auth.InspectPasswordReset(ctx, token)      // insp.ExpiresAt
 // 2. on submit
 _, err = realm.Auth.ConsumePasswordReset(ctx, token, newPassword) // nil = password set; sessions ended by it are revoked locally (revoked_sids)
+// own password (signed in): realm.Me.SetPassword(ctx, realmid.SetPasswordRequest{MeAuth: ..., CurrentPassword: old, NewPassword: new}) // other sessions revoked locally too
 ```
 
 ```http

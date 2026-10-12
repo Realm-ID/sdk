@@ -129,7 +129,7 @@ Newest first.
 
 **Problem.** Change at sign-in and reset-link consume end every session of the person in the realm, but a partner verifying tokens locally kept accepting those sessions' access tokens until expiry.
 
-**Decision (owner ruling R-e, 2026-10-12).** The issuer returns `revoked_sids` (logout's shape); the Go wrappers write each into the SessionStore via `AuthClient.revokeLocally`, extracted from `Logout` so there is one copy of the policy, including its error handling (a store write error is logged, never returned). Absent / `[]` / non-list is a no-op. `ConsumePasswordReset` now returns `(*PasswordResetConsumed, error)`: the only way to expose `RevokedSIDs`, and v0.65.0 is unreleased. ts/java stay held (`TODO.md`). `PUT /me/password` has no Go wrapper, so that third call is NOT covered; filed in `TODO.md` for an owner call on its shape.
+**Decision (owner ruling R-e, 2026-10-12).** The issuer returns `revoked_sids` (logout's shape); the Go wrappers write each into the SessionStore via `AuthClient.revokeLocally`, extracted from `Logout` so there is one copy of the policy, including its error handling (a store write error is logged, never returned). Absent / `[]` / non-list is a no-op. `ConsumePasswordReset` now returns `(*PasswordResetConsumed, error)`: the only way to expose `RevokedSIDs`, and v0.65.0 is unreleased. ts/java stay held (`TODO.md`). The third call, `PUT /me/password`, is `MeClient.SetPassword` (owner ruling: build it in v0.65.0); it sits on `realm.Me` with `MeAuth` rather than `AuthClient`, because every other `/me/*` wrapper takes that lane option.
 
 ## 2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env
 

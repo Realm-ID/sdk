@@ -1548,6 +1548,7 @@ fragment is the page's job (partner guide § Password reset links).
 |---|---|---|---|---|
 | inspect | `AuthClient.InspectPasswordReset(ctx, token string) (*PasswordResetInspection, error)` | `auth.inspectPasswordReset(token)` | `POST /auth/password/reset/inspect {token}` | `200 {expires_at}` → `{ ExpiresAt time.Time }` / `{ expires_at: string }` |
 | consume | `AuthClient.ConsumePasswordReset(ctx, token, newPassword string) (*PasswordResetConsumed, error)` | `auth.consumePasswordReset(token, newPassword)` | `POST /auth/password/reset {token, new_password}` | `200 {status: "password_set", revoked_sids?}` → Go `{ RevokedSIDs []string }` (ADR-104 R-e: each sid is written to the SessionStore, like logout) / ts resolves `void` (HELD) |
+| set own password | `MeClient.SetPassword(ctx, SetPasswordRequest{MeAuth, CurrentPassword, NewPassword}) (*PasswordSet, error)` | held (ts) | `PUT /me/password {current_password?, new_password}` | `200 {status: "updated", revoked_sids?}` → Go `{ Status, RevokedSIDs []string }` (ADR-104 R7e/R-e: both /me lanes; each sid written to the SessionStore, like logout) |
 
 - **Inspect writes nothing.** It exists so a page can show invalid / expired /
   used / superseded BEFORE asking for a password. A `200` is not a reservation:

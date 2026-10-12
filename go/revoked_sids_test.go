@@ -42,6 +42,7 @@ func newRSIDEnv(t *testing.T, store SessionStateStore, extra map[string]any) *rs
 	srv := mwTestServer(t, []jwk{key}, testAud, map[string]http.HandlerFunc{
 		"/auth/login":          reply(map[string]any{"access_token": "a", "refresh_token": "r", "user": map[string]any{"id": "u"}}),
 		"/auth/password/reset": reply(map[string]any{"status": "password_set"}),
+		"/me/password":         reply(map[string]any{"status": "updated"}),
 	})
 	t.Cleanup(srv.Close)
 	e.srv = srv.URL
@@ -73,6 +74,13 @@ var rsidCalls = []rsidCall{
 			return nil, err
 		}
 		return s.RevokedSIDs, nil
+	}},
+	{"me_set_password", func(e *rsidEnv) ([]string, error) {
+		out, err := e.r.Me.SetPassword(context.Background(), SetPasswordRequest{MeAuth: MeAuth{UserBearer: "ub"}, NewPassword: "a-long-new-password"})
+		if err != nil {
+			return nil, err
+		}
+		return out.RevokedSIDs, nil
 	}},
 	{"consume_password_reset", func(e *rsidEnv) ([]string, error) {
 		out, err := e.r.Auth.ConsumePasswordReset(context.Background(), "tok", "a-long-new-password")
