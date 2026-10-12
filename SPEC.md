@@ -240,8 +240,10 @@ SDK failure. It carries:
 > (`user_api_keys_handlers.go`); it is relayed with the status as sent.
 > `OnAuthFailure` observes the status the SPA is shown (503 for `escort_suspended`).
 > If an MFA verify / recovery succeeds at the issuer but the tenant mint after it is
-> refused, the middleware still writes the ROTATED refresh token to the cookie (cookie
-> delivery), so the next refresh does not present the spent token.
+> REFUSED BY THE ISSUER and the browser had a prior session, the middleware still hands
+> back the ROTATED refresh token (cookie delivery: written to the cookie; body delivery:
+> `refresh_token` in the error body), so the next refresh does not present the spent
+> token. It does not do so for a partner-hook refusal or for first-login MFA.
 >
 > **Breaking (go 0.66.0):** since issuer `8c1c216` callers received
 > `code: forbidden` with `details.server_code = "user_suspended"`; registering the code

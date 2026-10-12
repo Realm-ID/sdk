@@ -650,8 +650,8 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 		}
 	}
 	if err != nil {
-		r.keepRotatedCookie(w, opts, out, err)
-		r.respondAuthFail(w, req, opts, stageMFAVerify, asRealmError(err))
+		extra := r.keepRotatedToken(w, opts, lockKey, err)
+		r.respondAuthFail(w, req, opts, stageMFAVerify, asRealmError(err), extra)
 		return
 	}
 
@@ -713,8 +713,8 @@ func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts
 		}
 	}
 	if err != nil {
-		r.keepRotatedCookie(w, opts, out, err)
-		r.respondAuthFail(w, req, opts, stageMFARecovery, asRealmError(err))
+		extra := r.keepRotatedToken(w, opts, lockKey, err)
+		r.respondAuthFail(w, req, opts, stageMFARecovery, asRealmError(err), extra)
 		return
 	}
 
@@ -740,7 +740,7 @@ func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts
 
 // ---- helpers ----
 
-func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions, stage string, err *RealmError) {
+func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions, stage string, err *RealmError, extra ...map[string]any) {
 	r.logger.Warn("realmid auth failure",
 		slog.String("code", string(err.Code)),
 		slog.String("stage", stage),
@@ -772,6 +772,11 @@ func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *
 			continue // never clobber the envelope
 		}
 		body[k] = v
+	}
+	for _, m := range extra {
+		for k, v := range m {
+			body[k] = v
+		}
 	}
 	writeJSON(w, status, body)
 }
@@ -1078,31 +1083,56 @@ func (r *Realm) ClearRefreshCookie(w http.ResponseWriter, opts MiddlewareOptions
 	clearRefreshCookie(w, &opts)
 }
 
-// keepRotatedCookie writes the refresh token the issuer rotated to when an MFA
-// verify/recovery succeeded at the issuer but the tenant mint after it failed
-// (*LoginMintError). Without it the cookie keeps the SPENT token, and the next
-// refresh trips the issuer's reuse detection (ADR-109 D6) and revokes the whole
-// session. Cookie delivery only: with TokenDelivery "body" there is no body to
-// carry it on an error response.
-func (r *Realm) keepRotatedCookie(w http.ResponseWriter, opts *MiddlewareOptions, out *Session, err error) {
+// keepRotatedToken preserves the refresh token the issuer rotated to when an
+// MFA verify/recovery succeeded at the issuer but the tenant mint after it was
+// REFUSED BY THE ISSUER (*LoginMintError whose Err is directly a *RealmError).
+// Without it the browser keeps the SPENT token, and its next refresh trips the
+// issuer's reuse detection (ADR-109 D6) and revokes the whole session.
+//
+// Only when there was a prior session (lockKey != ""): first-login MFA has no
+// session in the browser, and an error response must not create one (login's
+// identical failure writes none). And never for a partner-hook refusal
+// (*IdentityResolvedError, *ScopesError, *ProductRolesError): the documented
+// contract is that no session reaches the browser then.
+//
+// Cookie delivery writes the cookie; body delivery returns the token for the
+// caller to put in the error body (refresh_flight.go does the same on 503).
+func (r *Realm) keepRotatedToken(w http.ResponseWriter, opts *MiddlewareOptions, lockKey string, err error) map[string]any {
+	if lockKey == "" {
+		return nil
+	}
+	var lme *LoginMintError
+	if !errors.As(err, &lme) || lme.Session == nil || lme.Session.RefreshToken == "" {
+		return nil
+	}
+	if _, issuer := lme.Err.(*RealmError); !issuer {
+		return nil
+	}
 	if opts.TokenDelivery == "body" {
-		return
+		return map[string]any{"refresh_token": lme.Session.RefreshToken}
 	}
-	if tok := rotatedRefreshToken(out, err); tok != "" {
-		setRefreshCookie(w, opts, tok)
-	}
+	setRefreshCookie(w, opts, lme.Session.RefreshToken)
+	return nil
 }
 
 func asRealmError(err error) *RealmError {
 	if err == nil {
 		return nil
 	}
-	// errors.As, not a type assertion: a post-login / post-MFA tenant-mint
-	// refusal arrives wrapped in *LoginMintError, and flattening it to
-	// server_error hid the issuer's real code (user_suspended, escort_suspended).
-	var re *RealmError
-	if errors.As(err, &re) {
+	// The error itself, or the ISSUER's refusal sitting DIRECTLY inside a
+	// *LoginMintError (a post-login / post-MFA tenant mint): flattening that to
+	// server_error hid the issuer's real code (user_suspended, escort_suspended,
+	// mfa_required, session_limit_reached). Deliberately NOT errors.As: that
+	// would dig through ProductRolesError / ScopesError / IdentityResolvedError
+	// into whatever a partner hook wrapped with %w and leak its code, status and
+	// Details to the SPA (identity_resolved.go).
+	if re, ok := err.(*RealmError); ok {
 		return re
+	}
+	if lme, ok := err.(*LoginMintError); ok {
+		if re, ok := lme.Err.(*RealmError); ok {
+			return re
+		}
 	}
 	return &RealmError{Code: ErrCodeServerError, Message: err.Error(), Cause: err}
 }

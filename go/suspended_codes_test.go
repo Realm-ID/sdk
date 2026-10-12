@@ -13,6 +13,7 @@ package realmid
 import (
 	ctxpkg "context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,7 +118,7 @@ var suspCases = []suspCase{
 // (handing back rotated refresh token "rt-rotated" and a tenant) and the
 // follow-up /auth/token MINT is refused, so the error reaches the middleware
 // wrapped in *LoginMintError.
-func suspHarness(t *testing.T, body string, mint bool, onFail func(*AuthFailureEvent)) (http.Handler, *spyStore) {
+func suspHarness(t *testing.T, body string, mint bool, onFail func(*AuthFailureEvent), delivery ...string) (http.Handler, *spyStore) {
 	t.Helper()
 	sign, key := mintTestKey(t, "k1")
 	refuse := func(w http.ResponseWriter, _ *http.Request) {
@@ -157,6 +158,9 @@ func suspHarness(t *testing.T, body string, mint bool, onFail func(*AuthFailureE
 		t.Fatal(err)
 	}
 	opts := MiddlewareOptions{RecoveryPath: "/mfa/recovery"}
+	if len(delivery) > 0 {
+		opts.TokenDelivery = delivery[0]
+	}
 	if onFail != nil {
 		opts.OnAuthFailure = func(_ ctxpkg.Context, ev *AuthFailureEvent) { onFail(ev) }
 	}
@@ -249,5 +253,110 @@ func TestSuspendedCodes_OnAuthFailureSeesRelayedStatus(t *testing.T) {
 				t.Errorf("hook saw %d, response %d, want both %d", seen, w.Code, tc.wantStatus)
 			}
 		})
+	}
+}
+
+// ---- narrowing: only the ISSUER's refusal is relayed; partner hooks never are ----
+
+const hookWrapMsg = "partner hook internals"
+
+// hookHarness: the issuer accepts login / MFA / refresh, and the partner's
+// OnIdentityResolved hook refuses with a wrapped SDK error carrying its own code,
+// status and Details. Nothing of that may reach the SPA.
+func hookHarness(t *testing.T, delivery string) http.Handler {
+	t.Helper()
+	sign, key := mintTestKey(t, "k1")
+	session := func(w http.ResponseWriter, _ *http.Request) {
+		now := time.Now().Unix()
+		access := sign(map[string]any{"iss": "x", "sub": "u1", "aud": testAud, "iat": now, "exp": now + 600})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","access_token":"` + access +
+			`","refresh_token":"rt-rotated","expires_in":900,"tenant_id":"t1","role":"member"}`))
+	}
+	srv := mwTestServer(t, []jwk{key}, testAud, map[string]http.HandlerFunc{
+		"/auth/token": session, "/auth/login": session,
+		"/auth/mfa/verify": session, "/auth/mfa/recovery": session,
+	})
+	t.Cleanup(srv.Close)
+	r, err := NewRealm(Config{
+		SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "k", BaseURL: srv.URL,
+		OnIdentityResolved: func(_ ctxpkg.Context, _ *IdentityResolvedEvent) error {
+			return fmt.Errorf("%s: %w", hookWrapMsg, &RealmError{
+				Code: ErrCodeForbidden, HTTPStatus: 403, Message: hookWrapMsg,
+				Details: map[string]any{"leak": "yes"},
+			})
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r.Middleware(MiddlewareOptions{RecoveryPath: "/mfa/recovery", TokenDelivery: delivery})(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+}
+
+func driveWith(h http.Handler, path string, cookie bool, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest("POST", path, strings.NewReader(body))
+	if cookie {
+		req.AddCookie(&http.Cookie{Name: "realmid_refresh", Value: "rt-spent"})
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	return w
+}
+
+const mfaReqBody = `{"tenant_id":"t1","method":"firebase","provider_token":"p","challenge_token":"c","code":"1","refresh_token":"rt-spent"}`
+
+// A partner-wrapped SDK error answers 401 server_error on login, MFA and refresh,
+// leaks nothing, and an MFA hook refusal writes NO cookie (documented contract).
+func TestSuspendedCodes_PartnerHookRefusalIsNotRelayedAndWritesNoCookie(t *testing.T) {
+	for _, path := range []string{"/login", "/mfa/verify", "/mfa/recovery", "/token"} {
+		t.Run(path, func(t *testing.T) {
+			w := driveWith(hookHarness(t, ""), path, true, mfaReqBody)
+			if w.Code != 401 || !strings.Contains(w.Body.String(), `"code":"server_error"`) {
+				t.Fatalf("status %d body %s, want 401 server_error", w.Code, w.Body.String())
+			}
+			if strings.Contains(w.Body.String(), "leak") || strings.Contains(w.Body.String(), `"code":"forbidden"`) {
+				t.Errorf("partner hook internals leaked to the SPA: %s", w.Body.String())
+			}
+			if c, ok := refreshCookie(w); ok {
+				t.Errorf("cookie written for a hook refusal: %+v", c)
+			}
+		})
+	}
+}
+
+// First-login MFA (no prior session in the browser): an error response must not
+// CREATE one, even on an issuer refusal (login's identical failure writes none).
+func TestSuspendedCodes_FirstLoginMFARefusalWritesNoCookie(t *testing.T) {
+	for _, path := range []string{"/mfa/verify", "/mfa/recovery"} {
+		t.Run(path, func(t *testing.T) {
+			h, _ := suspHarness(t, userSuspendedBody, true, nil)
+			w := driveWith(h, path, false, `{"tenant_id":"t1","challenge_token":"c","code":"1"}`)
+			if w.Code != 403 {
+				t.Fatalf("status %d: %s", w.Code, w.Body.String())
+			}
+			if c, ok := refreshCookie(w); ok {
+				t.Errorf("first-login MFA error response created a session cookie: %+v", c)
+			}
+		})
+	}
+}
+
+// TokenDelivery "body": the rotated token rides in the error body (same rule as
+// the cookie: issuer refusal + prior session), as refresh_flight.go does on 503.
+func TestSuspendedCodes_BodyDeliveryCarriesRotatedTokenOnIssuerRefusal(t *testing.T) {
+	for _, path := range []string{"/mfa/verify", "/mfa/recovery"} {
+		t.Run(path, func(t *testing.T) {
+			h, _ := suspHarness(t, userSuspendedBody, true, nil, "body")
+			w := driveWith(h, path, false, mfaReqBody)
+			if w.Code != 403 || !strings.Contains(w.Body.String(), `"refresh_token":"rt-rotated"`) {
+				t.Fatalf("status %d body %s, want 403 carrying refresh_token rt-rotated", w.Code, w.Body.String())
+			}
+		})
+	}
+	// ...but not for a partner-hook refusal.
+	w := driveWith(hookHarness(t, "body"), "/mfa/verify", false, mfaReqBody)
+	if strings.Contains(w.Body.String(), "refresh_token") {
+		t.Errorf("hook refusal leaked a refresh token into the body: %s", w.Body.String())
 	}
 }

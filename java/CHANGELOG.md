@@ -4,6 +4,13 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## Unreleased (HELD) — `USER_SUSPENDED` / `ESCORT_SUSPENDED` registered
+
+Source only (taxonomy parity with go `0.66.0`); no version bump, not released.
+
+### Breaking (when this releases)
+- `user_suspended` becomes a registered `ErrorCode`. Before, it arrived as `FORBIDDEN` with `server_code = "user_suspended"`; a registered code lands on the code and leaves `server_code`. Branch on both during migration.
+
 ## 0.50.0 — lockstep release with issuer `v0.126.0` / spec `0.48.0`, no code change (2026-09-21)
 
 No behaviour change and no API change. Released in lockstep with the issuer's

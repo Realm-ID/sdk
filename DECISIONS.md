@@ -12,7 +12,7 @@ Newest first.
 
 112 entries total — 57 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
-- [2026-10-12 — 2026-10-12 (Go v0.65.1, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown](#2026-10-12--2026-10-12-go-v0651-adr-104-r-d--typed-user_suspended--escort_suspended-relayed-without-session-teardown)
+- [2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown](#2026-10-12-go-v0660-adr-104-r-d--typed-user_suspended--escort_suspended-relayed-without-session-teardown)
 - [2026-10-12 (Go v0.65.0, ADR-104 R-e) — whole-identity revokes feed the SessionStore through Logout's helper](#2026-10-12-go-v0650-adr-104-r-e--whole-identity-revokes-feed-the-sessionstore-through-logouts-helper)
 - [2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env](#2026-10-06-test-hygiene--release-checktestsh-keeps-its-fixtures-in-scratch-and-scrubs-hook-inherited-git-env)
 - [2026-10-03 (Go v0.64.2, OQ-7) — a direct MFA verify / recovery redeem opts into the refresh lock by taking the refresh token](#2026-10-03-go-v0642-oq-7--a-direct-mfa-verify--recovery-redeem-opts-into-the-refresh-lock-by-taking-the-refresh-token)
@@ -126,11 +126,11 @@ Newest first.
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
 
-## 2026-10-12 — 2026-10-12 (Go v0.65.1, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown
+## 2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown
 
 **Context.** Issuer ADR-104 R-d (owner, 2026-10-12) makes the issuer answer `403 user_suspended` (the token's subject row in that org is suspended/deactivated) and `403 escort_suspended` (the BFF's /auth/* escort account is disabled). The Go SDK had neither code, so both flattened to generic `forbidden`.
 
-**Owner rulings (2026-10-12).** R1: Go v0.65.1 adds `ErrCodeUserSuspended`, `ErrCodeEscortSuspended`, knownCodes entries and `IsUserSuspended`/`IsEscortSuspended`. R2: the BFF middleware relays both with the real code and NEVER tears the session down (no cookie clear, no SessionStore write), because a session spans orgs: someone suspended in org B may be active in org A. `user_suspended` reaches the SPA as 403; `escort_suspended` as 503 so it reads as a service problem. `tokenLevelErr` must not treat either as token-level. R3: ts/java stay held; both codes are registered in their source only so `taxonomy-parity.py` passes.
+**Owner rulings (2026-10-12).** R1: Go v0.66.0 (first written as v0.65.1) adds `ErrCodeUserSuspended`, `ErrCodeEscortSuspended`, knownCodes entries and `IsUserSuspended`/`IsEscortSuspended`. R2: the BFF middleware relays both with the real code and NEVER tears the session down (no cookie clear, no SessionStore write), because a session spans orgs: someone suspended in org B may be active in org A. `user_suspended` reaches the SPA as 403; `escort_suspended` as 503 so it reads as a service problem. `tokenLevelErr` must not treat either as token-level. R3: ts/java stay held; both codes are registered in their source only so `taxonomy-parity.py` passes.
 
 **Decision / how.** `respondAuthFail` (shared by refresh, login, MFA verify, MFA recovery) and `ProxyStatus` both go through one helper, `relayStatus`, which maps escort_suspended to 503. `respondAuthFail` already never touched cookie or store; tests pin that per route. Fake issuer bodies use the issuer's real flat shape `{"error":"...","code":"..."}` (apiErr.Response()).
 

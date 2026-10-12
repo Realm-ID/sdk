@@ -12,7 +12,7 @@ const ProxyCodeUpstreamTimeout = "upstream_timeout"
 //
 // Every partner BFF fronting the issuer needs exactly this, and getting it
 // wrong breaks the SPA's gates SILENTLY — the call fails, the modal never
-// opens, and the user sees a dead button. The three non-obvious rules:
+// opens, and the user sees a dead button. The non-obvious rules:
 //
 //  1. DETAILS ARE PRESERVED. The issuer nests gate payloads inside the error
 //     envelope: `revocation_token` + `active_sessions` on a
@@ -26,6 +26,9 @@ const ProxyCodeUpstreamTimeout = "upstream_timeout"
 //     branch is what makes the documented 504 reachable.
 //  3. AN UNRECOGNISED ERROR IS 502, not 500. We are a proxy; a failure we
 //     cannot classify happened between us and the issuer.
+//  4. escort_suspended IS 503. The issuer sends 403 for the BFF's own disabled
+//     escort account; relaying 403 would read as the user being refused
+//     (ADR-104 R-d).
 //
 // Returns:
 //
