@@ -8,6 +8,7 @@ import (
 	// positive in SDK code (see sdk/CLAUDE.md).
 	ctxpkg "context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -649,6 +650,7 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 		}
 	}
 	if err != nil {
+		r.keepRotatedCookie(w, opts, out, err)
 		r.respondAuthFail(w, req, opts, stageMFAVerify, asRealmError(err))
 		return
 	}
@@ -711,6 +713,7 @@ func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts
 		}
 	}
 	if err != nil {
+		r.keepRotatedCookie(w, opts, out, err)
 		r.respondAuthFail(w, req, opts, stageMFARecovery, asRealmError(err))
 		return
 	}
@@ -744,11 +747,6 @@ func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *
 		slog.String("path", req.URL.Path),
 		slog.Int("http_status", err.HTTPStatus),
 	)
-	// Observe-only (ADR-065): the hook never owns the response; the
-	// middleware always writes the canonical envelope below.
-	if opts.OnAuthFailure != nil {
-		opts.OnAuthFailure(req.Context(), &AuthFailureEvent{Stage: stage, Err: err, Request: req})
-	}
 	status := err.HTTPStatus
 	if status == 0 {
 		status = 401
@@ -756,6 +754,16 @@ func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *
 	// Relay only: user_suspended / escort_suspended never tear the session down
 	// (a session spans orgs); escort_suspended is shown as a 503.
 	status = relayStatus(err, status)
+	// Observe-only (ADR-065): the hook never owns the response; the
+	// middleware always writes the canonical envelope below. It sees the status
+	// the SPA will get (a copy, so the caller's error is not mutated).
+	if opts.OnAuthFailure != nil {
+		seen := *err
+		if seen.HTTPStatus != 0 {
+			seen.HTTPStatus = status
+		}
+		opts.OnAuthFailure(req.Context(), &AuthFailureEvent{Stage: stage, Err: &seen, Request: req})
+	}
 	body := map[string]any{
 		"error": map[string]any{"code": string(err.Code), "message": err.Message},
 	}
@@ -1070,11 +1078,30 @@ func (r *Realm) ClearRefreshCookie(w http.ResponseWriter, opts MiddlewareOptions
 	clearRefreshCookie(w, &opts)
 }
 
+// keepRotatedCookie writes the refresh token the issuer rotated to when an MFA
+// verify/recovery succeeded at the issuer but the tenant mint after it failed
+// (*LoginMintError). Without it the cookie keeps the SPENT token, and the next
+// refresh trips the issuer's reuse detection (ADR-109 D6) and revokes the whole
+// session. Cookie delivery only: with TokenDelivery "body" there is no body to
+// carry it on an error response.
+func (r *Realm) keepRotatedCookie(w http.ResponseWriter, opts *MiddlewareOptions, out *Session, err error) {
+	if opts.TokenDelivery == "body" {
+		return
+	}
+	if tok := rotatedRefreshToken(out, err); tok != "" {
+		setRefreshCookie(w, opts, tok)
+	}
+}
+
 func asRealmError(err error) *RealmError {
 	if err == nil {
 		return nil
 	}
-	if re, ok := err.(*RealmError); ok {
+	// errors.As, not a type assertion: a post-login / post-MFA tenant-mint
+	// refusal arrives wrapped in *LoginMintError, and flattening it to
+	// server_error hid the issuer's real code (user_suspended, escort_suspended).
+	var re *RealmError
+	if errors.As(err, &re) {
 		return re
 	}
 	return &RealmError{Code: ErrCodeServerError, Message: err.Error(), Cause: err}

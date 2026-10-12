@@ -13,11 +13,19 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go `0.65.1` — typed `user_suspended` / `escort_suspended` (issuer ADR-104 R-d)
+## go `0.66.0` — typed `user_suspended` / `escort_suspended` (issuer ADR-104 R-d) (UNRELEASED)
 
 Go only; ts/java register the codes in source (taxonomy parity) but stay HELD, unreleased (`TODO.md`). SPEC §3.1.
 
-### Added — go `0.65.1`
+### Breaking — go `0.66.0`
+- `user_suspended` is now a registered code. Since issuer `8c1c216` callers got `Code == forbidden` with `Details["server_code"] == "user_suspended"` (and the middleware echoed `server_code` top-level); a registered code lands on `Code` and is no longer duplicated into `server_code` (SPEC §3.1). **Branch on both during migration:** `IsUserSuspended(err)`, or `forbidden` + `server_code`.
+
+### Fixed — go `0.66.0`
+- The middleware's `asRealmError` used a type assertion, so a post-login / post-MFA tenant-mint refusal wrapped in `*LoginMintError` was flattened to 401 `server_error`. It uses `errors.As` now (login, MFA verify, MFA recovery).
+- MFA verify / recovery: when the issuer rotated the refresh token but the tenant mint was refused, the cookie kept the SPENT token (the rotated one lived only in a 5 s outcome), so the next refresh tripped reuse detection (ADR-109 D6) and revoked the session. The rotated token is now written to the cookie (cookie delivery).
+- `OnAuthFailure` sees the relayed status (503 for `escort_suspended`).
+
+### Added — go `0.66.0`
 - `ErrCodeUserSuspended`, `ErrCodeEscortSuspended` (in `knownCodes`) and `IsUserSuspended(err)` / `IsEscortSuspended(err)`.
 - The BFF middleware (`respondAuthFail`: refresh, login, MFA verify/recovery) and `ProxyStatus` relay `user_suspended` as 403 and `escort_suspended` as **503** with the real code. Neither clears the refresh cookie nor writes the SessionStore: a session spans orgs, so a suspension in one org must not end it. Neither is a token-level refresh failure (`tokenLevelErr`).
 

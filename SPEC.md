@@ -235,7 +235,18 @@ SDK failure. It carries:
 > a person suspended in org B may still be active in org A.
 > `user_suspended` reaches the SPA as **403**; `escort_suspended` reaches it as
 > **503** (a service problem, not the user's own sign-out). `ProxyStatus` applies
-> the same mapping. Neither code is a token-level failure.
+> the same mapping. Neither code is a token-level failure. The issuer also sends
+> `user_suspended` with **401** on the user-API-key exchange
+> (`user_api_keys_handlers.go`); it is relayed with the status as sent.
+> `OnAuthFailure` observes the status the SPA is shown (503 for `escort_suspended`).
+> If an MFA verify / recovery succeeds at the issuer but the tenant mint after it is
+> refused, the middleware still writes the ROTATED refresh token to the cookie (cookie
+> delivery), so the next refresh does not present the spent token.
+>
+> **Breaking (go 0.66.0):** since issuer `8c1c216` callers received
+> `code: forbidden` with `details.server_code = "user_suspended"`; registering the code
+> moves it onto `code` and off `details.server_code` (§3.1 registration rule). Branch on both
+> during migration.
 
 > `mfa_registration_required` (412) is the first-factor-ENROLLMENT variant of
 > `mfa_required`: the realm or tenant requires MFA and the user has no

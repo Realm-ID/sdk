@@ -873,8 +873,6 @@ change. Branch on the **code**, before any generic 401 handling:
 | `token_stale` | authority changed | refresh once, replay |
 | `refresh_invalid` | session is dead | re-authenticate |
 | `unauthorized` | not allowed | show the error |
-| `user_suspended` (403) | the user is suspended or deactivated in THIS org | show "not allowed in this org"; do not sign the user out of their other orgs |
-| `escort_suspended` (503 from the SDK middleware) | your backend's escort account is disabled | a service problem, not the user's: alert your operators; do not sign the user out |
 
 If you collapse every 401 into "sign the user out", you will sign people out on
 **promotion** — on a grant that just widened their access. The browser SDK
@@ -2149,6 +2147,23 @@ keyed on `error.code` silently never fires on the third:
   `forbidden` and a code derived from a bare 403 are the same value.
 - Neither ever throws, and neither ever puts raw body bytes into a message — an
   HTML error page from a load balancer degrades to a truthful `HTTP 502`.
+
+### Suspended users and a disabled escort (Go BFF middleware, `go v0.66.0`)
+
+These two codes reach your SPA through the BFF middleware or `ProxyStatus`. A partner
+verifying tokens locally with the SDK never sees `user_suspended` (issuer ADR-104 R-d is
+enforced at the issuer). The middleware relays them with the real code and **never tears the
+session down** (no cookie clear, no SessionStore revoke): a session spans orgs, so someone
+suspended in org B may still be active in org A.
+
+| code | status the SPA gets | meaning | your move |
+|---|---|---|---|
+| `user_suspended` | 403 (the issuer also sends **401** `user_suspended` on the user-API-key exchange; relayed as sent) | the user's row in THIS org is suspended or deactivated | show "not allowed in this org"; do not sign the user out of their other orgs |
+| `escort_suspended` | 503 (the issuer sends 403) | your backend's escort account is suspended or deactivated | a service problem, not the user's: alert your operators; do not sign the user out |
+
+**Breaking since `v0.66.0`:** before it, `user_suspended` arrived as `code: "forbidden"` with
+`details.server_code = "user_suspended"`. Branch on both during migration:
+`IsUserSuspended(err)`, or `code == "forbidden"` with `details.server_code == "user_suspended"`.
 
 ### `realmid.ProxyStatus` (Go) — for a BFF relaying issuer errors
 

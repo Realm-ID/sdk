@@ -4,6 +4,13 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased (HELD) — `user_suspended` / `escort_suspended` registered
+
+Source only (taxonomy parity with go `0.66.0`); no version bump, not released. `isUserSuspended` / `isEscortSuspended` added.
+
+### Breaking (when this releases)
+- `user_suspended` becomes a registered code. Before, it arrived as `code: forbidden` with `details.server_code = "user_suspended"`; a registered code lands on `code` and leaves `server_code`. Branch on both during migration.
+
 ## 0.54.0 — `Tenant.status` / `.owner` / `.config` typed per issuer swagger (2026-09-24)
 
 ### Added — closing a wire/type gap the SDK usage audit found
