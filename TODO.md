@@ -191,6 +191,16 @@ Related: the incident write-up is in the umbrella repo
 for handling this class of question is the `partner-integration-support` skill
 in the same repo.
 
+## Go middleware
+
+- [ ] **A partner-hook refusal still leaks hook wording into the SPA's error `message`.**
+      `go/middleware.go` `respondAuthFail` puts `err.Error()` of the wrapped chain into
+      `message` (e.g. "OnIdentityResolved refused the min…"), although code, status and
+      Details are correctly `401 server_error` (go/identity_resolved.go:192-194 says a hook
+      refusal must not look like the partner's own error). Pre-existing before go v0.66.0;
+      found by the v0.66.0 builder 2026-10-12. Fix: a fixed message for non-`*RealmError`
+      refusals, plus a test asserting no hook text reaches the body.
+
 ## Docs
 
 > **Regrouped 2026-09-18.** This heading held **19 open items and only 3
