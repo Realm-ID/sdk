@@ -360,3 +360,19 @@ func TestSuspendedCodes_BodyDeliveryCarriesRotatedTokenOnIssuerRefusal(t *testin
 		t.Errorf("hook refusal leaked a refresh token into the body: %s", w.Body.String())
 	}
 }
+
+// The CHANGELOG claim: other issuer mint refusals are relayed too once the
+// *LoginMintError is unwrapped. mfa_required on login becomes the 200
+// status:mfa_required reply; session_limit_reached keeps its code.
+func TestSuspendedCodes_OtherIssuerMintRefusalsAreRelayed(t *testing.T) {
+	h, _ := suspHarness(t, `{"error":{"code":"mfa_required","message":"mfa","mfa_challenge_token":"ct1"}}`, true, nil)
+	w := suspDrive(h, "/login")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"mfa_required"`) {
+		t.Errorf("mfa_required mint refusal: %d %s, want 200 status:mfa_required", w.Code, w.Body.String())
+	}
+	h, _ = suspHarness(t, `{"error":{"code":"session_limit_reached","message":"limit"}}`, true, nil)
+	w = suspDrive(h, "/login")
+	if !strings.Contains(w.Body.String(), `"code":"session_limit_reached"`) {
+		t.Errorf("session_limit_reached mint refusal not relayed: %d %s", w.Code, w.Body.String())
+	}
+}
