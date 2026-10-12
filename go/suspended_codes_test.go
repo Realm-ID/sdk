@@ -307,8 +307,10 @@ func driveWith(h http.Handler, path string, cookie bool, body string) *httptest.
 const mfaReqBody = `{"tenant_id":"t1","method":"firebase","provider_token":"p","challenge_token":"c","code":"1","refresh_token":"rt-spent"}`
 
 // A partner-wrapped SDK error answers 401 server_error on login, MFA and refresh,
-// leaks nothing, and an MFA hook refusal writes NO cookie (documented contract).
-func TestSuspendedCodes_PartnerHookRefusalIsNotRelayedAndWritesNoCookie(t *testing.T) {
+// leaks nothing. With a PRIOR session an MFA hook refusal still hands back the
+// rotated refresh token (owner ruling 2026-10-12: the existing session survives,
+// only that org is refused); /login and /token never write one.
+func TestSuspendedCodes_PartnerHookRefusalIsNotRelayedButKeepsPriorSession(t *testing.T) {
 	for _, path := range []string{"/login", "/mfa/verify", "/mfa/recovery", "/token"} {
 		t.Run(path, func(t *testing.T) {
 			w := driveWith(hookHarness(t, ""), path, true, mfaReqBody)
@@ -318,8 +320,13 @@ func TestSuspendedCodes_PartnerHookRefusalIsNotRelayedAndWritesNoCookie(t *testi
 			if strings.Contains(w.Body.String(), "leak") || strings.Contains(w.Body.String(), `"code":"forbidden"`) {
 				t.Errorf("partner hook internals leaked to the SPA: %s", w.Body.String())
 			}
-			if c, ok := refreshCookie(w); ok {
-				t.Errorf("cookie written for a hook refusal: %+v", c)
+			c, ok := refreshCookie(w)
+			if strings.HasPrefix(path, "/mfa") {
+				if !ok || c.Value != "rt-rotated" {
+					t.Errorf("prior session + hook refusal: cookie = %+v (present %v), want rotated rt-rotated", c, ok)
+				}
+			} else if ok {
+				t.Errorf("cookie written on %s for a hook refusal: %+v", path, c)
 			}
 		})
 	}
@@ -354,10 +361,17 @@ func TestSuspendedCodes_BodyDeliveryCarriesRotatedTokenOnIssuerRefusal(t *testin
 			}
 		})
 	}
-	// ...but not for a partner-hook refusal.
+	// A partner-hook refusal with a prior session: same rule (owner, 2026-10-12);
+	// the SPA is still told server_error and nothing of the hook leaks.
 	w := driveWith(hookHarness(t, "body"), "/mfa/verify", false, mfaReqBody)
+	b := w.Body.String()
+	if !strings.Contains(b, `"refresh_token":"rt-rotated"`) || !strings.Contains(b, `"code":"server_error"`) || strings.Contains(b, "leak") {
+		t.Errorf("hook refusal + prior session (body): %d %s", w.Code, b)
+	}
+	// First login (no prior session): nothing is written.
+	w = driveWith(hookHarness(t, "body"), "/mfa/verify", false, `{"tenant_id":"t1","challenge_token":"c","code":"1"}`)
 	if strings.Contains(w.Body.String(), "refresh_token") {
-		t.Errorf("hook refusal leaked a refresh token into the body: %s", w.Body.String())
+		t.Errorf("first login leaked a refresh token: %s", w.Body.String())
 	}
 }
 

@@ -1085,15 +1085,17 @@ func (r *Realm) ClearRefreshCookie(w http.ResponseWriter, opts MiddlewareOptions
 
 // keepRotatedToken preserves the refresh token the issuer rotated to when an
 // MFA verify/recovery succeeded at the issuer but the tenant mint after it was
-// REFUSED BY THE ISSUER (*LoginMintError whose Err is directly a *RealmError).
-// Without it the browser keeps the SPENT token, and its next refresh trips the
-// issuer's reuse detection (ADR-109 D6) and revokes the whole session.
+// REFUSED FOR ANY REASON (*LoginMintError: the issuer, or a partner hook such as
+// OnIdentityResolved / Scopes / ProductRoles). Without it the browser keeps the
+// SPENT token, and its next refresh trips the issuer's reuse detection
+// (ADR-109 D6) and revokes the whole session, orgs that were fine included.
 //
-// Only when there was a prior session (lockKey != ""): first-login MFA has no
-// session in the browser, and an error response must not create one (login's
-// identical failure writes none). And never for a partner-hook refusal
-// (*IdentityResolvedError, *ScopesError, *ProductRolesError): the documented
-// contract is that no session reaches the browser then.
+// Owner ruling 2026-10-12: with a PRIOR session (lockKey != "") the existing
+// session continues on its rotated token and only the refused org gets none; on
+// a FIRST login (no session in the browser) nothing is written, because an error
+// response must not create one (login's identical failure writes none). What the
+// SPA is TOLD is separate: asRealmError relays an issuer refusal's code, and a
+// partner hook's refusal stays server_error.
 //
 // Cookie delivery writes the cookie; body delivery returns the token for the
 // caller to put in the error body (refresh_flight.go does the same on 503).
@@ -1103,9 +1105,6 @@ func (r *Realm) keepRotatedToken(w http.ResponseWriter, opts *MiddlewareOptions,
 	}
 	var lme *LoginMintError
 	if !errors.As(err, &lme) || lme.Session == nil || lme.Session.RefreshToken == "" {
-		return nil
-	}
-	if _, issuer := lme.Err.(*RealmError); !issuer {
 		return nil
 	}
 	if opts.TokenDelivery == "body" {

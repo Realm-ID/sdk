@@ -107,9 +107,15 @@ const (
 //   - Direct client: the error arrives as a *LoginMintError carrying the intact
 //     session. Its refresh token is the recovery anchor (ADR-102 OQ8). Use
 //     errors.As.
-//   - Middleware: no refresh cookie is written and no session reaches the
-//     browser, but the issuer-side session is live and orphaned until it
-//     expires. Already true of a *ScopesError today; this adds no new class.
+//   - Middleware: on a FIRST login (no session in the browser) no refresh
+//     cookie is written and no session reaches the browser, but the issuer-side
+//     session is live and orphaned until it expires. Already true of a
+//     *ScopesError today; this adds no new class. When the person ALREADY had a
+//     session (MFA verify / recovery with a prior refresh token), the existing
+//     session continues with its ROTATED refresh token, written to the cookie
+//     (or the error body in body mode) so the next refresh does not present a
+//     spent token and trip reuse detection; the refused org gets no token
+//     (owner ruling 2026-10-12, go 0.66.0). The SPA is still told server_error.
 //   - REFRESH: worse, and worth knowing before an incident. The hook necessarily
 //     runs AFTER the first /auth/token, so the refresh token the caller
 //     presented has ALREADY ROTATED — an error there is an unrecoverable logout,
