@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-115 entries total — 60 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+116 entries total — 61 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — Claude Code plugin for partners (claude-plugin/)](#2026-10-14--claude-code-plugin-for-partners-claude-plugin)
 - [2026-10-14 — RCA (2026-10-14) — guide section 3 and 9 contradicted the issuer; doc-claims check added](#2026-10-14--rca-2026-10-14--guide-section-3-and-9-contradicted-the-issuer-doc-claims-check-added)
 - [2026-10-14 — 2026-10-14 (docs) — Migrating to RealmID FAQ: public-only sources, claim ids per hard rule](#2026-10-14--2026-10-14-docs--migrating-to-realmid-faq-public-only-sources-claim-ids-per-hard-rule)
 - [2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown](#2026-10-12-go-v0660-adr-104-r-d--typed-user_suspended--escort_suspended-relayed-without-session-teardown)
@@ -127,6 +128,26 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — Claude Code plugin for partners (claude-plugin/)
+
+**Decision:** one plugin (`realmid`) with one skill, `realmid-integration`. Its rules are limited
+to what `docs/migrating-to-realmid.md` states, and each cites a public GitHub anchor.
+
+- Reference files are GENERATED copies of the FAQ and `docs/error-reference.md`, written by
+  `claude-plugin/scripts/sync-references.py`, which rewrites relative links to GitHub URLs.
+  `make check` runs it with `--check` and fails on a stale copy or on 0 files compared.
+- The marketplace manifest sits at the repo root, `.claude-plugin/marketplace.json`, with source
+  `./claude-plugin`. Marketplace and plugin are both named `realmid`, so the install is
+  `/plugin marketplace add Realm-ID/sdk` then `/plugin install realmid@realmid`.
+- Gate wiring: in `scripts/preflight-check.sh` as a repo-local (non-CI) gate, following the
+  contract-parity precedent. Adding it to `ci.yml` would also need `scripts/preflight-parity.sh`.
+
+**Why:** a partner's own Claude Code session follows the FAQ's rules without us writing a second
+copy of them. It is deliberately separate from the internal RealmID-side support skill.
+
+**Trade-off:** the plugin ships offline copies, so a partner's copy ages until they update the
+plugin. Plugin version 0.1.0, bumped by hand.
 
 ## 2026-10-14 — RCA (2026-10-14) — guide section 3 and 9 contradicted the issuer; doc-claims check added
 
