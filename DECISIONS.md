@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-121 entries total — 66 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+122 entries total — 67 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — FAQ: custom claims re-sent, refresh token on backend, authorize on scopes (F2-F4)](#2026-10-14--faq-custom-claims-re-sent-refresh-token-on-backend-authorize-on-scopes-f2-f4)
 - [2026-10-14 — MFA enroll/confirm are self-only: SDK docs corrected, Go comment deferred](#2026-10-14--mfa-enrollconfirm-are-self-only-sdk-docs-corrected-go-comment-deferred)
 - [2026-10-14 — Partner guide: ADR-111 banner said NOT YET RELEASED after release](#2026-10-14--partner-guide-adr-111-banner-said-not-yet-released-after-release)
 - [2026-10-14 — Error reference: 185 rows added for previously undocumented codes](#2026-10-14--error-reference-185-rows-added-for-previously-undocumented-codes)
@@ -133,6 +134,10 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — FAQ: custom claims re-sent, refresh token on backend, authorize on scopes (F2-F4)
+
+Added three entries to docs/migrating-to-realmid.md per owner rulings of 2026-10-14 (plan F2, F3, F4): custom claims must be re-sent on every refresh and tenant switch (with limits and reserved names), keep the refresh token on the backend and run one refresh per session at a time, and authorize on scopes not on "is a service" (no access-token claim marks a service account; use an own allowlisted claim for audit). F1 stays deferred. New claim ids custom-claims-limits and custom-claims-reserved-names are pinned by existing issuer tests; the F4 and "re-sent" statements carry no Claim line because no existing test pins them (absence of a service marker is not tested). The F2 entry says claims are not kept on /auth/token; the legacy login path does store session-bound claims (authsvc service.go mergeClaims), deprecated, deliberately not documented.
 
 ## 2026-10-14 — MFA enroll/confirm are self-only: SDK docs corrected, Go comment deferred
 

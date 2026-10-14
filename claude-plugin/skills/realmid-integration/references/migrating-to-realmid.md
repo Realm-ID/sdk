@@ -406,6 +406,74 @@ organisation's `tenant_id` is sent, otherwise login answers `invalid_audience`.
 Claim: `google-signin-via-login`
 Claim: `login-tenant-optional`
 
+### Do custom claims stay on the token after a refresh?
+
+No. Send them on `POST /auth/token` (the call that refreshes, or that picks an organisation),
+and send them **again on every refresh and every tenant switch**. RealmID does not keep claims
+for you between calls on this endpoint, so a refresh that leaves `custom_claims` out returns an
+access token without them.
+
+Example: your backend adds `"plan": "pro"` when it exchanges a refresh token. Fifteen minutes
+later it refreshes again; if that call omits `custom_claims`, the new token has no `plan`. Your
+backend builds the same object each time.
+
+The limits, all enforced with a `400` that names the problem (nothing is trimmed silently):
+
+- A claim name must be on the realm's allowlist, `access_token_custom_claim_keys`, otherwise
+  `bad_request`. The allowlist holds at most **32** names, each at most **64 bytes**.
+- The `custom_claims` object may serialize to at most **4096 bytes** (`custom_claims_too_large`).
+- These names are reserved and answer `reserved_claim_key`: `iss`, `sub`, `aud`, `iat`, `nbf`,
+  `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `token_class`, `scope`,
+  `product_roles`, `sid`, `events`. They also cannot be put on the allowlist.
+
+- [Error reference](https://github.com/Realm-ID/sdk/blob/main/docs/error-reference.md).
+- Spec: `POST /auth/token`, `custom_claims`.
+
+Claim: `custom-claims-limits`
+Claim: `custom-claims-reserved-names`
+
+### Where should the refresh token live, and can two tabs refresh at once?
+
+Keep the refresh token on your **backend**, behind a cookie or a session key, never in the
+browser, the way RealmID's own backend-for-frontend does. And run **at most one refresh per
+session at a time**.
+
+Why: there is no grace window. Every refresh swaps the refresh token for a new one, and the old
+one stops working. If the old one is presented a second time, RealmID cannot tell a retry from a
+thief, so it ends the whole session.
+
+Example: a user has two tabs open, both sharing one session. Both notice the access token is
+about to expire and both ask your backend to refresh at the same moment. The first call rotates
+the token. The second still holds the old one, presents it, and the session is revoked: both tabs
+are signed out. The fix is on your side: your backend takes a lock per session (or queues the
+calls), so the second tab waits and then reuses the result of the first.
+
+- [Guide, backend-for-frontend login](https://github.com/Realm-ID/sdk/blob/main/docs/partner-integration-guide.md#architecture-summary-adr-041-bff-login)
+  and [guide, section 5](https://github.com/Realm-ID/sdk/blob/main/docs/partner-integration-guide.md#5-sessions-logout-mfa).
+
+Claim: `refresh-rotation-reuse-revokes`
+
+### How do I tell a service account from a person in a token?
+
+You do not, and you should not need to. Decide what a caller may do from what its token
+**allows** (its scopes and permissions), never from "is this a service". Give each service
+account its own narrow scopes.
+
+Example: a bot that only syncs candidates holds `candidates:sync` and nothing else. Your sync
+route requires `candidates:sync`; your admin routes require admin scopes the bot does not have.
+A person who holds `candidates:sync` could call the same route, and that is fine.
+
+Whether the caller is a person or a service is for **audit, MFA / step-up and session handling**
+only, not for deciding access.
+
+No claim on the access token marks a service account today. `token_class` is not it: it is only
+ever `platform` or `integration`, and is absent on an ordinary user token. If you need the
+distinction for your own audit log, add your own claim (for example `actor_kind`) to the realm's
+`access_token_custom_claim_keys` allowlist and send it as a custom claim on every refresh, as
+described in [Do custom claims stay on the token after a refresh?](#do-custom-claims-stay-on-the-token-after-a-refresh).
+
+- [Guide, section 3, claims you will receive](https://github.com/Realm-ID/sdk/blob/main/docs/partner-integration-guide.md#3-jwt-claims-you-will-receive).
+
 ### Do I need my own backend in the path?
 
 Yes. Every user sign-in needs a platform bearer, which only your backend holds (it comes from a

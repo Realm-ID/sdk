@@ -166,6 +166,7 @@ claims:
   - id: refresh-rotation-reuse-revokes
     doc:
       - docs/migrating-to-realmid.md#how-long-does-an-access-token-last-and-how-does-refresh-work
+      - docs/migrating-to-realmid.md#where-should-the-refresh-token-live-and-can-two-tabs-refresh-at-once
       - docs/partner-integration-guide.md#5-sessions-logout-mfa
     statement: Every refresh rotates the refresh token, and presenting an old one again revokes the whole session.
     pinned_by:
@@ -205,3 +206,17 @@ claims:
     note: No grant_type in the spec's login enum names a test user.
     pinned_by:
       - httpapi.TestDocClaim_UserAPIKeyGrantAndNoTestUser
+  - id: custom-claims-limits
+    doc:
+      - docs/migrating-to-realmid.md#do-custom-claims-stay-on-the-token-after-a-refresh
+    statement: The custom-claim allowlist holds at most 32 names of at most 64 bytes, and one custom_claims object serializes to at most 4096 bytes; over either is a 400, never trimmed.
+    pinned_by:
+      - httpapi.TestCustomClaimKeysConfig_BoundsCountAndLength
+      - httpapi.TestCustomClaimsPayload_OneKeyCanBlowTheBudget
+  - id: custom-claims-reserved-names
+    doc:
+      - docs/migrating-to-realmid.md#do-custom-claims-stay-on-the-token-after-a-refresh
+    statement: A custom claim named like a reserved JWT claim is refused with 400 reserved_claim_key, and a reserved name cannot be allowlisted.
+    pinned_by:
+      - httpapi.TestCustomClaimKeysConfig_RefusesReservedNames
+      - tokens.TestReservedClaimsCoversEveryMarshalledField
