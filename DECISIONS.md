@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-117 entries total — 62 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+118 entries total — 63 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — Docs MCP server: hosted Worker, stateless, docs-only](#2026-10-14--docs-mcp-server-hosted-worker-stateless-docs-only)
 - [2026-10-14 — error-reference: sign-in/token/escort codes, coverage test, login tenant_id rule](#2026-10-14--error-reference-sign-intokenescort-codes-coverage-test-login-tenant_id-rule)
 - [2026-10-14 — Claude Code plugin for partners (claude-plugin/)](#2026-10-14--claude-code-plugin-for-partners-claude-plugin)
 - [2026-10-14 — RCA (2026-10-14) — guide section 3 and 9 contradicted the issuer; doc-claims check added](#2026-10-14--rca-2026-10-14--guide-section-3-and-9-contradicted-the-issuer-doc-claims-check-added)
@@ -129,6 +130,29 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — Docs MCP server: hosted Worker, stateless, docs-only
+
+**What:** `mcp/` is a read-only MCP server for the partner docs, built as a Cloudflare Worker for
+`mcp.realmid.dev`. Five tools: `search_docs`, `get_section`, `get_endpoint`, `get_claim`,
+`explain_error`.
+
+- **Why a Worker, and why no npm package** (`"private": true`): owner ruling Q6 (umbrella plan
+  `2026-10-14-partner-integration-simpler.md` D5).
+- **Why docs-only:** ADR-062 says CLI first; MCP is a thin docs layer. The only network call is an
+  anonymous GET of the public served `openapi.json` (cached 10 min, stale copy on refresh failure).
+  The private `swagger.yaml` is never vendored.
+- **Transport:** the MCP TypeScript SDK's own stateless `createMcpHandler`. No Durable Objects, no
+  sessions, no auth, because the content is public. Cloudflare's `agents`/`McpAgent` was rejected
+  as heavier.
+- **Content:** docs are bundled at build time (`scripts/build-index.mjs`), with no runtime fetch. The
+  worker reports the sdk commit it was built from (`realmid://about`, `GET /`, `source` in tool
+  output).
+- **Deploy:** manual `workflow_dispatch` only (`.github/workflows/deploy-mcp.yml`), needing a
+  `CLOUDFLARE_API_TOKEN` secret that does not exist yet. Not deployed.
+- **Gate:** `npm test` runs in `scripts/preflight-check.sh` (repo-local, not in `ci.yml`).
+- **Traps:** wrangler 4.151 needs Node >= 22 for `dev`/deploy (`npm test` works on 20); vitest is
+  pinned to ^3.2.4 because npm 10 crashed with vitest 5.
 
 ## 2026-10-14 — error-reference: sign-in/token/escort codes, coverage test, login tenant_id rule
 
