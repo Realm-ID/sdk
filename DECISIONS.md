@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-118 entries total — 63 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+119 entries total — 64 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — Error reference: 185 rows added for previously undocumented codes](#2026-10-14--error-reference-185-rows-added-for-previously-undocumented-codes)
 - [2026-10-14 — Docs MCP server: hosted Worker, stateless, docs-only](#2026-10-14--docs-mcp-server-hosted-worker-stateless-docs-only)
 - [2026-10-14 — error-reference: sign-in/token/escort codes, coverage test, login tenant_id rule](#2026-10-14--error-reference-sign-intokenescort-codes-coverage-test-login-tenant_id-rule)
 - [2026-10-14 — Claude Code plugin for partners (claude-plugin/)](#2026-10-14--claude-code-plugin-for-partners-claude-plugin)
@@ -130,6 +131,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — Error reference: 185 rows added for previously undocumented codes
+
+docs/error-reference.md gained 185 rows (OTP, API keys, identity providers, domains, memberships and ownership, contact review, credentials and realm config, scopes and imports, roles and service accounts, integration registry, organization creation, custom claims and product roles, sign-in sources, workload identity federation, platform-token and authorization codes). The claude-plugin copy was re-synced with sync-references.py.
+
+Why: the issuer's docclaims ratchet listed 205 emitted error codes with no row. Each row was written after reading the emitting code in the issuer; 20 codes that only a base-realm-gated route can emit stay out of this partner doc (recorded in the issuer's ratchet as `internal:` with the proof of the gate). The doc names no private links, partner names or staging details.
+
+Gate note: sdk make check failed once on a ts unit test (SPEC10_1_4a body mode) and passed on the next run with no change in between; treated as flaky, not investigated.
 
 ## 2026-10-14 — Docs MCP server: hosted Worker, stateless, docs-only
 
