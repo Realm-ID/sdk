@@ -415,13 +415,13 @@ re-serialises it, use go `0.53.1` / ts `0.46.1` / java `0.43.1` or later. The
 transit, silently — credential sign-in was unreachable from any BFF-fronted
 console.
 
-### Password reset links and change at sign-in (ADR-111, ADR-104 amendment — issuer spec `0.53.0`, NOT YET RELEASED)
+### Password reset links and change at sign-in (ADR-111, ADR-104 amendment — issuer spec `0.53.0`, live since issuer `v0.134.0`)
 
-> **Status, 2026-10-09: specified, not shipped.** Targets issuer `v0.134.0` (spec `0.53.0`),
-> go SDK `v0.65.0`, ts `0.55.0`, `@realm-id/web-admin` `0.22.0`. **No Java SDK support in that
-> release** — Java callers use the HTTP routes below. Until the issuer release is live, the
-> previous section describes production. SDK contract: [`SPEC.md`](../SPEC.md) §3.1, §4.1.4,
-> §4.1.8, §4.10, §6.3.
+> **Status, 2026-10-14: live.** The issuer side (spec `0.53.0`) has been in production since
+> issuer `v0.134.0` (2026-10-13), and the Go SDK carries it from `v0.65.0`. The TypeScript SDK and
+> `@realm-id/web-admin` wrappers are not yet published; until they are, call the HTTP routes
+> below directly from TypeScript. **No Java SDK support** — Java callers use the HTTP routes
+> below. SDK contract: [`SPEC.md`](../SPEC.md) §3.1, §4.1.4, §4.1.8, §4.10, §6.3.
 
 **The rule, in one line:** an administrator never chooses the password of a member who has a
 verified email — they send that member a single-use link, and the member chooses it. Only a

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-119 entries total — 64 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+120 entries total — 65 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — Partner guide: ADR-111 banner said NOT YET RELEASED after release](#2026-10-14--partner-guide-adr-111-banner-said-not-yet-released-after-release)
 - [2026-10-14 — Error reference: 185 rows added for previously undocumented codes](#2026-10-14--error-reference-185-rows-added-for-previously-undocumented-codes)
 - [2026-10-14 — Docs MCP server: hosted Worker, stateless, docs-only](#2026-10-14--docs-mcp-server-hosted-worker-stateless-docs-only)
 - [2026-10-14 — error-reference: sign-in/token/escort codes, coverage test, login tenant_id rule](#2026-10-14--error-reference-sign-intokenescort-codes-coverage-test-login-tenant_id-rule)
@@ -131,6 +132,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — Partner guide: ADR-111 banner said NOT YET RELEASED after release
+
+RCA: the partner guide still said an already-shipped feature was "NOT YET RELEASED".
+
+- **Symptom.** `docs/partner-integration-guide.md` headed the ADR-111 password-reset section "NOT YET RELEASED" and "specified, not shipped" after issuer `v0.134.0` (spec 0.53.0) went live on 2026-10-13. The guide is public, so partners were told a live feature did not exist.
+- **Root cause.** The status text was written on 2026-10-09 as a forward-looking banner ("targets v0.134.0") and nothing tied it to the release event. The release flow updates the root ledger and the issuer changelog, never this prose.
+- **Why it wasn't caught.** No check compares a status phrase in a doc with a release. `check-doc-claims.py` anchors FAQ claims to source, not release-state banners.
+- **Fix.** Heading and banner now say live since issuer `v0.134.0`, Go SDK from `v0.65.0`; ts / web-admin wrappers stated as not yet published (ledger: ts 0.54.0, web-admin 0.21.0). Swept the guide and migrating-to-realmid.md for other status claims: the 9.7 deferred list (xplatform not mounted in routes.go, still true), "configurable link address ... not built" (no changelog entry, still true), and the migrating doc (none) are current.
+- **Prevention (proposed, not built).** A cheap check in `make check`: grep docs for `NOT YET RELEASED|specified, not shipped|designed, not built` and fail when the dated banner is older than N days (say 14) or when the versions it names exist as tags. Needs an owner call on N and on a fixed dated-banner format.
 
 ## 2026-10-14 — Error reference: 185 rows added for previously undocumented codes
 
