@@ -1,0 +1,206 @@
+# Partner-doc claims: every hard rule in docs/migrating-to-realmid.md that carries a
+# `Claim: <id>` line has one entry here, and every entry names the issuer tests that pin it.
+#
+#   id               matches a `Claim: `id`` line in the docs
+#   doc              path#anchor of the heading the Claim line sits under (GitHub slug rules),
+#                    plus any other public doc section that states the same rule
+#   statement        the rule, one plain sentence
+#   pinned_by        issuer tests, `<go package name>.<TestName>`
+#   kind: absence    "RealmID does NOT do X"; pinned by a test that the route/grant/field is
+#                    absent from the router and the spec. Needs a `note`.
+#   integration_only true when every pin lives in issuer/test/integration (the compose suite,
+#                    which CI does not run; `make check-stack` does)
+#
+# Two checks guard this file. scripts/check-doc-claims.py (sdk `make check`) proves the doc
+# anchors resolve and the Claim lines and entries match. The issuer's internal/docclaims test
+# reads a VENDORED copy (issuer/scripts/revendor-claims.sh, pinned to an sdk SHA) and proves
+# every pinned_by test exists. Keep the restricted shape below: the checker has no YAML library.
+claims:
+  - id: no-scim
+    doc:
+      - docs/migrating-to-realmid.md#does-realmid-support-scim
+    statement: RealmID has no SCIM route.
+    kind: absence
+    note: No registered route and no swagger path contains "scim".
+    pinned_by:
+      - httpapi.TestDocClaim_NoSCIM
+  - id: no-id-token
+    doc:
+      - docs/migrating-to-realmid.md#does-realmid-issue-an-oidc-id-token-or-run-a-redirect-authorize-login-page-for-my-app
+    statement: RealmID issues access and refresh tokens only, with no ID token and no authorize redirect flow.
+    kind: absence
+    note: No /authorize route, no authorization_endpoint in discovery, no id_token property in any spec schema.
+    pinned_by:
+      - httpapi.TestDocClaim_NoIDTokenOrAuthorizeFlow
+  - id: no-erase-user
+    doc:
+      - docs/migrating-to-realmid.md#can-realmid-erase-a-persons-name-and-email-we-have-an-erase-on-delete-rule
+    statement: RealmID has no route that erases or anonymises a person's name or email.
+    kind: absence
+    note: No registered route and no swagger path contains erase, anonymi, purge or gdpr.
+    pinned_by:
+      - httpapi.TestDocClaim_NoEraseRoute
+  - id: same-provider-uid-two-orgs
+    doc:
+      - docs/migrating-to-realmid.md#can-one-person-belong-to-many-organisations
+      - docs/migrating-to-realmid.md#can-the-same-google-account-be-linked-in-two-organisations
+    statement: One person can hold a separate membership in several organisations unless the realm turns on single_tenant_membership.
+    integration_only: true
+    pinned_by:
+      - integration.TestSingleTenant_InviteAllowedWhenOff
+      - integration.TestSingleTenant_SecondInviteRefused
+  - id: sub-is-per-membership
+    doc:
+      - docs/migrating-to-realmid.md#what-is-sub-and-what-should-i-store-per-person
+      - docs/migrating-to-realmid.md#after-i-migrate-what-does-sub-mean
+      - docs/partner-integration-guide.md#3-jwt-claims-you-will-receive
+    statement: The token's sub is the id of one membership row in one organisation, not a person id.
+    pinned_by:
+      - httpapi.TestMe_MembershipsAcrossTenants
+      - httpapi.TestImportUsersCore_CrossTenantUserID_RejectsWholeFile
+  - id: key-on-tenant-sub
+    doc:
+      - docs/migrating-to-realmid.md#what-is-sub-and-what-should-i-store-per-person
+    statement: A person is identified by the pair (tenant_id, sub), and RealmID itself keys per-user state on that pair.
+    pinned_by:
+      - revocation.TestUserRefused_CachedPerTenantSubForTheWindow
+  - id: user-id-byo-uuid
+    doc:
+      - docs/migrating-to-realmid.md#can-i-bring-my-own-user-ids
+      - docs/partner-integration-guide.md#73-bulk-import-mechanics-post-tenantsidusersimport-adr-073
+    statement: Bulk import accepts your own user id when it is a UUID, rejects a non-UUID, and an id that exists in another organisation rejects the whole file.
+    pinned_by:
+      - httpapi.TestImportUsersCore_HappyPath_MintAndBringYourOwnID
+      - httpapi.TestImportUsersCore_ForbiddenRoleAndBadUUID
+      - httpapi.TestImportUsersCore_CrossTenantUserID_RejectsWholeFile
+      - httpapi.TestImportUsersCore_ReconcileExistingUserInTenant
+  - id: tenant-id-is-uuid
+    doc:
+      - docs/migrating-to-realmid.md#can-i-bring-my-own-organisation-tenant-ids
+    statement: An organisation can be created with your own id only if it is a UUID; anything else answers 400 invalid_tenant_id.
+    pinned_by:
+      - httpapi.TestCreateTenant_BYOId_UsesSuppliedId
+      - httpapi.TestDocClaim_TenantIDMustBeUUID
+  - id: tenant-id-byo-reconcile
+    doc:
+      - docs/migrating-to-realmid.md#can-i-bring-my-own-organisation-tenant-ids
+    statement: Re-creating an organisation id that already exists in your realm reconciles it, and an id that exists in another realm is refused.
+    pinned_by:
+      - httpapi.TestCreateTenant_BYOId_SameRealmReconciles
+      - httpapi.TestCreateTenant_BYOId_CrossRealmRejected
+  - id: role-set-realmid-owned
+    doc:
+      - docs/migrating-to-realmid.md#who-owns-roles-realmid-or-me
+      - docs/migrating-to-realmid.md#can-i-add-my-own-roles-to-realmid
+      - docs/partner-integration-guide.md#4-adding-your-own-rbac
+    statement: RealmID owns the role set (owner, admin, member for an organisation); a partner cannot author a role and authoring answers 403 role_authoring_retired.
+    pinned_by:
+      - httpapi.TestDocClaim_RoleSetIsRealmIDOwned
+  - id: scope-on-token-endpoint
+    doc:
+      - docs/migrating-to-realmid.md#how-do-my-own-roles-get-onto-the-token
+      - docs/partner-integration-guide.md#42-route-authorization-scope-on-the-token-adr-097
+    statement: Your backend asks for scope and product_roles on POST /auth/token, not on POST /auth/login.
+    pinned_by:
+      - httpapi.TestDocClaim_ScopeAndProductRolesRideOnTokenEndpoint
+  - id: scope-bounds-realm-default-32x128
+    doc:
+      - docs/migrating-to-realmid.md#how-do-my-own-roles-get-onto-the-token
+    statement: By default scope holds at most 32 entries of at most 128 bytes, and a violation answers too_many_scopes or scope_too_long.
+    pinned_by:
+      - httpapi.TestDocClaim_ScopeDefaultBounds
+  - id: product-roles-bounds-16x64
+    doc:
+      - docs/migrating-to-realmid.md#how-do-my-own-roles-get-onto-the-token
+    statement: product_roles holds at most 16 entries of at most 64 bytes each.
+    pinned_by:
+      - httpapi.TestProductRoles_CountBoundIsExact
+      - httpapi.TestDocClaim_ProductRolesBounds
+  - id: scope-passthrough-uncapped
+    doc:
+      - docs/migrating-to-realmid.md#does-realmid-drop-scopes-it-does-not-recognise
+    statement: RealmID never filters scope strings on an ordinary session; only a user-API-key session with a permissions_cap is narrowed, by exact match.
+    pinned_by:
+      - httpapi.TestParseScope
+      - authsvc.TestIntersectScope_NarrowsNeverWidens
+  - id: single-owner
+    doc:
+      - docs/migrating-to-realmid.md#who-is-the-owner-of-an-organisation-and-can-it-change
+    statement: An organisation has exactly one owner, and the owner cannot be demoted or deactivated without a transfer (409 last_owner).
+    pinned_by:
+      - httpapi.TestUpdateUserRole_LastOwner
+  - id: owner-transfer-direct
+    doc:
+      - docs/migrating-to-realmid.md#who-is-the-owner-of-an-organisation-and-can-it-change
+    statement: Ownership moves by a direct PUT /tenants/{id}/owner with no accept step, and the outgoing owner keeps admin or member.
+    pinned_by:
+      - httpapi.TestDocClaim_OwnerTransferIsDirect
+      - httpapi.TestGTransferTenantOwner_RetryAfterPartialFailureCompletes
+  - id: discovery-minimal
+    doc:
+      - docs/migrating-to-realmid.md#what-are-iss-and-the-key-set-jwks
+    statement: The discovery document names the issuer, key set and token endpoint and advertises no authorization, userinfo or registration endpoint.
+    pinned_by:
+      - httpapi.TestDocClaim_DiscoveryIsMinimal
+  - id: aud-per-realm
+    doc:
+      - docs/migrating-to-realmid.md#can-my-three-apps-have-different-aud-values
+      - docs/partner-integration-guide.md#3-jwt-claims-you-will-receive
+    statement: aud is one value per realm, the same for every app, tenant and login lane.
+    pinned_by:
+      - authsvc.TestDocClaim_AudIsRealmWideAndAzpIsBrokerFingerprint
+  - id: azp-is-bff-key-fingerprint
+    doc:
+      - docs/migrating-to-realmid.md#can-my-three-apps-have-different-aud-values
+      - docs/partner-integration-guide.md#3-jwt-claims-you-will-receive
+    statement: For a login brokered by a backend, azp is that backend's platform API key fingerprint; only a direct login carries the origin.
+    pinned_by:
+      - authsvc.TestDocClaim_AudIsRealmWideAndAzpIsBrokerFingerprint
+  - id: access-ttl-15m
+    doc:
+      - docs/migrating-to-realmid.md#how-long-does-an-access-token-last-and-how-does-refresh-work
+    statement: An access token lasts 15 minutes unless the realm sets access_ttl_seconds.
+    pinned_by:
+      - authsvc.TestDocClaim_AccessTTLDefault15m
+  - id: refresh-rotation-reuse-revokes
+    doc:
+      - docs/migrating-to-realmid.md#how-long-does-an-access-token-last-and-how-does-refresh-work
+      - docs/partner-integration-guide.md#5-sessions-logout-mfa
+    statement: Every refresh rotates the refresh token, and presenting an old one again revokes the whole session.
+    pinned_by:
+      - authsvc.TestMintForRefresh_ReplayOfRotatedRefresh_IsDetectedAndRevokesTheSession
+  - id: google-signin-via-login
+    doc:
+      - docs/migrating-to-realmid.md#how-does-google-sign-in-work
+    statement: Google sign-in is POST /auth/login with grant_type provider_token and provider google, not /auth/token.
+    pinned_by:
+      - httpapi.TestDocClaim_GoogleSignInGoesThroughLogin
+  - id: login-tenant-optional
+    doc:
+      - docs/migrating-to-realmid.md#how-does-google-sign-in-work
+    statement: tenant_id is optional on a provider_token login; the token endpoint is where a missing tenant_id is refused.
+    pinned_by:
+      - httpapi.TestDocClaim_LoginTenantIDOptional
+  - id: user-api-key-grant
+    doc:
+      - docs/migrating-to-realmid.md#how-does-my-ci-get-a-user-token-without-an-interactive-google-sign-in
+      - docs/partner-integration-guide.md#41-user-api-keys-permissions_cap-is-a-cap-never-a-grant-adr-084
+    statement: A user API key is exchanged at POST /auth/login with grant_type user_api_key and needs no bearer.
+    pinned_by:
+      - httpapi.TestDocClaim_UserAPIKeyGrantAndNoTestUser
+      - integration.TestUserKeyExchange_CapSurvivesMintAndRefresh
+  - id: user-api-key-mint-bff-only
+    doc:
+      - docs/migrating-to-realmid.md#how-does-my-ci-get-a-user-token-without-an-interactive-google-sign-in
+    statement: Minting a user API key is allowed only through the partner's backend (escorted), never from a browser.
+    integration_only: true
+    pinned_by:
+      - integration.TestUserKeyMint_RequiresThePartnerEscort
+  - id: no-test-user-grant
+    doc:
+      - docs/migrating-to-realmid.md#how-does-my-ci-get-a-user-token-without-an-interactive-google-sign-in
+    statement: There is no test-user sign-in grant.
+    kind: absence
+    note: No grant_type in the spec's login enum names a test user.
+    pinned_by:
+      - httpapi.TestDocClaim_UserAPIKeyGrantAndNoTestUser

@@ -55,6 +55,7 @@ PAIRS=(
   "go: unreleased-go|./scripts/tag-hygiene.sh unreleased-go"
   "changelogs: order|./scripts/changelog-hygiene.sh order"
   "taxonomy|scripts/taxonomy-parity.py"
+  "doc claims|python3 scripts/check-doc-claims.py"
 )
 
 FAILED=0

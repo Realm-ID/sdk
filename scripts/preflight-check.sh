@@ -93,6 +93,8 @@ gate "claude-plugin references are current" python3 claude-plugin/scripts/sync-r
 gate "changelog order" ./scripts/changelog-hygiene.sh order
 gate "changelog go-tagged: self-test" ./scripts/changelog-hygiene.sh --self-test
 gate "changelog go-tagged (every go entry names a real release)" ./scripts/changelog-hygiene.sh go-tagged
+# ci.yml `changelogs` job, "Every doc claim has an entry and a resolving anchor".
+gate "doc claims <-> claims.yaml" python3 scripts/check-doc-claims.py
 
 # ── go job ──────────────────────────────────────────────────────────────────
 # ci.yml `go` job. Order matches the workflow: unreleased-go check, gofmt,

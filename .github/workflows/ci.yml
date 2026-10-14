@@ -107,6 +107,12 @@ jobs:
       - name: Every `go` changelog entry names a release that exists
         run: ./scripts/changelog-hygiene.sh go-tagged
 
+      # Partner-doc claims: every `Claim:` line in docs/ has an entry in
+      # docs/claims.yaml and every entry's doc anchors resolve. Prints how many it
+      # examined and fails on 0. The issuer proves the pinned tests exist.
+      - name: Every doc claim has an entry and a resolving anchor
+        run: python3 scripts/check-doc-claims.py
+
   go:
     name: Go (fmt, vet, test)
     runs-on: ubuntu-latest
