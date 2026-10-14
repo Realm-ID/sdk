@@ -121,7 +121,7 @@ These come from issuing, viewing and verifying a one-time code. HTTP status is i
 | `otp_not_found` | [404] No code with that id, or its plaintext is no longer available to display (the view route only shows a code for a short time). | Issue a new code. Do not treat it as proof the code was never issued. |
 | `invalid_purpose` | [400] `purpose` is not lowercase letters, digits and underscores, starting with a letter, up to 64 characters. | Fix the request. |
 | `invalid_subject_ref` | [400] `subject_ref` is empty or over 256 characters; for a `login` code it must be exactly `user:<id>`. | Fix the request. |
-| `invalid_scope` | [400] The call has no tenant or no acting user to scope the code to. | Call with a user-scoped, tenant-scoped token. |
+| `invalid_scope` | [400] The call has no tenant or no acting user to scope the code to. (A scope rename also uses it for a name that is not a valid RFC 6749 scope token.) | Call with a user-scoped, tenant-scoped token. |
 | `unsupported_delivery_mode` | [400] `delivery_mode` is not `view_bff`, `email` or `sms` (WhatsApp is not available). | Use a supported mode, or omit it for `view_bff`. |
 | `delivery_unavailable` | [503] The mode is valid but this deployment has no transport configured for it. | Not your request's fault; use another mode or contact support. |
 | `no_delivery_address` | [400] `delivery_mode` is `email` and the code's subject has no email address on record. | Add an address first, or use another mode. |
@@ -269,6 +269,22 @@ HTTP status is in brackets.
 | `invalid_cursor` | [400] `cursor` is not one this server issued. | Omit it for the first page, or pass the previous `next_cursor` unchanged. |
 | `invalid_limit` | [400] `limit` is not a whole number of at least 1. | Fix it, or omit it for the default of 50. |
 | `session_not_found` | [404] No such session for this identity in the realm. | Re-list sessions. |
+
+## Scope, permission, import and role-authoring codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `too_many_scopes` | [400] The `scope` on a sign-in request holds more entries than the realm allows. | Send fewer scopes. |
+| `scope_too_long` | [400] A scope entry (on sign-in, or in a scope rename) is longer than the realm's maximum. | Use a shorter scope name. |
+| `permission_cap_exceeded` | [403] The caller's API key has a `permissions_cap` that does not include the permission the call needs. This differs from a plain `forbidden`: the user may hold the permission, the key's cap excludes it. | Mint a key whose cap includes it. |
+| `realmid_audience_immutable` | [400] A scope rename on a realm whose permission vocabulary is RealmID's own catalog. | Do not rename it. |
+| `not_implemented` | [501] Scope rename is not available on this deployment. | Not a request error; contact support. |
+| `platform_not_found` | [404] The platform id does not exist (or is not a valid UUID). | Check the id. |
+| `empty_import` | [400] A bulk user import had no rows. | Send at least one row. |
+| `too_many_rows` | [400] A bulk user import exceeded the per-request row cap (1000). | Split it into batches. |
+| `role_authoring_retired` | [403] A partner realm tried to create or edit role templates. RealmID defines the role set. | Put product roles in your own system and send them as scopes; disable a role you do not want with `POST /platforms/{id}/roles/{roleId}/disable`. |
 
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
