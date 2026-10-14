@@ -318,6 +318,29 @@ HTTP status is in brackets.
 | `invalid_installation_id` | [400] A cross-realm mint's `installation_id` is not a UUID. | Send the installation's UUID. |
 | `missing_source_org_id` | [400] A cross-realm mint did not send `source_org_id`. | Send it; it is the only attribution the target org gets. |
 
+## Creating an organization (`POST /platforms/{pid}/tenants`)
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `base_realm_no_orgs` | [403] Creating an organization under the base realm. | Create it under a partner platform. |
+| `missing_display_name` | [400] `display_name` is empty. | Send it. |
+| `invalid_created_at` | [400] `created_at` is not an RFC 3339 timestamp (a bulk import reports this per row). | Fix the timestamp, or omit it. |
+| `invalid_tenant_id` | [400] The caller-supplied `id` is not a UUID. | Send a UUID, or omit it. |
+| `cross_realm_tenant_id` | [400] The supplied tenant id (or owner id) already exists in another realm. | Use a fresh id. |
+| `invalid_signup_mode` | [400] `signup_mode` is not `closed`, `allowlist` or `open`. | Use one of the three. |
+| `signup_mode_immutable_on_reconcile` | [409] Re-sending an existing organization (same id) with a different `signup_mode`. | Change it with `PATCH /tenants/{id}/config`. |
+| `owner_required` | [400] `owner` is missing. | Send an owner. |
+| `owner_missing_identifier` | [400] The owner has neither an email nor a phone. | Send one. |
+| `owner_invalid_email` | [400] The owner email has no `@`. | Fix it. |
+| `owner_invalid_phone` | [400] The owner phone is not canonical E.164 (`+`, non-zero country digit, 8-15 digits, no spaces or punctuation). | Fix it. |
+| `owner_invalid_user_id` | [400] `owner.user_id` is not a UUID. | Send a UUID, or omit it. |
+| `owner_incomplete_provider` | [400] Only one of `provider` and `provider_uid` was sent. | Send both or neither. |
+| `owner_unknown_provider` | [400] `provider` is not one of google, microsoft, apple, facebook, firebase. | Use one of those. |
+| `cross_tenant_owner_id` | [400] `owner.user_id` already exists in another organization. | Use a fresh id. |
+| `owner_already_set` | [400] Re-sending an existing organization with a different owner; reconcile never re-seats ownership. | Use the ownership-transfer route. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
