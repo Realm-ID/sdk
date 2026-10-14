@@ -109,6 +109,49 @@ as `code`. HTTP status is in brackets.
 | `login_throttled` | [429] Too many attempts for this identifier; counted on the identifier as sent, so unknown and known ones throttle alike. | Wait before retrying. |
 | `reset_throttled` | [429] Too many reset links were sent for this member in the last hour. | Wait before sending another. |
 
+## One-time-code (OTP) codes (`/auth/otp/*`)
+
+These come from issuing, viewing and verifying a one-time code. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_otp` | [401] The presented code does not match, or none was presented. | Ask the user to re-enter it. Repeated misses lock the code (`otp_locked`). |
+| `otp_expired` | [410] The code's lifetime has passed. | Issue a new code. |
+| `otp_locked` | [429] Too many wrong attempts against this code. | Stop; issue a new code after the user has waited. |
+| `otp_not_found` | [404] No code with that id, or its plaintext is no longer available to display (the view route only shows a code for a short time). | Issue a new code. Do not treat it as proof the code was never issued. |
+| `invalid_purpose` | [400] `purpose` is not lowercase letters, digits and underscores, starting with a letter, up to 64 characters. | Fix the request. |
+| `invalid_subject_ref` | [400] `subject_ref` is empty or over 256 characters; for a `login` code it must be exactly `user:<id>`. | Fix the request. |
+| `invalid_scope` | [400] The call has no tenant or no acting user to scope the code to. | Call with a user-scoped, tenant-scoped token. |
+| `unsupported_delivery_mode` | [400] `delivery_mode` is not `view_bff`, `email` or `sms` (WhatsApp is not available). | Use a supported mode, or omit it for `view_bff`. |
+| `delivery_unavailable` | [503] The mode is valid but this deployment has no transport configured for it. | Not your request's fault; use another mode or contact support. |
+| `no_delivery_address` | [400] `delivery_mode` is `email` and the code's subject has no email address on record. | Add an address first, or use another mode. |
+
+## API key codes
+
+Platform API keys (`/platforms/{id}/api-keys`) and end-user API keys
+(`/tenants/{tid}/users/{uid}/user-api-keys`), plus signing in with either. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `api_key_not_found` | [404] Revoking a platform API key id the realm does not have. | Re-list the keys and use a current id. |
+| `api_key_cannot_mint_api_key` | [403] A caller that signed in with a platform API key tried to mint another platform API key. | Mint through workload identity federation or an owner login. |
+| `invalid_user_for_api_key` | [400] The `user_id` given for a new platform API key is not a user of this realm, or its role is not `platform_api`. | Omit `user_id` to use the realm's default bot user, or pass a `platform_api` user. |
+| `ambiguous_bot_user` | [400] No `user_id` was given and the realm has more than one `platform_api` user. | Pass `user_id` explicitly. |
+| `invalid_ttl` | [400] A platform key request set both `ttl_seconds` and `non_expiring`. | Send only one. |
+| `too_many_api_keys` | [409] The realm already holds the maximum of 2 active platform API keys. | Revoke one first. |
+| `non_expiring_not_allowed` | [400] A non-expiring key was requested but not permitted: for platform keys the realm already holds one (at most one); for user keys the realm has not enabled `user_api_keys.allow_non_expiring`. | Give the key a TTL, or have the realm owner enable the setting. |
+| `platform_api_key_login_disabled` | [403] The realm has turned platform API-key sign-in off. | Use workload identity federation. |
+| `active_api_keys_exist` | [409] Turning off platform API-key sign-in while the realm still has active platform keys. | Revoke the active keys first, then retry. |
+| `user_api_keys_disabled` | [412] End-user API keys are not enabled for this realm. | Have the realm owner enable them. |
+| `uncapped_required` | [400] A user-key mint did not state `uncapped`. | Send `uncapped: true` (full authority of the holder) or `false` with a `permissions_cap`. |
+| `uncapped_not_allowed` | [403] `uncapped: true` but the realm has not enabled `user_api_keys.allow_uncapped`. | Send a `permissions_cap`, or have the realm owner enable the setting. |
+| `too_many_permissions` | [400] `permissions_cap` has more entries than the realm allows. | Send a shorter list. |
+| `ttl_exceeds_max` | [400] `ttl_seconds` is above the realm's maximum for user keys. | Send a shorter TTL. |
+| `too_many_active_keys` | [409] The user already holds the maximum number of active API keys. | Revoke one first. |
+| `user_api_key_not_found` | [404] No such user key, or it belongs to a different user. | Re-list the user's keys. |
+| `user_api_key_revoked` | [409] Updating a user key that is already revoked. | Mint a new key; a revoked key cannot be revived. |
+| `org_not_in_key_scope` | [403] Signing in with a user key into an org outside the key's scope, or the key spans several orgs and none was chosen. | Pass a `tenant_id` the key covers. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
