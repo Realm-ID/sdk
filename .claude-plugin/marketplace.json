@@ -1,0 +1,12 @@
+{
+  "name": "realmid",
+  "owner": { "name": "RealmID" },
+  "metadata": { "description": "Claude Code plugins from RealmID for partners integrating with RealmID." },
+  "plugins": [
+    {
+      "name": "realmid",
+      "source": "./claude-plugin",
+      "description": "RealmID integration skill for partners: identity keys, ids, roles and scopes, token verification, CI."
+    }
+  ]
+}

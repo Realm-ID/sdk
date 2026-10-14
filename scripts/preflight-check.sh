@@ -83,6 +83,11 @@ gate "taxonomy parity" python3 scripts/taxonomy-parity.py
 gate "contract parity: self-test" python3 scripts/contract-parity.test.py
 gate "contract parity (SDK vs swagger.yaml)" python3 scripts/contract-parity.py
 
+# ── claude-plugin references ────────────────────────────────────────────────
+# Repo-local gate (not a ci.yml step): the plugin's reference copies of two docs must match
+# their sources. Prints how many files it compared; fails on 0.
+gate "claude-plugin references are current" python3 claude-plugin/scripts/sync-references.py --check
+
 # ── changelogs job ──────────────────────────────────────────────────────────
 # ci.yml `changelogs` job, "Every per-package changelog is in descending order".
 gate "changelog order" ./scripts/changelog-hygiene.sh order

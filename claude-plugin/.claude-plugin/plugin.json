@@ -1,0 +1,9 @@
+{
+  "name": "realmid",
+  "description": "Helps your Claude Code sessions integrate with RealmID correctly: identity keys, ids, roles and scopes, token verification, CI.",
+  "version": "0.1.0",
+  "author": { "name": "RealmID" },
+  "homepage": "https://github.com/Realm-ID/sdk/tree/main/claude-plugin",
+  "repository": "https://github.com/Realm-ID/sdk",
+  "license": "MIT"
+}
