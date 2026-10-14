@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-123 entries total — 68 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+124 entries total — 69 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — mcp deploy workflow aligned to the website pattern; Node 22 Docker tooling](#2026-10-14--mcp-deploy-workflow-aligned-to-the-website-pattern-node-22-docker-tooling)
 - [2026-10-14 — ts flaky SPEC10_1_4a test: the winner of a concurrent refresh is not the first caller](#2026-10-14--ts-flaky-spec10_1_4a-test-the-winner-of-a-concurrent-refresh-is-not-the-first-caller)
 - [2026-10-14 — FAQ: custom claims re-sent, refresh token on backend, authorize on scopes (F2-F4)](#2026-10-14--faq-custom-claims-re-sent-refresh-token-on-backend-authorize-on-scopes-f2-f4)
 - [2026-10-14 — MFA enroll/confirm are self-only: SDK docs corrected, Go comment deferred](#2026-10-14--mfa-enrollconfirm-are-self-only-sdk-docs-corrected-go-comment-deferred)
@@ -135,6 +136,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — mcp deploy workflow aligned to the website pattern; Node 22 Docker tooling
+
+The docs MCP worker's deploy workflow (`.github/workflows/deploy-mcp.yml`, `workflow_dispatch` only) is aligned to Realm-ID/website's deploy pattern, per the owner rulings of 2026-10-14 (root `DECISIONS.md`) and the devops recommendation relayed the same day.
+
+- **Shape.** Only SHA-pinned `actions/checkout` and `actions/setup-node`; Node 22; `npm ci && npm test` before deploy; `npx --yes wrangler@4.151.0 deploy` (the version in `mcp/package-lock.json`). Credentials come from the job env: `CLOUDFLARE_API_TOKEN` from `secrets`, `CLOUDFLARE_ACCOUNT_ID` from `vars`. A preflight step fails with an `::error::` naming infra-provisioning's `mint-cloudflare-tokens` (profile `workers-deploy-realmid`) when either is unset.
+- **Environment `production`.** The job declares `environment: production`, so the secret and variable live in a GitHub Environment restricted to `main` (devops recommendation). That environment does not exist yet and was NOT created from here; it is step 1 of the README's remaining steps.
+- **Post-deploy proof, by content.** `mcp/scripts/verify-deployed.mjs` asserts that `GET /` names `$GITHUB_SHA` (the worker prints the commit its index was built from) and that a real `tools/list` returns all five tools. Tested with negative controls (wrong sha, missing tool), and exercised against a real `wrangler dev` in Docker. The workflow retries it 6 x 10 s only to absorb first-deploy custom-domain propagation.
+- **Local tooling.** `make mcp-test` and `make mcp-dev` run in `node:22` via `docker run --rm --init`, no host port, `node_modules` in a named volume so linux binaries never overwrite the host's. No Traefik route: it would need a compose file, mkcert and an `/etc/hosts` entry for a local-only dev tool; reach the dev server with `docker exec`. `mcp/package.json` gets `engines.node >=22` and `mcp/.nvmrc`.
+- **Not done, on purpose.** No deploy, no token, no environment creation, no `wrangler login`.
 
 ## 2026-10-14 — ts flaky SPEC10_1_4a test: the winner of a concurrent refresh is not the first caller
 

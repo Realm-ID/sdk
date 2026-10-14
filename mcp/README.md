@@ -46,20 +46,36 @@ Other MCP clients: point them at `https://mcp.realmid.dev/mcp` (Streamable HTTP,
 
 ## Develop and test
 
+The worker needs **Node 22** (`engines`, `.nvmrc`; wrangler 4.x). The laptop runs Node 20 and services run
+in Docker, so use the repo-root Makefile, which runs everything inside `node:22` (`docker run --rm --init`,
+no host port, `node_modules` in the named volume `realmid-mcp-node-modules`):
+
 ```bash
-cd mcp
-npm ci
-npm test        # builds the index, typechecks, runs vitest (fixtures + real-docs positive controls)
+make mcp-test   # npm ci + npm test: builds the index, typechecks, runs vitest (fixtures + real-docs positive controls)
+make mcp-dev    # wrangler dev inside the container, port 8787 (not published to the host)
+docker exec realmid-mcp-dev curl -s localhost:8787/   # from a second terminal
 ```
 
-`npm test` is part of the sdk gate: `make check` runs it (skipped loudly if `mcp/node_modules` is missing).
-`npm run dev` runs `wrangler dev` locally and needs Node 22 or newer.
+`make check` also runs `npm test` here on the host (skipped loudly if `mcp/node_modules` is missing).
+`mcp/scripts/verify-deployed.mjs <base-url> <sha>` is the post-deploy assertion the workflow runs
+(GET `/` names the commit; a real `tools/list` returns all five tools); it is tested in
+`test/verify-deployed.test.ts` with negative controls.
 
 ## Not deployed yet
 
-- `.github/workflows/deploy-mcp.yml` deploys only on a manual `workflow_dispatch`. It needs a repository
-  secret `CLOUDFLARE_API_TOKEN` (Workers Scripts:Edit, and Routes/DNS edit on the `realmid.dev` zone).
-  **That secret does not exist yet**, so the workflow fails at its deploy step until the owner adds it.
-- `wrangler.toml` declares `mcp.realmid.dev` as a custom domain. Cloudflare creates the DNS record on the
-  first deploy.
-- The package is `"private": true` and is not published to npm.
+The code, the workflow and the post-deploy proof are built. Exactly three steps remain, none of them code:
+
+1. **GitHub Environment `production` on `Realm-ID/sdk`**, restricted to `main`. It does not exist yet; the owner
+   (or devops) creates it.
+2. **Token minted by infra-provisioning.** Once the owner approves, devops mints a Workers-scoped token
+   (profile `workers-deploy-realmid`: Workers Scripts:Edit, plus Routes/DNS edit on the `realmid.dev` zone)
+   through `mint-cloudflare-tokens` into that environment as secret `CLOUDFLARE_API_TOKEN` and variable
+   `CLOUDFLARE_ACCOUNT_ID`. Neither exists today; until they do, the workflow's preflight step fails with
+   an `::error::` naming this and publishes nothing.
+3. **Dispatch** `.github/workflows/deploy-mcp.yml` (Actions, "Run workflow", branch `main`). It tests on Node 22,
+   runs `npx wrangler@4.151.0 deploy`, then fails unless `https://mcp.realmid.dev/` names the deployed commit
+   and `tools/list` returns all five tools. Cloudflare creates the DNS record and certificate on this first
+   deploy (`wrangler.toml` declares the custom domain).
+
+Never run `wrangler deploy` or `wrangler login` from a laptop. The package is `"private": true` and is not
+published to npm.

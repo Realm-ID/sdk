@@ -4,6 +4,9 @@
   "private": true,
   "description": "Read-only MCP server over the RealmID partner docs (Cloudflare Worker, mcp.realmid.dev). Not published to npm.",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build:index": "node scripts/build-index.mjs",
     "typecheck": "tsc --noEmit",

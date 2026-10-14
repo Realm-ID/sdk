@@ -49,6 +49,7 @@ help:
 	@echo "  make release-check LANGUAGE=go VERSION=x.y.z    pre-tag gates for one language (go|ts|java)"
 	@echo "  make install-hooks                point git at the tracked pre-push hook"
 	@echo "  make self-test                    run this repo's own checker-script tests"
+	@echo "  make mcp-test / mcp-dev           docs MCP server tests / local dev, inside node:22 (Docker)"
 
 # ── check ──────────────────────────────────────────────────────────────────────
 #
@@ -120,3 +121,27 @@ self-test:
 	@python3 scripts/contract-parity.test.py
 	@bash scripts/workflow-hygiene.sh --self-test
 	@bash scripts/pre-push.test.sh
+
+# ── mcp (docs MCP server, Cloudflare Worker) ─────────────────────────────────
+#
+# The worker needs Node 22 (wrangler 4.x); the laptop has Node 20 and services run in Docker, never
+# on the host. Both targets run inside `node:22` with `--rm --init`, publish NO host port, and put
+# mcp/node_modules in a NAMED VOLUME so the linux binaries (esbuild, workerd) never overwrite the
+# host's darwin ones. The repo is mounted whole because build-index reads docs/ and the git commit.
+# `make check` still runs `npm test` in mcp/ on the host; these targets are the Node-22 truth.
+# Deploying is NEVER local: only .github/workflows/deploy-mcp.yml deploys.
+
+MCP_NODE_IMAGE := node:22
+MCP_DOCKER := docker run --rm --init -v "$(CURDIR)":/repo -v realmid-mcp-node-modules:/repo/mcp/node_modules -w /repo/mcp \
+	-e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo
+
+.PHONY: mcp-test
+mcp-test:
+	$(MCP_DOCKER) $(MCP_NODE_IMAGE) bash -c 'set -euo pipefail; npm ci; npm test'
+
+# Container-only dev run: wrangler dev listens inside the container (no host port, no Traefik route:
+# a *.local route would need a compose file, mkcert and an /etc/hosts entry for a local-only tool).
+# Reach it from a second terminal: docker exec realmid-mcp-dev curl -s localhost:8787/
+.PHONY: mcp-dev
+mcp-dev:
+	$(MCP_DOCKER) --name realmid-mcp-dev $(MCP_NODE_IMAGE) bash -c 'set -euo pipefail; npm ci; node scripts/build-index.mjs; npx wrangler dev --ip 0.0.0.0 --port 8787'
