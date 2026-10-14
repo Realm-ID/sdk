@@ -286,6 +286,38 @@ HTTP status is in brackets.
 | `too_many_rows` | [400] A bulk user import exceeded the per-request row cap (1000). | Split it into batches. |
 | `role_authoring_retired` | [403] A partner realm tried to create or edit role templates. RealmID defines the role set. | Put product roles in your own system and send them as scopes; disable a role you do not want with `POST /platforms/{id}/roles/{roleId}/disable`. |
 
+## Roles, service accounts and integration registry codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `unknown_role` | [400] The role is not registered in the realm's role catalog. (A bulk import reports this per row.) | Use a role from `GET /platforms/{id}/roles`. |
+| `role_disabled` | [400] The role is disabled in the realm, or switched off for this organization. | Choose another role, or re-enable it. |
+| `role_not_assignable_to_kind` | [400] The role cannot be held by this kind of principal (a human-only permission on a service account, or a role not open to that kind). | Pick a role that fits the principal. |
+| `role_not_found` | [404] Disabling or enabling a role id the realm does not have. | Re-list the roles. |
+| `role_protected` | [400] Disabling a protected role, which must stay on. | Leave it enabled. |
+| `role_is_default` | [400] Disabling the realm's default invitation role. | Set another default first. |
+| `last_active_role` | [400] Disabling would leave the realm with no active role besides `owner`. | Keep at least one other role active. |
+| `unknown_permission` | [400] A permission string is empty or not in the permission catalog (also for `permissions_cap` on a RealmID-audience user key). | Use a permission from `GET /platforms/{id}/permissions`. |
+| `starter_roles_retired` | [400] Creating a platform with `starter_roles`; the field is retired. | Drop it. `admin` is in every realm; to run without it, disable it. |
+| `invalid_rename` | [400] A scope rename where `to` equals `from`. | Send different names. |
+| `invalid_handle` | [400] A service-account login handle is not email-shaped (no `@`). | Use an email-shaped handle. |
+| `handle_taken` | [409] The service-account handle is already in use in this organization. | Pick another handle. |
+| `invalid_role` | [400] A service account may not hold `owner` or `platform_api`. | Choose another role. |
+| `platform_bot_immutable` | [400] Modifying the platform API bot, which RealmID manages. | Rotate its credentials through the API-keys routes instead. |
+| `service_account_not_found` | [404] No such service account in this organization. | Re-list service accounts. |
+| `invalid_slug` | [400] An integration `slug` is not 2-48 lowercase letters, digits and single hyphens; or a platform slug is not 1-63 of lowercase a-z, 0-9, hyphen (no leading or trailing hyphen). | Fix the slug. |
+| `reserved_slug` | [409] The platform slug is reserved by RealmID. | Choose another slug. |
+| `display_name_required` | [400] An integration `display_name` is missing or blank. | Send one. |
+| `integration_not_found` | [404] No such integration (in your realm, or at install time). | Check the id. |
+| `invalid_integration_id` | [400] `integration_id` is not a UUID. | Send a UUID. |
+| `integrations_unavailable` | [501] The deployment has no integration registry configured. | Not a request error; contact support. |
+| `tenant_suspended` | [410] The organization is suspended or deactivated (also when a cross-realm mint targets such an org). | Reactivate it, or choose another. |
+| `handle_collision` | [409] The new install's principal handle collided (very unlikely). | Retry. |
+| `invalid_installation_id` | [400] A cross-realm mint's `installation_id` is not a UUID. | Send the installation's UUID. |
+| `missing_source_org_id` | [400] A cross-realm mint did not send `source_org_id`. | Send it; it is the only attribution the target org gets. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
