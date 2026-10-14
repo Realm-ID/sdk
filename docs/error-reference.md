@@ -226,6 +226,28 @@ Inviting people, accepting or leaving an organization, and transferring ownershi
 | `owner_transfer_requires_human` | [403] An owner-initiated transfer was attempted with a platform-scoped or tenant-less token. | Make the call with the current owner's own user session. |
 | `tenant_deleted` | [409] Patching an organization that has been deleted. | A deleted organization cannot be revived this way. |
 
+## Contact review codes (`/tenants/{id}/contact-verifications`, `contact-drift-reviews`, hand-back)
+
+Organization admins reviewing contact changes, delinking a contact and handing an account back. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `contact_not_found` | [404] The contact does not belong to that user in this organization. | Re-list the user's contacts. |
+| `user_not_found` | [404] The user does not exist in this organization. | Check the id. |
+| `from_user_not_found` | [404] The `from_user_id` account does not exist in this organization. | Check the id. |
+| `missing_from_user_id` | [400] Hand-back was called without `from_user_id`. | Send it. |
+| `same_user` | [400] `from_user_id` equals the target user. | Name a different source account. |
+| `target_not_deactivated` | [409] The hand-back target account is not deactivated. | Only a deactivated account can be handed back. |
+| `owner_not_handbackable` | [409] The source account is the organization's owner. | Transfer ownership first. |
+| `no_source_identity` | [400] The source account has no active email to hand back. | Hand-back needs a source with an active email. |
+| `handback_insert_failed` | [409] The handed-back identity could not be planted (the message says why). | Resolve the clash it names and retry. |
+| `drift_review_not_found` | [404] No such review in this organization. | Re-list the reviews. |
+| `drift_review_not_pending` | [409] The review was already resolved. | Nothing to do. |
+| `verification_not_found` | [404] No such contact verification in this organization. | Re-list the verifications. |
+| `verification_not_pending` | [409] The verification was already resolved. | Nothing to do. |
+| `verification_slot_taken` | [409] Approving would take a verification slot that is already used (the message says why). | Resolve the existing verification first. |
+| `identifier_collision` | [409] Accepting a review, or setting a username, would reuse a value already in use in this organization. | Choose a different value. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
