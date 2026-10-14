@@ -341,6 +341,23 @@ HTTP status is in brackets.
 | `cross_tenant_owner_id` | [400] `owner.user_id` already exists in another organization. | Use a fresh id. |
 | `owner_already_set` | [400] Re-sending an existing organization with a different owner; reconcile never re-seats ownership. | Use the ownership-transfer route. |
 
+## Custom claims, product roles and sign-in source codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_custom_claims` | [400] `custom_claims` on a sign-in request cannot be serialised as JSON. | Send plain JSON values. |
+| `custom_claims_too_large` | [400] `custom_claims` serialises to more than 4096 bytes. | Send fewer or smaller claims. |
+| `too_many_custom_claim_keys` | [400] `access_token_custom_claim_keys` in the tenant config lists more than 32 keys. | List fewer keys. |
+| `custom_claim_key_too_long` | [400] An `access_token_custom_claim_keys` entry is longer than 64 bytes. | Shorten the key. |
+| `too_many_product_roles` | [400] `product_roles` on a sign-in request has more than 16 entries. | Send at most 16. |
+| `product_role_too_long` | [400] A `product_roles` entry is longer than 64 bytes. | Shorten it. |
+| `invalid_product_role` | [400] A `product_roles` entry is empty, not valid UTF-8, or has control characters. | Fix the entry. |
+| `unsupported_type` | [400] A sign-in source `type` is not `web`, `android`, `ios`, `desktop` or `bot`. | Use one of those. |
+| `method_violates_kind` | [400] `allowed_methods` does not fit the source type: a bot source offers only `otp`, a human source can never offer `otp`. | Fix `allowed_methods`. |
+| `source_not_found` | [404] No such sign-in source (or the id is not a UUID). | Re-list the sources. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
