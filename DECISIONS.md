@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-124 entries total — 69 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+125 entries total — 70 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — unreleased-go: a clone with no go/ tags fails loudly instead of passing](#2026-10-14--unreleased-go-a-clone-with-no-go-tags-fails-loudly-instead-of-passing)
 - [2026-10-14 — mcp deploy workflow aligned to the website pattern; Node 22 Docker tooling](#2026-10-14--mcp-deploy-workflow-aligned-to-the-website-pattern-node-22-docker-tooling)
 - [2026-10-14 — ts flaky SPEC10_1_4a test: the winner of a concurrent refresh is not the first caller](#2026-10-14--ts-flaky-spec10_1_4a-test-the-winner-of-a-concurrent-refresh-is-not-the-first-caller)
 - [2026-10-14 — FAQ: custom claims re-sent, refresh token on backend, authorize on scopes (F2-F4)](#2026-10-14--faq-custom-claims-re-sent-refresh-token-on-backend-authorize-on-scopes-f2-f4)
@@ -136,6 +137,15 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — unreleased-go: a clone with no go/ tags fails loudly instead of passing
+
+`tag-hygiene.sh unreleased-go` no longer treats "no `go/v<version>` tag in this clone" as "nothing released". Owner/coordinator ruling 2026-10-14, after the finding that the local gate already fails on a COMMITTED go/ change.
+
+- **Symptom/gap.** A clone without tags (shallow or `--no-tags`) printed "OK ... no tag yet" for a version that is released, which silently disabled the gate locally. CI was not affected (`fetch-depth: 0`).
+- **Fix.** When the version's tag is missing, fetch tags once (`git fetch --tags --quiet origin`). If the clone still holds no `go/v*` tag at all, ask the remote (`git ls-remote --tags origin 'go/v*'`): tags there, or an unreachable remote, is exit 2 "could not compare"; "no tag yet" is printed only when the remote truly has none. A clone that holds older `go/` tags but not this version's is the normal bumped-not-yet-tagged state and still passes. The OK line now names the tag and sha it compared.
+- **Not done, on purpose.** No working-tree diff: pre-push pushes commits, so the committed tree is the right input.
+- **Tests.** `scripts/tag-hygiene.test.sh` (in `make self-test`) uses throwaway clones under `.scratch/` with a local-path origin (tags are shared across worktrees, so a worktree cannot isolate them). Red before the fix: the no-tags clone returned OK, and the unreachable-origin case returned rc 0. Green after.
 
 ## 2026-10-14 — mcp deploy workflow aligned to the website pattern; Node 22 Docker tooling
 

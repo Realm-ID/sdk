@@ -204,6 +204,24 @@ check_unreleased_go() {
   version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' go/realmid.go)
   tag="go/v$version"
 
+  # A clone with no tags answers "no tag yet" for a version that IS released, which silently turns this
+  # gate off. So when the tag is missing locally, fetch tags once, and if the clone still holds no go/
+  # tag at all, ask the remote: tags there means we could not compare, which is a failure, not a pass.
+  if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+    git fetch --tags --quiet origin >/dev/null 2>&1 || true
+  fi
+  if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null && [ -z "$(git tag -l 'go/v*')" ]; then
+    local remote_tags
+    if ! remote_tags=$(git ls-remote --tags origin 'go/v*' 2>/dev/null); then
+      echo "::error::could not compare go/ against a released tag: this clone has no go/v* tag, 'git fetch --tags origin' did not help and 'git ls-remote origin' failed. Fetch tags (git fetch --tags origin) and re-run." >&2
+      exit 2
+    fi
+    if [ -n "$remote_tags" ]; then
+      echo "::error::could not compare go/ against a released tag: origin has go/v* tags but this clone has none after 'git fetch --tags origin'. Fetch them and re-run." >&2
+      exit 2
+    fi
+  fi
+
   if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
     say "OK — \`$version\` has no \`$tag\` tag yet, so nothing under it is"
     say "released and \`go/\` may change freely."
@@ -211,7 +229,7 @@ check_unreleased_go() {
   fi
 
   if git diff --quiet "refs/tags/$tag" HEAD -- go/; then
-    say "OK — \`go/\` is identical to the released \`$tag\`."
+    say "OK — \`go/\` is identical to the released \`$tag\` (compared against $tag ($(git rev-parse --short "refs/tags/$tag^{commit}")))."
     return 0
   fi
 

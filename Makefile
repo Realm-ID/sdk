@@ -121,6 +121,7 @@ self-test:
 	@python3 scripts/contract-parity.test.py
 	@bash scripts/workflow-hygiene.sh --self-test
 	@bash scripts/pre-push.test.sh
+	@bash scripts/tag-hygiene.test.sh
 
 # ── mcp (docs MCP server, Cloudflare Worker) ─────────────────────────────────
 #
