@@ -195,6 +195,37 @@ Claiming, verifying and binding domains for organizations, platforms and realm o
 | `invalid_status` | [400] A `status` filter value is not a known status (grants: use the documented statuses; users: `active`, `suspended`, `invited` or `deactivated`). | Fix the filter. |
 | `not_a_proof_method` | [400] Verifying a grant whose evidence is not a proof method; there is nothing to verify. | Do not call verify for it. |
 
+## Membership, invitation and ownership codes
+
+Inviting people, accepting or leaving an organization, and transferring ownership
+(`PUT /tenants/{id}/owner`). HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_identifier` | [400] An invite identifier (or `new_owner_email`) is not an email address or E.164 phone number. | Fix the address. |
+| `already_member` | [409] The identifier is already linked to an existing member of the organization. | Nothing to invite; manage the existing member. |
+| `owner_not_invitable` | [400] An invite asked for the `owner` role. | Invite as another role, then use ownership transfer. |
+| `invite_not_found` | [404] No such invitation in this organization. | Re-list invitations. |
+| `invitation_address_immutable` | [400] Changing the contact of a member whose invitation is still pending. | Revoke the invitation and invite the corrected address. |
+| `invitations_unavailable` | [501] The deployment has no invitation store configured for the accept or reject routes. | Not a request error; contact support. |
+| `membership_not_found` | [404] The caller has no such membership or invitation. | Re-list the caller's memberships. |
+| `not_invited` | [409] Rejecting a membership that is not a pending invitation. | To end an active membership, use leave. |
+| `not_pending` | [409] There is no pending invitation to reject, or it is no longer pending. | Re-list invitations. |
+| `already_left` | [409] The membership has already ended. | Nothing to do. |
+| `owner_cannot_leave` | [409] The caller owns the organization and tried to leave it. | Transfer ownership first. |
+| `owner_cannot_be_revoked` | [409] In a single-organization realm, choosing an organization would end the caller's membership in another one they own. | Transfer that organization's ownership first. |
+| `single_tenant_not_required` | [409] The realm does not require single-organization membership, so there is nothing to choose. | Skip the choice step. |
+| `single_tenant_membership` | [409] The realm allows one organization per user and the user belongs to another. | Have the user leave the other organization first. |
+| `last_owner` | [409] Changing the role of, or deactivating, the organization's owner. | Transfer ownership first. |
+| `use_transfer_owner` | [400] A role change asked for `owner`, or `outgoing_owner_role` was `owner`. | Use the ownership-transfer route; `outgoing_owner_role` must be a different role. |
+| `missing_recipient` | [400] An ownership transfer named no recipient (`owner_user_id` or `new_owner_email`). | Name the new owner. |
+| `recipient_contact_unproven` | [400] The address given as new owner is not a proven contact in this organization. | Name the recipient with `owner_user_id`, or have them verify the address first. |
+| `recipient_not_member` | [400] The new owner is not a member of this organization. | Add them as a member first. |
+| `recipient_not_active` | [400] The new owner is a member but not active. | Pick an active member. |
+| `conflicting_outgoing_disposition` | [400] `leave_entirely` and `suspend_outgoing_owner` were both set. | Send only one. |
+| `owner_transfer_requires_human` | [403] An owner-initiated transfer was attempted with a platform-scoped or tenant-less token. | Make the call with the current owner's own user session. |
+| `tenant_deleted` | [409] Patching an organization that has been deleted. | A deleted organization cannot be revived this way. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
