@@ -55,7 +55,8 @@ Claim: `no-scim`
 
 No. RealmID mints **access tokens and refresh tokens** only. There is no `/authorize` redirect
 flow and no ID token. The discovery document is deliberately minimal: it gives your verifier the
-issuer, the key-set URL (`jwks_uri`) and the token endpoint, and nothing more. Your login screen
+issuer, the key-set URL (`jwks_uri`) and the token endpoint (plus a few static capability lists),
+and advertises no authorization, userinfo or registration endpoint. Your login screen
 stays yours; see [How does Google sign-in work?](#how-does-google-sign-in-work).
 
 Example: do not point a generic "OIDC login" library at RealmID and expect a redirect login. Your
@@ -393,7 +394,10 @@ RealmID checks the token's audience against it.
 You do not have to name the organisation. If the person belongs to one organisation you get an
 access token straight away; if they belong to several, login returns a refresh token and your
 backend calls `POST /auth/token` with the chosen `tenant_id` (leaving it out answers
-`missing_tenant_id`). You may also send `tenant_id` on login to pin it.
+`missing_tenant_id`). You may also send `tenant_id` on login to pin it. Login itself never refuses
+for lacking it. The one case where you need it is a Google client id registered for a single
+organisation rather than for the whole realm: that client id is only accepted when the same
+organisation's `tenant_id` is sent, otherwise login answers `invalid_audience`.
 
 - [SDK contract, login(req)](https://github.com/Realm-ID/sdk/blob/main/SPEC.md#41-loginreq) and
   [two-endpoint auth surface](https://github.com/Realm-ID/sdk/blob/main/SPEC.md#40-two-endpoint-auth-surface-adr-051).

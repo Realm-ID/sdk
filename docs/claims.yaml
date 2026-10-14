@@ -45,8 +45,8 @@ claims:
       - docs/migrating-to-realmid.md#can-one-person-belong-to-many-organisations
       - docs/migrating-to-realmid.md#can-the-same-google-account-be-linked-in-two-organisations
     statement: One person can hold a separate membership in several organisations unless the realm turns on single_tenant_membership.
-    integration_only: true
     pinned_by:
+      - authsvc.TestLogin_SameProviderUID_SeparateMembershipPerOrg
       - integration.TestSingleTenant_InviteAllowedWhenOff
       - integration.TestSingleTenant_SecondInviteRefused
   - id: sub-is-per-membership
@@ -123,6 +123,7 @@ claims:
     pinned_by:
       - httpapi.TestParseScope
       - authsvc.TestIntersectScope_NarrowsNeverWidens
+      - authsvc.TestMint_UncappedScopeSignedUnchanged
   - id: single-owner
     doc:
       - docs/migrating-to-realmid.md#who-is-the-owner-of-an-organisation-and-can-it-change

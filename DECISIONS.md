@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-116 entries total — 61 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+117 entries total — 62 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — error-reference: sign-in/token/escort codes, coverage test, login tenant_id rule](#2026-10-14--error-reference-sign-intokenescort-codes-coverage-test-login-tenant_id-rule)
 - [2026-10-14 — Claude Code plugin for partners (claude-plugin/)](#2026-10-14--claude-code-plugin-for-partners-claude-plugin)
 - [2026-10-14 — RCA (2026-10-14) — guide section 3 and 9 contradicted the issuer; doc-claims check added](#2026-10-14--rca-2026-10-14--guide-section-3-and-9-contradicted-the-issuer-doc-claims-check-added)
 - [2026-10-14 — 2026-10-14 (docs) — Migrating to RealmID FAQ: public-only sources, claim ids per hard rule](#2026-10-14--2026-10-14-docs--migrating-to-realmid-faq-public-only-sources-claim-ids-per-hard-rule)
@@ -128,6 +129,34 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — error-reference: sign-in/token/escort codes, coverage test, login tenant_id rule
+
+`docs/error-reference.md` gained a "Sign-in, token and escort codes" table (46 rows) covering the
+codes the issuer puts on `/auth/*` and the escort headers, each re-read against the handler that
+emits it. It was written because the issuer now has a test (`internal/docclaims`, a vendored copy
+of this file plus a pin) that parses its HTTP layer for every error code and fails when one has no
+row here. At the time of writing 273 distinct codes were emitted and 39 documented; this pass closes
+46 rows. The remaining ones (admin and console surfaces: roles, domains, tenants, identity
+providers, user import, contact drift, OTP, user API keys) sit on a shrinking list in the issuer,
+not guessed at. Rows are added only when the emitting code path was read.
+
+Also: the FAQ's Google sign-in answer now says what the code does. Login never refuses for lacking
+`tenant_id`; it only matters when a client id is registered for a single organisation (that client
+id is accepted only with that organisation's `tenant_id`, else `invalid_audience`). `claims.yaml`
+gained one unit pin each for `same-provider-uid-two-orgs` and `scope-passthrough-uncapped`.
+
+RCA (FAQ vs swagger on tenant_id at login).
+- Symptom: the FAQ said login never needs `tenant_id`; the issuer's swagger said it "is required on
+  tenant-scoped origins".
+- Root cause: the swagger prose described ADR-046's original design and was never revised when
+  realm-scoped client ids made `tenant_id` optional (issuer v0.27.2). The code was right, the prose
+  stale.
+- Why it wasn't caught: the pin only asserted `tenant_id` is absent from the schema's `required`
+  list, not what the prose or the audience rule said.
+- Fix: swagger prose rewritten (issuer); the FAQ gains the one real exception; the pin now also
+  asserts the audience rule and that the prose no longer says "required".
+- Prevention: a claim's pin must exercise the behaviour, not just the schema.
 
 ## 2026-10-14 — Claude Code plugin for partners (claude-plugin/)
 
