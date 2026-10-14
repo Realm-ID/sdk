@@ -152,6 +152,49 @@ Platform API keys (`/platforms/{id}/api-keys`) and end-user API keys
 | `user_api_key_revoked` | [409] Updating a user key that is already revoked. | Mint a new key; a revoked key cannot be revived. |
 | `org_not_in_key_scope` | [403] Signing in with a user key into an org outside the key's scope, or the key spans several orgs and none was chosen. | Pass a `tenant_id` the key covers. |
 
+## Identity-provider codes (`/identity-providers`)
+
+Configuring which sign-in providers a platform or organization offers. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `missing_platform_id` | [400] `platform_id` was not sent (query parameter on list, body field on create). | Send it. |
+| `missing_id` | [400] The provider id path segment was empty. | Send a provider id. |
+| `empty_patch` | [400] A PATCH carried none of the fields it accepts. (Also returned by the sign-in-source PATCH.) | Send at least one field to change. |
+| `unsupported_provider` | [400] `provider` is not one of the supported providers. | Use a supported provider. |
+| `unsupported_client_type` | [400] `client_type` is not supported. | Use one of `web`, `ios`, `android`, `desktop`, `other`. |
+| `provider_exists` | [409] A row for this scope, provider and client type already exists. | Update the existing row instead. |
+| `provider_not_found` | [404] No provider row with that id (or the id is not a valid UUID). | Re-list the providers. |
+| `app_not_found` | [400] `app_id` does not name a known app (sign-in source). | Use an existing app id. |
+| `app_platform_mismatch` | [400] `app_id` belongs to a different platform. | Use an app of this platform. |
+| `app_kind_mismatch` | [400] `app_id` is a bot app, which has no provider registrations. | Bind the row to a human app. |
+| `bad_platform` | [400] The public discovery `platform` query value is not `web`, `ios`, `android`, `desktop` or `other`. | Send a valid value or omit it (defaults to `web`). |
+| `origin_tenant_mismatch` | [400] Public discovery was given both an origin and a `tenant_id`, and they resolve to different tenants. | Send only one, or matching ones. |
+
+## Domain codes (`/domains/*` and `/platforms/{pid}/tenants/{tid}/domains`)
+
+Claiming, verifying and binding domains for organizations, platforms and realm origins. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `missing_domain` | [400] The `domain` was empty. | Send a domain. |
+| `unsupported_method` | [400] A domain claim `method` was not `dns_txt` or `html_file`. (The MFA self-enrol route also uses this code for a method other than `totp`.) | Use a supported method. |
+| `tenant_not_found` | [404] The tenant in the path does not exist in that platform. | Check both ids. |
+| `domain_not_found` | [404] Verifying a domain with no pending claim, or removing a domain that is not bound. | Claim the domain first, or re-list. |
+| `domain_taken` | [409] The domain is already mapped to a different entity. | Use another domain, or contest it if you hold proof. |
+| `already_bound` | [409] The domain is already bound to this tenant (nothing to do), or, creating a platform, already bound to a platform. | Treat as done, or pick another domain. |
+| `domain_not_verified` | [412] Binding a domain as an origin, or creating a platform on it, before the domain is verified. | Verify the domain first. |
+| `verification_failed` | [400] The proof check ran and failed; the message says why. | Fix the DNS record or file and verify again. |
+| `contest_open` | [409] A contest for this domain is already open. | Wait for it to close. |
+| `contest_cooldown` | [409] The current holder recently survived a contest and is in a cooldown window. | Try again after the window. |
+| `contest_method_mismatch` | [409] A contest must use the same verification method as the current holder. | Verify using that method. |
+| `origin_not_found` | [404] No such realm origin, or it is already detached. | Re-list origins. |
+| `last_origin` | [409] Detaching the realm's only bound origin. | Bind another origin first. |
+| `grant_exists` | [409] The organization already holds a grant for this domain. | Update the existing grant. |
+| `grant_not_found` | [404] No domain grant with that id or domain. | Re-list the grants. |
+| `invalid_status` | [400] A `status` filter value is not a known status (grants: use the documented statuses; users: `active`, `suspended`, `invited` or `deactivated`). | Fix the filter. |
+| `not_a_proof_method` | [400] Verifying a grant whose evidence is not a proof method; there is nothing to verify. | Do not call verify for it. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
