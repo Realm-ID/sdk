@@ -358,6 +358,37 @@ HTTP status is in brackets.
 | `method_violates_kind` | [400] `allowed_methods` does not fit the source type: a bot source offers only `otp`, a human source can never offer `otp`. | Fix `allowed_methods`. |
 | `source_not_found` | [404] No such sign-in source (or the id is not a UUID). | Re-list the sources. |
 
+## Workload identity federation codes
+
+Signing in with a workload's OIDC token, and managing trust bindings
+(`/platforms/{id}/federation-bindings`). HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `federation_disabled` | [501 on sign-in, 404 on the binding routes] Workload identity federation is not enabled on this deployment. | Use another sign-in lane; contact support. |
+| `missing_subject_token` | [400] A federated sign-in had no `subject_token`. | Send the workload's token. |
+| `bad_subject_token_type` | [400] `subject_token_type` is set and is not the JWT token type. | Omit it, or send the JWT type. |
+| `unknown_issuer` | [400] A binding's `issuer` is not a supported federation provider. | Use a supported provider. |
+| `unconstrained_binding` | [400] `match_claims` is empty; it must constrain the issuer's mandatory claim. | Add the claim. |
+| `missing_mandatory_claim` | [400] `match_claims` does not constrain the issuer's mandatory claim. | Add it, with a non-empty value. |
+| `invalid_mapped_role` | [400] The role a binding maps to does not exist, is disabled, or cannot be held by a service principal (or the realm's role catalog cannot be resolved). | Map to an enabled role that service accounts may hold. |
+| `binding_exists` | [409] An active binding with these `match_claims` already exists. | Use the existing one, or revoke it first. |
+| `binding_not_found` | [404] No such binding. | Re-list the bindings. |
+
+## Platform-token and authorization codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `wrong_scope` | [401] A route that needs a platform token was called with a token that is not a platform-class token. | Use the platform token (exchange the platform API key). |
+| `realm_mismatch` | [403] The platform token's realm is not the realm in the path; or a platform token tried to mint or manage user API keys for a realm other than its own. | Call with the right realm's token. |
+| `tenantless_principal` | [403] The credential carries no tenant, so it cannot be authorized for a tenant-scoped decision. | Use a credential bound to a tenant. |
+| `role_owner_only` | [403] Seating a member at a role that confers administrative authority, by someone who is not the organization owner. | Ask the owner. |
+| `scope_mismatch` | [400] Minting a platform API key with a `scope` that disagrees with the bound user's key class (`platform_api` gives `platform`, `owner` gives `service`). | Omit `scope`, or match it. |
+| `no_default_bot_user` | [400] No `user_id` was given and the realm has no `platform_api` user. | Pass `user_id` explicitly. |
+| `platform_mgmt_api_is_wif_only` | [400] Minting an API key for the Platform Management API identity, which is WIF-only. | Use workload identity federation. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
