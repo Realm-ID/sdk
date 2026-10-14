@@ -117,23 +117,29 @@ test("SPEC10_1_4a #47 winner's error is shared; #48 different tenant gets 503 re
 
   const t = await setup();
   const seen = rotatingIssuer(t);
-  const [w, l] = await Promise.all([drive(t.mw as never, refreshReq("rt0", "acme")), drive(t.mw as never, refreshReq("rt0", "globex"))]);
+  const [ra, rg] = await Promise.all([drive(t.mw as never, refreshReq("rt0", "acme")), drive(t.mw as never, refreshReq("rt0", "globex"))]);
+  // Winner/loser by outcome, not position (the lock is taken after an async SHA-256: any order).
+  const [w, l, loserTenant] = ra.res.statusCode === 200 ? [ra, rg, "globex"] : [rg, ra, "acme"];
   assert.equal(seen.length, 1);
   assert.equal(w.res.statusCode, 200);
   assert.equal(l.res.statusCode, 503);
   assert.deepEqual(l.res.json, { error: { code: "server_error", message: "refresh superseded, retry" }, retry: true });
   assert.equal(setCookieToken(l.res.setCookie), setCookieToken(w.res.setCookie), "same token either order");
-  const retry = await drive(t.mw as never, refreshReq("rt-1", "globex"));
+  const retry = await drive(t.mw as never, refreshReq("rt-1", loserTenant));
   assert.equal(retry.res.statusCode, 200);
   assert.equal(seen[1], "rt-1", "retry uses the NEW token, never the old one");
-  assert.equal(retry.res.json["tenant_id"], "globex");
+  assert.equal(retry.res.json["tenant_id"], loserTenant);
 });
 
 test("SPEC10_1_4a body mode: loser's 503 carries refresh_token; MFA/no-candidate and store error", async () => {
   const s = await setup({ tokenDelivery: "body" });
   rotatingIssuer(s);
   const rq = (tenant: string) => ({ url: "/token", method: "POST", headers: {}, body: { refresh_token: "rt0", tenant_id: tenant } });
-  const [w, l] = await Promise.all([drive(s.mw as never, rq("acme")), drive(s.mw as never, rq("globex"))]);
+  const [ra, rg] = await Promise.all([drive(s.mw as never, rq("acme")), drive(s.mw as never, rq("globex"))]);
+  // Which request wins the lock is NOT defined: each awaits its own SHA-256 (lockKey) first and
+  // those finish in any order. Identify winner and loser by outcome, never by position.
+  const [w, l] = ra.res.statusCode === 200 ? [ra, rg] : [rg, ra];
+  assert.equal(w.res.statusCode, 200);
   assert.equal(w.res.json["refresh_token"], "rt-1");
   assert.equal(l.res.statusCode, 503);
   assert.equal(l.res.json["refresh_token"], "rt-1");

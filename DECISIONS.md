@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-122 entries total — 67 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+123 entries total — 68 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — ts flaky SPEC10_1_4a test: the winner of a concurrent refresh is not the first caller](#2026-10-14--ts-flaky-spec10_1_4a-test-the-winner-of-a-concurrent-refresh-is-not-the-first-caller)
 - [2026-10-14 — FAQ: custom claims re-sent, refresh token on backend, authorize on scopes (F2-F4)](#2026-10-14--faq-custom-claims-re-sent-refresh-token-on-backend-authorize-on-scopes-f2-f4)
 - [2026-10-14 — MFA enroll/confirm are self-only: SDK docs corrected, Go comment deferred](#2026-10-14--mfa-enrollconfirm-are-self-only-sdk-docs-corrected-go-comment-deferred)
 - [2026-10-14 — Partner guide: ADR-111 banner said NOT YET RELEASED after release](#2026-10-14--partner-guide-adr-111-banner-said-not-yet-released-after-release)
@@ -134,6 +135,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — ts flaky SPEC10_1_4a test: the winner of a concurrent refresh is not the first caller
+
+**Symptom.** `SPEC10_1_4a body mode: loser's 503 carries refresh_token` failed once under `make check` (`200 !== 503` on the loser) and passed on rerun. Looped: 16 failures in 200 runs at 4-way parallel (8%); 5 in 100 sequential; 1 in 40 sequential.
+
+**Root cause.** A TEST bug, not an SDK bug. The test fires two concurrent refreshes (acme, globex) and assumed the first array slot is the lock winner. In `handleRefresh` each request first awaits `lockKey()` (`crypto.subtle.digest`, completed off-thread), so which request takes the single-flight lock is undefined. When globex won, the acme slot held the 503 and the globex slot the 200, so `l.statusCode === 503` failed. The single-flight logic behaved correctly in the failing run (one issuer call, loser handed the rotated token). The sibling test `#47 ... #48` had the same positional assumption (and its retry tenant) and would flake the same way.
+
+**Why it wasn't caught.** The race window is tiny and only bites when the digest completions arrive out of order, typically under load (`make check` runs other suites concurrently).
+
+**Fix.** Both tests pick winner and loser by outcome (200 vs 503) and retry as the loser's tenant. No retries, no timeouts. After: 0 of 200 at 4-way parallel; 0 of 80 whole-file runs.
+
+**Prevention.** In concurrent-race tests never infer the winner from argument position; identify it by outcome. No SDK change, no release (ts source untouched).
 
 ## 2026-10-14 — FAQ: custom claims re-sent, refresh token on backend, authorize on scopes (F2-F4)
 
