@@ -248,6 +248,28 @@ Organization admins reviewing contact changes, delinking a contact and handing a
 | `verification_slot_taken` | [409] Approving would take a verification slot that is already used (the message says why). | Resolve the existing verification first. |
 | `identifier_collision` | [409] Accepting a review, or setting a username, would reuse a value already in use in this organization. | Choose a different value. |
 
+## Credential, realm-config, MFA and paging codes
+
+Setting passwords and usernames, patching realm settings, TOTP self-service, and list paging.
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `current_password_required` | [400] Replacing an existing password without sending `current_password`. | Send the current password. |
+| `reset_link_required` | [409] An admin tried to set a password for a member who has a verified email. | Send the member a password reset link instead. |
+| `verified_email_required` | [409] The realm requires a verified email before a username or password is set, and the member has none. | Have the member verify an email first. |
+| `invalid_username` | [400] The username is not 3-32 characters, starting and ending alphanumeric, with only `.`, `_`, `-` inside, not all digits and without `@`. | Choose a valid username. |
+| `password_too_long` | [400] The password is over 1024 bytes. (A password under 12 bytes is `password_too_short`.) | Send a shorter password. |
+| `invalid_config_value` | [400] A realm-settings value has the wrong type (`password_policy.require_verified_email` must be a boolean), or an organization `status` is not `active`, `suspended` or `deactivated`. | Fix the value. |
+| `unknown_config_key` | [400] A realm-settings patch named a key that group does not have (`org_sessions` accepts only `mode`; `password_policy` only `require_verified_email`). | Remove the key. |
+| `invalid_org_sessions_mode` | [400] `org_sessions.mode` is not `concurrent` or `exclusive`. | Use one of the two. |
+| `missing_code` | [400] MFA step-up was called without `code`. | Send the TOTP code. |
+| `not_enrolled` | [400] MFA step-up for a user who has not enrolled, or has not confirmed enrolment. | Enrol and confirm first. |
+| `already_enrolled` | [409] Starting TOTP enrolment for a user who is already enrolled. | Reset the enrolment first. |
+| `invalid_cursor` | [400] `cursor` is not one this server issued. | Omit it for the first page, or pass the previous `next_cursor` unchanged. |
+| `invalid_limit` | [400] `limit` is not a whole number of at least 1. | Fix it, or omit it for the default of 50. |
+| `session_not_found` | [404] No such session for this identity in the realm. | Re-list sessions. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
