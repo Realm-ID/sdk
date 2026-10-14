@@ -1,0 +1,14 @@
+# Read-only docs MCP server. NOT deployed yet: the only deploy path is the manual
+# .github/workflows/deploy-mcp.yml (workflow_dispatch), which needs a CLOUDFLARE_API_TOKEN secret.
+# Never run `wrangler deploy` or `wrangler login` from a laptop.
+name = "realmid-docs-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+# Custom domain: Cloudflare creates the DNS record and certificate for mcp.realmid.dev when the zone
+# realmid.dev is on the same account as the token.
+routes = [{ pattern = "mcp.realmid.dev", custom_domain = true }]
+
+# src/generated/index.json is written by `npm run build:index` (scripts/build-index.mjs) before
+# bundling; it is gitignored. No bindings, no Durable Objects, no secrets.

@@ -1,0 +1,25 @@
+{
+  "name": "realmid-docs-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Read-only MCP server over the RealmID partner docs (Cloudflare Worker, mcp.realmid.dev). Not published to npm.",
+  "type": "module",
+  "scripts": {
+    "build:index": "node scripts/build-index.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/build-index.mjs && tsc --noEmit && vitest run",
+    "dev": "node scripts/build-index.mjs && wrangler dev"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.151.0",
+    "yaml": "^2.9.1"
+  }
+}

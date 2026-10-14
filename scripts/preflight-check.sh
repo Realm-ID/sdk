@@ -88,6 +88,16 @@ gate "contract parity (SDK vs swagger.yaml)" python3 scripts/contract-parity.py
 # their sources. Prints how many files it compared; fails on 0.
 gate "claude-plugin references are current" python3 claude-plugin/scripts/sync-references.py --check
 
+# ── docs MCP server (mcp/) ──────────────────────────────────────────────────
+# Repo-local gate (not a ci.yml step). `npm test` rebuilds the docs index from docs/, typechecks and
+# runs vitest, including positive controls against the REAL docs, so a docs edit that breaks a
+# lookup (an error row, the FAQ anchor) fails here. Same loud-skip shape as ts: no network in `check`.
+if [ -d mcp/node_modules ]; then
+  gate "mcp: docs index builds, typechecks, tests pass" bash -c 'cd mcp && npm test'
+else
+  skip "mcp: tests" "mcp/node_modules is missing — run 'cd mcp && npm ci' once (needs network), then re-run make check"
+fi
+
 # ── changelogs job ──────────────────────────────────────────────────────────
 # ci.yml `changelogs` job, "Every per-package changelog is in descending order".
 gate "changelog order" ./scripts/changelog-hygiene.sh order
