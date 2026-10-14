@@ -112,6 +112,286 @@ as `code`. HTTP status is in brackets.
 | `login_throttled` | [429] Too many attempts for this identifier; counted on the identifier as sent, so unknown and known ones throttle alike. | Wait before retrying. |
 | `reset_throttled` | [429] Too many reset links were sent for this member in the last hour. | Wait before sending another. |
 
+## One-time-code (OTP) codes (`/auth/otp/*`)
+
+These come from issuing, viewing and verifying a one-time code. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_otp` | [401] The presented code does not match, or none was presented. | Ask the user to re-enter it. Repeated misses lock the code (`otp_locked`). |
+| `otp_expired` | [410] The code's lifetime has passed. | Issue a new code. |
+| `otp_locked` | [429] Too many wrong attempts against this code. | Stop; issue a new code after the user has waited. |
+| `otp_not_found` | [404] No code with that id, or its plaintext is no longer available to display (the view route only shows a code for a short time). | Issue a new code. Do not treat it as proof the code was never issued. |
+| `invalid_purpose` | [400] `purpose` is not lowercase letters, digits and underscores, starting with a letter, up to 64 characters. | Fix the request. |
+| `invalid_subject_ref` | [400] `subject_ref` is empty or over 256 characters; for a `login` code it must be exactly `user:<id>`. | Fix the request. |
+| `invalid_scope` | [400] The call has no tenant or no acting user to scope the code to. (A scope rename also uses it for a name that is not a valid RFC 6749 scope token.) | Call with a user-scoped, tenant-scoped token. |
+| `unsupported_delivery_mode` | [400] `delivery_mode` is not `view_bff`, `email` or `sms` (WhatsApp is not available). | Use a supported mode, or omit it for `view_bff`. |
+| `delivery_unavailable` | [503] The mode is valid but this deployment has no transport configured for it. | Not your request's fault; use another mode or contact support. |
+| `no_delivery_address` | [400] `delivery_mode` is `email` and the code's subject has no email address on record. | Add an address first, or use another mode. |
+
+## API key codes
+
+Platform API keys (`/platforms/{id}/api-keys`) and end-user API keys
+(`/tenants/{tid}/users/{uid}/user-api-keys`), plus signing in with either. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `api_key_not_found` | [404] Revoking a platform API key id the realm does not have. | Re-list the keys and use a current id. |
+| `api_key_cannot_mint_api_key` | [403] A caller that signed in with a platform API key tried to mint another platform API key. | Mint through workload identity federation or an owner login. |
+| `invalid_user_for_api_key` | [400] The `user_id` given for a new platform API key is not a user of this realm, or its role is not `platform_api`. | Omit `user_id` to use the realm's default bot user, or pass a `platform_api` user. |
+| `ambiguous_bot_user` | [400] No `user_id` was given and the realm has more than one `platform_api` user. | Pass `user_id` explicitly. |
+| `invalid_ttl` | [400] A platform key request set both `ttl_seconds` and `non_expiring`. | Send only one. |
+| `too_many_api_keys` | [409] The realm already holds the maximum of 2 active platform API keys. | Revoke one first. |
+| `non_expiring_not_allowed` | [400] A non-expiring key was requested but not permitted: for platform keys the realm already holds one (at most one); for user keys the realm has not enabled `user_api_keys.allow_non_expiring`. | Give the key a TTL, or have the realm owner enable the setting. |
+| `platform_api_key_login_disabled` | [403] The realm has turned platform API-key sign-in off. | Use workload identity federation. |
+| `active_api_keys_exist` | [409] Turning off platform API-key sign-in while the realm still has active platform keys. | Revoke the active keys first, then retry. |
+| `user_api_keys_disabled` | [412] End-user API keys are not enabled for this realm. | Have the realm owner enable them. |
+| `uncapped_required` | [400] A user-key mint did not state `uncapped`. | Send `uncapped: true` (full authority of the holder) or `false` with a `permissions_cap`. |
+| `uncapped_not_allowed` | [403] `uncapped: true` but the realm has not enabled `user_api_keys.allow_uncapped`. | Send a `permissions_cap`, or have the realm owner enable the setting. |
+| `too_many_permissions` | [400] `permissions_cap` has more entries than the realm allows. | Send a shorter list. |
+| `ttl_exceeds_max` | [400] `ttl_seconds` is above the realm's maximum for user keys. | Send a shorter TTL. |
+| `too_many_active_keys` | [409] The user already holds the maximum number of active API keys. | Revoke one first. |
+| `user_api_key_not_found` | [404] No such user key, or it belongs to a different user. | Re-list the user's keys. |
+| `user_api_key_revoked` | [409] Updating a user key that is already revoked. | Mint a new key; a revoked key cannot be revived. |
+| `org_not_in_key_scope` | [403] Signing in with a user key into an org outside the key's scope, or the key spans several orgs and none was chosen. | Pass a `tenant_id` the key covers. |
+
+## Identity-provider codes (`/identity-providers`)
+
+Configuring which sign-in providers a platform or organization offers. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `missing_platform_id` | [400] `platform_id` was not sent (query parameter on list, body field on create). | Send it. |
+| `missing_id` | [400] The provider id path segment was empty. | Send a provider id. |
+| `empty_patch` | [400] A PATCH carried none of the fields it accepts. (Also returned by the sign-in-source PATCH.) | Send at least one field to change. |
+| `unsupported_provider` | [400] `provider` is not one of the supported providers. | Use a supported provider. |
+| `unsupported_client_type` | [400] `client_type` is not supported. | Use one of `web`, `ios`, `android`, `desktop`, `other`. |
+| `provider_exists` | [409] A row for this scope, provider and client type already exists. | Update the existing row instead. |
+| `provider_not_found` | [404] No provider row with that id (or the id is not a valid UUID). | Re-list the providers. |
+| `app_not_found` | [400] `app_id` does not name a known app (sign-in source). | Use an existing app id. |
+| `app_platform_mismatch` | [400] `app_id` belongs to a different platform. | Use an app of this platform. |
+| `app_kind_mismatch` | [400] `app_id` is a bot app, which has no provider registrations. | Bind the row to a human app. |
+| `bad_platform` | [400] The public discovery `platform` query value is not `web`, `ios`, `android`, `desktop` or `other`. | Send a valid value or omit it (defaults to `web`). |
+| `origin_tenant_mismatch` | [400] Public discovery was given both an origin and a `tenant_id`, and they resolve to different tenants. | Send only one, or matching ones. |
+
+## Domain codes (`/domains/*` and `/platforms/{pid}/tenants/{tid}/domains`)
+
+Claiming, verifying and binding domains for organizations, platforms and realm origins. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `missing_domain` | [400] The `domain` was empty. | Send a domain. |
+| `unsupported_method` | [400] A domain claim `method` was not `dns_txt` or `html_file`. (The MFA self-enrol route also uses this code for a method other than `totp`.) | Use a supported method. |
+| `tenant_not_found` | [404] The tenant in the path does not exist in that platform. | Check both ids. |
+| `domain_not_found` | [404] Verifying a domain with no pending claim, or removing a domain that is not bound. | Claim the domain first, or re-list. |
+| `domain_taken` | [409] The domain is already mapped to a different entity. | Use another domain, or contest it if you hold proof. |
+| `already_bound` | [409] The domain is already bound to this tenant (nothing to do), or, creating a platform, already bound to a platform. | Treat as done, or pick another domain. |
+| `domain_not_verified` | [412] Binding a domain as an origin, or creating a platform on it, before the domain is verified. | Verify the domain first. |
+| `verification_failed` | [400] The proof check ran and failed; the message says why. | Fix the DNS record or file and verify again. |
+| `contest_open` | [409] A contest for this domain is already open. | Wait for it to close. |
+| `contest_cooldown` | [409] The current holder recently survived a contest and is in a cooldown window. | Try again after the window. |
+| `contest_method_mismatch` | [409] A contest must use the same verification method as the current holder. | Verify using that method. |
+| `origin_not_found` | [404] No such realm origin, or it is already detached. | Re-list origins. |
+| `last_origin` | [409] Detaching the realm's only bound origin. | Bind another origin first. |
+| `grant_exists` | [409] The organization already holds a grant for this domain. | Update the existing grant. |
+| `grant_not_found` | [404] No domain grant with that id or domain. | Re-list the grants. |
+| `invalid_status` | [400] A `status` filter value is not a known status (grants: use the documented statuses; users: `active`, `suspended`, `invited` or `deactivated`). | Fix the filter. |
+| `not_a_proof_method` | [400] Verifying a grant whose evidence is not a proof method; there is nothing to verify. | Do not call verify for it. |
+
+## Membership, invitation and ownership codes
+
+Inviting people, accepting or leaving an organization, and transferring ownership
+(`PUT /tenants/{id}/owner`). HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_identifier` | [400] An invite identifier (or `new_owner_email`) is not an email address or E.164 phone number. | Fix the address. |
+| `already_member` | [409] The identifier is already linked to an existing member of the organization. | Nothing to invite; manage the existing member. |
+| `owner_not_invitable` | [400] An invite asked for the `owner` role. | Invite as another role, then use ownership transfer. |
+| `invite_not_found` | [404] No such invitation in this organization. | Re-list invitations. |
+| `invitation_address_immutable` | [400] Changing the contact of a member whose invitation is still pending. | Revoke the invitation and invite the corrected address. |
+| `invitations_unavailable` | [501] The deployment has no invitation store configured for the accept or reject routes. | Not a request error; contact support. |
+| `membership_not_found` | [404] The caller has no such membership or invitation. | Re-list the caller's memberships. |
+| `not_invited` | [409] Rejecting a membership that is not a pending invitation. | To end an active membership, use leave. |
+| `not_pending` | [409] There is no pending invitation to reject, or it is no longer pending. | Re-list invitations. |
+| `already_left` | [409] The membership has already ended. | Nothing to do. |
+| `owner_cannot_leave` | [409] The caller owns the organization and tried to leave it. | Transfer ownership first. |
+| `owner_cannot_be_revoked` | [409] In a single-organization realm, choosing an organization would end the caller's membership in another one they own. | Transfer that organization's ownership first. |
+| `single_tenant_not_required` | [409] The realm does not require single-organization membership, so there is nothing to choose. | Skip the choice step. |
+| `single_tenant_membership` | [409] The realm allows one organization per user and the user belongs to another. | Have the user leave the other organization first. |
+| `last_owner` | [409] Changing the role of, or deactivating, the organization's owner. | Transfer ownership first. |
+| `use_transfer_owner` | [400] A role change asked for `owner`, or `outgoing_owner_role` was `owner`. | Use the ownership-transfer route; `outgoing_owner_role` must be a different role. |
+| `missing_recipient` | [400] An ownership transfer named no recipient (`owner_user_id` or `new_owner_email`). | Name the new owner. |
+| `recipient_contact_unproven` | [400] The address given as new owner is not a proven contact in this organization. | Name the recipient with `owner_user_id`, or have them verify the address first. |
+| `recipient_not_member` | [400] The new owner is not a member of this organization. | Add them as a member first. |
+| `recipient_not_active` | [400] The new owner is a member but not active. | Pick an active member. |
+| `conflicting_outgoing_disposition` | [400] `leave_entirely` and `suspend_outgoing_owner` were both set. | Send only one. |
+| `owner_transfer_requires_human` | [403] An owner-initiated transfer was attempted with a platform-scoped or tenant-less token. | Make the call with the current owner's own user session. |
+| `tenant_deleted` | [409] Patching an organization that has been deleted. | A deleted organization cannot be revived this way. |
+
+## Contact review codes (`/tenants/{id}/contact-verifications`, `contact-drift-reviews`, hand-back)
+
+Organization admins reviewing contact changes, delinking a contact and handing an account back. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `contact_not_found` | [404] The contact does not belong to that user in this organization. | Re-list the user's contacts. |
+| `user_not_found` | [404] The user does not exist in this organization. | Check the id. |
+| `from_user_not_found` | [404] The `from_user_id` account does not exist in this organization. | Check the id. |
+| `missing_from_user_id` | [400] Hand-back was called without `from_user_id`. | Send it. |
+| `same_user` | [400] `from_user_id` equals the target user. | Name a different source account. |
+| `target_not_deactivated` | [409] The hand-back target account is not deactivated. | Only a deactivated account can be handed back. |
+| `owner_not_handbackable` | [409] The source account is the organization's owner. | Transfer ownership first. |
+| `no_source_identity` | [400] The source account has no active email to hand back. | Hand-back needs a source with an active email. |
+| `handback_insert_failed` | [409] The handed-back identity could not be planted (the message says why). | Resolve the clash it names and retry. |
+| `drift_review_not_found` | [404] No such review in this organization. | Re-list the reviews. |
+| `drift_review_not_pending` | [409] The review was already resolved. | Nothing to do. |
+| `verification_not_found` | [404] No such contact verification in this organization. | Re-list the verifications. |
+| `verification_not_pending` | [409] The verification was already resolved. | Nothing to do. |
+| `verification_slot_taken` | [409] Approving would take a verification slot that is already used (the message says why). | Resolve the existing verification first. |
+| `identifier_collision` | [409] Accepting a review, or setting a username, would reuse a value already in use in this organization. | Choose a different value. |
+
+## Credential, realm-config, MFA and paging codes
+
+Setting passwords and usernames, patching realm settings, TOTP self-service, and list paging.
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `current_password_required` | [400] Replacing an existing password without sending `current_password`. | Send the current password. |
+| `reset_link_required` | [409] An admin tried to set a password for a member who has a verified email. | Send the member a password reset link instead. |
+| `verified_email_required` | [409] The realm requires a verified email before a username or password is set, and the member has none. | Have the member verify an email first. |
+| `invalid_username` | [400] The username is not 3-32 characters, starting and ending alphanumeric, with only `.`, `_`, `-` inside, not all digits and without `@`. | Choose a valid username. |
+| `password_too_long` | [400] The password is over 1024 bytes. (A password under 12 bytes is `password_too_short`.) | Send a shorter password. |
+| `invalid_config_value` | [400] A realm-settings value has the wrong type (`password_policy.require_verified_email` must be a boolean), or an organization `status` is not `active`, `suspended` or `deactivated`. | Fix the value. |
+| `unknown_config_key` | [400] A realm-settings patch named a key that group does not have (`org_sessions` accepts only `mode`; `password_policy` only `require_verified_email`). | Remove the key. |
+| `invalid_org_sessions_mode` | [400] `org_sessions.mode` is not `concurrent` or `exclusive`. | Use one of the two. |
+| `missing_code` | [400] MFA step-up was called without `code`. | Send the TOTP code. |
+| `not_enrolled` | [400] MFA step-up for a user who has not enrolled, or has not confirmed enrolment. | Enrol and confirm first. |
+| `already_enrolled` | [409] Starting TOTP enrolment for a user who is already enrolled. | Reset the enrolment first. |
+| `invalid_cursor` | [400] `cursor` is not one this server issued. | Omit it for the first page, or pass the previous `next_cursor` unchanged. |
+| `invalid_limit` | [400] `limit` is not a whole number of at least 1. | Fix it, or omit it for the default of 50. |
+| `session_not_found` | [404] No such session for this identity in the realm. | Re-list sessions. |
+
+## Scope, permission, import and role-authoring codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `too_many_scopes` | [400] The `scope` on a sign-in request holds more entries than the realm allows. | Send fewer scopes. |
+| `scope_too_long` | [400] A scope entry (on sign-in, or in a scope rename) is longer than the realm's maximum. | Use a shorter scope name. |
+| `permission_cap_exceeded` | [403] The caller's API key has a `permissions_cap` that does not include the permission the call needs. This differs from a plain `forbidden`: the user may hold the permission, the key's cap excludes it. | Mint a key whose cap includes it. |
+| `realmid_audience_immutable` | [400] A scope rename on a realm whose permission vocabulary is RealmID's own catalog. | Do not rename it. |
+| `not_implemented` | [501] Scope rename is not available on this deployment. | Not a request error; contact support. |
+| `platform_not_found` | [404] The platform id does not exist (or is not a valid UUID). | Check the id. |
+| `empty_import` | [400] A bulk user import had no rows. | Send at least one row. |
+| `too_many_rows` | [400] A bulk user import exceeded the per-request row cap (1000). | Split it into batches. |
+| `role_authoring_retired` | [403] A partner realm tried to create or edit role templates. RealmID defines the role set. | Put product roles in your own system and send them as scopes; disable a role you do not want with `POST /platforms/{id}/roles/{roleId}/disable`. |
+
+## Roles, service accounts and integration registry codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `unknown_role` | [400] The role is not registered in the realm's role catalog. (A bulk import reports this per row.) | Use a role from `GET /platforms/{id}/roles`. |
+| `role_disabled` | [400] The role is disabled in the realm, or switched off for this organization. | Choose another role, or re-enable it. |
+| `role_not_assignable_to_kind` | [400] The role cannot be held by this kind of principal (a human-only permission on a service account, or a role not open to that kind). | Pick a role that fits the principal. |
+| `role_not_found` | [404] Disabling or enabling a role id the realm does not have. | Re-list the roles. |
+| `role_protected` | [400] Disabling a protected role, which must stay on. | Leave it enabled. |
+| `role_is_default` | [400] Disabling the realm's default invitation role. | Set another default first. |
+| `last_active_role` | [400] Disabling would leave the realm with no active role besides `owner`. | Keep at least one other role active. |
+| `unknown_permission` | [400] A permission string is empty or not in the permission catalog (also for `permissions_cap` on a RealmID-audience user key). | Use a permission from `GET /platforms/{id}/permissions`. |
+| `starter_roles_retired` | [400] Creating a platform with `starter_roles`; the field is retired. | Drop it. `admin` is in every realm; to run without it, disable it. |
+| `invalid_rename` | [400] A scope rename where `to` equals `from`. | Send different names. |
+| `invalid_handle` | [400] A service-account login handle is not email-shaped (no `@`). | Use an email-shaped handle. |
+| `handle_taken` | [409] The service-account handle is already in use in this organization. | Pick another handle. |
+| `invalid_role` | [400] A service account may not hold `owner` or `platform_api`. | Choose another role. |
+| `platform_bot_immutable` | [400] Modifying the platform API bot, which RealmID manages. | Rotate its credentials through the API-keys routes instead. |
+| `service_account_not_found` | [404] No such service account in this organization. | Re-list service accounts. |
+| `invalid_slug` | [400] An integration `slug` is not 2-48 lowercase letters, digits and single hyphens; or a platform slug is not 1-63 of lowercase a-z, 0-9, hyphen (no leading or trailing hyphen). | Fix the slug. |
+| `reserved_slug` | [409] The platform slug is reserved by RealmID. | Choose another slug. |
+| `display_name_required` | [400] An integration `display_name` is missing or blank. | Send one. |
+| `integration_not_found` | [404] No such integration (in your realm, or at install time). | Check the id. |
+| `invalid_integration_id` | [400] `integration_id` is not a UUID. | Send a UUID. |
+| `integrations_unavailable` | [501] The deployment has no integration registry configured. | Not a request error; contact support. |
+| `tenant_suspended` | [410] The organization is suspended or deactivated (also when a cross-realm mint targets such an org). | Reactivate it, or choose another. |
+| `handle_collision` | [409] The new install's principal handle collided (very unlikely). | Retry. |
+| `invalid_installation_id` | [400] A cross-realm mint's `installation_id` is not a UUID. | Send the installation's UUID. |
+| `missing_source_org_id` | [400] A cross-realm mint did not send `source_org_id`. | Send it; it is the only attribution the target org gets. |
+
+## Creating an organization (`POST /platforms/{pid}/tenants`)
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `base_realm_no_orgs` | [403] Creating an organization under the base realm. | Create it under a partner platform. |
+| `missing_display_name` | [400] `display_name` is empty. | Send it. |
+| `invalid_created_at` | [400] `created_at` is not an RFC 3339 timestamp (a bulk import reports this per row). | Fix the timestamp, or omit it. |
+| `invalid_tenant_id` | [400] The caller-supplied `id` is not a UUID. | Send a UUID, or omit it. |
+| `cross_realm_tenant_id` | [400] The supplied tenant id (or owner id) already exists in another realm. | Use a fresh id. |
+| `invalid_signup_mode` | [400] `signup_mode` is not `closed`, `allowlist` or `open`. | Use one of the three. |
+| `signup_mode_immutable_on_reconcile` | [409] Re-sending an existing organization (same id) with a different `signup_mode`. | Change it with `PATCH /tenants/{id}/config`. |
+| `owner_required` | [400] `owner` is missing. | Send an owner. |
+| `owner_missing_identifier` | [400] The owner has neither an email nor a phone. | Send one. |
+| `owner_invalid_email` | [400] The owner email has no `@`. | Fix it. |
+| `owner_invalid_phone` | [400] The owner phone is not canonical E.164 (`+`, non-zero country digit, 8-15 digits, no spaces or punctuation). | Fix it. |
+| `owner_invalid_user_id` | [400] `owner.user_id` is not a UUID. | Send a UUID, or omit it. |
+| `owner_incomplete_provider` | [400] Only one of `provider` and `provider_uid` was sent. | Send both or neither. |
+| `owner_unknown_provider` | [400] `provider` is not one of google, microsoft, apple, facebook, firebase. | Use one of those. |
+| `cross_tenant_owner_id` | [400] `owner.user_id` already exists in another organization. | Use a fresh id. |
+| `owner_already_set` | [400] Re-sending an existing organization with a different owner; reconcile never re-seats ownership. | Use the ownership-transfer route. |
+
+## Custom claims, product roles and sign-in source codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_custom_claims` | [400] `custom_claims` on a sign-in request cannot be serialised as JSON. | Send plain JSON values. |
+| `custom_claims_too_large` | [400] `custom_claims` serialises to more than 4096 bytes. | Send fewer or smaller claims. |
+| `too_many_custom_claim_keys` | [400] `access_token_custom_claim_keys` in the tenant config lists more than 32 keys. | List fewer keys. |
+| `custom_claim_key_too_long` | [400] An `access_token_custom_claim_keys` entry is longer than 64 bytes. | Shorten the key. |
+| `too_many_product_roles` | [400] `product_roles` on a sign-in request has more than 16 entries. | Send at most 16. |
+| `product_role_too_long` | [400] A `product_roles` entry is longer than 64 bytes. | Shorten it. |
+| `invalid_product_role` | [400] A `product_roles` entry is empty, not valid UTF-8, or has control characters. | Fix the entry. |
+| `unsupported_type` | [400] A sign-in source `type` is not `web`, `android`, `ios`, `desktop` or `bot`. | Use one of those. |
+| `method_violates_kind` | [400] `allowed_methods` does not fit the source type: a bot source offers only `otp`, a human source can never offer `otp`. | Fix `allowed_methods`. |
+| `source_not_found` | [404] No such sign-in source (or the id is not a UUID). | Re-list the sources. |
+
+## Workload identity federation codes
+
+Signing in with a workload's OIDC token, and managing trust bindings
+(`/platforms/{id}/federation-bindings`). HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `federation_disabled` | [501 on sign-in, 404 on the binding routes] Workload identity federation is not enabled on this deployment. | Use another sign-in lane; contact support. |
+| `missing_subject_token` | [400] A federated sign-in had no `subject_token`. | Send the workload's token. |
+| `bad_subject_token_type` | [400] `subject_token_type` is set and is not the JWT token type. | Omit it, or send the JWT type. |
+| `unknown_issuer` | [400] A binding's `issuer` is not a supported federation provider. | Use a supported provider. |
+| `unconstrained_binding` | [400] `match_claims` is empty; it must constrain the issuer's mandatory claim. | Add the claim. |
+| `missing_mandatory_claim` | [400] `match_claims` does not constrain the issuer's mandatory claim. | Add it, with a non-empty value. |
+| `invalid_mapped_role` | [400] The role a binding maps to does not exist, is disabled, or cannot be held by a service principal (or the realm's role catalog cannot be resolved). | Map to an enabled role that service accounts may hold. |
+| `binding_exists` | [409] An active binding with these `match_claims` already exists. | Use the existing one, or revoke it first. |
+| `binding_not_found` | [404] No such binding. | Re-list the bindings. |
+
+## Platform-token and authorization codes
+
+HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `wrong_scope` | [401] A route that needs a platform token was called with a token that is not a platform-class token. | Use the platform token (exchange the platform API key). |
+| `realm_mismatch` | [403] The platform token's realm is not the realm in the path; or a platform token tried to mint or manage user API keys for a realm other than its own. | Call with the right realm's token. |
+| `tenantless_principal` | [403] The credential carries no tenant, so it cannot be authorized for a tenant-scoped decision. | Use a credential bound to a tenant. |
+| `role_owner_only` | [403] Seating a member at a role that confers administrative authority, by someone who is not the organization owner. | Ask the owner. |
+| `scope_mismatch` | [400] Minting a platform API key with a `scope` that disagrees with the bound user's key class (`platform_api` gives `platform`, `owner` gives `service`). | Omit `scope`, or match it. |
+| `no_default_bot_user` | [400] No `user_id` was given and the realm has no `platform_api` user. | Pass `user_id` explicitly. |
+| `platform_mgmt_api_is_wif_only` | [400] Minting an API key for the Platform Management API identity, which is WIF-only. | Use workload identity federation. |
+
 ## Cross-realm integration codes (`realm.integrations.*`, ADR-082/083)
 
 > **Contract change (ADR-101 D7, issuer `v0.113.0`).** Installing an
