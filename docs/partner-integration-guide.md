@@ -138,11 +138,12 @@ Every RealmID access token carries at least:
 | --- | --- | --- |
 | `iss` | `https://auth.realmid.dev/{realmId}` | Validate prefix matches SDK `BaseURL` (ADR-020). |
 | `aud` | The realm's intrinsic audience `realmid:<platform_ref>` (ADR-064) — frozen at platform creation, **not** your domain | Validate matches SDK `Audience`. |
-| `azp` | The login origin (e.g., `app.dealera.com`) | Audit / analytics; don't gate on it. |
+| `azp` | For a login brokered by your backend (the normal case, ADR-041), the **fingerprint of the platform API key** that backend signed in with (it looks like `apikey:abc123…`); only for a direct, non-brokered login is it the origin the person signed in from (e.g., `app.dealera.com`). | Tells your backends apart (one platform API key per BFF gives one `azp` each). Audit / analytics; don't gate authorization on it. |
 | `sub` | RealmID user ID (UUIDv7) — **per (person, tenant), NOT per person** | Your FK to a RealmID membership **row**. Scope reads with `tenant_id`; never treat it as a person id — see the warning below. |
 | `tenant_id` | RealmID tenant ID | **Authoritative** tenant boundary for the request. |
 | `role` | The user's single role in that tenant | See §4 for how to extend. |
-| `jti` | Session ID | For audit correlation. |
+| `sid` | The session id (ADR-109). Stable across refreshes of one session. | Key session-level revocation and audit correlation on this. |
+| `jti` | A fresh unique id for **this one token** (ADR-109 D3); it changes on every refresh. | De-duplicate or deny-list a single token. It is **not** the session id. |
 | `exp`, `iat`, `nbf` | Standard | Standard. |
 
 Partner API middleware must reject any token where `iss` prefix, `aud`, or signature check fails. The SDK does this by default.
@@ -2538,36 +2539,18 @@ re-checks standing grants on a schedule).
 
 ## 9. Testing your integration
 
-Don't stand up RealmID (or Firebase) to write tests. Use the `ritest`
-helper:
+Don't hand-write a stub issuer to test against. This section used to point
+at `ritest`, an in-process test issuer; it lives in the private
+`Realm-ID/issuer` repo, which partners cannot read, so it is not something
+you can adopt today.
 
-- **Go partners**: `import "realmid.dev/auth/testsupport/issuer"`, mint
-  tokens in-process — zero HTTP, zero subprocess. Ideal for middleware unit
-  tests and fast feedback loops. ⚠️ The library (and the `StaticKeys`
-  verifier bypass it pairs with) targets the issuer repo's internal SDK, and
-  both live in the private `Realm-ID/issuer` repo — like the ADRs, ask and we
-  will send it. The published `github.com/Realm-ID/sdk/go` verifier has no
-  `StaticKeys`; with it, run `ritest` as a binary and point `BaseURL` at the
-  loopback port instead.
-- **Non-Go partners or compose stacks**: run `ritest` as a binary on a
-  loopback port; point your partner API's `BaseURL` at it.
-- **Cross-test-run persistence**: pass `--state-file <path>` (binary) or
-  `Config.StateFile` (library) and the keypair + revoked-JTI set survive
-  process restarts. Fixture tokens checked into your repo will continue
-  to verify across CI runs.
-- **Single-concurrent-session tests**: pass a fixed `jti` on `POST /mint`
-  so two successive tokens share identity; one `POST /revoke` kills both.
-
-Full reference: `testsupport/issuer/README.md` in the private
-`Realm-ID/issuer` repo (the old relative link here broke when this guide
-moved repos — ask us for the file).
-
-> **Available today, without waiting on us: run a local RealmID stack.** The
-> `ritest` library and binary live in a private repo, so obtaining them is a
-> conversation rather than a download. Extracting them to a public repo is on
-> our backlog and is the direction we are leaning, but it is not done. Until it
-> is, the self-service option is to stand up a real issuer locally (Postgres +
-> Redis + the issuer image) and point your `BaseURL` at it.
+> **What you can do today, with public material only: run a real RealmID
+> stack locally.** Stand up Postgres + Redis + the issuer image and point your
+> `BaseURL` at it. For CI without an interactive Google sign-in, mint a **user
+> API key** for a test person from your backend and exchange it with
+> `POST /auth/login` and `grant_type=user_api_key` (§4.1; the FAQ entry
+> [How does my CI get a user token?](migrating-to-realmid.md#how-does-my-ci-get-a-user-token-without-an-interactive-google-sign-in)
+> has the steps). There is no "test user" sign-in.
 >
 > That is **stronger evidence than a hand-written stub**, and the difference is
 > not theoretical. A stub that echoes back whatever it is handed will pass for a

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-114 entries total — 59 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+115 entries total — 60 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — RCA (2026-10-14) — guide section 3 and 9 contradicted the issuer; doc-claims check added](#2026-10-14--rca-2026-10-14--guide-section-3-and-9-contradicted-the-issuer-doc-claims-check-added)
 - [2026-10-14 — 2026-10-14 (docs) — Migrating to RealmID FAQ: public-only sources, claim ids per hard rule](#2026-10-14--2026-10-14-docs--migrating-to-realmid-faq-public-only-sources-claim-ids-per-hard-rule)
 - [2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown](#2026-10-12-go-v0660-adr-104-r-d--typed-user_suspended--escort_suspended-relayed-without-session-teardown)
 - [2026-10-12 (Go v0.65.0, ADR-104 R-e) — whole-identity revokes feed the SessionStore through Logout's helper](#2026-10-12-go-v0650-adr-104-r-e--whole-identity-revokes-feed-the-sessionstore-through-logouts-helper)
@@ -126,6 +127,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — RCA (2026-10-14) — guide section 3 and 9 contradicted the issuer; doc-claims check added
+
+RCA for three doc bugs in `docs/partner-integration-guide.md`, found by the author of the partner FAQ (D1) and fixed against the issuer code.
+
+- Symptom: section 3 said `azp` is "the login origin ... don't gate on it" and `jti` is the "Session ID" (no `sid` row); section 9 sent partners to the private `ritest` repo ("ask us").
+- Root cause: `azp` is `apikey:<fingerprint>` for a BFF-brokered login and the origin only for a direct one (`issuer/internal/authsvc/service.go`, mintAccessTokenWithBroker); ADR-109 D3 made `jti` a fresh id per token and moved the session id to `sid`, but the table was written before ADR-041 and ADR-109 and never revisited. Section 9 predates the move of this guide into the public repo, where the repo it names is unreadable.
+- Why it wasn't caught: nothing ties a claims table to the mint code; `TestADR109B_JTIUniquePerToken_SidStable` pins the code but no test or check reads the guide.
+- Fix: azp row states both cases; `sid` row added; `jti` row says per-token; section 9 describes the public path (local stack, user API key for CI) instead of ritest. The FAQ's discovery sentence also said "nothing more" while the document carries static capability lists; reworded.
+- Prevention: `docs/claims.yaml` + `scripts/check-doc-claims.py` bind each FAQ rule (aud, azp, jti/sid-adjacent TTL and reuse rules) to a named issuer test that the issuer's `internal/docclaims` test proves exists. The guide table itself is still prose; the azp and aud rows are now pinned through their claims.
 
 ## 2026-10-14 — 2026-10-14 (docs) — Migrating to RealmID FAQ: public-only sources, claim ids per hard rule
 

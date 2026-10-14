@@ -52,7 +52,8 @@ Claim: `no-scim`
 
 No. RealmID mints **access tokens and refresh tokens** only. There is no `/authorize` redirect
 flow and no ID token. The discovery document is deliberately minimal: it gives your verifier the
-issuer, the key-set URL (`jwks_uri`) and the token endpoint, and nothing more. Your login screen
+issuer, the key-set URL (`jwks_uri`) and the token endpoint (plus a few static capability lists),
+and advertises no authorization, userinfo or registration endpoint. Your login screen
 stays yours; see [How does Google sign-in work?](#how-does-google-sign-in-work).
 
 Example: do not point a generic "OIDC login" library at RealmID and expect a redirect login. Your
