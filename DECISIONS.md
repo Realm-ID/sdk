@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-113 entries total — 58 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+114 entries total — 59 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — 2026-10-14 (docs) — Migrating to RealmID FAQ: public-only sources, claim ids per hard rule](#2026-10-14--2026-10-14-docs--migrating-to-realmid-faq-public-only-sources-claim-ids-per-hard-rule)
 - [2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown](#2026-10-12-go-v0660-adr-104-r-d--typed-user_suspended--escort_suspended-relayed-without-session-teardown)
 - [2026-10-12 (Go v0.65.0, ADR-104 R-e) — whole-identity revokes feed the SessionStore through Logout's helper](#2026-10-12-go-v0650-adr-104-r-e--whole-identity-revokes-feed-the-sessionstore-through-logouts-helper)
 - [2026-10-06 (test hygiene) — release-check.test.sh keeps its fixtures in .scratch and scrubs hook-inherited git env](#2026-10-06-test-hygiene--release-checktestsh-keeps-its-fixtures-in-scratch-and-scrubs-hook-inherited-git-env)
@@ -125,6 +126,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — 2026-10-14 (docs) — Migrating to RealmID FAQ: public-only sources, claim ids per hard rule
+
+**Context.** On 2026-10-14 a partner asked about 26 questions over three messages while planning a later move onto RealmID (what RealmID owns, tokens, which id to store, who holds roles, CI sign-in). Every answer had to come from the PRIVATE issuer repo (ADRs and code) because the public docs did not cover the migration shape, and two first answers were wrong until checked against the code (Google sign-in is `POST /auth/login`, not `/auth/token`; org creation does accept a caller-supplied `id`).
+
+**Decision.** Add `docs/migrating-to-realmid.md`, a FAQ in plain words with an example per answer, for a partner or the partner's AI agent. Questions answered: what RealmID owns and does not (no SCIM, no ID token or redirect login, no erase of a person), flat orgs, `sub` is per membership and keys are `(tenant_id, sub)`, bring-your-own user and org UUIDs and UUIDv5 from a slug, bulk import, one Google account in several orgs, the RealmID role vs partner `scope` / `product_roles` split and their bounds, who owns an org and how it transfers, `aud` per realm and `azp` per BFF key, 15-minute access token and refresh rotation, Google sign-in via `POST /auth/login` `provider_token`, CI tokens via `user_api_key`, and the anti-patterns.
+
+**Rule: public sources only.** Every answer links to a public section (`partner-integration-guide.md`, `SPEC.md`, `error-reference.md` or the served OpenAPI spec). The page never links into `issuer/` (private) and never cites an ADR file path; an ADR number may appear in passing. It names no partner or customer. It says nothing about a staging environment (on hold, owner 2026-10-14); the testing entry describes only what exists today.
+
+**How claims were checked.** Each capability was re-read against `issuer/docs/swagger.yaml` and issuer code on 2026-10-14, not copied from the consultation. Hard rules carry a `Claim: <kebab-id>` line under the answer so a later workstream can pin each one to a test by heading anchor. Where the code differs from `partner-integration-guide.md` (`azp`, `jti`), the FAQ states the code and the guide was left unchanged on purpose; the owner decides when to reconcile it.
+
+**Tradeoff.** A second place states some facts the partner guide also states (the guide is not reconciled, see `docs/INDEX.md`). Accepted: the FAQ is organised by the question a migrating partner asks, and links back for depth rather than copying it.
 
 ## 2026-10-12 (Go v0.66.0, ADR-104 R-d) — typed user_suspended / escort_suspended, relayed without session teardown
 

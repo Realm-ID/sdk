@@ -14,6 +14,7 @@ cross-language contract; these docs explain how to use and operate it.
 | Handle errors | `error-reference.md` |
 | Understand management operations | `operations.md` |
 | Plan a partner integration | `integration-guide.md` (SDK-shaped) |
+| Move an existing user store or auth stack onto RealmID (FAQ) | `migrating-to-realmid.md` |
 | Understand the platform model, claims, RBAC, `scope` | `partner-integration-guide.md` (platform-shaped) |
 
 ## Canonical Sources
@@ -39,7 +40,7 @@ cross-language contract; these docs explain how to use and operate it.
 
 | Group | Docs |
 |---|---|
-| Getting started | `quickstart.md`, `integration-guide.md`, `partner-integration-guide.md` |
+| Getting started | `quickstart.md`, `integration-guide.md`, `partner-integration-guide.md`, `migrating-to-realmid.md` |
 | Auth and middleware | `dual-token.md`, `middleware.md` |
 | Operations | `operations.md` |
 | Errors | `error-reference.md` |
