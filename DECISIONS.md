@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-120 entries total — 65 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+121 entries total — 66 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-14 — MFA enroll/confirm are self-only: SDK docs corrected, Go comment deferred](#2026-10-14--mfa-enrollconfirm-are-self-only-sdk-docs-corrected-go-comment-deferred)
 - [2026-10-14 — Partner guide: ADR-111 banner said NOT YET RELEASED after release](#2026-10-14--partner-guide-adr-111-banner-said-not-yet-released-after-release)
 - [2026-10-14 — Error reference: 185 rows added for previously undocumented codes](#2026-10-14--error-reference-185-rows-added-for-previously-undocumented-codes)
 - [2026-10-14 — Docs MCP server: hosted Worker, stateless, docs-only](#2026-10-14--docs-mcp-server-hosted-worker-stateless-docs-only)
@@ -132,6 +133,10 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-14 — MFA enroll/confirm are self-only: SDK docs corrected, Go comment deferred
+
+Issuer 705df35 makes `POST /tenants/{t}/users/{uid}/mfa/enroll` and `/confirm` self-only (owner ruling 2026-10-14: the response carries the TOTP secret and recovery codes, so nobody enrolls MFA for another user; an admin uses reset). The SDK wrappers keep their signatures; we corrected the ts/java doc comments, SPEC §4.8/§6.2 and the partner guide, saying "from the issuer release after v0.134.1". The Go doc comment is deliberately NOT written yet: editing `go/tenants.go` changes the module hash and `tag-hygiene.sh unreleased-go` would force a `const Version` bump for a comment; it is filed in `TODO.md` § Go SDK only to ride the next Go release. Trade-off: Go users see the old comment until then.
 
 ## 2026-10-14 — Partner guide: ADR-111 banner said NOT YET RELEASED after release
 

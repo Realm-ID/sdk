@@ -292,6 +292,13 @@ export class UsersClient {
     });
   }
 
+  /**
+   * Start MFA enrollment — `POST /tenants/{t}/users/{uid}/mfa/enroll`. `userId` must be
+   * the CALLER's own id: from the issuer release after v0.134.1 the route is self-only
+   * and answers 403 `forbidden` for any other user (the response carries that user's
+   * TOTP secret and recovery codes). Use `auth.selfEnrollMfa` for the first-login /
+   * switch-tenant flow; to clear another user's factor an admin uses `resetMfa`.
+   */
   async enrollMfa(tenantId: string, userId: string): Promise<{ secret?: string; otpauth_uri?: string; [k: string]: unknown }> {
     return this.http.request({
       method: "POST",
@@ -299,6 +306,10 @@ export class UsersClient {
     });
   }
 
+  /**
+   * Confirm the enrollment started by `enrollMfa`. `userId` must be the caller's own id
+   * (403 `forbidden` otherwise, from the issuer release after v0.134.1).
+   */
   async confirmMfa(tenantId: string, userId: string, code: string): Promise<{ status: string; [k: string]: unknown }> {
     return this.http.request({
       method: "POST",

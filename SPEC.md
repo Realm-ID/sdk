@@ -1471,8 +1471,10 @@ void.
 ### 4.8 `selfEnrollMfa(req)` / 4.9 `disableMfa(req)`
 
 Self-service TOTP MFA for the **current user** (distinct from the
-admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
-§6.2, which act on an admin-named target).
+`tenants.users.{enrollMfa,confirmMfa,resetMfa}` in §6.2; from the
+issuer release after v0.134.1 `enrollMfa`/`confirmMfa` are SELF-ONLY —
+`userId` must be the caller, else `403 forbidden` — and only `resetMfa`
+acts on another user).
 
 - **`selfEnrollMfa` takes NO per-session lock (settled 2026-10-03).** It carries a
   refresh token but does not rotate it: the issuer only looks the session up by
@@ -1510,8 +1512,10 @@ admin-initiated `tenants.users.{enrollMfa,confirmMfa,resetMfa}` in
 > `confirmMfa` (`POST /auth/mfa/confirm`) were removed in favour of the
 > single refresh-authed `selfEnrollMfa` above (ADR-061). The admin
 > `tenants.users.{enrollMfa,confirmMfa,resetMfa}` surface (§6.2) is
-> unchanged — an admin enrolling a factor for a named target genuinely
-> needs the admin JWT + a separate confirm.
+> still has a separate confirm. It is SELF-ONLY from the issuer release
+> after v0.134.1 (owner ruling 2026-10-14): the enroll response carries the
+> TOTP secret and recovery codes, so nobody may enroll another user; an
+> admin uses `resetMfa`.
 
 > **Verified on-behalf-of (`X-User-Token`, ADR-056):** the bare
 > `X-On-Behalf-Of-User` id is *asserted* — any platform-token holder can
@@ -1972,8 +1976,10 @@ the invitee accepts → user record is provisioned.
   handover. Caller must hold a role of `owner` (or realm-admin via API
   key).
 - `enrollMfa(tenantId, userId)`, `confirmMfa(tenantId, userId, code)`,
-  `resetMfa(tenantId, userId)` — admin-initiated MFA flows. The
-  self-service equivalents on `auth.mfa.*` are roadmap (§11).
+  `resetMfa(tenantId, userId)`. `enrollMfa`/`confirmMfa` are SELF-ONLY from
+  the issuer release after v0.134.1 (`userId` must be the caller, else `403
+  forbidden`); `resetMfa` is the admin path for another user. Self-service
+  first-login enrollment is `selfEnrollMfa` (§4.8).
 - **Passwords: an admin SENDS A LINK; only a member with no verified email is
   HANDED a password (ADR-111; go `0.65.0` · ts `0.55.0` · web-admin `0.22.0`,
   UNRELEASED; not in Java this release).** Which path applies is decided by the

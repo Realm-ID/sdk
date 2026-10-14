@@ -64,6 +64,14 @@ public final class UsersClient {
         return http.mapper().convertValue(raw, User.class);
     }
 
+    /**
+     * Start MFA enrollment: {@code POST /tenants/{t}/users/{uid}/mfa/enroll}. {@code userId}
+     * must be the CALLER's own id: from the issuer release after v0.134.1 the route is
+     * self-only and answers 403 {@code forbidden} for any other user (the response carries
+     * that user's TOTP secret and recovery codes). Use {@code AuthClient.enrollMfa} for the
+     * first-login / switch-tenant flow; to clear another user's factor an admin uses
+     * {@link #resetMfa}.
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> enrollMfa(String tenantId, String userId) {
         JsonNode raw = http.request(HttpTransport.Request.of(
@@ -71,6 +79,10 @@ public final class UsersClient {
         return raw == null ? Map.of() : http.mapper().convertValue(raw, Map.class);
     }
 
+    /**
+     * Confirm the enrollment started by {@link #enrollMfa}. {@code userId} must be the
+     * caller's own id (403 {@code forbidden} otherwise, from the issuer release after v0.134.1).
+     */
     @SuppressWarnings("unchecked")
     public Map<String, Object> confirmMfa(String tenantId, String userId, String code) {
         Map<String, Object> b = new LinkedHashMap<>();

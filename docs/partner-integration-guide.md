@@ -1334,7 +1334,7 @@ Your platform token stays the wire bearer — this is **additive**, not a swap.
 
 ### Not-yet-in-SDK (call over HTTP)
 
-Almost nothing, now — this list is where wrapped surfaces kept being reported as missing. The lot it used to defer is in the SDKs: `Tenants.List`, `Tenants.Users.List` / `UpdateStatus`, `Tenants.Invitations.Create`, the MFA surface (self-service `selfEnrollMfa` / `disableMfa` and the admin `tenants.users.{enrollMfa,confirmMfa,resetMfa}` — SPEC §4.8 / §6.2), and bulk import (`Tenants.Users.ImportUsers`, §7.3). What genuinely remains HTTP-only is **cross-platform authorizations** — and those are post-v1 and unmounted (§9.7), so there is nothing to call yet.
+Almost nothing, now — this list is where wrapped surfaces kept being reported as missing. The lot it used to defer is in the SDKs: `Tenants.List`, `Tenants.Users.List` / `UpdateStatus`, `Tenants.Invitations.Create`, the MFA surface (self-service `selfEnrollMfa` / `disableMfa` and the `tenants.users.{enrollMfa,confirmMfa,resetMfa}` calls — SPEC §4.8 / §6.2; `enrollMfa`/`confirmMfa` are SELF-ONLY from the issuer release after v0.134.1, so `userId` must be the caller and any other user is `403 forbidden`; an admin acts on another user with `resetMfa` only), and bulk import (`Tenants.Users.ImportUsers`, §7.3). What genuinely remains HTTP-only is **cross-platform authorizations** — and those are post-v1 and unmounted (§9.7), so there is nothing to call yet.
 
 > **Success-status convention (ADR-069).** If you call the HTTP surface
 > directly, **accept the whole `2xx` class** — never hardcode `== 200`. RealmID

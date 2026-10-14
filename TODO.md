@@ -479,6 +479,8 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
+- [ ] **Go doc comments for `UsersClient.EnrollMFA` / `ConfirmMFA` (`go/tenants.go`) — ship with the NEXT Go release.** Issuer commit 705df35 (next issuer release after v0.134.1) makes both routes SELF-ONLY (`userID` must be the caller, else `403 forbidden`; owner ruling 2026-10-14; an admin uses `ResetMFA`). ts/java/SPEC/guide already say so; the Go comment was left out because editing `go/tenants.go` changes the module hash and `tag-hygiene.sh unreleased-go` demands a `const Version` bump (go/v0.66.0 is tagged). Text: "userID must be the CALLER's own id: from the issuer release after v0.134.1 the route is self-only and answers 403 `forbidden` for any other user; for first-login use AuthClient.SelfEnrollMFA, for another user ResetMFA."
+
 - [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the
   same `user → jti` index to work around it.** (Traide, 2026-09-03. FEATURE —
   needs an owner decision before any code; do not implement on this note.)

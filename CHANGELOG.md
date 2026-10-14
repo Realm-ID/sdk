@@ -13,6 +13,10 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## ts · java — doc comments: MFA enroll/confirm are self-only (UNRELEASED, doc-only)
+
+Doc comments on `tenants.users.enrollMfa` / `confirmMfa` (ts) and `UsersClient.enrollMfa` / `confirmMfa` (java) now say `userId` must be the caller's own id (`403 forbidden` otherwise, from the issuer release after v0.134.1; owner ruling 2026-10-14) and point at `selfEnrollMfa` / `resetMfa`. SPEC §4.8/§6.2 and the partner guide corrected. No behaviour or signature change. The Go comment waits for the next Go release (`TODO.md` § Go SDK only).
+
 ## go `0.66.0` — typed `user_suspended` / `escort_suspended` (issuer ADR-104 R-d) (UNRELEASED)
 
 Go only; ts/java register the codes in source (taxonomy parity) but stay HELD, unreleased (`TODO.md`). SPEC §3.1.
