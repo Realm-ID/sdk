@@ -4,9 +4,9 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased (HELD) — issuer spec 0.59.0 parity (`tenant_disabled`, `joined_via`, bulk status) + `user_suspended` / `escort_suspended`
+## 0.55.0 — issuer spec 0.59.0 parity (`tenant_disabled`, `joined_via`, bulk status) + `user_suspended` / `escort_suspended` (2026-10-16)
 
-`package.json` carries `0.55.0` in source only (owner ruling OP-3); no tag, not published. It also carries the held `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits its Breaking note.
+Published 2026-10-16 when the owner lifted the ts/java hold ("all SDKs at par"). It carries the formerly held v0.63-v0.64 session surface and the `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits their Breaking notes.
 
 ### The v0.63 session surface, to go parity (released here with `0.55.0`; SPEC §5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5 and §4.2, §4.3, §4.3a)
 

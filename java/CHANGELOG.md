@@ -4,11 +4,11 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## 0.51.0 (to be published) — Go parity: session surface, `USER_SUSPENDED` / `ESCORT_SUSPENDED`
+## 0.51.0 — Go parity: session surface, `USER_SUSPENDED` / `ESCORT_SUSPENDED` (2026-10-16)
 
 Taxonomy parity with go `0.66.0` and the go `0.63`-`0.64.2` session surface. `build.gradle.kts` carries
 `0.51.0` (spec `0.59.0` parity, owner ruling OP-3). The ts/java publish hold was lifted by the owner on
-2026-10-16 ("all SDKs at par"); no tag yet.
+2026-10-16 ("all SDKs at par"), and this version was published that day.
 
 ### Added
 - `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode.TENANT_DISABLED`, with the predicate `RealmException.isTenantDisabled(Throwable)`. Java's `RealmFilter` never ends a session on `user_suspended` / `tenant_disabled` and relays them with the issuer's status; the one relay that rewrites a status is `escort_suspended` (see below).

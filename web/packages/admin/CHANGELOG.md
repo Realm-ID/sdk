@@ -1,6 +1,6 @@
 # @realm-id/web-admin — changelog
 
-## 0.22.0 — `origins.remove` sign-out option (source only, NOT released)
+## 0.22.0 — `origins.remove` sign-out option (2026-10-16)
 
 **Added (ADR-111).** `admin.tenants.users.sendPasswordReset(tenantId, userId)` and `.setCredentials(tenantId, userId, { username?, password? })`, inherited from the bundled `@realm-id/sdk` 0.55.0 through `AdminUsersClient` (pinned by `user-binding.test.ts`); no admin-side code was needed. This is the call the console's "send password reset" button needs.
 
