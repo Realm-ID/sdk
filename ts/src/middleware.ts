@@ -279,12 +279,16 @@ async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg:
   const auth = headerStr(req.headers["authorization"]);
   const accessToken = auth && auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : undefined;
   // Every candidate is revoked, not just the first (SPEC §10.2).
-  for (const refreshToken of candidates.length > 0 ? candidates : [undefined]) {
+  for (const refreshToken of candidates) {
     try {
       await realm.auth.logout({ refreshToken, accessToken });
     } catch {
       // best-effort logout — clear cookie regardless; logout never 401s
     }
+  }
+  // No refresh token at all: nothing to tell the issuer, only the bearer fallback.
+  if (candidates.length === 0 && accessToken) {
+    await realm.auth.revokeFromBearer(accessToken).catch(() => undefined);
   }
   if (cfg.tokenDelivery === "cookie") {
     clearRefreshCookie(res, cfg);
@@ -292,7 +296,9 @@ async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg:
   sendJson(res, 200, { status: "ok" });
 }
 
-const LOCK_TTL_MS = 10_000;
+// Lock TTL = mint bound + 5 s: the bound starts after acquire and an outcome read,
+// so a full-length mint must not outlive its lock (SPEC §10.1 step 4a).
+const LOCK_TTL_MS = 15_000;
 const OUTCOME_TTL_MS = 5_000;
 const MINT_BOUND_MS = 10_000;
 const POLL_MS = 50;
@@ -322,7 +328,7 @@ function stableJson(v: unknown): string {
 
 function errorOutcome(fp: string, e: unknown): RefreshOutcome {
   if (e instanceof RealmError) {
-    return { fp, ok: false, status: relayStatus(e), body: { error: { code: e.code, message: e.message }, ...(e.details ?? {}) } };
+    return { fp, ok: false, status: relayStatus(e), body: { ...(e.details ?? {}), error: { code: e.code, message: e.message } } };
   }
   return { fp, ok: false, status: 500, body: { error: { code: "server_error", message: (e as Error).message ?? "unknown" } } };
 }
@@ -414,13 +420,18 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
     const prior = await readOutcome(store, ok).catch(() => undefined);
     if (prior) return respondOutcome(res, cfg, fp, prior);
 
-    const outcome = await mintBounded(realm, candidates, tenantId, customClaims, fp);
-    await store.putRefreshResult(ok, JSON.stringify(outcome), OUTCOME_TTL_MS).catch(() => undefined);
-    // §10.1 step 4b: only a ROTATING refresh supersedes older tokens; compare
-    // against the candidate that MINTED. A loser never reaches here.
-    if (outcome.ok && outcome.refreshToken && outcome.refreshToken !== outcome.minter && outcome.mint) {
-      await realm.tokens.recordRefresh(outcome.mint.accessToken);
-    }
+    // The outcome is stored by `settle`; a mint that finishes after the 504
+    // settles late, so a rotation the issuer performed is never lost.
+    const settle = async (o: RefreshOutcome) => {
+      await store.putRefreshResult(ok, JSON.stringify(o), OUTCOME_TTL_MS).catch(() => undefined);
+      // §10.1 step 4b: only a ROTATING refresh supersedes older tokens; compare
+      // against the candidate that MINTED. A loser never reaches here.
+      if (o.ok && o.refreshToken && o.refreshToken !== o.minter && o.mint) {
+        await realm.tokens.recordRefresh(o.mint.accessToken);
+      }
+    };
+    const outcome = await mintBounded(realm, candidates, tenantId, customClaims, fp, settle);
+    await settle(outcome);
     respondOutcome(res, cfg, fp, outcome);
   } finally {
     await lock.release().catch(() => undefined);
@@ -434,22 +445,25 @@ async function mintBounded(
   tenantId: string,
   customClaims: Record<string, unknown> | undefined,
   fp: string,
+  onLate: (o: RefreshOutcome) => Promise<void>,
 ): Promise<RefreshOutcome> {
+  let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const run = (async (): Promise<RefreshOutcome> => {
     let out: Awaited<ReturnType<Realm["auth"]["token"]>> | undefined;
     let minter = "";
-    let lastErr: unknown;
+    let firstErr: unknown;
+    let failed = false;
     for (const refreshToken of candidates) {
       try {
         out = await realm.auth.token({ refreshToken, tenantId, customClaims });
         minter = refreshToken;
         break;
       } catch (e) {
-        lastErr = e;
+        if (!failed) { failed = true; firstErr = e; } // the FIRST failure is reported (Go/Java parity)
       }
     }
-    if (!out) throw lastErr;
+    if (!out) throw firstErr;
     // The derived claims (ADR-102 `product_roles`, ADR-097 `scope`) are resolved
     // PER MINT, and a refresh is a mint — see derived-claims-refresh.ts.
     await realm.auth.enrichRefresh(out, tenantId);
@@ -459,10 +473,15 @@ async function mintBounded(
     } as RefreshOutcome;
   })();
   const bound = new Promise<RefreshOutcome>((resolve) => {
-    timer = setTimeout(() => resolve(errorOutcome(fp, new RealmError({ code: "server_error", message: "refresh timed out", httpStatus: 504 }))), MINT_BOUND_MS);
+    timer = setTimeout(() => {
+      timedOut = true;
+      resolve(errorOutcome(fp, new RealmError({ code: "server_error", message: "refresh timed out", httpStatus: 504 })));
+    }, MINT_BOUND_MS);
   });
+  const settled = run.catch((e) => errorOutcome(fp, e));
+  void settled.then((o) => (timedOut ? onLate(o).catch(() => undefined) : undefined));
   try {
-    return await Promise.race([run.catch((e) => errorOutcome(fp, e)), bound]);
+    return await Promise.race([settled, bound]);
   } finally {
     clearTimeout(timer);
   }
@@ -687,8 +706,8 @@ function sendJson(res: ConnectRes, status: number, body: unknown): void {
 function sendError(res: ConnectRes, err: unknown): void {
   if (err instanceof RealmError) {
     sendJson(res, relayStatus(err, 500), {
-      error: { code: err.code, message: err.message },
       ...(err.details ?? {}),
+      error: { code: err.code, message: err.message }, // the envelope wins over a details key
     });
     return;
   }
