@@ -46,6 +46,8 @@ export interface MemorySessionStoreOptions {
   now?: () => number;
 }
 
+const SWEEP_INTERVAL_MS = 30_000;
+
 interface Entry { revoked: boolean; notBefore: number; until: number }
 
 class MemorySessionStore implements SessionStateStore {
@@ -53,12 +55,14 @@ class MemorySessionStore implements SessionStateStore {
   private readonly locks = new Map<string, { token: symbol; until: number }>();
   private readonly results = new Map<string, { value: string; until: number }>();
   private readonly now: () => number;
+  private nextSweep = 0;
 
   constructor(opts: MemorySessionStoreOptions = {}) {
     this.now = opts.now ?? (() => Date.now());
   }
 
   async revokeSession(key: string, untilMs: number): Promise<void> {
+    this.sweep();
     const e = this.live(key) ?? { revoked: false, notBefore: 0, until: 0 };
     e.revoked = true;
     e.until = Math.max(e.until, untilMs);
@@ -66,6 +70,7 @@ class MemorySessionStore implements SessionStateStore {
   }
 
   async raiseNotBefore(key: string, nbMs: number, untilMs: number): Promise<void> {
+    this.sweep();
     const e = this.live(key) ?? { revoked: false, notBefore: 0, until: 0 };
     e.notBefore = Math.max(e.notBefore, nbMs);
     e.until = Math.max(e.until, untilMs);
@@ -90,6 +95,7 @@ class MemorySessionStore implements SessionStateStore {
   }
 
   async acquireRefreshLock(key: string, ttlMs: number): Promise<RefreshLock> {
+    this.sweep();
     const cur = this.locks.get(key);
     if (cur && cur.until > this.now()) return { acquired: false, release: async () => {} };
     const token = Symbol("lock");
@@ -103,6 +109,7 @@ class MemorySessionStore implements SessionStateStore {
   }
 
   async putRefreshResult(key: string, result: string, ttlMs: number): Promise<void> {
+    this.sweep();
     this.results.set(key, { value: result, until: this.now() + ttlMs });
   }
 
@@ -114,6 +121,27 @@ class MemorySessionStore implements SessionStateStore {
       return undefined;
     }
     return r.value;
+  }
+
+  /** Entry counts, for the sweep pin. @internal */
+  sizes(): { entries: number; locks: number; results: number } {
+    return { entries: this.entries.size, locks: this.locks.size, results: this.results.size };
+  }
+
+  /**
+   * Drops every expired lock, outcome and revocation/mark entry, at most once
+   * per {@link SWEEP_INTERVAL_MS}, from the write paths (go 0.64.2). Outcomes
+   * hold live credentials and were only ever dropped when read again, so
+   * abandoned ones (a lost response, a crashed winner) accumulated for ever. A
+   * live entry is never touched: only `until <= now` goes.
+   */
+  private sweep(): void {
+    const now = this.now();
+    if (now < this.nextSweep) return;
+    this.nextSweep = now + SWEEP_INTERVAL_MS;
+    for (const [k, e] of this.entries) if (e.until <= now) this.entries.delete(k);
+    for (const [k, l] of this.locks) if (l.until <= now) this.locks.delete(k);
+    for (const [k, r] of this.results) if (r.until <= now) this.results.delete(k);
   }
 
   private live(key: string): Entry | undefined {
@@ -140,6 +168,8 @@ export function createMemorySessionStore(opts: MemorySessionStoreOptions = {}): 
     putRefreshResult: (k, r, t) => m.putRefreshResult(k, r, t),
     getRefreshResult: (k) => m.getRefreshResult(k),
   };
+  // Not part of SessionStateStore: lets the sweep test count what is retained.
+  Object.defineProperty(store, "__sizes", { value: () => m.sizes(), enumerable: false });
   MEMORY_STORES.add(store);
   return store;
 }

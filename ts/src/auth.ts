@@ -25,6 +25,8 @@ import {
 import { resolveScopes, type ScopesHandler } from "./scopes-handler.js";
 import { fireIdentityResolved, type AuthFlow, type IdentityResolvedHandler } from "./identity-resolved.js";
 import { enrichRefreshMint } from "./derived-claims-refresh.js";
+import { NOOP_LOGGER } from "./logger.js";
+import { tokenUnderLock, withSessionLock, type LockDeps } from "./session-lock.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
 import { paginate, readPage, type Paginated, type Page, type PageOpts } from "./pagination.js";
 
@@ -140,6 +142,12 @@ export interface LoginResponse {
   tenantChoiceRequired?: boolean;
   /** The memberships the D5 picker may choose between. */
   tenantChoices?: TenantChoice[];
+  /**
+   * SPEC §4.3a — `true` on a successful recovery-code redeem (`redeemRecoveryCode`):
+   * the code is consumed and the old authenticator cleared, so send the user to
+   * re-enroll. `undefined` on every other lane.
+   */
+  reenrollRequired?: boolean;
   /**
    * The tenant this session resolved to, once settled. Empty on the D10
    * multi-tenant branch until `completeLogin` runs.
@@ -322,6 +330,29 @@ export interface MfaVerifyRequest {
   method?: string;
   /** Optional Origin header override. */
   origin?: string;
+  /**
+   * The session's CURRENT refresh token (SPEC §4.3, go `0.64.2`). Under issuer
+   * ADR-109 Issuer B this call ROTATES that session's refresh token, so one that
+   * races a refresh of the same session is a reuse and revokes the session. When
+   * set, the call takes the same per-session lock as refresh, WAITS for it (50 ms
+   * x 60), runs the issuer call bounded at 10 s, and stores the `mfa-verify`
+   * outcome (the rotated token, also after a post-verify mint failure) under the
+   * key before releasing, so a refresh waiting behind it adopts the rotated token.
+   * NEVER sent on the wire. Omit it for a first-login MFA (no session yet);
+   * **omitting it otherwise leaves you unprotected against that race**. The lock is
+   * not re-entrant: the middleware's own handlers call this WITHOUT it.
+   */
+  refreshToken?: string;
+}
+
+/** SPEC §4.3a — redeem a single-use recovery code in place of the TOTP code. */
+export interface RedeemRecoveryCodeRequest {
+  challengeToken: string;
+  code: string;
+  /** Optional Origin header override. */
+  origin?: string;
+  /** The session's current refresh token: takes the per-session lock exactly as {@link MfaVerifyRequest.refreshToken}. */
+  refreshToken?: string;
 }
 
 export interface LogoutRequest {
@@ -526,6 +557,7 @@ interface RawAuthResponse {
   role?: string;
   tenant_choice_required?: boolean;
   tenant_choices?: { tenant_id: string; display_name: string; is_owner?: boolean }[];
+  reenroll_required?: boolean;
 }
 
 interface RawTokenResponse {
@@ -591,8 +623,21 @@ export class AuthClient {
       tokens: import("./tokens.js").TokensClient;
       verify(token: string): Promise<unknown>;
       now(): number;
+      /** The realm's session store + logger: what the per-session refresh lock (SPEC §4.2/§4.3) runs on. Absent = no lock. */
+      store?: import("./session-store.js").SessionStateStore;
+      logger?: import("./logger.js").Logger;
     },
   ) {}
+
+  private lockDeps(): LockDeps | undefined {
+    const s = this.session;
+    return s?.store ? { store: s.store, logger: s.logger ?? NOOP_LOGGER } : undefined;
+  }
+
+  private async underSessionLock<T extends { refreshToken?: string }>(refreshToken: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const deps = this.lockDeps();
+    return deps ? withSessionLock(deps, refreshToken, fn) : fn();
+  }
 
   /**
    * SPEC §4.1 — exchange a provider token for a realm-scoped session.
@@ -769,7 +814,7 @@ export class AuthClient {
     // the mirror of the bug this whole seam exists to close, and would be found
     // the same way: by a partner, in production.
     const scopes = await resolveScopes(this.scopes, tenantId, session.user?.id ?? "");
-    const mint = await this.token({
+    const mint = await this.tokenUnlocked({
       refreshToken: session.refreshToken,
       tenantId,
       productRoles: roles,
@@ -809,7 +854,7 @@ export class AuthClient {
         scopes: this.scopes,
         onIdentityResolved: this.onIdentityResolved,
         realmId: this.realmId,
-        mint: (req) => this.token(req),
+        mint: (req) => this.tokenUnlocked(req),
       },
       out,
       tenantId,
@@ -820,8 +865,29 @@ export class AuthClient {
    * SPEC §4.2 — refresh-token rotation + tenant switch + custom-claim
    * injection on the minted access token. `customClaims` is a v0.1.0
    * feature; the server enforces a per-realm allowlist.
+   *
+   * With a non-empty `refreshToken` it takes the PER-SESSION refresh lock (the one
+   * the middleware's refresh and MFA routes and a direct `mfaVerify` given
+   * `refreshToken` take; go `0.64.2`), so concurrent rotations of one session never
+   * both reach the issuer: a concurrent identical request adopts the winner's
+   * result; one whose request differs retries on the winner's ROTATED token (never
+   * the spent one), up to 3 hops, then rejects with a {@link RefreshSupersededError}
+   * carrying the newest token. A store error or an unreadable outcome fails CLOSED
+   * (retryable 503, the issuer is not called). The lock holds only across replicas
+   * sharing one `SessionStateStore`; a raw HTTP call to the issuer is not covered.
    */
   async token(req: TokenRequest): Promise<TokenResponse> {
+    const deps = this.lockDeps();
+    return deps ? tokenUnderLock(deps, req, (r) => this.tokenUnlocked(r)) : this.tokenUnlocked(req);
+  }
+
+  /**
+   * `/auth/token` with NO per-session lock — the mint every internal caller
+   * uses (the login lanes' derived-claims mint, the middleware's refresh, which
+   * already hold or do not need the lock; the lock is not re-entrant).
+   * @internal
+   */
+  async tokenUnlocked(req: TokenRequest): Promise<TokenResponse> {
     // Refused before anything leaves: a mint that fails partway would still
     // have spent (and rotated away) the refresh token, logging the caller out.
     const scopeWire = scopeWireValue(req.scope);
@@ -965,36 +1031,75 @@ export class AuthClient {
     mfaToken: string;
     presented: string;
     origin?: string;
+    /** See {@link MfaVerifyRequest.refreshToken}. */
+    refreshToken?: string;
   }): Promise<LoginResponse> {
     return this.mfaVerify({
       challengeToken: req.mfaToken,
       code: req.presented,
       method: "otp",
       origin: req.origin,
+      refreshToken: req.refreshToken,
     });
   }
 
-  /** SPEC §4.3 — complete an MFA challenge. Same response shape as login. */
+  /**
+   * SPEC §4.3 — complete an MFA challenge. Same response shape as login. Given
+   * `req.refreshToken` it runs under the per-session refresh lock (go `0.64.2`).
+   */
   async mfaVerify(req: MfaVerifyRequest): Promise<LoginResponse> {
-    const headers = await this.originHeaders(req.origin);
-    const raw = await this.http.request<RawAuthResponse>({
-      method: "POST",
-      path: "/auth/mfa/verify",
-      headers,
-      body: {
-        realm_id: this.realmId,
-        mfa_challenge_token: req.challengeToken,
-        code: req.code,
-        method: req.method ?? "totp",
-      },
+    return this.underSessionLock(req.refreshToken, async () => {
+      const headers = await this.originHeaders(req.origin);
+      const raw = await this.http.request<RawAuthResponse>({
+        method: "POST",
+        path: "/auth/mfa/verify",
+        headers,
+        body: {
+          realm_id: this.realmId,
+          mfa_challenge_token: req.challengeToken,
+          code: req.code,
+          method: req.method ?? "totp",
+        },
+      });
+      return this.finishMfaSession(raw, "mfa_verify");
     });
+  }
+
+  /**
+   * SPEC §4.3a — complete an MFA challenge with a single-use RECOVERY code in
+   * place of the TOTP code (`POST /auth/mfa/recovery`, ADR-077 §2). Post-verify
+   * handling is identical to {@link mfaVerify}, under flow `"mfa_recovery"`. The
+   * code is consumed and the returned session has `reenrollRequired` set: the old
+   * authenticator is cleared, so send the user to re-enroll. Errors: `401` for an
+   * invalid challenge or code, `429` `mfa_too_many_fails`. Given `req.refreshToken`
+   * it runs under the per-session refresh lock (go `0.64.2`).
+   */
+  async redeemRecoveryCode(req: RedeemRecoveryCodeRequest): Promise<LoginResponse> {
+    return this.underSessionLock(req.refreshToken, async () => {
+      const headers = await this.originHeaders(req.origin);
+      const raw = await this.http.request<RawAuthResponse>({
+        method: "POST",
+        path: "/auth/mfa/recovery",
+        headers,
+        body: {
+          realm_id: this.realmId,
+          mfa_challenge_token: req.challengeToken,
+          code: req.code,
+        },
+      });
+      return this.finishMfaSession(raw, "mfa_recovery");
+    });
+  }
+
+  /** The post-verify handling shared by every lane that completes an MFA challenge. */
+  private async finishMfaSession(raw: RawAuthResponse, flow: AuthFlow): Promise<LoginResponse> {
     const session = mapAuthResp(raw);
     // ADR-102 D10 — a step-up issues the token the user carries for the rest of
     // the session, so it is the LAST lane that may hand back a claim-blind one.
     // Without this, a partner who requires MFA has every human denied by their
     // own ScopePolicy gate immediately after passing the second factor.
     const mfaSettled = settledTenant(session);
-    if (mfaSettled) await this.mintOrThrowWithAnchor(session, mfaSettled, "mfa_verify");
+    if (mfaSettled) await this.mintOrThrowWithAnchor(session, mfaSettled, flow);
     return session;
   }
 
@@ -1290,6 +1395,7 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
       displayName: t.display_name,
       mfaRequired: t.mfa_required,
     })),
+    reenrollRequired: r.reenroll_required,
     // Both stay UNDEFINED when the server omits them: an ordinary login must
     // not grow a falsy picker field that a caller might render.
     tenantChoiceRequired: r.tenant_choice_required,

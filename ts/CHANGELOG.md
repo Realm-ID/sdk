@@ -8,6 +8,33 @@ cross-cutting items affecting every SDK at once.
 
 `package.json` carries `0.55.0` in source only (owner ruling OP-3); no tag, not published. It also carries the held `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits its Breaking note.
 
+### The v0.63 session surface, to go parity (released here with `0.55.0`; SPEC §5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5 and §4.2, §4.3, §4.3a)
+
+#### Breaking
+- **§5.1** `verify()` refuses an absent or blank `sub` (`malformed`, 401), before the ADR-107 authority cache. A hand-built or third-party token with no usable `sub` that verified before now fails.
+- **§5.1.1** `verify()` refuses a header `typ` that is absent or not `JWT` / `at+jwt` / `application/at+jwt` (case-insensitive), and any token carrying an `events` claim (an ADR-110 Logout Token as a bearer). Test fixtures that build a header without `typ` start failing.
+- **§6.7.5** The session store is REQUIRED: `createRealm` fails (`invalid_config`) without `sessionStore`. Pass `createMemorySessionStore()` for a single replica.
+- **§6.7 / §6.7.6** Session state, and the ADR-041 `revocation` cache, are keyed on the SESSION (`sid`, falling back to `jti`): `tokens.markRevoked` / `revokeOnLogout` revoke every access token of the session, and a logout pushed into a shared `RevocationCache` denies them all.
+- **§10.1 step 3** `auth.logout` and the middleware's logout route revoke the session the issuer's response names (`sid`; `revoked_sids` for `all: true`), or, against an older issuer, that of a verified UNEXPIRED bearer. After a logout every access token of the session gets `401` + `revoked: true` from this app.
+- **§10.1 step 4b** A refresh that ROTATES refuses older access tokens (`iat` below the mark), per org (`concurrent`, default) or per session (`exclusive`), by the realm's `realmid_org_sessions` discovery field. A client holding one access token per browser TAB is affected: see SPEC "Upgrade order".
+- **§10.1 step 6a** The middleware runs the logout check on every bearer request, no knob: a token the partner marked revoked gets `401 unauthorized` + `revoked: true`, never the 412.
+- **§10.2 paths** `/x/**` now matches the bare `/x` (it did not in ts). An `exemptPaths` entry `/x/**` now ALSO exempts `/x`. `{name}` works in `mfaProtectedPaths` and `ScopeRule` paths (one non-empty segment); `exemptPaths` stays literal.
+- **`auth.token` takes the per-session refresh lock** when `refreshToken` is non-empty (go `0.64.2`): concurrent rotations of one session mint once; a store error or an unreadable stored outcome rejects with a retryable 503 and the issuer is not called. It can reject with `RefreshSupersededError`.
+
+#### Added
+- `auth.redeemRecoveryCode({ challengeToken, code, origin?, refreshToken? })` (SPEC §4.3a, `POST /auth/mfa/recovery`) and `LoginResponse.reenrollRequired`. Post-verify handling is `mfaVerify`'s, under the new `AuthFlow` value `"mfa_recovery"` (not a reuse of `"mfa_verify"`).
+- Middleware `recoveryPath` (SPEC §10.1 step 5a): OPT-IN, NO default, off unless set. Same per-session lock and `mfa-verify` outcome as the verify route; the body is the verify body plus `reenroll_required`.
+- `refreshToken?` on `mfaVerify`, `mfaVerifyOtp` and `redeemRecoveryCode` (SPEC §4.3, go `0.64.2`): when set the direct call takes the per-session lock, waits for it (50 ms x 60), runs bounded at 10 s, and stores the `mfa-verify` outcome (also after a post-verify mint failure) under the key before releasing. Never sent on the wire. The middleware handlers leave it unset (the lock is not re-entrant; pinned by a test).
+- `RefreshSupersededError` (a `RealmError`: `server_error`, 503) with `refreshToken()`; the token sits in a `#private` field and is absent from `message`, `String(e)`, JSON, `util.inspect` and the stack. `TokenManager` adopts that token and hands it to its sink.
+- `SessionStateStore`, `createMemorySessionStore`, `sessionStoreConformance`, `ScopeDecision.missing` (the full set on an `anyOf` denial) and the `writeDenied` hook (unset = byte-identical 403) per SPEC §6.7.5, §11.4, §11.5.1.
+
+#### Fixed
+- **§10.1 step 4a** Two tabs refreshing with one cookie no longer both reach the issuer (reuse detection killed the session): single-flight per refresh token, loser adopts the winner's outcome or gets a retryable 503 carrying the rotated token.
+- An outcome-store READ error in the middleware refresh winner path used to read as "no outcome" and minted anyway, re-presenting a possibly spent token. It now answers 503 "session store unavailable" and never mints.
+- The in-memory session store swept expired entries only when they were read again, so abandoned outcomes (live credentials) and locks accumulated. A write now sweeps at most every 30 s and never touches a live revocation.
+- **§6.7.2 cancellation** Every store read or write the revocation path makes (`isRevoked`, `markRevoked` / `revokeSession`, `recordRefresh`) is bounded by the SDK's 2 s store timeout and handed no request signal, so a hung store fails open (read) or is logged (write) at the bound instead of hanging the request. ts store methods take no context, so there is nothing a client hang-up can abort (go `0.63.1` detaches a context; the observable guarantee is the same).
+- The middleware MFA routes bound the issuer call at the 10 s mint timeout and, after a post-verify mint failure that followed a rotation, keep the rotated token in the client's cookie (or body) instead of the spent one.
+
 ### Added
 - `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode`, with `isTenantDisabled(e)` (exported from the package index together with `isUserSuspended` and `isEscortSuspended`). Before registration it arrives as `forbidden`.
 - `User.joined_via` (`JoinedVia`: invitation | sso_domain | open_signup | import | admin | owner | service | unknown) and `User.joined_via_domain` (only for `sso_domain`).

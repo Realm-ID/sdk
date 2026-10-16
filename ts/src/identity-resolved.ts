@@ -73,6 +73,10 @@ export type AuthFlow =
   | "otp"
   | "password"
   | "mfa_verify"
+  // `auth.redeemRecoveryCode` and the middleware recovery route (SPEC §4.3a): its
+  // OWN flow, not a reuse of "mfa_verify" — signing in with a recovery code is a
+  // different and more sensitive event (go `FlowMFARecovery`, appended after tenant_choice there).
+  | "mfa_recovery"
   | "tenant_choice"
   | "refresh";
 

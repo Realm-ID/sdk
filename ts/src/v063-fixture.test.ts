@@ -60,6 +60,8 @@ export interface FakeIssuer {
   token: (body: Record<string, unknown>) => Response | Promise<Response>;
   logout: (body: Record<string, unknown>) => Response | Promise<Response>;
   mfaVerify: (body: Record<string, unknown>) => Response | Promise<Response>;
+  /** Handler for POST /auth/mfa/recovery. */
+  recovery: (body: Record<string, unknown>) => Response | Promise<Response>;
   login: (body: Record<string, unknown>) => Response | Promise<Response>;
 }
 
@@ -72,6 +74,7 @@ export function fakeIssuer(publicJwk: object): FakeIssuer {
     token: () => jsonRes(500, {}),
     logout: () => jsonRes(200, { status: "ok" }),
     mfaVerify: () => jsonRes(500, {}),
+    recovery: () => jsonRes(500, {}),
     login: () => jsonRes(500, {}),
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -89,6 +92,7 @@ export function fakeIssuer(publicJwk: object): FakeIssuer {
       if (url.endsWith("/auth/token")) return f.token(body);
       if (url.endsWith("/auth/logout")) return f.logout(body);
       if (url.endsWith("/auth/mfa/verify")) return f.mfaVerify(body);
+      if (url.endsWith("/auth/mfa/recovery")) return f.recovery(body);
       return jsonRes(404, { error: { code: "not_found", message: url } });
     }) as typeof fetch,
   };

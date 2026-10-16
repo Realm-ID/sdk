@@ -229,6 +229,32 @@ export class RealmError extends Error {
 }
 
 /**
+ * `auth.token`'s give-up after it was handed over to a newer refresh token more
+ * times than it follows (SPEC §4.2, go `0.64.2`): a retryable 503 `server_error`
+ * (it IS a {@link RealmError}) that carries the newest LIVE refresh token for
+ * the caller's next attempt.
+ *
+ * The token is a credential, so it lives in a `#private` field behind
+ * {@link RefreshSupersededError.refreshToken}: it is absent from `message`,
+ * `String(e)`, `JSON.stringify(e)`, `util.inspect` (including `showHidden`) and
+ * the stack, which is everything a logger reaches.
+ */
+export class RefreshSupersededError extends RealmError {
+  readonly #refreshToken: string;
+
+  constructor(refreshToken: string) {
+    super({ code: "server_error", message: "refresh superseded, retry", httpStatus: 503 });
+    this.name = "RefreshSupersededError";
+    this.#refreshToken = refreshToken;
+  }
+
+  /** The newest live refresh token; present it on the next call. */
+  refreshToken(): string {
+    return this.#refreshToken;
+  }
+}
+
+/**
  * True when `e` is the ADR-107 staleness refusal: the token was minted before
  * its subject's authority changed. The caller's move is ONE refresh + replay —
  * and, if the replay fails the same way on a token minted after that refresh, a

@@ -47,17 +47,41 @@ export interface TokensClientOptions {
   logger?: Logger;
   /** Resolves the realm's org-session mode for a token's `iss` (SPEC §6.7.3). Default: concurrent. */
   orgMode?: (iss: string) => Promise<OrgSessionMode>;
+  /** Bound on EACH store read/write the revocation path makes. Default 2000 (SPEC §6.7.2); tests only. */
+  storeTimeoutMs?: number;
 }
+
+/** The SDK's store timeout (SPEC §6.7.2): go's `storeOutcomeTimeout`. */
+const STORE_TIMEOUT_MS = 2000;
 
 export class TokensClient {
   private readonly now: () => number;
   private readonly logger: Logger;
   private readonly orgMode: (iss: string) => Promise<OrgSessionMode>;
+  private readonly storeTimeoutMs: number;
 
   constructor(private readonly store: SessionStateStore, opts: TokensClientOptions = {}) {
     this.now = opts.now ?? (() => Date.now());
     this.logger = opts.logger ?? NOOP_LOGGER;
     this.orgMode = opts.orgMode ?? (async () => "concurrent");
+    this.storeTimeoutMs = opts.storeTimeoutMs ?? STORE_TIMEOUT_MS;
+  }
+
+  /**
+   * SPEC §6.7.2 "Cancellation is not a store error". Every store read or write
+   * the revocation path makes is bounded by the SDK's own 2 s store timeout and
+   * is handed NO request signal: a client hang-up or an aborted request can
+   * neither turn the read into the fail-open below (a revoked bearer passing
+   * because the caller disconnected) nor drop a revoke write. Only a genuine store
+   * failure or the store's own timeout fails open / is logged. (Go detaches the
+   * call from the request context; ts store methods take no context to detach.)
+   */
+  private bounded<T>(p: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const t = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`session store timed out after ${this.storeTimeoutMs} ms`)), this.storeTimeoutMs);
+    });
+    return Promise.race([p, t]).finally(() => clearTimeout(timer));
   }
 
   /** Records the token's SESSION revoked until now + H. Peeks, never verifies. No-op without a session key. */
@@ -70,7 +94,7 @@ export class TokensClient {
   async revokeSession(sessionKey: string): Promise<void> {
     if (!sessionKey) return;
     try {
-      await this.store.revokeSession(revKey(sessionKey), this.now() + SESSION_STATE_H_MS);
+      await this.bounded(this.store.revokeSession(revKey(sessionKey), this.now() + SESSION_STATE_H_MS));
     } catch (e) {
       this.logger.warn("realmid: session store write failed (revokeSession)", { message: (e as Error).message });
     }
@@ -87,8 +111,8 @@ export class TokensClient {
     const nb = iat * 1000;
     const until = this.now() + SESSION_STATE_H_MS;
     try {
-      await this.store.raiseNotBefore(nbKey(sessionKey), nb, until);
-      await this.store.raiseNotBefore(nbMemberKey(sessionKey, sub), nb, until);
+      await this.bounded(this.store.raiseNotBefore(nbKey(sessionKey), nb, until));
+      await this.bounded(this.store.raiseNotBefore(nbMemberKey(sessionKey, sub), nb, until));
     } catch (e) {
       this.logger.warn("realmid: session store write failed (recordRefresh)", { message: (e as Error).message });
     }
@@ -99,16 +123,16 @@ export class TokensClient {
     const peek = peekJwtRevokeFields(accessToken);
     if (!peek.sessionKey) return false;
     try {
-      const [rev, session, member] = await this.store.sessionStates([
+      const [rev, session, member] = await this.bounded(this.store.sessionStates([
         revKey(peek.sessionKey),
         nbKey(peek.sessionKey),
         nbMemberKey(peek.sessionKey, peek.sub),
-      ]);
+      ]));
       if (rev?.revoked) return true;
       if (!(session?.notBefore) && !(member?.notBefore)) return false;
       // Mode is fetched only when a mark is live (SPEC §6.7.3 trigger (a)).
       const iss = issOf(accessToken);
-      const mode = await this.orgMode(iss);
+      const mode = await this.bounded(this.orgMode(iss));
       const mark = (mode === "exclusive" ? session : member)?.notBefore ?? 0;
       if (!mark) return false;
       return peek.iat === 0 || peek.iat * 1000 < mark;

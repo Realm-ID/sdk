@@ -37,7 +37,7 @@ export type { SessionStateStore, SessionState, RefreshLock } from "./session-sto
 export { OrgSessionModeResolver } from "./org-session.js";
 export type { OrgSessionMode } from "./org-session.js";
 
-export { RealmError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled } from "./errors.js";
+export { RealmError, RefreshSupersededError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";

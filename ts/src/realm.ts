@@ -417,7 +417,7 @@ export function createRealm(cfg: RealmConfig): Realm {
         cfg.productRoles,
         cfg.scopes,
         cfg.onIdentityResolved,
-        { tokens, verify: (t) => verifier.verify(t), now: nowMs },
+        { tokens, verify: (t) => verifier.verify(t), now: nowMs, store: cfg.sessionStore, logger },
       ),
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),

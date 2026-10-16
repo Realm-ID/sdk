@@ -20,7 +20,7 @@
  */
 
 import type { AuthClient } from "./auth.js";
-import { RealmError } from "./errors.js";
+import { RealmError, RefreshSupersededError } from "./errors.js";
 
 /**
  * Durably persists a rotated refresh token. The manager calls it after each
@@ -175,7 +175,31 @@ export class TokenManager {
     // refresh_invalid (and any other error) bubbles up unchanged: a
     // long-lived user client has no API key to fall back on, so a dead
     // refresh is terminal — re-authentication is required.
-    const res = await this.auth.token({ refreshToken: refresh, tenantId: this.tenantId });
+    let res;
+    try {
+      res = await this.auth.token({ refreshToken: refresh, tenantId: this.tenantId });
+    } catch (e) {
+      // Except a "superseded" give-up (auth.token lost to concurrent rotations of this
+      // session more times than it follows): its error carries the newest live token,
+      // which the next attempt must present, not the spent one. Committed to memory,
+      // then handed to the sink exactly as after a normal rotation, so a restart does
+      // not present the spent token.
+      if (e instanceof RefreshSupersededError && e.refreshToken() !== "") {
+        this.refreshTokenValue = e.refreshToken();
+        if (this.sink) {
+          try {
+            await this.sink(e.refreshToken());
+          } catch (serr) {
+            throw new RealmError({
+              code: "server_error",
+              message: "realmid token manager: persist rotated refresh token failed",
+              cause: serr,
+            });
+          }
+        }
+      }
+      throw e;
+    }
 
     if (!res.accessToken) {
       throw new RealmError({
