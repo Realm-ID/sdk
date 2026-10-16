@@ -133,10 +133,11 @@ public final class TokensClient {
         keys.add(SessionKeys.sessionMarkKey(p.sessionKey()));
         if (p.sub() != null) keys.add(SessionKeys.membershipMarkKey(p.sessionKey(), p.sub()));
         List<SessionState> st;
+        long deadline = System.nanoTime() + STORE_TIMEOUT.toNanos(); // ONE budget for the whole check (SPEC §6.7.2)
         try {
             // SPEC §6.7.2: a hang-up is not a store error. The read runs detached from the
             // (possibly interrupted) request thread, bounded at the store timeout.
-            st = Detached.call(() -> store.sessionStates(keys), STORE_TIMEOUT);
+            st = Detached.call(() -> store.sessionStates(keys), remaining(deadline));
         } catch (RuntimeException | TimeoutException e) {
             warn("isRevoked", e); // fail OPEN, as the issuer's own bearer check does
             return false;
@@ -146,7 +147,7 @@ public final class TokensClient {
         SessionState session = st.get(1);
         SessionState member = st.size() > 2 ? st.get(2) : SessionState.NONE;
         if (session.notBefore() == null && member.notBefore() == null) return false; // no mark: no mode fetch
-        boolean exclusive = OrgSessionModes.EXCLUSIVE.equals(mode(p.iss()));
+        boolean exclusive = OrgSessionModes.EXCLUSIVE.equals(mode(p.iss(), deadline));
         Instant nb = (exclusive ? session : member).notBefore();
         if (nb == null) return false;
         return p.iat() <= 0 || p.iat() < nb.getEpochSecond();
@@ -196,11 +197,16 @@ public final class TokensClient {
         });
     }
 
+    /** What is left of a shared deadline; zero once it has passed (the detached call then times out at once). */
+    private static Duration remaining(long deadlineNanos) {
+        return Duration.ofNanos(Math.max(0, deadlineNanos - System.nanoTime()));
+    }
+
     /** The realm's org-session mode, read detached too (its HTTP fetch aborts on an interrupted thread). */
-    private String mode(String iss) {
+    private String mode(String iss, long deadline) {
         if (modeOf == null) return null;
         try {
-            return Detached.call(() -> modeOf.apply(iss), Duration.ofSeconds(5));
+            return Detached.call(() -> modeOf.apply(iss), remaining(deadline));
         } catch (RuntimeException | TimeoutException e) {
             return null; // unreadable means concurrent (SPEC §6.7.3)
         }

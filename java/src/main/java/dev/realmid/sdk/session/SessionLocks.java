@@ -5,6 +5,7 @@ import dev.realmid.sdk.ErrorCode;
 import dev.realmid.sdk.RealmException;
 
 import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
 /**
  * The per-session refresh lock (SPEC §10.1 step 4a) as one wait-and-acquire
@@ -12,7 +13,7 @@ import java.time.Duration;
  * {@code AuthClient} call given a {@code refreshToken} (SPEC §4.3, go 0.64.2).
  * It fails CLOSED: the issuer is never called without the lock.
  *
- * <p>Internal to the SDK.
+ * <p>INTERNAL to the SDK, public only so sibling packages can use it: no stability promise.
  */
 public final class SessionLocks {
 
@@ -40,21 +41,8 @@ public final class SessionLocks {
         String key = SessionKeys.lockKey(refreshToken);
         for (int i = 0; i < tries; i++) {
             if (Thread.currentThread().isInterrupted()) throw cancelled();
-            SessionStateStore.RefreshLock l;
-            try {
-                l = store.acquireRefreshLock(key, LOCK_TTL);
-            } catch (RuntimeException e) {
-                if (Thread.currentThread().isInterrupted()) throw cancelled();
-                throw new RealmException(ErrorCode.SERVER_ERROR, "session store unavailable", 503, null, e);
-            }
-            if (l.acquired()) {
-                Runnable rel = l.release();
-                return () -> {
-                    try {
-                        rel.run();
-                    } catch (RuntimeException ignored) { /* the TTL frees it */ }
-                };
-            }
+            SessionStateStore.RefreshLock l = tryOnce(store, key);
+            if (l.acquired()) return l.release();
             try {
                 Thread.sleep(pollMillis);
             } catch (InterruptedException e) {
@@ -64,6 +52,34 @@ public final class SessionLocks {
         }
         if (Thread.currentThread().isInterrupted()) throw cancelled();
         throw new RealmException(ErrorCode.SERVER_ERROR, "refresh in progress", 503, null);
+    }
+
+    /** The store's bound for one lock/outcome call (SPEC §6.7.2). */
+    public static final Duration STORE_TIMEOUT = Duration.ofSeconds(2);
+
+    /**
+     * One non-waiting attempt at the lock keyed {@code lockKey}. The store call runs detached from
+     * the caller and bounded at {@link #STORE_TIMEOUT}; so does the returned release (which also
+     * swallows a failure: the TTL frees the lock), so a caller that hung up mid-work still frees it.
+     *
+     * @throws RealmException 503 "session store unavailable" when the store errored, timed out or the
+     *         detached pool is full
+     */
+    public static SessionStateStore.RefreshLock tryOnce(SessionStateStore store, String lockKey) {
+        SessionStateStore.RefreshLock l;
+        try {
+            l = Detached.call(() -> store.acquireRefreshLock(lockKey, LOCK_TTL), STORE_TIMEOUT);
+        } catch (RuntimeException e) {
+            throw new RealmException(ErrorCode.SERVER_ERROR, "session store unavailable", 503, null, e);
+        } catch (TimeoutException e) {
+            throw new RealmException(ErrorCode.SERVER_ERROR, "session store unavailable", 503, null, e);
+        }
+        Runnable rel = l.release();
+        return new SessionStateStore.RefreshLock(l.acquired(), () -> {
+            try {
+                Detached.run(rel, STORE_TIMEOUT);
+            } catch (RuntimeException | TimeoutException ignored) { /* the TTL frees it */ }
+        });
     }
 
     private static RealmException cancelled() {
@@ -76,10 +92,11 @@ public final class SessionLocks {
      */
     public static boolean storeMfaOutcome(SessionStateStore store, ObjectMapper m, String currentRefresh, String rotated) {
         try {
-            store.putRefreshResult(SessionKeys.outcomeKey(currentRefresh),
-                    RefreshOutcome.mfaVerify(rotated, currentRefresh).encode(m), OUTCOME_TTL);
+            // Detached and bounded: a caller that hung up mid-verify must still record the rotation.
+            Detached.run(() -> store.putRefreshResult(SessionKeys.outcomeKey(currentRefresh),
+                    RefreshOutcome.mfaVerify(rotated, currentRefresh).encode(m), OUTCOME_TTL), STORE_TIMEOUT);
             return true;
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | TimeoutException e) {
             return false;
         }
     }

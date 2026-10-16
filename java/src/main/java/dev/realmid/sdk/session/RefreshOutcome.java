@@ -15,7 +15,8 @@ import java.util.Map;
  * the same stored shape. Holds live credentials: it goes into the
  * {@link SessionStateStore} as opaque bytes with a short TTL.
  *
- * <p>Internal to the SDK; the wire shape of the stored bytes is not a contract.
+ * <p>INTERNAL to the SDK (public only so sibling packages can use it): no stability promise, and the
+ * wire shape of the stored bytes is not a contract.
  */
 public record RefreshOutcome(String fp, boolean ok, int status, String code, String message,
                              Map<String, Object> details, String accessToken, Object expiresIn,

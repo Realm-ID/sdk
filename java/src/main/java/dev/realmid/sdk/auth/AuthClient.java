@@ -60,6 +60,8 @@ public final class AuthClient {
      * Wires the {@code SessionStateStore} whose refresh lock {@link #token} and the direct
      * MFA calls given a {@code refreshToken} serialise on. A bare client without one runs
      * {@code token} unlocked and refuses an MFA call that asked for the lock.
+     *
+     * <p>INTERNAL: called by {@code Realm}; no stability promise.
      */
     public void setSessionStore(dev.realmid.sdk.session.SessionStateStore store) {
         this.sessionStore = store;
@@ -90,14 +92,14 @@ public final class AuthClient {
         try {
             String rotated = null;
             try {
-                Session s = dev.realmid.sdk.session.Detached.call(work::get, WORK_BOUND);
+                // The work runs on THIS thread, so the partner's hooks keep their thread-locals;
+                // only each issuer call inside it is detached, under one shared WORK_BOUND.
+                Session s = dev.realmid.sdk.session.Detached.bounded(WORK_BOUND, work);
                 rotated = s.refreshToken();
                 return s;
             } catch (LoginMintException e) {
                 rotated = e.session() == null ? null : e.session().refreshToken();
                 throw e;
-            } catch (java.util.concurrent.TimeoutException e) {
-                throw new RealmException(ErrorCode.SERVER_ERROR, "timed out", 504, null);
             } finally {
                 if (rotated != null && !rotated.isEmpty()) {
                     dev.realmid.sdk.session.SessionLocks.storeMfaOutcome(
@@ -209,7 +211,7 @@ public final class AuthClient {
         if (!deviceLabel.isEmpty()) {
             r.header("x-device-name", deviceLabel);
         }
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         Session session = http.mapper().convertValue(raw, Session.class);
         // ADR-102 D10 — mint once the tenant is settled. See the doc comment.
         String settled = settledTenant(session);
@@ -591,12 +593,9 @@ public final class AuthClient {
         if (Thread.currentThread().isInterrupted()) {
             throw new RealmException(ErrorCode.SERVER_ERROR, "cancelled before the session lock", 503, null);
         }
-        try {
-            lock = sessionStore.acquireRefreshLock(
-                    dev.realmid.sdk.session.SessionKeys.lockKey(key), dev.realmid.sdk.session.SessionLocks.LOCK_TTL);
-        } catch (RuntimeException e) {
-            throw new RealmException(ErrorCode.SERVER_ERROR, "session store unavailable", 503, null, e);
-        }
+        // Detached and bounded; its release is too (SessionLocks.tryOnce), so an interrupted caller
+        // cannot make the store drop the lock write.
+        lock = dev.realmid.sdk.session.SessionLocks.tryOnce(sessionStore, dev.realmid.sdk.session.SessionKeys.lockKey(key));
         if (lock.acquired()) {
             try {
                 // An outcome already stored (a repeat inside the window) answers the call, unless it
@@ -615,10 +614,15 @@ public final class AuthClient {
                         oc = dev.realmid.sdk.session.RefreshOutcome.error(fp, 504, ErrorCode.SERVER_ERROR.wire(),
                                 "refresh timed out", null);
                     }
-                    try { // errors too: a retry of a consumed token is a reuse
-                        sessionStore.putRefreshResult(dev.realmid.sdk.session.SessionKeys.outcomeKey(key),
-                                oc.encode(http.mapper()), dev.realmid.sdk.session.SessionLocks.OUTCOME_TTL);
-                    } catch (RuntimeException ignored) { /* the winner still answers its own caller */ }
+                    // errors too: a retry of a consumed token is a reuse. Detached, so a caller that
+                    // hung up mid-mint still records the rotation (Go: a fresh context).
+                    final dev.realmid.sdk.session.RefreshOutcome toStore = oc;
+                    try {
+                        dev.realmid.sdk.session.Detached.run(() ->
+                                sessionStore.putRefreshResult(dev.realmid.sdk.session.SessionKeys.outcomeKey(key),
+                                        toStore.encode(http.mapper()), dev.realmid.sdk.session.SessionLocks.OUTCOME_TTL),
+                                STORE_TIMEOUT);
+                    } catch (RuntimeException | java.util.concurrent.TimeoutException ignored) { /* the winner still answers its own caller */ }
                 }
             } finally {
                 try { lock.release().run(); } catch (RuntimeException ignored) { /* the TTL frees it */ }
@@ -668,9 +672,18 @@ public final class AuthClient {
         return oc.toTokenResponse();
     }
 
-    private static final java.time.Duration STORE_TIMEOUT = java.time.Duration.ofSeconds(2);
+    private static final java.time.Duration STORE_TIMEOUT = dev.realmid.sdk.session.SessionLocks.STORE_TIMEOUT;
 
-    /** The unlocked mint: for a caller that already holds the per-session lock (the lock is not re-entrant). */
+    /** One issuer call: detached from the caller and bounded when inside a locked block, plain otherwise. */
+    private JsonNode issuer(HttpTransport.Request r) {
+        return dev.realmid.sdk.session.Detached.io(() -> http.request(r));
+    }
+
+    /**
+     * The unlocked mint: for a caller that already holds the per-session lock (the lock is not re-entrant).
+     *
+     * <p>INTERNAL: public only for the middleware; no stability promise. Partners call {@link #token}.
+     */
     public TokenResponse tokenUnlocked(TokenRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
@@ -700,7 +713,7 @@ public final class AuthClient {
         if (scopeWire != null) body.put("scope", scopeWire);
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/token").body(body);
         attachOrigin(r, req.origin());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         return http.mapper().convertValue(raw, TokenResponse.class);
     }
 
@@ -746,7 +759,7 @@ public final class AuthClient {
         body.put("code", req.code());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery").body(body);
         attachOrigin(r, req.origin());
-        Session session = http.mapper().convertValue(http.request(r), Session.class);
+        Session session = http.mapper().convertValue(issuer(r), Session.class);
         return finishMfaSession(session, req.origin(), AuthFlow.MFA_RECOVERY);
     }
 
@@ -774,7 +787,7 @@ public final class AuthClient {
         body.put("method", req.method() == null ? "totp" : req.method());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/verify").body(body);
         attachOrigin(r, req.origin());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         Session session = http.mapper().convertValue(raw, Session.class);
         return finishMfaSession(session, req.origin(), AuthFlow.MFA_VERIFY);
     }
@@ -798,7 +811,7 @@ public final class AuthClient {
         if (req.tenantId() != null && !req.tenantId().isEmpty()) body.put("tenant_id", req.tenantId());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         Session session = http.mapper().convertValue(raw, Session.class);
         // ADR-102 D10 — an OTP login is a login. This lane was uncovered until
         // the Go SDK's AST-derived lane guard found it; the defect report that
@@ -840,7 +853,7 @@ public final class AuthClient {
         }
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         Session session = http.mapper().convertValue(raw, Session.class);
         // ADR-102 D10 — same mint rule as login: once the tenant is settled the
         // product-roles handler runs and the session is re-minted. A password
@@ -878,7 +891,7 @@ public final class AuthClient {
         attachOrigin(r, req.origin());
         JsonNode raw;
         try {
-            raw = http.request(r);
+            raw = issuer(r);
         } catch (RuntimeException e) {
             // The issuer call failed: fall back to a VERIFIED, UNEXPIRED bearer (step 3a.3).
             revokeByVerifiedBearer(req.accessToken());
@@ -948,7 +961,7 @@ public final class AuthClient {
         HttpTransport.Request r = HttpTransport.Request.of(
                 "DELETE", "/auth/sessions/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8))
                 .bearer(userBearer);
-        http.request(r);
+        issuer(r);
     }
 
     /** SPEC §4.6. Note: paginated wire shape per SPEC §7. */
@@ -959,7 +972,7 @@ public final class AuthClient {
             if (opts.limit() != null) q.put("limit", opts.limit());
             HttpTransport.Request r = HttpTransport.Request.of("GET", "/auth/sessions")
                     .query(q).bearer(userBearer);
-            JsonNode raw = http.request(r);
+            JsonNode raw = issuer(r);
             return PageReader.read(http.mapper(), raw, Session.class);
         });
     }
@@ -1026,7 +1039,7 @@ public final class AuthClient {
         // and the refresh rides in the body (mirrors token()).
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/enroll").body(body);
         attachOrigin(r, req.origin());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         return http.mapper().convertValue(raw, MfaEnrollment.class);
     }
 
@@ -1040,7 +1053,7 @@ public final class AuthClient {
         body.put("code", req.code());
         HttpTransport.Request r = HttpTransport.Request.of("DELETE", "/auth/mfa").body(body);
         applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
-        http.request(r);
+        issuer(r);
     }
 
     /**
@@ -1053,7 +1066,7 @@ public final class AuthClient {
     public void revokeAllSessions(RevokeAllSessionsRequest req) {
         HttpTransport.Request r = HttpTransport.Request.of("DELETE", "/auth/sessions");
         applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
-        http.request(r);
+        issuer(r);
     }
 
     /**
@@ -1064,7 +1077,7 @@ public final class AuthClient {
     public AuthenticatorList listAuthenticators(ListAuthenticatorsRequest req) {
         HttpTransport.Request r = HttpTransport.Request.of("GET", "/auth/mfa/authenticators");
         applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         return http.mapper().convertValue(raw, AuthenticatorList.class);
     }
 
@@ -1080,7 +1093,7 @@ public final class AuthClient {
     public RecoveryCodes regenerateRecoveryCodes(RegenerateRecoveryCodesRequest req) {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery/regenerate");
         applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
-        JsonNode raw = http.request(r);
+        JsonNode raw = issuer(r);
         return http.mapper().convertValue(raw, RecoveryCodes.class);
     }
 

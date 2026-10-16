@@ -17,6 +17,7 @@ import dev.realmid.sdk.session.RefreshOutcome;
 import dev.realmid.sdk.auth.Session;
 import dev.realmid.sdk.auth.TokenRequest;
 import dev.realmid.sdk.auth.TokenResponse;
+import dev.realmid.sdk.session.Detached;
 import dev.realmid.sdk.session.OrgSessionModes;
 import dev.realmid.sdk.session.SessionKeys;
 import dev.realmid.sdk.session.SessionLocks;
@@ -327,13 +328,6 @@ public class RealmFilter implements Filter {
     private static final long MINT_BOUND_SECONDS = 10;
     private static final String MFA_FINGERPRINT = "mfa-verify";
 
-    private static final java.util.concurrent.ExecutorService MINT_POOL =
-            java.util.concurrent.Executors.newCachedThreadPool(r -> {
-                Thread t = new Thread(r, "realmid-refresh-mint");
-                t.setDaemon(true);
-                return t;
-            });
-
     private String fingerprint(String tenantId, Map<String, Object> custom) {
         try {
             return tenantId + "|" + (custom == null ? "" : canon.writeValueAsString(custom));
@@ -372,7 +366,7 @@ public class RealmFilter implements Filter {
 
         SessionStateStore.RefreshLock lock;
         try {
-            lock = store.acquireRefreshLock(lockKey, LOCK_TTL);
+            lock = SessionLocks.tryOnce(store, lockKey); // detached; its release is too
         } catch (RuntimeException e) {
             // Minting unlocked is the bug this step removes.
             sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), "session store unavailable", null);
@@ -406,8 +400,11 @@ public class RealmFilter implements Filter {
             }
             RefreshOutcome o = mintBounded(candidates, tenantId, custom, fp);
             try {
-                store.putRefreshResult(outKey, o.encode(mapper), RESULT_TTL);
-            } catch (RuntimeException e) {
+                // Detached from the request thread: a hang-up must not drop the outcome of a
+                // rotation that already happened (Go: a fresh context).
+                Detached.run(() -> store.putRefreshResult(outKey, o.encode(mapper), RESULT_TTL),
+                        SessionLocks.STORE_TIMEOUT);
+            } catch (RuntimeException | java.util.concurrent.TimeoutException e) {
                 warnAuth(req, "refresh outcome not stored: " + e.getMessage());
             }
             // SPEC 4b: only a ROTATING refresh refuses the session's older tokens.
@@ -420,31 +417,17 @@ public class RealmFilter implements Filter {
         }
     }
 
-    /** Runs the candidate loop on a thread detached from the request, bounded at 10 s. */
+    /**
+     * Runs the candidate loop ON THE REQUEST THREAD under one 10 s budget: the partner's hooks
+     * keep their thread-locals, MDC and request scope, while every issuer call inside is detached
+     * (a hang-up must not abandon a rotation in flight). A hook cannot be cancelled, so the budget
+     * is checked before each issuer call.
+     */
     private RefreshOutcome mintBounded(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
-        java.util.concurrent.Future<RefreshOutcome> f = MINT_POOL.submit(() -> mint(candidates, tenantId, custom, fp));
-        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(MINT_BOUND_SECONDS);
-        boolean interrupted = false;
         try {
-            while (true) {
-                long left = deadline - System.nanoTime();
-                if (left <= 0) {
-                    f.cancel(true);
-                    return RefreshOutcome.error(fp, 504, ErrorCode.SERVER_ERROR.wire(), "refresh timed out", null);
-                }
-                try {
-                    return f.get(left, java.util.concurrent.TimeUnit.NANOSECONDS);
-                } catch (InterruptedException e) {
-                    interrupted = true; // a cancelled request must not abandon a rotation in flight
-                } catch (java.util.concurrent.TimeoutException e) {
-                    // loop re-checks the deadline
-                } catch (java.util.concurrent.ExecutionException e) {
-                    return RefreshOutcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(),
-                            String.valueOf(e.getCause() == null ? e.getMessage() : e.getCause().getMessage()), null);
-                }
-            }
-        } finally {
-            if (interrupted) Thread.currentThread().interrupt();
+            return Detached.bounded(Duration.ofSeconds(MINT_BOUND_SECONDS), () -> mint(candidates, tenantId, custom, fp));
+        } catch (RuntimeException e) {
+            return RefreshOutcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(), String.valueOf(e.getMessage()), null);
         }
     }
 
@@ -490,7 +473,12 @@ public class RealmFilter implements Filter {
 
     /** A read that can fail: null is "none stored", an exception is "could not find out". */
     private RefreshOutcome readOutcomeOrThrow(SessionStateStore store, String outKey) throws IOException {
-        java.util.Optional<byte[]> b = store.getRefreshResult(outKey);
+        java.util.Optional<byte[]> b;
+        try {
+            b = Detached.call(() -> store.getRefreshResult(outKey), SessionLocks.STORE_TIMEOUT);
+        } catch (java.util.concurrent.TimeoutException e) {
+            throw new IOException("session store read timed out", e);
+        }
         return b.isPresent() ? RefreshOutcome.decode(mapper, b.get()) : null;
     }
 
@@ -600,9 +588,12 @@ public class RealmFilter implements Filter {
         try {
             Session s;
             try {
-                s = recovery
+                // The issuer call rotates the refresh token: it runs detached from the request
+                // thread (a hang-up must not abandon it before the outcome is stored), under the
+                // same 10 s budget as refresh. Partner hooks still run on this thread.
+                s = Detached.bounded(Duration.ofSeconds(MINT_BOUND_SECONDS), () -> recovery
                         ? cfg.realm.auth().redeemRecoveryCode(RedeemRecoveryCodeRequest.of(challenge, code))
-                        : cfg.realm.auth().mfaVerify(MFAVerifyRequest.of(challenge, code));
+                        : cfg.realm.auth().mfaVerify(MFAVerifyRequest.of(challenge, code)));
             } catch (LoginMintException e) {
                 // The issuer rotated, then the derived-claims mint failed: the rotation already
                 // happened, so a waiting refresh must adopt the new token, and the client keeps it.

@@ -4,13 +4,14 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased (HELD) — `USER_SUSPENDED` / `ESCORT_SUSPENDED` registered
+## 0.51.0 (to be published) — Go parity: session surface, `USER_SUSPENDED` / `ESCORT_SUSPENDED`
 
-Source only (taxonomy parity with go `0.66.0`); no version bump, not released.
-`build.gradle.kts` carries `0.51.0` in source (spec `0.59.0` parity, owner ruling OP-3); still no tag, no publish.
+Taxonomy parity with go `0.66.0` and the go `0.63`-`0.64.2` session surface. `build.gradle.kts` carries
+`0.51.0` (spec `0.59.0` parity, owner ruling OP-3). The ts/java publish hold was lifted by the owner on
+2026-10-16 ("all SDKs at par"); no tag yet.
 
 ### Added
-- `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode.TENANT_DISABLED`, with the predicate `RealmException.isTenantDisabled(Throwable)`. Java has no session middleware that tears sessions down on `user_suspended`, so there is no relay to mirror.
+- `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode.TENANT_DISABLED`, with the predicate `RealmException.isTenantDisabled(Throwable)`. Java's `RealmFilter` never ends a session on `user_suspended` / `tenant_disabled` and relays them with the issuer's status; the one relay that rewrites a status is `escort_suspended` (see below).
 - `User.joinedVia()` / `joinedViaDomain()` (wire `joined_via` / `joined_via_domain`) plus `JoinedVia` enum via `User.joinedViaKind()`; an unrecognised wire value resolves to `JoinedVia.UNKNOWN` and the raw string is kept.
 - `UserListOpts.joinedVia` / `emailDomain` filters (query `joined_via`, `email_domain`, sent only when set).
 - `UsersClient.bulkUpdateStatus(tenantId, userIds, BulkStatus)` -> `POST /tenants/{id}/users/bulk-status`, returning `BulkStatusResult` with per-id `BulkStatusOutcome` (unknown outcome -> `UNKNOWN`).
@@ -33,7 +34,21 @@ Source only (taxonomy parity with go `0.66.0`); no version bump, not released.
 - Cancellation shape (SPEC §6.7.2, go 0.63.1 parity; owner ruling 2026-10-16). `TokensClient.isRevoked` no longer fails OPEN when the client hangs up: an interrupted request thread made a driver that honours interruption throw, and the throw was read as "store down". Every `TokensClient` store call (`isRevoked`, `revokeSession`, `recordRefresh`, `evict`, and the org-session-mode read) now runs on a thread detached from the request, bounded at 2 s, and the caller's interrupt status is restored afterwards. A hung store still fails open after 2 s, as before.
 - The MFA routes now store the rotated token and hand it to the client when the issuer rotated but the derived-claims mint failed (`LoginMintException`), as Go does.
 
+### Fixed (security) — `exemptPaths` glob
+- A mid-pattern `**` kept no segment boundary, so `/a/**/b` also matched `/ab` and `/a/xb`: an `exemptPaths` entry exempted paths it never named (fail-open). It now matches `/a/b`, `/a/x/b`, `/a/x/y/b` and none of `/ab`, `/a/xb`, `/axb`; `/x/**` matches `/x`, `/x/`, `/x/y` but not `/xy`; `/**` matches everything. Same table in go and ts.
+
+### Fixed — review of the session surface before publishing
+- Partner hooks (`ProductRolesHandler`, `ScopesHandler`, `IdentityResolvedHandler`) run on the CALLING thread again, as in 0.50.0, on the refresh route, the MFA routes and direct MFA calls given a `refreshToken`; only the issuer HTTP call and the session-store I/O are detached (a hook reading `SecurityContextHolder`, MDC or a request-scoped bean broke on the pool thread). A hook cannot be cancelled: the 10 s budget is checked before each issuer call, not inside the hook.
+- The middleware MFA verify and recovery routes call the issuer detached under the 10 s budget, as Go does, so a hang-up mid-verify no longer leaves a rotation with no stored outcome (the next refresh would present the spent token and revoke the session).
+- The lock acquire, release and outcome writes run detached and bounded (2 s), on a thread that does not carry the caller's interrupt.
+- The detached pool is bounded (default 256 threads, `Realm.Builder.maxDetachedThreads(int)`) and its threads are named `realmid-detached-N`. A full pool behaves as a timeout: fail open on the revocation read, 503 `session store unavailable` on lock and outcome paths.
+- One bearer check shares ONE 2 s budget across the session-state read and the org-session-mode fetch (it could take 7 s).
+
+### Internal, no stability promise
+`AuthClient.tokenUnlocked`, `AuthClient.setSessionStore`, `session.Detached`, `session.SessionLocks` and `session.RefreshOutcome` are `public` only because the middleware, tokens and auth packages share them. They are not part of the SDK's API and may change in any release. Partners call `AuthClient.token`.
+
 ### Breaking (when this releases) — the SPEC front matter's list, for java
+- **Records gained components** (constructor arity, record patterns and `equals` change; the old constructors of `User`, `UserListOpts` and `LogoutRequest` remain): `User` (`joinedVia`, `joinedViaDomain`), `UserListOpts` (`joinedVia`, `emailDomain`), `LogoutRequest` (`all`), `MFAVerifyRequest` and `MfaVerifyOtpRequest` (`refreshToken`), `Session` (`reenrollRequired`). Code that deconstructs these with record patterns or constructs them positionally must be updated.
 - **§5.1** `verify()` refuses an absent or blank `sub` as `malformed` (401).
 - **§5.1.1** `verify()` refuses a token whose header `typ` is absent or not `JWT`/`at+jwt`/`application/at+jwt`, and any token carrying an `events` claim. Partner test fixtures that build a header without `typ` start failing.
 - **§6.7 / §6.7.5** Session state is keyed on the session (`sid`, else `jti`) behind a `SessionStateStore` the partner MUST pass: `Realm.Builder.build()` FAILS without one. `markRevoked` / `revokeOnLogout` revoke every access token of the session.

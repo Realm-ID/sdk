@@ -118,6 +118,7 @@ public final class Realm {
                     + "(use new MemorySessionStore() for a single replica)");
         }
         this.sessionStore = b.sessionStore;
+        if (b.maxDetachedThreads > 0) dev.realmid.sdk.session.Detached.setMaxThreads(b.maxDetachedThreads);
         this.realmId = b.realmId;
         this.baseUrl = stripSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
         this.origin = b.origin;
@@ -530,6 +531,20 @@ public final class Realm {
             this.revocation = v;
             return this;
         }
+
+        /**
+         * Ceiling on the SDK's detached I/O threads (session-store calls and the issuer calls made
+         * under a refresh lock). Default {@value dev.realmid.sdk.session.Detached#DEFAULT_MAX_THREADS}.
+         * When the pool is full a call is refused at once and behaves as a timeout does on its path
+         * (revocation read: fail open; lock and outcome paths: 503). The pool is process-wide; the
+         * last Realm built with this set wins.
+         */
+        public Builder maxDetachedThreads(int v) {
+            if (v < 1) throw new IllegalArgumentException("realmid: maxDetachedThreads must be >= 1");
+            this.maxDetachedThreads = v;
+            return this;
+        }
+        private int maxDetachedThreads;
 
         /**
          * ADR-102 — registers the handler that resolves the PARTNER's own role

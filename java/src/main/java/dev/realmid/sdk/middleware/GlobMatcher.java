@@ -41,9 +41,14 @@ public final class GlobMatcher {
             char c = pat.charAt(i);
             if (c == '/' && pat.startsWith("**", i + 1)) {
                 // `/**` — the leading slash is optional too, so /x/** matches /x.
-                re.append("(?:/.*)?");
+                // Mid-pattern the NEXT slash stays literal, so /a/**/b needs a boundary
+                // before b: /ab and /a/xb must not match (fail-open for exemptPaths).
                 i += 3;
-                if (i < pat.length() && pat.charAt(i) == '/') i++;
+                if (i >= pat.length() || pat.charAt(i) == '/') {
+                    re.append("(?:/.*)?");
+                } else {
+                    re.append("/.*");
+                }
             } else if (c == '*' && i + 1 < pat.length() && pat.charAt(i + 1) == '*') {
                 re.append(".*");
                 i += 2;

@@ -16,13 +16,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** SPEC 6.7.2 / go 0.63.1: a client hang-up is not a store error; store calls are detached and bounded at 2 s. */
-class TokensClientCancelTest {
+public class TokensClientCancelTest {
 
     /** Throws when the CALLING thread is interrupted, as a request-scoped store (JDBC, Jedis) does. */
-    static final class InterruptSensitive implements SessionStateStore {
-        final MemorySessionStore inner = new MemorySessionStore();
-        volatile long readDelayMs;
-        final AtomicBoolean sawInterrupt = new AtomicBoolean();
+    public static final class InterruptSensitive implements SessionStateStore {
+        public final MemorySessionStore inner = new MemorySessionStore();
+        public volatile long readDelayMs;
+        public final AtomicBoolean sawInterrupt = new AtomicBoolean();
         public void revokeSession(String k, Instant u) { check(); inner.revokeSession(k, u); }
         public void raiseNotBefore(String k, Instant nb, Instant u) { check(); inner.raiseNotBefore(k, nb, u); }
         public List<SessionState> sessionStates(List<String> k) {
@@ -33,9 +33,13 @@ class TokensClientCancelTest {
             return inner.sessionStates(k);
         }
         public void evict(String p) { check(); inner.evict(p); }
-        public RefreshLock acquireRefreshLock(String k, Duration t) { return inner.acquireRefreshLock(k, t); }
-        public void putRefreshResult(String k, byte[] r, Duration t) { inner.putRefreshResult(k, r, t); }
-        public Optional<byte[]> getRefreshResult(String k) { return inner.getRefreshResult(k); }
+        public RefreshLock acquireRefreshLock(String k, Duration t) {
+            check();
+            RefreshLock l = inner.acquireRefreshLock(k, t);
+            return new RefreshLock(l.acquired(), () -> { check(); l.release().run(); });
+        }
+        public void putRefreshResult(String k, byte[] r, Duration t) { check(); inner.putRefreshResult(k, r, t); }
+        public Optional<byte[]> getRefreshResult(String k) { check(); return inner.getRefreshResult(k); }
         private void check() {
             if (Thread.currentThread().isInterrupted()) {
                 sawInterrupt.set(true);
@@ -80,6 +84,22 @@ class TokensClientCancelTest {
         }
         assertTrue(t.isRevoked(jwt("S2")));
         assertNotNull(store.inner.sessionStates(List.of(SessionKeys.sessionMarkKey("S2"))).get(0).notBefore());
+    }
+
+    @Test
+    void SPEC6_7_2_oneBearerCheckSharesOneTwoSecondBudgetAcrossTheStoreReadAndTheModeFetch() {
+        InterruptSensitive store = new InterruptSensitive();
+        store.inner.raiseNotBefore(SessionKeys.sessionMarkKey("S1"), Instant.ofEpochSecond(200),
+                Instant.now().plusSeconds(3600));
+        TokensClient t = new TokensClient(store, java.time.Clock.systemUTC(), null, iss -> {
+            try { Thread.sleep(10_000); } catch (InterruptedException e) { throw new IllegalStateException(e); }
+            return "exclusive";
+        });
+        store.readDelayMs = 1_200;
+        long t0 = System.nanoTime();
+        assertFalse(t.isRevoked(jwt("S1")), "unreadable mode means concurrent: this token's membership has no mark");
+        long ms = (System.nanoTime() - t0) / 1_000_000;
+        assertTrue(ms < 2_600, "one shared 2 s budget, took " + ms + " ms");
     }
 
     @Test
