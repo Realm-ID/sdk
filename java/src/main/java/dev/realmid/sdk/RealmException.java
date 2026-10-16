@@ -49,4 +49,21 @@ public class RealmException extends RuntimeException {
     public static boolean isTenantDisabled(Throwable t) {
         return t instanceof RealmException re && re.code == ErrorCode.TENANT_DISABLED;
     }
+
+    /**
+     * True when {@code t} is the issuer's 403 {@code user_suspended} (ADR-104
+     * R-d): the subject's row in that org is suspended or deactivated. Not a
+     * sign-out; the person may be active elsewhere.
+     */
+    public static boolean isUserSuspended(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.USER_SUSPENDED;
+    }
+
+    /**
+     * True when {@code t} is {@code escort_suspended} (ADR-104 R-d): the BFF's
+     * own escort principal is suspended. Not a sign-out.
+     */
+    public static boolean isEscortSuspended(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.ESCORT_SUSPENDED;
+    }
 }

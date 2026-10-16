@@ -322,7 +322,7 @@ function stableJson(v: unknown): string {
 
 function errorOutcome(fp: string, e: unknown): RefreshOutcome {
   if (e instanceof RealmError) {
-    return { fp, ok: false, status: e.httpStatus ?? 500, body: { error: { code: e.code, message: e.message }, ...(e.details ?? {}) } };
+    return { fp, ok: false, status: relayStatus(e), body: { error: { code: e.code, message: e.message }, ...(e.details ?? {}) } };
   }
   return { fp, ok: false, status: 500, body: { error: { code: "server_error", message: (e as Error).message ?? "unknown" } } };
 }
@@ -670,7 +670,7 @@ async function respondAuthFailure(res: ConnectRes, err: RealmError, req: Connect
     return;
   }
   const revoked = err.details?.["revoked"] === true;
-  sendJson(res, err.httpStatus ?? 401, {
+  sendJson(res, relayStatus(err, 401), {
     error: { code: err.code, message: err.message },
     ...(revoked ? { revoked: true } : {}),
   });
@@ -686,7 +686,7 @@ function sendJson(res: ConnectRes, status: number, body: unknown): void {
 
 function sendError(res: ConnectRes, err: unknown): void {
   if (err instanceof RealmError) {
-    sendJson(res, err.httpStatus ?? 500, {
+    sendJson(res, relayStatus(err, 500), {
       error: { code: err.code, message: err.message },
       ...(err.details ?? {}),
     });
@@ -888,4 +888,15 @@ function assertBracesWellFormed(pat: string): void {
       });
     }
   }
+}
+
+/**
+ * The status a BFF shows its SPA for an issuer refusal: the issuer's own, except
+ * `escort_suspended` (403 upstream = the BFF's own escort account is disabled),
+ * which becomes 503 so the SPA reads a service problem rather than its own user
+ * being refused (ADR-104 R-d). Mirrors sdk/go `relayStatus`.
+ */
+function relayStatus(e: RealmError, dflt = 500): number {
+  if (e.code === "escort_suspended") return 503;
+  return e.httpStatus ?? dflt;
 }

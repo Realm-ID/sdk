@@ -259,7 +259,7 @@ public class RealmFilter implements Filter {
                 sendJson(res, 200, out);
                 return;
             }
-            sendError(res, e.getHttpStatus() > 0 ? e.getHttpStatus() : 500,
+            sendError(res, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         }
     }
@@ -503,7 +503,7 @@ public class RealmFilter implements Filter {
         }
         if (t == null) {
             RealmException e = firstErr;
-            return Outcome.error(fp, e.getHttpStatus() > 0 ? e.getHttpStatus() : 500,
+            return Outcome.error(fp, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         }
         // The derived claims (ADR-102 product_roles, ADR-097 scope) are resolved
@@ -513,7 +513,7 @@ public class RealmFilter implements Filter {
         try {
             t = cfg.realm.auth().enrichRefreshMint(t, tenantId);
         } catch (RealmException e) {
-            return Outcome.error(fp, e.getHttpStatus() > 0 ? e.getHttpStatus() : 500,
+            return Outcome.error(fp, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         } catch (RuntimeException e) {
             // ProductRolesException / ScopesException are deliberately NOT
@@ -649,7 +649,7 @@ public class RealmFilter implements Filter {
             deliverRefresh(res, out, s.refreshToken());
             sendJson(res, 200, out);
         } catch (RealmException e) {
-            sendError(res, e.getHttpStatus() > 0 ? e.getHttpStatus() : 500,
+            sendError(res, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         } finally {
             if (lock != null) {
@@ -807,6 +807,19 @@ public class RealmFilter implements Filter {
         byte[] out = mapper.writeValueAsBytes(body);
         res.setContentLength(out.length);
         res.getOutputStream().write(out);
+    }
+
+    /**
+     * The status shown to the SPA for an issuer refusal: the issuer's own (500
+     * when none), except {@code escort_suspended} (403 upstream = the BFF's own
+     * escort account is disabled), which becomes 503 so the SPA reads a service
+     * problem rather than its own user being refused (ADR-104 R-d). Mirrors
+     * sdk/go {@code relayStatus}. {@code user_suspended} is relayed as-is and
+     * never tears the session down.
+     */
+    private static int relayStatus(RealmException e) {
+        if (e.getCode() == ErrorCode.ESCORT_SUSPENDED) return 503;
+        return e.getHttpStatus() > 0 ? e.getHttpStatus() : 500;
     }
 
     private void sendError(HttpServletResponse res, int status, String code, String msg, Map<String, Object> sib) throws IOException {

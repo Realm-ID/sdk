@@ -37,6 +37,21 @@ class ErrorCodeTaxonomyTest {
                 ErrorCode.fromWire("mfa_registration_required"));
     }
 
+    @Test void userAndEscortSuspendedPredicatesMatch() {
+        assertEquals(ErrorCode.USER_SUSPENDED, ErrorCode.fromWire("user_suspended"));
+        assertEquals(ErrorCode.ESCORT_SUSPENDED, ErrorCode.fromWire("escort_suspended"));
+        org.junit.jupiter.api.Assertions.assertTrue(RealmException.isUserSuspended(
+                new RealmException(ErrorCode.USER_SUSPENDED, "x", 403, null)));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isUserSuspended(
+                new RealmException(ErrorCode.TENANT_DISABLED, "x", 403, null)));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isUserSuspended(null));
+        org.junit.jupiter.api.Assertions.assertTrue(RealmException.isEscortSuspended(
+                new RealmException(ErrorCode.ESCORT_SUSPENDED, "x", 503, null)));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isEscortSuspended(
+                new RealmException(ErrorCode.USER_SUSPENDED, "x", 403, null)));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isEscortSuspended(new RuntimeException("x")));
+    }
+
     @Test void tenantDisabledResolvesAndPredicateMatches() {
         // 403 tenant_disabled (spec 0.59.0): the org the token is for is
         // suspended/deactivated. Not a sign-out.

@@ -19,6 +19,8 @@ Source only (taxonomy parity with go `0.66.0`); no version bump, not released.
 
 - The old 7-arg `User` and 3-arg `UserListOpts` constructors remain.
 
+- `RealmException.isUserSuspended(Throwable)` / `isEscortSuspended(Throwable)`, matching `isTenantDisabled` and go `IsUserSuspended` / `IsEscortSuspended`.
+- `RealmFilter`: `escort_suspended` (403 upstream, the BFF's own escort account) is shown to the SPA as 503, mirroring go `relayStatus`; `user_suspended` / `tenant_disabled` are relayed with the issuer's status and code and never end the session.
 ### Breaking (when this releases)
 - `user_suspended` becomes a registered `ErrorCode`. Before, it arrived as `FORBIDDEN` with `server_code = "user_suspended"`; a registered code lands on the code and leaves `server_code`. Branch on both during migration.
 

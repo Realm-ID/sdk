@@ -9,12 +9,13 @@ cross-cutting items affecting every SDK at once.
 `package.json` carries `0.55.0` in source only (owner ruling OP-3); no tag, not published. It also carries the held `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits its Breaking note.
 
 ### Added
-- `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode`, with `isTenantDisabled(e)` (in `errors.ts`, exported like `isUserSuspended`, i.e. not yet from the package index). Before registration it arrives as `forbidden`.
+- `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode`, with `isTenantDisabled(e)` (exported from the package index together with `isUserSuspended` and `isEscortSuspended`). Before registration it arrives as `forbidden`.
 - `User.joined_via` (`JoinedVia`: invitation | sso_domain | open_signup | import | admin | owner | service | unknown) and `User.joined_via_domain` (only for `sso_domain`).
 - `tenants.users.list` options `joinedVia` / `emailDomain`, sent as `joined_via` / `email_domain`, omitted when unset.
 - `tenants.users.bulkStatus(tenantId, userIds, status)`: `POST /tenants/{id}/users/bulk-status` (1-500 ids, `suspended` | `deactivated`), typed `BulkStatusResult` with a per-id `outcome` (updated | unchanged | not_found | refused_owner). One refused id does not fail the call; no session is ended.
 - `tenants.detachDomain(platformId, tenantId, domain, { signOut? })` and `origins.remove(realmId, originId, { signOut? })`: detaching signs nobody out by default (ADR-049 amendment); `signOut: true` sends `?sign_out=true`, only when set. `DetachOptions` exported.
-- No middleware change: the connect middleware already relays the issuer's status and code and never clears the refresh cookie on a 403, so `tenant_disabled` keeps the session.
+- Connect middleware: `escort_suspended` (403 upstream, the BFF's own escort account) is now shown to the SPA as 503, mirroring go `relayStatus`; every other refusal (`user_suspended`, `tenant_disabled`) is relayed with the issuer's status and code, and a 403 never clears the refresh cookie, so the session is kept.
+- `isUserSuspended`, `isEscortSuspended`, `isTenantDisabled` are exported from the package index (they were only in `errors.ts`, unreachable for package consumers).
 
 ### Also held: `user_suspended` / `escort_suspended` registered
 

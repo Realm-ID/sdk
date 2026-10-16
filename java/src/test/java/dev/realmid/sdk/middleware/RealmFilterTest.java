@@ -140,6 +140,42 @@ class RealmFilterTest {
         assertTrue(ran.get());
     }
 
+    /** A user login the issuer refuses with {@code code} (403); platform bootstrap still succeeds. */
+    private FakeRes loginRefused(String code) throws Exception {
+        api.on("POST /auth/login", (ex, body) -> {
+            String b = new String(body, StandardCharsets.UTF_8);
+            if (b.contains("platform_api_key")) {
+                return FakeServer.Reply.json(200, Map.of("access_token", "pt", "refresh_token", "rt",
+                        "expires_in", 300, "subject_type", "platform"));
+            }
+            return FakeServer.Reply.json(403, Map.of("error", Map.of("code", code, "message", "refused")));
+        });
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).build();
+        RealmFilter f = r2.middleware().buildFilter();
+        FakeReq req = new FakeReq("POST", "/login");
+        req.body = "{\"grant_type\":\"provider_token\",\"method\":\"firebase\",\"provider_token\":\"x\"}".getBytes(StandardCharsets.UTF_8);
+        FakeRes res = new FakeRes();
+        f.doFilter(req, res, (rq, rs) -> { throw new AssertionError(); });
+        return res;
+    }
+
+    // Parity with sdk/go relayStatus: user_suspended is relayed as 403 and sets no
+    // session cookie; escort_suspended (BFF's own escort account) is shown as 503.
+    @Test
+    void loginUserSuspendedRelays403WithoutCookie() throws Exception {
+        FakeRes res = loginRefused("user_suspended");
+        assertEquals(403, res.status);
+        assertEquals("user_suspended", ((Map<?, ?>) M.readValue(res.bytes(), Map.class).get("error")).get("code"));
+        assertTrue(res.headers.getOrDefault("Set-Cookie", List.of()).isEmpty());
+    }
+
+    @Test
+    void loginEscortSuspendedIsRelayedAs503() throws Exception {
+        FakeRes res = loginRefused("escort_suspended");
+        assertEquals(503, res.status);
+        assertEquals("escort_suspended", ((Map<?, ?>) M.readValue(res.bytes(), Map.class).get("error")).get("code"));
+    }
+
     @Test
     void loginRouteHandled() throws Exception {
         api.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200, Map.of(
