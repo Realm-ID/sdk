@@ -65,8 +65,21 @@ public record Session(
         // null on the multi-tenant branch until completeLogin runs.
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
         // The caller's role in tenantId.
-        String role
+        String role,
+        // SPEC §4.3a — true on a recovery-code redeem: the code is consumed and the
+        // old authenticator cleared, so the user must re-enroll. false everywhere else.
+        @JsonProperty("reenroll_required") @JsonAlias("reenrollRequired") boolean reenrollRequired
 ) {
+
+    /** Pre-§4.3a constructor: {@code reenrollRequired} is false. */
+    public Session(String accessToken, String refreshToken, long expiresIn, long refreshExp, long idleTtl,
+                   String expiresAt, String initiatedByUserId, Map<String, Object> user, List<TenantRef> tenants,
+                   String id, String createdAt, String lastUsedAt, String userAgent, String ip, String deviceName,
+                   boolean tenantChoiceRequired, List<TenantChoice> tenantChoices, String tenantId, String role) {
+        this(accessToken, refreshToken, expiresIn, refreshExp, idleTtl, expiresAt, initiatedByUserId, user,
+                tenants, id, createdAt, lastUsedAt, userAgent, ip, deviceName, tenantChoiceRequired,
+                tenantChoices, tenantId, role, false);
+    }
 
     /**
      * Reports whether the issuer returned a tenant PICKER instead of a session:
@@ -141,7 +154,7 @@ public record Session(
                 mint.refreshExp() != 0 ? mint.refreshExp() : refreshExp,
                 idleTtl, expiresAt, initiatedByUserId, user, tenants, id, createdAt,
                 lastUsedAt, userAgent, ip, deviceName,
-                tenantChoiceRequired, tenantChoices, settledTenantId, r);
+                tenantChoiceRequired, tenantChoices, settledTenantId, r, reenrollRequired);
     }
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TenantRef(

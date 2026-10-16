@@ -21,7 +21,7 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
-- [ ] **ts/java carry `user_suspended` / `escort_suspended` in source, UNRELEASED (go `0.66.0`, ADR-104 R-d; HELD with the v0.63 session).** ts has `isUserSuspended`/`isEscortSuspended` + the union/array entries; java has `ErrorCode.USER_SUSPENDED`/`ESCORT_SUSPENDED`. Versions not bumped. Still to do when the hold lifts: the java predicates, any ts/java middleware relay (escort_suspended as 503), and tests.
+- [ ] **ts/java carry `user_suspended` / `escort_suspended` in source, UNRELEASED (go `0.66.0`, ADR-104 R-d; HELD with the v0.63 session).** ts has `isUserSuspended`/`isEscortSuspended` + the union/array entries; java has `ErrorCode.USER_SUSPENDED`/`ESCORT_SUSPENDED`. Versions not bumped. Still to do when the hold lifts: the java predicates, any ts/java middleware relay (escort_suspended as 503), and tests. (java: predicates and the 503 relay exist in source, `RealmFilter`; verified 2026-10-16.)
 
 - [ ] **Finish and release ts `0.55.0` / java `0.51.0` (the v0.63 session surface) — HELD 2026-10-02.**
   Go `0.63.0` and web `0.9.0` shipped without them (owner ruling, root `DECISIONS.md`
@@ -41,18 +41,23 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   shapes); an outcome-store READ error answers 503 and never re-mints (middleware refresh too);
   the in-memory store sweeps expired entries; the superseded give-up is a typed error with a
   redacted token. Sdk `DECISIONS.md` 2026-10-03 lists each with its RCA.
+  **java (0): DONE 2026-10-16** (`java/` `V064DirectLockTest`, `V064MiddlewareTest`, `MemorySessionStoreSweepTest`;
+  `redeemRecoveryCode`, `reenrollRequired`, `AuthFlow.MFA_RECOVERY`, opt-in `recoveryPath`, `refreshToken` on the
+  three direct calls, `token()`/`TokenManager` under the lock, `RefreshSupersededException`, read-error 503, store sweep).
   (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
   commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then
   re-run the critic pass against SPEC §5.1/§5.1.1/§6.7/§6.7.6/§10.1/§10.2/§11.4-11.5.
   (2) **java**: `bc5353c` landed (Wave 4 java); its sdk-e2e and a fresh critic pass are
-  not done. (3) **ts and java sdk-e2e** (`tests/sdk-e2e`, live issuer) have not been run
+  not done. (java: parity re-verified against SPEC/go 2026-10-16 by test, see (4); still no critic pass and no sdk-e2e.) (3) **ts and java sdk-e2e** (`tests/sdk-e2e`, live issuer) have not been run
   for the v0.63 surface; Go's was run (sdk-e2e/go). (4) Parity to hold: the required
   session store (§6.7.5), ctx/async-first session API, `Evict` by session key,
   `Revocation` keyed on session key AND jti, `typ`/`events`/blank-`sub` refusal,
   logout fallback to a verified UNEXPIRED bearer + `revoked_sids` for `all`, the
   default-on logout gate (§10.1 step 6a), `/x/**` matching bare `/x` (BREAKING in
   ts/java) and `{name}` in `mfaProtectedPaths`, `ScopeDecision.missing` on `anyOf`,
-  `writeDenied`. (5) Release: bump versions, per-language CHANGELOG headings with the
+  `writeDenied`. **java (4): VERIFIED 2026-10-16**, every point held by a passing test already on `main`
+  (`V063VerifierTest`, `V063MiddlewareTest`, `V063Wave4Test`, `V063PathsAndWriteDeniedTest`, `TokensClientTest`); no fix was needed.
+  The session API is blocking (Java idiom), so "ctx-first" reduces to (6). (5) Release: bump versions, per-language CHANGELOG headings with the
   Breaking block (SPEC front matter lists it), remove the SPEC "PARTLY RELEASED" note,
   then `make release-check LANGUAGE=ts|java`.
   (6) **Cancellation shape (checked 2026-10-02 against go 0.63.1's fix, SPEC §6.7.2):**
@@ -61,6 +66,16 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   signal/context into `sessionStates`, so the SDK itself cannot hand a client-cancelled
   read to the store; a partner store that aborts on its own request scope can still
   hit it. Decide before release whether to document that or detach. NOT changed (held).
+  **ts status, 2026-10-16 (hold lifted; uncommitted in the working tree):** ts items (0), (1), (4) and (6)
+  are DONE to go parity — `redeemRecoveryCode`, `reenrollRequired`, `"mfa_recovery"` flow, opt-in
+  `recoveryPath`, `refreshToken` on the direct MFA calls, `auth.token` + `TokenManager` under the
+  per-session lock, outcome-read error answers 503, memory-store sweep, `RefreshSupersededError`
+  (tests `ts/src/v064-lock.test.ts`, mirroring the go test names); (6) is a 2 s bound on every store call
+  in `TokensClient` (ts store methods take no signal, so there is nothing to detach). (4) was verified
+  by `ts/src/v063-*.test.ts` (394 pass before this round). STILL OPEN for ts: (3) sdk-e2e against a
+  live issuer, and (5) release (SPEC "PARTLY RELEASED" note, tag, `make release-check LANGUAGE=ts`).
+  **java (6): DONE 2026-10-16** (owner ruling: parity with go 0.63.1, detach): every `TokensClient` store call runs on a
+  detached thread bounded at 2 s, interrupt status restored (`TokensClientCancelTest`).
 - [ ] **`@realm-id/web` peer ranges exclude `0.9.0`** — `web-admin`, `web-react`,
   `bff-realmid`, `firebase` and `google` declare `@realm-id/web` `^0.4.0 … ^0.8.0`
   (a `0.x` caret never reaches `0.9.0`). Not released with core `0.9.0`; widen the

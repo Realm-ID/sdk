@@ -19,7 +19,13 @@ public enum AuthFlow {
     PASSWORD("password"),
     MFA_VERIFY("mfa_verify"),
     TENANT_CHOICE("tenant_choice"),
-    REFRESH("refresh");
+    REFRESH("refresh"),
+    /**
+     * {@code redeemRecoveryCode} and the middleware recovery route: a sign-in
+     * with a single-use recovery code (SPEC §4.3a). Deliberately NOT
+     * {@link #MFA_VERIFY}: it is security-relevant and partners alert on it.
+     */
+    MFA_RECOVERY("mfa_recovery");
 
     private final String wire;
 

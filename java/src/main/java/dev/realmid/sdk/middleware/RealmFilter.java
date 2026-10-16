@@ -10,12 +10,16 @@ import dev.realmid.sdk.RealmException;
 import dev.realmid.sdk.auth.AuthClient;
 import dev.realmid.sdk.auth.LoginRequest;
 import dev.realmid.sdk.auth.LogoutRequest;
+import dev.realmid.sdk.auth.LoginMintException;
 import dev.realmid.sdk.auth.MFAVerifyRequest;
+import dev.realmid.sdk.auth.RedeemRecoveryCodeRequest;
+import dev.realmid.sdk.session.RefreshOutcome;
 import dev.realmid.sdk.auth.Session;
 import dev.realmid.sdk.auth.TokenRequest;
 import dev.realmid.sdk.auth.TokenResponse;
 import dev.realmid.sdk.session.OrgSessionModes;
 import dev.realmid.sdk.session.SessionKeys;
+import dev.realmid.sdk.session.SessionLocks;
 import dev.realmid.sdk.session.SessionStateStore;
 import dev.realmid.sdk.tokens.TokenRevokedException;
 
@@ -92,6 +96,9 @@ public class RealmFilter implements Filter {
         if ("POST".equals(method) && path.equals(cfg.logoutPath)) { handleLogout(req, res); return; }
         if ("POST".equals(method) && path.equals(cfg.refreshPath)) { handleRefresh(req, res); return; }
         if ("POST".equals(method) && path.equals(cfg.mfaVerifyPath)) { handleMfaVerify(req, res); return; }
+        // Opt-in (SPEC 10.1 step 5a): an unset recoveryPath matches nothing, not the empty path.
+        if ("POST".equals(method) && cfg.recoveryPath != null && !cfg.recoveryPath.isEmpty()
+                && path.equals(cfg.recoveryPath)) { handleMfaRecovery(req, res); return; }
 
         // 6. Bearer fall-through.
         String auth = req.getHeader("Authorization");
@@ -327,57 +334,6 @@ public class RealmFilter implements Filter {
                 return t;
             });
 
-    /** What a winner stored for its losers: the mint result or the error, plus the request fingerprint. */
-    private record Outcome(String fp, boolean ok, int status, String code, String message,
-                           Map<String, Object> details, String accessToken, Object expiresIn,
-                           String tenantId, String role, String refreshToken, String minted) {
-
-        static Outcome success(String fp, TokenResponse t, String minted) {
-            return new Outcome(fp, true, 200, null, null, null, t.accessToken(), t.expiresIn(),
-                    t.tenantId(), t.role(), t.refreshToken(), minted);
-        }
-
-        static Outcome error(String fp, int status, String code, String message, Map<String, Object> details) {
-            return new Outcome(fp, false, status, code, message, details, null, null, null, null, null, null);
-        }
-
-        /** Rotated iff the response's refresh token is non-empty and differs from the candidate that minted. */
-        boolean rotated() {
-            return ok && refreshToken != null && !refreshToken.isEmpty() && !refreshToken.equals(minted);
-        }
-
-        byte[] encode(ObjectMapper m) {
-            Map<String, Object> o = new LinkedHashMap<>();
-            o.put("fp", fp);
-            o.put("ok", ok);
-            o.put("status", status);
-            o.put("code", code);
-            o.put("message", message);
-            o.put("details", details);
-            o.put("access_token", accessToken);
-            o.put("expires_in", expiresIn);
-            o.put("tenant_id", tenantId);
-            o.put("role", role);
-            o.put("refresh_token", refreshToken);
-            o.put("minted", minted);
-            try {
-                return m.writeValueAsBytes(o);
-            } catch (IOException e) {
-                throw new IllegalStateException(e);
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        static Outcome decode(ObjectMapper m, byte[] b) throws IOException {
-            Map<String, Object> o = m.readValue(b, Map.class);
-            return new Outcome((String) o.get("fp"), Boolean.TRUE.equals(o.get("ok")),
-                    o.get("status") instanceof Number n ? n.intValue() : 500,
-                    (String) o.get("code"), (String) o.get("message"), (Map<String, Object>) o.get("details"),
-                    (String) o.get("access_token"), o.get("expires_in"), (String) o.get("tenant_id"),
-                    (String) o.get("role"), (String) o.get("refresh_token"), (String) o.get("minted"));
-        }
-    }
-
     private String fingerprint(String tenantId, Map<String, Object> custom) {
         try {
             return tenantId + "|" + (custom == null ? "" : canon.writeValueAsString(custom));
@@ -423,7 +379,7 @@ public class RealmFilter implements Filter {
             return;
         }
         if (!lock.acquired()) {
-            Outcome o = awaitOutcome(store, outKey);
+            RefreshOutcome o = awaitOutcome(store, outKey);
             if (o == null) {
                 sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), "refresh in progress", null);
                 return;
@@ -434,12 +390,21 @@ public class RealmFilter implements Filter {
         try {
             // A request that lost the previous winner's response (a reload) is
             // served the stored outcome, not a second mint of a spent token.
-            Outcome prior = readOutcome(store, outKey);
+            RefreshOutcome prior;
+            try {
+                prior = readOutcomeOrThrow(store, outKey);
+            } catch (IOException | RuntimeException e) {
+                // Could not find out whether a previous winner already rotated: minting could
+                // re-present a spent token (a reuse, which revokes the session). Fail closed.
+                warnAuth(req, "refresh outcome unreadable: " + e.getMessage());
+                sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), "session store unavailable", null);
+                return;
+            }
             if (prior != null) {
                 respondToOutcome(res, prior, fp);
                 return;
             }
-            Outcome o = mintBounded(candidates, tenantId, custom, fp);
+            RefreshOutcome o = mintBounded(candidates, tenantId, custom, fp);
             try {
                 store.putRefreshResult(outKey, o.encode(mapper), RESULT_TTL);
             } catch (RuntimeException e) {
@@ -456,8 +421,8 @@ public class RealmFilter implements Filter {
     }
 
     /** Runs the candidate loop on a thread detached from the request, bounded at 10 s. */
-    private Outcome mintBounded(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
-        java.util.concurrent.Future<Outcome> f = MINT_POOL.submit(() -> mint(candidates, tenantId, custom, fp));
+    private RefreshOutcome mintBounded(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
+        java.util.concurrent.Future<RefreshOutcome> f = MINT_POOL.submit(() -> mint(candidates, tenantId, custom, fp));
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(MINT_BOUND_SECONDS);
         boolean interrupted = false;
         try {
@@ -465,7 +430,7 @@ public class RealmFilter implements Filter {
                 long left = deadline - System.nanoTime();
                 if (left <= 0) {
                     f.cancel(true);
-                    return Outcome.error(fp, 504, ErrorCode.SERVER_ERROR.wire(), "refresh timed out", null);
+                    return RefreshOutcome.error(fp, 504, ErrorCode.SERVER_ERROR.wire(), "refresh timed out", null);
                 }
                 try {
                     return f.get(left, java.util.concurrent.TimeUnit.NANOSECONDS);
@@ -474,7 +439,7 @@ public class RealmFilter implements Filter {
                 } catch (java.util.concurrent.TimeoutException e) {
                     // loop re-checks the deadline
                 } catch (java.util.concurrent.ExecutionException e) {
-                    return Outcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(),
+                    return RefreshOutcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(),
                             String.valueOf(e.getCause() == null ? e.getMessage() : e.getCause().getMessage()), null);
                 }
             }
@@ -483,7 +448,7 @@ public class RealmFilter implements Filter {
         }
     }
 
-    private Outcome mint(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
+    private RefreshOutcome mint(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
         // Try each candidate until one mints. With the ordinary single cookie
         // this is exactly the old behaviour, including which error surfaces;
         // with a shadowed jar it is the difference between a working session
@@ -494,7 +459,7 @@ public class RealmFilter implements Filter {
         RealmException firstErr = null;
         for (String candidate : candidates) {
             try {
-                t = cfg.realm.auth().token(new TokenRequest(candidate, tenantId, custom, null));
+                t = cfg.realm.auth().tokenUnlocked(new TokenRequest(candidate, tenantId, custom, null));
                 minted = candidate;
                 break;
             } catch (RealmException e) {
@@ -503,7 +468,7 @@ public class RealmFilter implements Filter {
         }
         if (t == null) {
             RealmException e = firstErr;
-            return Outcome.error(fp, relayStatus(e),
+            return RefreshOutcome.error(fp, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         }
         // The derived claims (ADR-102 product_roles, ADR-097 scope) are resolved
@@ -513,29 +478,35 @@ public class RealmFilter implements Filter {
         try {
             t = cfg.realm.auth().enrichRefreshMint(t, tenantId);
         } catch (RealmException e) {
-            return Outcome.error(fp, relayStatus(e),
+            return RefreshOutcome.error(fp, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         } catch (RuntimeException e) {
             // ProductRolesException / ScopesException are deliberately NOT
             // RealmExceptions, so they surface as a server_error.
-            return Outcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(), e.getMessage(), null);
+            return RefreshOutcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(), e.getMessage(), null);
         }
-        return Outcome.success(fp, t, minted);
+        return RefreshOutcome.success(fp, t, minted);
     }
 
-    private Outcome readOutcome(SessionStateStore store, String outKey) {
+    /** A read that can fail: null is "none stored", an exception is "could not find out". */
+    private RefreshOutcome readOutcomeOrThrow(SessionStateStore store, String outKey) throws IOException {
+        java.util.Optional<byte[]> b = store.getRefreshResult(outKey);
+        return b.isPresent() ? RefreshOutcome.decode(mapper, b.get()) : null;
+    }
+
+    /** For a loser, which never mints: a read error just keeps polling. */
+    private RefreshOutcome readOutcome(SessionStateStore store, String outKey) {
         try {
-            java.util.Optional<byte[]> b = store.getRefreshResult(outKey);
-            return b.isPresent() ? Outcome.decode(mapper, b.get()) : null;
+            return readOutcomeOrThrow(store, outKey);
         } catch (IOException | RuntimeException e) {
             return null;
         }
     }
 
     /** Polls the winner's outcome every cfg.refreshPollMillis, at most cfg.refreshPollTries times. */
-    private Outcome awaitOutcome(SessionStateStore store, String outKey) {
+    private RefreshOutcome awaitOutcome(SessionStateStore store, String outKey) {
         for (int i = 0; i < cfg.refreshPollTries; i++) {
-            Outcome o = readOutcome(store, outKey);
+            RefreshOutcome o = readOutcome(store, outKey);
             if (o != null) return o;
             try {
                 Thread.sleep(cfg.refreshPollMillis);
@@ -548,7 +519,7 @@ public class RealmFilter implements Filter {
     }
 
     /** Same fingerprint: the winner's response. Different: its error, or a 503 retry carrying its rotated token. */
-    private void respondToOutcome(HttpServletResponse res, Outcome o, String myFp) throws IOException {
+    private void respondToOutcome(HttpServletResponse res, RefreshOutcome o, String myFp) throws IOException {
         if (!o.ok() || myFp.equals(o.fp())) {
             respond(res, o);
             return;
@@ -566,7 +537,7 @@ public class RealmFilter implements Filter {
         sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), "refresh superseded, retry", sib);
     }
 
-    private void respond(HttpServletResponse res, Outcome o) throws IOException {
+    private void respond(HttpServletResponse res, RefreshOutcome o) throws IOException {
         if (!o.ok()) {
             sendError(res, o.status(), o.code(), o.message(), o.details());
             return;
@@ -581,12 +552,31 @@ public class RealmFilter implements Filter {
         sendJson(res, 200, out);
     }
 
-    // ---- MFA verify under the refresh lock (SPEC 10.1 step 5) ----
+    // ---- MFA verify / recovery redeem under the refresh lock (SPEC 10.1 steps 5, 5a) ----
 
     private void handleMfaVerify(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        handleMfaLocked(req, res, false);
+    }
+
+    /** Step 5a: the recovery-code twin of {@link #handleMfaVerify}; mounted only when recoveryPath is set. */
+    private void handleMfaRecovery(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        handleMfaLocked(req, res, true);
+    }
+
+    /**
+     * The issuer's MFA verify and recovery redeem both ROTATE the session's refresh token, so both
+     * take the same per-session lock as refresh and store their outcome the same way (a redeem that
+     * lost a race to a refresh would be a reuse, and reuse revokes the session).
+     *
+     * <p>The direct {@code AuthClient} call is made WITHOUT {@code refreshToken}: this handler
+     * already holds the lock and the lock is not re-entrant (SPEC 4.3).
+     */
+    private void handleMfaLocked(HttpServletRequest req, HttpServletResponse res, boolean recovery) throws IOException {
         Map<String, Object> body = readJson(req);
-        String challenge = String.valueOf(body.getOrDefault("challenge_token",
-                body.getOrDefault("challengeToken", "")));
+        Object ct = body.get("challenge_token");
+        if (ct == null && recovery) ct = body.get("mfa_challenge_token");
+        if (ct == null) ct = body.get("challengeToken");
+        String challenge = ct == null ? "" : String.valueOf(ct);
         String code = String.valueOf(body.getOrDefault("code", ""));
         List<String> candidates = readRefreshCandidates(req);
         if (cfg.tokenDelivery == TokenDelivery.BODY) {
@@ -595,50 +585,50 @@ public class RealmFilter implements Filter {
             if (br instanceof String s && !s.isEmpty()) candidates = List.of(s);
         }
         SessionStateStore store = cfg.realm.sessionStore();
-        SessionStateStore.RefreshLock lock = null;
-        String outKey = null;
-        if (!candidates.isEmpty()) {
-            // The issuer's MFA verify ROTATES the session's refresh token, so it
-            // takes the same lock as refresh. It never adopts a refresh outcome
-            // (its challenge is single-use and not yet consumed): it waits for
-            // the LOCK, then calls the issuer.
-            String first = candidates.get(0);
-            outKey = SessionKeys.outcomeKey(first);
-            for (int i = 0; i < cfg.refreshPollTries && lock == null; i++) {
-                SessionStateStore.RefreshLock l;
-                try {
-                    l = store.acquireRefreshLock(SessionKeys.lockKey(first), LOCK_TTL);
-                } catch (RuntimeException e) {
-                    sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), "session store unavailable", null);
-                    return;
-                }
-                if (l.acquired()) {
-                    lock = l;
-                } else {
-                    try {
-                        Thread.sleep(cfg.refreshPollMillis);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-            }
-            if (lock == null) {
-                sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), "refresh in progress", null);
+        Runnable release = null;
+        String first = candidates.isEmpty() ? null : candidates.get(0);
+        if (first != null) {
+            // It never adopts a refresh outcome (its challenge is single-use and not yet
+            // consumed): it waits for the LOCK, then calls the issuer.
+            try {
+                release = SessionLocks.acquire(store, first, cfg.refreshPollMillis, cfg.refreshPollTries);
+            } catch (RealmException e) {
+                sendError(res, 503, ErrorCode.SERVER_ERROR.wire(), e.getMessage(), null);
                 return;
             }
         }
         try {
-            Session s = cfg.realm.auth().mfaVerify(MFAVerifyRequest.of(challenge, code));
-            if (lock != null && s.refreshToken() != null && !s.refreshToken().isEmpty()) {
-                // A refresh loser waiting on this key takes the different-fingerprint
-                // branch and is handed the rotated token.
-                try {
-                    store.putRefreshResult(outKey, new Outcome(MFA_FINGERPRINT, true, 200, null, null, null,
-                            null, null, null, null, s.refreshToken(), candidates.get(0)).encode(mapper), RESULT_TTL);
-                } catch (RuntimeException e) {
-                    warnAuth(req, "mfa outcome not stored: " + e.getMessage());
+            Session s;
+            try {
+                s = recovery
+                        ? cfg.realm.auth().redeemRecoveryCode(RedeemRecoveryCodeRequest.of(challenge, code))
+                        : cfg.realm.auth().mfaVerify(MFAVerifyRequest.of(challenge, code));
+            } catch (LoginMintException e) {
+                // The issuer rotated, then the derived-claims mint failed: the rotation already
+                // happened, so a waiting refresh must adopt the new token, and the client keeps it.
+                String rotated = e.session() == null ? null : e.session().refreshToken();
+                Map<String, Object> extra = null;
+                if (first != null && rotated != null && !rotated.isEmpty()) {
+                    storeMfaOutcome(req, store, first, rotated);
+                    if (cfg.tokenDelivery == TokenDelivery.BODY) {
+                        extra = new LinkedHashMap<>();
+                        extra.put("refresh_token", rotated);
+                    } else {
+                        setRefreshCookie(res, rotated);
+                    }
                 }
+                Throwable cause = e.getCause();
+                if (cause instanceof RealmException re) {
+                    sendError(res, relayStatus(re), re.getCode().wire(), re.getMessage(),
+                            extra != null ? extra : re.getDetails());
+                    return;
+                }
+                throw e;
+            }
+            if (first != null && s.refreshToken() != null && !s.refreshToken().isEmpty()) {
+                // A refresh loser waiting on this key takes the different-fingerprint branch and
+                // is handed the rotated token.
+                storeMfaOutcome(req, store, first, s.refreshToken());
             }
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("access_token", s.accessToken());
@@ -646,17 +636,20 @@ public class RealmFilter implements Filter {
             out.put("user", s.user());
             out.put("tenants", s.tenants());
             out.put("org_session_mode", orgSessionMode(s.accessToken()));
+            if (recovery) out.put("reenroll_required", s.reenrollRequired());
             deliverRefresh(res, out, s.refreshToken());
             sendJson(res, 200, out);
         } catch (RealmException e) {
             sendError(res, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         } finally {
-            if (lock != null) {
-                try {
-                    lock.release().run();
-                } catch (RuntimeException ignored) { /* the TTL frees it */ }
-            }
+            if (release != null) release.run();
+        }
+    }
+
+    private void storeMfaOutcome(HttpServletRequest req, SessionStateStore store, String current, String rotated) {
+        if (!SessionLocks.storeMfaOutcome(store, mapper, current, rotated)) {
+            warnAuth(req, "mfa outcome not stored");
         }
     }
 

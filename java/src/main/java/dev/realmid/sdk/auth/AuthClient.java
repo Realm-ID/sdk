@@ -50,6 +50,65 @@ public final class AuthClient {
         if (clock != null) this.clock = clock;
     }
 
+    // ---- per-session refresh lock (SPEC §4.2, §4.3, §4.3a; go 0.64.2) ----
+
+    private dev.realmid.sdk.session.SessionStateStore sessionStore;
+    private long lockPollMillis = dev.realmid.sdk.session.SessionLocks.POLL_MILLIS;
+    private int lockPollTries = dev.realmid.sdk.session.SessionLocks.POLL_TRIES;
+
+    /**
+     * Wires the {@code SessionStateStore} whose refresh lock {@link #token} and the direct
+     * MFA calls given a {@code refreshToken} serialise on. A bare client without one runs
+     * {@code token} unlocked and refuses an MFA call that asked for the lock.
+     */
+    public void setSessionStore(dev.realmid.sdk.session.SessionStateStore store) {
+        this.sessionStore = store;
+    }
+
+    /** Test hook: shortens the lock wait. The spec values (50 ms x 60 = 3 s) are the default. */
+    void setLockWait(long pollMillis, int tries) {
+        this.lockPollMillis = pollMillis;
+        this.lockPollTries = tries;
+    }
+
+    private static final java.time.Duration WORK_BOUND = dev.realmid.sdk.session.SessionLocks.WORK_BOUND;
+
+    /**
+     * Runs {@code work} under the per-session lock keyed on {@code refreshToken} (SPEC §4.3), or
+     * bare when it is empty. The issuer call runs bounded at the mint timeout on a thread
+     * detached from the caller, so a cancelled caller cannot abandon a rotation the issuer
+     * already performed. The rotated token is stored as the {@code mfa-verify} outcome BEFORE the
+     * lock is released, also when the post-verify mint failed after the issuer rotated.
+     */
+    private Session withSessionLock(String refreshToken, java.util.function.Supplier<Session> work) {
+        if (refreshToken == null || refreshToken.isEmpty()) return work.get();
+        if (sessionStore == null) {
+            throw new IllegalStateException("realmid: a refreshToken needs the Realm's session store");
+        }
+        Runnable release = dev.realmid.sdk.session.SessionLocks.acquire(
+                sessionStore, refreshToken, lockPollMillis, lockPollTries);
+        try {
+            String rotated = null;
+            try {
+                Session s = dev.realmid.sdk.session.Detached.call(work::get, WORK_BOUND);
+                rotated = s.refreshToken();
+                return s;
+            } catch (LoginMintException e) {
+                rotated = e.session() == null ? null : e.session().refreshToken();
+                throw e;
+            } catch (java.util.concurrent.TimeoutException e) {
+                throw new RealmException(ErrorCode.SERVER_ERROR, "timed out", 504, null);
+            } finally {
+                if (rotated != null && !rotated.isEmpty()) {
+                    dev.realmid.sdk.session.SessionLocks.storeMfaOutcome(
+                            sessionStore, http.mapper(), refreshToken, rotated);
+                }
+            }
+        } finally {
+            release.run();
+        }
+    }
+
     public AuthClient(HttpTransport http, String realmId, Supplier<String> originResolver) {
         this(http, realmId, originResolver, null, null);
     }
@@ -283,7 +342,7 @@ public final class AuthClient {
         // the mirror of the bug this whole seam exists to close, and would be
         // found the same way: by a partner, in production.
         java.util.List<String> grantedScopes = ScopeClaims.resolve(scopes, tenantId, userId);
-        TokenResponse mint = token(new TokenRequest(
+        TokenResponse mint = tokenUnlocked(new TokenRequest(
                 session.refreshToken(), tenantId, null, origin, rolePermissions,
                 grantedScopes, roles));
         return session.withMint(mint, tenantId);
@@ -448,12 +507,171 @@ public final class AuthClient {
 
         // Re-mint against the ROTATED refresh token. The first mint already
         // spent the one the caller presented; re-using it would fail as a replay.
-        return token(new TokenRequest(minted.refreshToken(), tenant, null, null,
+        return tokenUnlocked(new TokenRequest(minted.refreshToken(), tenant, null, null,
                 null, grantedScopes, roles));
     }
 
-    /** SPEC §4.2. */
+    /** How many times {@link #token} follows a rotated token handed over by a winner whose request differed. */
+    private static final int TOKEN_MAX_HOPS = 3;
+
+    /**
+     * SPEC §4.2. With a non-empty refresh token it takes the per-session refresh lock (the one the
+     * middleware's refresh and MFA routes, and a direct MFA call given {@code refreshToken}, take),
+     * so concurrent rotations of one session never both reach the issuer (go 0.64.2): a
+     * concurrent identical request adopts the winner's result; one whose request differs retries
+     * on the winner's ROTATED token (never the spent one), up to three hand-overs, then fails with
+     * a {@link RefreshSupersededException} carrying the newest token. The issuer call runs bounded
+     * at the mint timeout on a thread detached from the caller. The lock holds only across
+     * replicas sharing one session store; a raw HTTP call to the issuer is not covered.
+     */
     public TokenResponse token(TokenRequest req) {
+        if (sessionStore == null || req.refreshToken() == null || req.refreshToken().isEmpty()) {
+            return tokenUnlocked(req);
+        }
+        // A bad request never spends (and so never rotates away) the token: refuse it before the lock.
+        Scopes.wireValue(req.scope());
+        TokenRequest cur = req;
+        for (int hop = 0; hop < TOKEN_MAX_HOPS; hop++) {
+            String[] next = new String[1];
+            TokenResponse out = tokenLockedOnce(cur, next);
+            if (out != null) return out;
+            cur = new TokenRequest(next[0], cur.tenantId(), cur.customClaims(), cur.origin(),
+                    cur.rolePermissions(), cur.scope(), cur.productRoles());
+        }
+        throw new RefreshSupersededException(cur.refreshToken());
+    }
+
+    /** Everything in the request that shapes the minted token; its prefix is shared with no middleware outcome. */
+    private String tokenFingerprint(TokenRequest req) {
+        Map<String, Object> shape = new LinkedHashMap<>();
+        shape.put("tenant", req.tenantId());
+        shape.put("custom", req.customClaims());
+        shape.put("rolePermissions", req.rolePermissions());
+        shape.put("productRoles", req.productRoles());
+        shape.put("scope", req.scope());
+        try {
+            return "token\u0000" + http.mapper().copy()
+                    .configure(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
+                    .writeValueAsString(shape);
+        } catch (java.io.IOException e) {
+            return "token\u0000" + shape;
+        }
+    }
+
+    private static boolean tokenLevel(dev.realmid.sdk.session.RefreshOutcome oc) {
+        return ErrorCode.REFRESH_INVALID.wire().equals(oc.code()) || oc.status() == 401;
+    }
+
+    private static boolean tokenOutcomeUsable(dev.realmid.sdk.session.RefreshOutcome oc, String fp, String key) {
+        if (!oc.ok()) return fp.equals(oc.fp()) || tokenLevel(oc);
+        if (fp.equals(oc.fp())) return true;
+        return oc.refreshToken() != null && !oc.refreshToken().isEmpty() && !oc.refreshToken().equals(key);
+    }
+
+    private dev.realmid.sdk.session.RefreshOutcome loadOutcome(String key) {
+        try {
+            return dev.realmid.sdk.session.Detached.call(() -> {
+                java.util.Optional<byte[]> b = sessionStore.getRefreshResult(
+                        dev.realmid.sdk.session.SessionKeys.outcomeKey(key));
+                return b.isPresent() ? dev.realmid.sdk.session.RefreshOutcome.decode(http.mapper(), b.get()) : null;
+            }, STORE_TIMEOUT);
+        } catch (RuntimeException | java.util.concurrent.TimeoutException e) {
+            // Could not find out whether a previous winner already rotated: minting could
+            // re-present a spent token. Fail closed.
+            throw new RealmException(ErrorCode.SERVER_ERROR, "session store unavailable", 503, null, e);
+        }
+    }
+
+    /** One winner-or-loser round: the result, or null with {@code next[0]} = the rotated token to retry on. */
+    private TokenResponse tokenLockedOnce(TokenRequest req, String[] next) {
+        String key = req.refreshToken();
+        String fp = tokenFingerprint(req);
+        dev.realmid.sdk.session.RefreshOutcome oc;
+        dev.realmid.sdk.session.SessionStateStore.RefreshLock lock;
+        if (Thread.currentThread().isInterrupted()) {
+            throw new RealmException(ErrorCode.SERVER_ERROR, "cancelled before the session lock", 503, null);
+        }
+        try {
+            lock = sessionStore.acquireRefreshLock(
+                    dev.realmid.sdk.session.SessionKeys.lockKey(key), dev.realmid.sdk.session.SessionLocks.LOCK_TTL);
+        } catch (RuntimeException e) {
+            throw new RealmException(ErrorCode.SERVER_ERROR, "session store unavailable", 503, null, e);
+        }
+        if (lock.acquired()) {
+            try {
+                // An outcome already stored (a repeat inside the window) answers the call, unless it
+                // was minted for another request AND did not rotate the token: then no spent token
+                // needs protecting and this call mints.
+                oc = loadOutcome(key);
+                if (oc != null && !tokenOutcomeUsable(oc, fp, key)) oc = null;
+                if (oc == null) {
+                    try {
+                        oc = dev.realmid.sdk.session.RefreshOutcome.success(fp,
+                                dev.realmid.sdk.session.Detached.call(() -> tokenUnlocked(req), WORK_BOUND), key);
+                    } catch (RealmException e) {
+                        oc = dev.realmid.sdk.session.RefreshOutcome.error(fp, e.getHttpStatus(),
+                                e.getCode().wire(), e.getMessage(), e.getDetails());
+                    } catch (java.util.concurrent.TimeoutException e) {
+                        oc = dev.realmid.sdk.session.RefreshOutcome.error(fp, 504, ErrorCode.SERVER_ERROR.wire(),
+                                "refresh timed out", null);
+                    }
+                    try { // errors too: a retry of a consumed token is a reuse
+                        sessionStore.putRefreshResult(dev.realmid.sdk.session.SessionKeys.outcomeKey(key),
+                                oc.encode(http.mapper()), dev.realmid.sdk.session.SessionLocks.OUTCOME_TTL);
+                    } catch (RuntimeException ignored) { /* the winner still answers its own caller */ }
+                }
+            } finally {
+                try { lock.release().run(); } catch (RuntimeException ignored) { /* the TTL frees it */ }
+            }
+        } else {
+            oc = null;
+            for (int i = 0; i < lockPollTries && oc == null; i++) {
+                try {
+                    // A read error here keeps polling: a loser never mints, so waiting is safe.
+                    oc = dev.realmid.sdk.session.Detached.call(() -> {
+                        java.util.Optional<byte[]> b = sessionStore.getRefreshResult(
+                                dev.realmid.sdk.session.SessionKeys.outcomeKey(key));
+                        return b.isPresent() ? dev.realmid.sdk.session.RefreshOutcome.decode(http.mapper(), b.get()) : null;
+                    }, STORE_TIMEOUT);
+                } catch (RuntimeException | java.util.concurrent.TimeoutException ignored) {
+                    oc = null;
+                }
+                if (oc != null) break;
+                if (Thread.currentThread().isInterrupted()) break;
+                try {
+                    Thread.sleep(lockPollMillis);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            if (oc == null) {
+                throw new RealmException(ErrorCode.SERVER_ERROR, "refresh in progress", 503, null);
+            }
+        }
+        if (!oc.ok()) {
+            if (fp.equals(oc.fp()) || tokenLevel(oc)) {
+                ErrorCode code = ErrorCode.fromWire(oc.code());
+                throw new RealmException(code == null ? ErrorCode.SERVER_ERROR : code, oc.message(), oc.status(), oc.details());
+            }
+            // Another request's shape-specific failure says nothing about this one. Every issuer
+            // 4xx on /auth/token is returned before the rotation is written, so the token is still
+            // live: go round again on it (the lock is free now, so this call mints for itself).
+            next[0] = key;
+            return null;
+        }
+        if (!fp.equals(oc.fp())) {
+            // Minted for a different request or by an MFA verify: hand over the rotated token; the
+            // caller retries on it as an ordinary winner.
+            next[0] = oc.refreshToken() == null || oc.refreshToken().isEmpty() ? key : oc.refreshToken();
+            return null;
+        }
+        return oc.toTokenResponse();
+    }
+
+    private static final java.time.Duration STORE_TIMEOUT = java.time.Duration.ofSeconds(2);
+
+    /** The unlocked mint: for a caller that already holds the per-session lock (the lock is not re-entrant). */
+    public TokenResponse tokenUnlocked(TokenRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
         body.put("refresh_token", req.refreshToken());
@@ -501,8 +719,51 @@ public final class AuthClient {
         return new TokenManager(this, refreshToken, opts);
     }
 
-    /** SPEC §4.3. */
+    /**
+     * SPEC §4.3. With {@link MFAVerifyRequest#refreshToken()} set, the call runs under the
+     * per-session refresh lock (go 0.64.2); the middleware's own route never sets it.
+     */
     public Session mfaVerify(MFAVerifyRequest req) {
+        return withSessionLock(req.refreshToken(), () -> mfaVerifyUnlocked(req));
+    }
+
+    /**
+     * SPEC §4.3a — completes an MFA challenge with a single-use recovery code in place of the
+     * TOTP code ({@code POST /auth/mfa/recovery}, ADR-077 §2). Post-verify handling is that of
+     * {@link #mfaVerify}, under {@link AuthFlow#MFA_RECOVERY}. The code is consumed and the
+     * returned session has {@link Session#reenrollRequired()} set: the old authenticator is
+     * cleared, so the user must re-enroll. Errors: 401 for an invalid challenge or code, 429
+     * {@code mfa_too_many_fails}.
+     */
+    public Session redeemRecoveryCode(RedeemRecoveryCodeRequest req) {
+        return withSessionLock(req.refreshToken(), () -> redeemRecoveryCodeUnlocked(req));
+    }
+
+    private Session redeemRecoveryCodeUnlocked(RedeemRecoveryCodeRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("realm_id", realmId);
+        body.put("mfa_challenge_token", req.challengeToken());
+        body.put("code", req.code());
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery").body(body);
+        attachOrigin(r, req.origin());
+        Session session = http.mapper().convertValue(http.request(r), Session.class);
+        return finishMfaSession(session, req.origin(), AuthFlow.MFA_RECOVERY);
+    }
+
+    /** The post-verify handling shared by every lane that completes an MFA challenge (ADR-102 D10). */
+    private Session finishMfaSession(Session session, String origin, AuthFlow flow) {
+        // A step-up issues the token the user carries for the rest of the session, so it is the
+        // LAST lane that may hand back a claim-blind one. Without this, a partner who requires
+        // MFA has every human denied by their own scope gate immediately after passing the
+        // second factor.
+        String settled = settledTenant(session);
+        if (settled != null && !settled.isEmpty()) {
+            return mintOrThrowWithAnchor(session, settled, null, origin, flow);
+        }
+        return session;
+    }
+
+    private Session mfaVerifyUnlocked(MFAVerifyRequest req) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("realm_id", realmId);
         // Wire field is "mfa_challenge_token" (server MFAVerifyRequest required:
@@ -515,15 +776,7 @@ public final class AuthClient {
         attachOrigin(r, req.origin());
         JsonNode raw = http.request(r);
         Session session = http.mapper().convertValue(raw, Session.class);
-        // ADR-102 D10 — a step-up issues the token the user carries for the rest
-        // of the session, so it is the LAST lane that may hand back a claim-blind
-        // one. Without this, a partner who requires MFA has every human denied by
-        // their own scope gate immediately after passing the second factor.
-        String settled = settledTenant(session);
-        if (settled != null && !settled.isEmpty()) {
-            return mintOrThrowWithAnchor(session, settled, null, req.origin(), AuthFlow.MFA_VERIFY);
-        }
-        return session;
+        return finishMfaSession(session, req.origin(), AuthFlow.MFA_VERIFY);
     }
 
     /**
@@ -610,7 +863,8 @@ public final class AuthClient {
      * Mirrors Go's {@code Auth.MFAVerifyOTP} / TS's {@code auth.mfaVerifyOtp}.
      */
     public Session mfaVerifyOtp(MfaVerifyOtpRequest req) {
-        return mfaVerify(new MFAVerifyRequest(req.mfaToken(), req.presented(), "otp", req.origin()));
+        return mfaVerify(new MFAVerifyRequest(req.mfaToken(), req.presented(), "otp", req.origin(),
+                req.refreshToken()));
     }
 
     /** SPEC §4.4. */

@@ -194,7 +194,25 @@ public final class TokenManager {
         // refresh_invalid (and any other error) bubbles up unchanged: a
         // long-lived user client has no API key to fall back on, so a dead
         // refresh is terminal — re-authentication is required.
-        TokenResponse res = auth.token(TokenRequest.of(refresh, tenantId));
+        TokenResponse res;
+        try {
+            res = auth.token(TokenRequest.of(refresh, tenantId));
+        } catch (RefreshSupersededException e) {
+            // The give-up carries the newest LIVE token: adopt it (and persist it) so the next
+            // attempt does not re-present the spent one.
+            String live = e.refreshToken();
+            if (live != null && !live.isEmpty()) {
+                synchronized (lock) {
+                    refreshTokenValue = live;
+                }
+                if (sink != null) {
+                    try {
+                        sink.persist(live);
+                    } catch (Exception ignored) { /* the in-memory copy still serves the next attempt */ }
+                }
+            }
+            throw e;
+        }
         if (res.accessToken() == null || res.accessToken().isEmpty()) {
             throw new RealmException(ErrorCode.SERVER_ERROR, "/auth/token returned empty access token");
         }

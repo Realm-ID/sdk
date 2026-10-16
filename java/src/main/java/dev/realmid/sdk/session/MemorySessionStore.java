@@ -95,9 +95,31 @@ public final class MemorySessionStore implements SessionStateStore {
         return entries.size();
     }
 
+    private static final Duration SWEEP_EVERY = Duration.ofSeconds(1);
+    private Instant nextSweep = Instant.EPOCH;
+
+    /**
+     * Drops expired locks, outcomes and marks that nothing reads again (go 0.64.2). Without it a
+     * key read or re-acquired never would be GC'd, and a BFF minting many sessions would leak.
+     * Runs at most once a second, from the write paths.
+     */
+    private void sweep(Instant now) {
+        if (now.isBefore(nextSweep)) return;
+        nextSweep = now.plus(SWEEP_EVERY);
+        locks.values().removeIf(h -> !h.until().isAfter(now));
+        results.values().removeIf(r -> !r.until().isAfter(now));
+        entries.values().removeIf(e -> e.until == null || !e.until.isAfter(now));
+    }
+
+    /** Locks and outcomes currently retained, expired or not (test hook for the sweep). */
+    synchronized int retainedLocksAndResults() {
+        return locks.size() + results.size();
+    }
+
     @Override
     public synchronized RefreshLock acquireRefreshLock(String key, Duration ttl) {
         Instant now = now();
+        sweep(now);
         Held h = locks.get(key);
         if (h != null && h.until().isAfter(now)) return RefreshLock.notAcquired();
         String token = "h" + (++tokenSeq);
@@ -112,7 +134,9 @@ public final class MemorySessionStore implements SessionStateStore {
 
     @Override
     public synchronized void putRefreshResult(String key, byte[] result, Duration ttl) {
-        results.put(key, new Result(result.clone(), now().plus(ttl)));
+        Instant now = now();
+        sweep(now);
+        results.put(key, new Result(result.clone(), now.plus(ttl)));
     }
 
     @Override

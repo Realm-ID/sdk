@@ -21,7 +21,29 @@ Source only (taxonomy parity with go `0.66.0`); no version bump, not released.
 
 - `RealmException.isUserSuspended(Throwable)` / `isEscortSuspended(Throwable)`, matching `isTenantDisabled` and go `IsUserSuspended` / `IsEscortSuspended`.
 - `RealmFilter`: `escort_suspended` (403 upstream, the BFF's own escort account) is shown to the SPA as 503, mirroring go `relayStatus`; `user_suspended` / `tenant_disabled` are relayed with the issuer's status and code and never end the session.
-### Breaking (when this releases)
+### Added — Go parity for the v0.63 session surface (go 0.64.0 – 0.64.2, owner ruling 2026-10-16: "all SDKs at par")
+- `AuthClient.redeemRecoveryCode(RedeemRecoveryCodeRequest)` (SPEC §4.3a, `POST /auth/mfa/recovery`), `Session.reenrollRequired()` (wire `reenroll_required`), and a distinct `AuthFlow.MFA_RECOVERY` (`"mfa_recovery"`, never `MFA_VERIFY`) for the identity-resolved hook.
+- Middleware recovery route: `MiddlewareConfig.Builder.recoveryPath(...)` (SPEC §10.1 step 5a). OPT-IN with NO default; an unset path serves nothing. Takes the same per-session refresh lock as the MFA-verify route and stores the same `mfa-verify` outcome; the response is the MFA-verify body plus `reenroll_required`.
+- Optional `refreshToken` on `MFAVerifyRequest`, `MfaVerifyOtpRequest` and `RedeemRecoveryCodeRequest` (go 0.64.2, SPEC §4.3/§4.3a): when set, the direct call takes the per-session lock, waits for it, and stores the `mfa-verify` outcome under that key, also when the post-verify mint failed after the issuer rotated. Never sent on the wire. The middleware handlers do NOT set it (the lock is not re-entrant; pinned by a test).
+- `AuthClient.token(...)` and therefore `TokenManager` serialise on the same lock when given a refresh token (go 0.64.2): a concurrent identical request adopts the winner's result; a different request retries on the winner's ROTATED token (never the spent one); only token-level outcomes (`refresh_invalid`, any 401) are shared across request shapes. The give-up after three hand-overs is a typed `RefreshSupersededException` (503 `server_error`) whose `refreshToken()` is redacted from `getMessage()`, details and `toString()`. `TokenManager` adopts that token. `AuthClient.tokenUnlocked(...)` is the unlocked mint for a caller that already holds the lock.
+- `MemorySessionStore` sweeps expired locks, outcomes and marks on its write paths instead of leaking keys nothing reads again (go 0.64.2).
+
+### Fixed
+- An outcome-store READ error on the middleware refresh route, and in `AuthClient.token`, now answers `503 server_error` ("session store unavailable") and NEVER re-mints: minting could re-present a spent refresh token, which the issuer treats as reuse and revokes the session (go 0.64.2). A waiting loser still keeps polling, because it never mints.
+- Cancellation shape (SPEC §6.7.2, go 0.63.1 parity; owner ruling 2026-10-16). `TokensClient.isRevoked` no longer fails OPEN when the client hangs up: an interrupted request thread made a driver that honours interruption throw, and the throw was read as "store down". Every `TokensClient` store call (`isRevoked`, `revokeSession`, `recordRefresh`, `evict`, and the org-session-mode read) now runs on a thread detached from the request, bounded at 2 s, and the caller's interrupt status is restored afterwards. A hung store still fails open after 2 s, as before.
+- The MFA routes now store the rotated token and hand it to the client when the issuer rotated but the derived-claims mint failed (`LoginMintException`), as Go does.
+
+### Breaking (when this releases) — the SPEC front matter's list, for java
+- **§5.1** `verify()` refuses an absent or blank `sub` as `malformed` (401).
+- **§5.1.1** `verify()` refuses a token whose header `typ` is absent or not `JWT`/`at+jwt`/`application/at+jwt`, and any token carrying an `events` claim. Partner test fixtures that build a header without `typ` start failing.
+- **§6.7 / §6.7.5** Session state is keyed on the session (`sid`, else `jti`) behind a `SessionStateStore` the partner MUST pass: `Realm.Builder.build()` FAILS without one. `markRevoked` / `revokeOnLogout` revoke every access token of the session.
+- **§6.7.6** The ADR-041 `RevocationCache` keys `revoke`/`isRevoked` on the session key too.
+- **§10.1 step 3** The logout route (and `auth.logout`) revokes the session named by the issuer's response `sid`, else a verified UNEXPIRED bearer; `revoked_sids` for `all`.
+- **§10.1 steps 4a/4b** The refresh route is single-flight per presented refresh token; a rotating refresh refuses older access tokens (`iat < T`) per org (`concurrent`) or per session (`exclusive`); responses gain `org_session_mode`. BREAKING for a client that holds one access token per tab.
+- **§10.1 step 6a** The middleware runs the logout check on every bearer request (`401 unauthorized` + `revoked: true`).
+- **§10.2 path syntax** `/x/**` matches the bare `/x`: an `exemptPaths` entry `/x/**` now ALSO exempts `/x`. `{name}` works in `mfaProtectedPaths`; `exemptPaths` stays literal.
+- **§11.4 / §11.4.1 / §11.5.1** `ScopeDecision.missing` lists the full scope set on an `anyOf` denial; `{name}` in a `ScopeRule` path matches one non-empty segment; optional `writeDenied` hook.
+- **This pass** `AuthClient.token(...)` with a refresh token now takes the per-session lock (behaviour change for a direct caller: a concurrent request is deduplicated or retried on the rotated token, and a store outage answers 503 instead of minting). The `Session` record gained a component (`reenrollRequired`); the old 19-argument constructor remains.
 - `user_suspended` becomes a registered `ErrorCode`. Before, it arrived as `FORBIDDEN` with `server_code = "user_suspended"`; a registered code lands on the code and leaves `server_code`. Branch on both during migration.
 
 ## 0.50.0 — lockstep release with issuer `v0.126.0` / spec `0.48.0`, no code change (2026-09-21)

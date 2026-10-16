@@ -1,6 +1,7 @@
 package dev.realmid.sdk.tokens;
 
 import dev.realmid.sdk.Logging;
+import dev.realmid.sdk.session.Detached;
 import dev.realmid.sdk.session.MemorySessionStore;
 import dev.realmid.sdk.session.OrgSessionModes;
 import dev.realmid.sdk.session.SessionKeys;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -79,10 +81,23 @@ public final class TokensClient {
     /** Records the named session revoked until {@code now + 24h}; no-op on an empty key. */
     public void revokeSession(String sessionKey) {
         if (sessionKey == null || sessionKey.isEmpty()) return;
+        Instant until = now().plus(H);
+        detached("revokeSession", () -> store.revokeSession(SessionKeys.revokedKey(sessionKey), until));
+    }
+
+    /** SPEC §6.7.2 (go 0.63.1): the store's bound, and the detachment from a cancelled request. */
+    static final Duration STORE_TIMEOUT = Duration.ofSeconds(2);
+
+    /**
+     * Runs a store WRITE detached from the request thread and bounded at {@link #STORE_TIMEOUT}:
+     * a client hang-up (an interrupted request thread) must not drop a revocation or a mark.
+     * A failure is logged, never thrown.
+     */
+    private void detached(String op, Runnable write) {
         try {
-            store.revokeSession(SessionKeys.revokedKey(sessionKey), now().plus(H));
-        } catch (RuntimeException e) {
-            warn("revokeSession", e);
+            Detached.run(write, STORE_TIMEOUT);
+        } catch (RuntimeException | TimeoutException e) {
+            warn(op, e);
         }
     }
 
@@ -100,11 +115,7 @@ public final class TokensClient {
         for (String key : new String[]{
                 SessionKeys.sessionMarkKey(p.sessionKey()),
                 SessionKeys.membershipMarkKey(p.sessionKey(), p.sub())}) {
-            try {
-                store.raiseNotBefore(key, nb, until);
-            } catch (RuntimeException e) {
-                warn("recordRefresh", e);
-            }
+            detached("recordRefresh", () -> store.raiseNotBefore(key, nb, until));
         }
     }
 
@@ -123,8 +134,10 @@ public final class TokensClient {
         if (p.sub() != null) keys.add(SessionKeys.membershipMarkKey(p.sessionKey(), p.sub()));
         List<SessionState> st;
         try {
-            st = store.sessionStates(keys);
-        } catch (RuntimeException e) {
+            // SPEC §6.7.2: a hang-up is not a store error. The read runs detached from the
+            // (possibly interrupted) request thread, bounded at the store timeout.
+            st = Detached.call(() -> store.sessionStates(keys), STORE_TIMEOUT);
+        } catch (RuntimeException | TimeoutException e) {
             warn("isRevoked", e); // fail OPEN, as the issuer's own bearer check does
             return false;
         }
@@ -133,7 +146,7 @@ public final class TokensClient {
         SessionState session = st.get(1);
         SessionState member = st.size() > 2 ? st.get(2) : SessionState.NONE;
         if (session.notBefore() == null && member.notBefore() == null) return false; // no mark: no mode fetch
-        boolean exclusive = OrgSessionModes.EXCLUSIVE.equals(modeOf == null ? null : modeOf.apply(p.iss()));
+        boolean exclusive = OrgSessionModes.EXCLUSIVE.equals(mode(p.iss()));
         Instant nb = (exclusive ? session : member).notBefore();
         if (nb == null) return false;
         return p.iat() <= 0 || p.iat() < nb.getEpochSecond();
@@ -177,15 +190,23 @@ public final class TokensClient {
             }
             return;
         }
-        try {
+        detached("evict", () -> {
             store.evict(SessionKeys.revokedKey(sessionKey));
             store.evict(SessionKeys.sessionMarkKey(sessionKey));
-        } catch (RuntimeException e) {
-            warn("evict", e);
+        });
+    }
+
+    /** The realm's org-session mode, read detached too (its HTTP fetch aborts on an interrupted thread). */
+    private String mode(String iss) {
+        if (modeOf == null) return null;
+        try {
+            return Detached.call(() -> modeOf.apply(iss), Duration.ofSeconds(5));
+        } catch (RuntimeException | TimeoutException e) {
+            return null; // unreadable means concurrent (SPEC §6.7.3)
         }
     }
 
-    private void warn(String op, RuntimeException e) {
+    private void warn(String op, Exception e) {
         if (logger.isLoggable(Level.WARNING)) {
             logger.log(Level.WARNING, "realmid: session store {0} failed: {1}", op, e.getMessage());
         }

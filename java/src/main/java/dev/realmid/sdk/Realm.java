@@ -166,6 +166,7 @@ public final class Realm {
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
         this.auth.setRevocationCache(this.revocation);
         this.auth.setLogoutSupport(this.tokens, this.verifier, clock);
+        this.auth.setSessionStore(this.sessionStore);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);
@@ -222,6 +223,7 @@ public final class Realm {
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
         this.auth.setRevocationCache(this.revocation);
         this.auth.setLogoutSupport(this.tokens, this.verifier, this.clock);
+        this.auth.setSessionStore(this.sessionStore);
         this.otp = new OtpClient(this.http);
         this.tenants = new TenantsClient(this.http, this.realmId);
         this.domains = new DomainsClient(this.http);

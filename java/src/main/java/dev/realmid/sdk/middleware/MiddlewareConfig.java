@@ -19,6 +19,8 @@ public final class MiddlewareConfig {
     final String logoutPath;
     final String refreshPath;
     final String mfaVerifyPath;
+    /** SPEC 10.1 step 5a: the recovery-code route. NO default; null or empty = route off. */
+    final String recoveryPath;
     final TokenDelivery tokenDelivery;
     final String cookieName;
     /**
@@ -60,6 +62,7 @@ public final class MiddlewareConfig {
         this.logoutPath = b.logoutPath;
         this.refreshPath = b.refreshPath;
         this.mfaVerifyPath = b.mfaVerifyPath;
+        this.recoveryPath = b.recoveryPath;
         this.tokenDelivery = b.tokenDelivery;
         this.cookieName = b.cookieName;
         this.cookieDomain = b.cookieDomain;
@@ -77,6 +80,8 @@ public final class MiddlewareConfig {
     public String logoutPath() { return logoutPath; }
     public String refreshPath() { return refreshPath; }
     public String mfaVerifyPath() { return mfaVerifyPath; }
+    /** The recovery-code route, or null when it is off (the default). */
+    public String recoveryPath() { return recoveryPath; }
     public TokenDelivery tokenDelivery() { return tokenDelivery; }
     public String cookieName() { return cookieName; }
     public String cookieDomain() { return cookieDomain; }
@@ -93,6 +98,7 @@ public final class MiddlewareConfig {
         private String logoutPath = "/logout";
         private String refreshPath = "/token";
         private String mfaVerifyPath = "/mfa/verify";
+        private String recoveryPath;
         private TokenDelivery tokenDelivery = TokenDelivery.COOKIE;
         private String cookieName = "realmid_refresh";
         private String cookieDomain;
@@ -150,6 +156,12 @@ public final class MiddlewareConfig {
         public Builder logoutPath(String v) { this.logoutPath = v; return this; }
         public Builder refreshPath(String v) { this.refreshPath = v; return this; }
         public Builder mfaVerifyPath(String v) { this.mfaVerifyPath = v; return this; }
+        /**
+         * Mounts the recovery-code redeem route (SPEC 10.1 step 5a). OPT-IN with NO default
+         * (owner ruling 2026-10-02): a partner that does not use recovery codes must not get a
+         * route it never asked for. Takes the same per-session lock as the MFA-verify route.
+         */
+        public Builder recoveryPath(String v) { this.recoveryPath = v; return this; }
         public Builder tokenDelivery(TokenDelivery v) { this.tokenDelivery = v; return this; }
         public Builder cookieName(String v) { this.cookieName = v; return this; }
         public Builder cookieDomain(String v) { this.cookieDomain = v; return this; }
