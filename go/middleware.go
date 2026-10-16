@@ -1168,18 +1168,18 @@ func globToRegex(pat string) *regexp.Regexp {
 	i := 0
 	for i < len(pat) {
 		c := pat[i]
-		// Detect `/**` so the leading slash is optional too.
+		// Detect `/**` so the leading slash is optional too. A `/` that
+		// follows is KEPT, so `/a/**/b` stays segment-bounded (never `/ab`).
 		if c == '/' && i+2 < len(pat) && pat[i+1] == '*' && pat[i+2] == '*' {
 			sb.WriteString("(?:/.*)?")
 			i += 3
-			if i < len(pat) && pat[i] == '/' {
-				i++
-			}
 		} else if c == '*' && i+1 < len(pat) && pat[i+1] == '*' {
-			sb.WriteString(".*")
-			i += 2
-			if i < len(pat) && pat[i] == '/' {
-				i++
+			if i+2 < len(pat) && pat[i+2] == '/' {
+				sb.WriteString("(?:.*/)?")
+				i += 3
+			} else {
+				sb.WriteString(".*")
+				i += 2
 			}
 		} else if c == '*' {
 			sb.WriteString("[^/]*")

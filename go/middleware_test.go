@@ -218,6 +218,23 @@ func TestMiddleware_GlobMatcher(t *testing.T) {
 		{"/public/*", "/public/x/y", false},
 		{"/public/**", "/public/x/y", true},
 		{"/public/**", "/public", true},
+		// Segment boundary: a mid-pattern `**` must not drop it (SPEC §10.2).
+		{"/a/**/b", "/a/b", true},
+		{"/a/**/b", "/a/x/b", true},
+		{"/a/**/b", "/a/x/y/b", true},
+		{"/a/**/b", "/ab", false},
+		{"/a/**/b", "/a/xb", false},
+		{"/a/**/b", "/axb", false},
+		{"/public/**/assets", "/publicassets", false},
+		{"/public/**/assets", "/public/evilassets", false},
+		{"/x/**", "/x", true},
+		{"/x/**", "/x/", true},
+		{"/x/**", "/x/y", true},
+		{"/x/**", "/xy", false},
+		{"/**", "/", true},
+		{"/**", "/anything/at/all", true},
+		{"**/b", "/a/b", true},
+		{"**/b", "ab", false},
 	}
 	for _, c := range cases {
 		got := globToRegex(c.pat).MatchString(c.path)

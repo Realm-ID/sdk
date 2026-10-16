@@ -21,6 +21,9 @@ Doc comments on `tenants.users.enrollMfa` / `confirmMfa` (ts) and `UsersClient.e
 
 Go only; ts/java add their halves separately. SPEC §3.1 and §6.3.
 
+### Fixed — go `0.67.0`
+- **SECURITY (fail-open): a mid-pattern `**` in a path glob dropped the segment boundary.** `/a/**/b` compiled to `^/a(?:/.*)?b$`, so an `exemptPaths` entry `/public/**/assets` also exempted `/publicassets` and `/public/evilassets` (and `**/b` matched `ab`). `**` between slashes now means zero or more WHOLE segments (`/a/**/b` matches `/a/b`, `/a/x/y/b`, not `/ab`, `/a/xb`). Fixed in the one shared compiler, so `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths are all covered. ts `0.55.0` and java `0.51.0` carry the same fix; SPEC §10.2 has the conformance table. An `exemptPaths` entry that relied on the old over-match stops exempting those paths.
+
 ### Added — go `0.67.0`
 - `ErrCodeTenantDisabled` / `IsTenantDisabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended). Registered in `knownCodes`; the BFF middleware relays it as 403 and never tears the session down, exactly as for `user_suspended`.
 - `User.JoinedVia` (`JoinedVia` type, 8 constants) and `User.JoinedViaDomain`; `UserListOpts.JoinedVia` / `EmailDomain` filters (`joined_via`, `email_domain`).

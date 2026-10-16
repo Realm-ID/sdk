@@ -1,13 +1,11 @@
 # Realm ID SDK — cross-language specification
 
-**Current as of 2026-10-09 — go `go/v0.64.2` · web `web-v0.9.0` (released); ts and
-java v0.63 HELD (unreleased, ts `ts-v0.54.0` · java `java-v0.50.0` are the latest tags)** (see §13 for the tag matrix).
-Tags read off `git tag` on 2026-10-09; this line said `go/v0.63.0` and "§12" until then.
+**Current as of 2026-10-16 — go `0.67.0` · ts `0.55.0` · java `0.51.0` · web `web-v0.9.0`
+(being tagged together; all three languages implement the v0.63 surface below)** (see §13 for the tag matrix).
 
 > ⚠️ **UNRELEASED, 2026-10-09 — password reset links and change at sign-in (issuer ADR-111 +
 > ADR-104 § Amendment 2026-10-09, issuer spec `0.53.0`).** Specified here AHEAD of code. Targets:
-> go `0.65.0`, ts `0.55.0` (its PUBLISH waits on an owner ruling, because sdk `main`
-> also carries the held ts v0.63 work), `@realm-id/web-admin` `0.22.0`. **Java parity is NOT in
+> go `0.65.0` (shipped), ts `0.55.0` (publishing with the v0.63 work it now carries), `@realm-id/web-admin` `0.22.0`. **Java parity is NOT in
 > this release** — every section below says so where it applies. None of these tags exists yet;
 > this note is deleted in the commit that releases them, and the version cells move to §13.
 >
@@ -22,13 +20,10 @@ Tags read off `git tag` on 2026-10-09; this line said `go/v0.63.0` and "§12" un
 > **Cite as** `SPEC3_1_password`, `SPEC4_1_4_policy`, `SPEC4_1_8`, `SPEC4_10`, `SPEC6_3_reset`,
 > `SPEC6_3_credentials` in test names, so a parity sweep can find each across languages.
 
-> ⚠️ **PARTLY RELEASED, 2026-10-02 — go `0.63.0` and `@realm-id/web` `0.9.0` are RELEASED; ts and java v0.63 are HELD (UNRELEASED; held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`; see `TODO.md`).** The ts and java columns of the table below stay UNRELEASED. The v0.63.0 behaviours were specified
+> **RELEASED, 2026-10-16 — the v0.63 surface below is implemented in all three languages: go `0.63.0`, ts `0.55.0`, java `0.51.0` (and `@realm-id/web` `0.9.0`).** The behaviours were specified
 > here ahead of code (owner rulings Q1-Q4 and the same-day v0.63.0 widening,
 > 2026-10-01; why in `DECISIONS.md` 2026-10-01, both entries; plan
-> `auth/plans/2026-10-01-sdk-v063-sid-jti.md`). They target go `0.63.0`, then ts
-> and java with ONE behaviour, and **this note is deleted in the commit that
-> releases them**. Until then the sentence below this note is false for these
-> sections only:
+> `auth/plans/2026-10-01-sdk-v063-sid-jti.md`). The table below is the record of what changed for an existing partner:
 >
 > | § | Behaviour | Visible to an existing partner? |
 > |---|---|---|
@@ -1295,7 +1290,7 @@ hitting HTTP directly should match.
 Response: same shape as `login()` (refresh + access).
 
 **Optional per-session lock for direct callers (go `0.64.2`, owner ruling
-2026-10-03, OQ-7 option (a); ts/java parity pending in their HELD v0.63 work).**
+2026-10-03, OQ-7 option (a); ts and java implement it from `0.55.0` / `0.51.0`).**
 Under issuer ADR-109 Issuer B this call ROTATES the session's refresh token, so
 one that races a refresh of the same session is a reuse and revokes the session.
 The middleware already serialises them (§10.1 steps 4a/5/5a); a direct call does
@@ -1333,7 +1328,7 @@ both are retryable. A caller context that ends while waiting returns the
 context's own error (fail closed: the issuer is not called). The lock is not re-entrant: the middleware calls the method
 WITHOUT `RefreshToken` because it already holds the lock.
 
-### 4.3a `redeemRecoveryCode(req)` — go `0.64.0` (ts/java held)
+### 4.3a `redeemRecoveryCode(req)` — go `0.64.0` · ts `0.55.0` · java `0.51.0`
 
 Completes an MFA challenge with a single-use **recovery (backup) code** in
 place of the TOTP code, for a user who has lost their authenticator
@@ -1352,7 +1347,7 @@ re-enroll. Errors map like `mfaVerify`: `401` for an invalid challenge or
 code, `429` `mfa_too_many_fails` once the shared lockout counter trips.
 
 **Optional per-session lock for direct callers (go `0.64.2`, owner ruling
-2026-10-03, OQ-7 option (a); ts/java parity pending in their HELD v0.63 work).**
+2026-10-03, OQ-7 option (a); ts and java implement it from `0.55.0` / `0.51.0`).**
 Under issuer ADR-109 Issuer B this call ROTATES the session's refresh token, so
 one that races a refresh of the same session is a reuse and revokes the session.
 The middleware already serialises them (§10.1 steps 4a/5/5a); a direct call does
@@ -1401,7 +1396,7 @@ as `LoginMintError`.
 security-relevant and applications alert on it, so a handler switching on
 `Flow` (`OnAuthSuccess`, `OnIdentityResolved`) must be able to tell it apart
 from an ordinary second factor. ts and java mirror the value (`recovery`
-lane) when their held v0.63 work is finished.
+lane).
 
 ### 4.4 `logout(req?)`
 
@@ -1703,7 +1698,7 @@ refuses are ones the issuer did not mint in that shape.
 | `" u1 "` | accepted; `sub` is `" u1 "` |
 | `" "` (NBSP only) | accepted — outside the ASCII set above |
 
-### 5.1.1 Only an ACCESS token verifies — `typ` and `events` (fix, v0.63.0, UNRELEASED)
+### 5.1.1 Only an ACCESS token verifies — `typ` and `events` (fix, v0.63.0)
 
 `verify()` refuses a token as **`malformed`** (401 through the middleware,
 step 6) when either holds:
@@ -2192,7 +2187,7 @@ Partners that need stricter freshness for a high-risk operation can
 call `origins.invalidate(realmId)` to drop the cache and force a
 refetch, but the default TTL is the documented contract.
 
-### 6.7 Session revocation cache — `client.tokens.*` (rewritten for v0.63.0, UNRELEASED)
+### 6.7 Session revocation cache — `client.tokens.*` (rewritten for v0.63.0)
 
 RealmID revokes **refresh** tokens server-side (`POST /auth/logout`, and its
 reuse detection). A partner app verifies **access** tokens locally and learns
@@ -2295,9 +2290,10 @@ Only a genuine store failure or the store's own timeout fails open / is logged.
 The refresh-lock acquisition (§10.1) is NOT detached: a cancelled request
 correctly aborts it, and it fails closed (`503`). `evict` is not detached: a
 missed evict only leaves a revoked entry standing, the safe direction.
-Languages without a caller-cancelled context have nothing to detach; ts/java
-must be checked for an equivalent (aborted request signal, interrupted call)
-before they ship.
+Languages without a caller-cancelled context have nothing to detach: ts bounds
+every store call at 2 s, and java detaches the store calls onto a bounded pool
+with a 2 s timeout, so a caller's interrupt or aborted signal cannot turn the
+read into the fail-open above.
 
 **Clock skew (accepted limits).** `iat` and the mark `T` are both stamped by
 the issuer, so the partner host's clock never enters the `iat < T` comparison;
@@ -2509,7 +2505,7 @@ token. Nothing else is required to be atomic.
   partner can run their Redis store through the same atomicity and lifetime
   cases the in-memory store passes.
 
-#### 6.7.6 Every `jti` reader in the SDK moves to the session key (v0.63.0, UNRELEASED)
+#### 6.7.6 Every `jti` reader in the SDK moves to the session key (v0.63.0)
 
 The ADR-041 `Config.Revocation` cache (`RevocationCache`, checked INSIDE
 `verify()`, fail-CLOSED on a cache error) stays a separate, optional,
@@ -2532,7 +2528,7 @@ Each row gets a red test in all three languages (`SPEC6_7_6`):
 |---|---|---|---|---|---|
 | R1 | peek helper used by logout and `TokensClient` | `platform_token.go:264-287` `peekJWTRevokeFields` | `revocation.ts:76-89` `peekJwtRevokeFields` | `auth/JwtPeek.java:28-48`; `tokens/TokensClient.java:139-158` (`Peek`) | returns `sessionKey` (`sid`, then `jti`) plus `iat`/`exp`/`sub`; the jti-only form is deleted |
 | R2 | `AuthClient.Logout` pushes into `Config.Revocation` | `auth.go:1099-1102` | `auth.ts:1008-1011` | `auth/AuthClient.java:620-622` | revokes the logout response's `sid`; else a VERIFIED, UNEXPIRED `AccessToken`'s session key; else nothing (§10.1 step 3); writes the §6.7 store too |
-| R3 | `verify()` consults `Config.Revocation` | `verifier.go:177-178` (`claims.JWTID`) | `verifier.ts:144-147` (`claims.jti`) | `verifier/Verifier.java:206-210` | `IsRevoked(sessionKey(claims))` |
+| R3 | `verify()` consults `Config.Revocation` | `verifier.go:177-178` (`claims.JWTID`) | `verifier.ts:144-147` (`claims.jti`) | `verifier/Verifier.java:206-210` | `IsRevoked(sessionKey(claims))`, AND `IsRevoked(jti)` when the `jti` differs from the session key (the pre-0.63 documented use of `Revoke(claims.jti, …)` stays effective once `sid` != `jti`); either key denies |
 | R4 | `TokensClient` mark / check / revokeOnLogout / evict | `tokens.go:54-137` | `tokens.ts:61-125` | `tokens/TokensClient.java:56-119` | §6.7.2 on the §6.7.5 store |
 | R5 | `MemRevocationCache` | `platform_token.go:340-371` | `revocation.ts:50-60` | `revocation/MemRevocationCache.java:33-47` | parameter is a session key; behaviour unchanged |
 | R6 | `Claims` exposes `jti` | `claims.go:13` `JWTID` | `claims.ts:14` | `Claims.java:18,75` `jwtId()` | unchanged; **`sid` added** (`SessionID` / `sid` / `sessionId()`), and `sid` joins the registered-claim set so it never lands in custom claims (`claims.go:30`, `Verifier.java:41`, ts equivalent) |
@@ -3345,7 +3341,7 @@ For every inbound request, the middleware:
    candidate. An issuer older than Issuer A ignores it and ends only one session.
 
    **3a. The logout revokes the SESSION, keyed by the refresh-token holder
-   (owner rulings 2026-10-01, v0.63.0, UNRELEASED).** The session to revoke is
+   (owner rulings 2026-10-01, v0.63.0).** The session to revoke is
    named by the ISSUER, not by the caller's access token:
 
    1. For each refresh-token candidate, `realm.auth.logout(...)` calls the
@@ -3402,7 +3398,7 @@ For every inbound request, the middleware:
    the documented place for partner-supplied access-token claims.
 
    **4a. One refresh per refresh token at a time; a loser receives the
-   winner's outcome (owner ruling 2026-10-01, v0.63.0, UNRELEASED).** Refresh
+   winner's outcome (owner ruling 2026-10-01, v0.63.0).** Refresh
    tokens are one-time-use and reuse revokes the session (ADR-031). Today Go's
    `handleRefresh` (`go/middleware.go:575-660`) takes no lock, so two tabs
    presenting one cookie both reach the issuer and the session dies (RCA in
@@ -3511,7 +3507,7 @@ For every inbound request, the middleware:
      a context detached from the request.
 
    **4b. A ROTATING refresh refuses the session's older access tokens (owner
-   rulings 2026-10-01, v0.63.0, UNRELEASED).** After a winner's successful
+   rulings 2026-10-01, v0.63.0).** After a winner's successful
    mint the middleware decides whether the refresh **rotated**: it did iff the
    response's refresh token is non-empty **and differs from the candidate that
    minted**. A non-rotating refresh (an M2M/service session with
@@ -3649,7 +3645,7 @@ const middleware = realm.middleware({
   logoutPath: "/logout",                            // default
   refreshPath: "/token",                            // default
   mfaVerifyPath: "/mfa/verify",                     // default
-  recoveryPath: "/mfa/recovery",                    // OPT-IN, no default: unset = no route (go 0.64.1; ts/java held)
+  recoveryPath: "/mfa/recovery",                    // OPT-IN, no default: unset = no route (go 0.64.1; ts and java the same, from 0.55.0 / 0.51.0)
 
   // Token delivery — inherited from createRealm({ tokenDelivery }) but
   // overridable per middleware instance.
@@ -3671,12 +3667,12 @@ const middleware = realm.middleware({
 });
 ```
 
-**Path syntax of `exemptPaths` and `mfaProtectedPaths` (v0.63.0, UNRELEASED).**
+**Path syntax of `exemptPaths` and `mfaProtectedPaths` (v0.63.0).**
 
 | Form | `exemptPaths` | `mfaProtectedPaths` | Matches |
 |---|---|---|---|
 | `*` | yes | yes | any characters within ONE segment, empty included |
-| `**` | yes | yes | zero or more segments; **`/x/**` matches `/x`, `/x/` and `/x/a/b`** |
+| `**` | yes | yes | zero or more WHOLE segments; **`/x/**` matches `/x`, `/x/` and `/x/a/b`**; a mid-pattern `**` keeps its segment boundary |
 | `{name}` | **no — literal text** | yes | exactly one NON-empty segment (§11.4.1 grammar; other brace forms are refused at construction as in §11.4.1) |
 
 - **`/x/**` matches the bare `/x` in all three languages** (owner ruling
@@ -3686,6 +3682,19 @@ const middleware = realm.middleware({
   an `exemptPaths` entry `/x/**` now also exempts `/x` — the direction that
   removes auth. The same change reaches `mfaProtectedPaths` (protects more) and
   `ScopeRule` paths (§11.4.1).
+- **A `**` never drops the segment boundary** (security; go `0.67.0`, ts `0.55.0`,
+  java `0.51.0` agree). Before, go built `/a/**/b` as `^/a(?:/.*)?b$`, so an
+  `exemptPaths` entry `/public/**/assets` also exempted `/publicassets` and
+  `/public/evilassets` — fail-OPEN. `**` between two slashes stands for zero or
+  more whole segments, and the slashes around it stay. The conformance table
+  (all three languages test exactly this):
+
+  | Pattern | Matches | Does NOT match |
+  |---|---|---|
+  | `/a/**/b` | `/a/b`, `/a/x/b`, `/a/x/y/b` | `/ab`, `/a/xb`, `/axb` |
+  | `/x/**` | `/x`, `/x/`, `/x/y` | `/xy` |
+  | `/**` | everything | — |
+
 - **`{name}` in `mfaProtectedPaths`** only adds protection. **`exemptPaths`
   stays a literal match for braces** (owner ruling 2026-10-01): a placeholder
   there would widen an exemption, the fail-open direction.
@@ -4292,7 +4301,7 @@ which did not exist before, and the bare-prefix `/orders/**` row (ts/java). Not 
 normalises a path the router does not would decide a request the router routes
 somewhere else.
 
-> **Aligned in v0.63.0 (owner ruling 2026-10-01, UNRELEASED):** `/x/**` matches
+> **Aligned in v0.63.0 (owner ruling 2026-10-01):** `/x/**` matches
 > the bare `/x` in all three languages — ts and java move to Go's behaviour
 > (§10.2; BREAKING there). Until a partner is on v0.63.0, a ts/java rule that
 > must cover the bare prefix lists it explicitly: `/x` and `/x/**`.
@@ -4492,10 +4501,10 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.64.2`        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) targets `go/v0.65.0`, UNRELEASED. |
+| Go       | `go/v0.67.0` (being tagged; last tagged `go/v0.64.2`)        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) targets `go/v0.65.0`, UNRELEASED. |
 | Web core | `web-v0.9.0`        | `@realm-id/web@0.9.0` on npm. Cross-tab refresh, `logout({ all })`. |
-| TS       | `ts-v0.54.0`        | `@realm-id/sdk@0.54.0` on npm. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. |
-| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface. v0.63 UNRELEASED: held 2026-10-02; WIP branch `wip/sdk-v063-ts-java`. **No ADR-111 surface** (§4.1.8, §4.10, §6.3 passwords, the §3.1 password codes): Java parity is deliberately NOT in that release — the one place the "lockstep" rule below is broken on purpose, and `taxonomy-parity.py` carries it as reviewed exceptions. |
+| TS       | `ts-v0.54.0`        | `@realm-id/sdk@0.54.0` on npm. Same §4.1.7 surface; the v0.63 surface arrives with the next tag. ts `0.55.0` is being published (latest tag today `ts-v0.54.0`). |
+| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface; the v0.63 surface arrives with the next tag. java `0.51.0` is being published (latest tag today `java-v0.50.0`). **No ADR-111 surface** (§4.1.8, §4.10, §6.3 passwords, the §3.1 password codes): Java parity is deliberately NOT in that release — the one place the "lockstep" rule below is broken on purpose, and `taxonomy-parity.py` carries it as reviewed exceptions. |
 
 > ⚠️ **This table was stale by TWO releases on every language** until 2026-09-21 — it
 > read `go/v0.58.0` / `ts-v0.51.0` / `java-v0.48.0` while the repo held `go/v0.60.0`,
