@@ -40,4 +40,13 @@ public class RealmException extends RuntimeException {
 
     /** Server-supplied envelope siblings (e.g. mfa_challenge_token). Never null. */
     public Map<String, Object> getDetails() { return details; }
+
+    /**
+     * True when {@code t} is the issuer's 403 {@code tenant_disabled}: the org
+     * the token is for is suspended or deactivated. Do NOT sign the user out;
+     * their other orgs are unaffected.
+     */
+    public static boolean isTenantDisabled(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.TENANT_DISABLED;
+    }
 }

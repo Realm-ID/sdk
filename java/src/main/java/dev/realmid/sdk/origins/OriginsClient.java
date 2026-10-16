@@ -11,6 +11,7 @@ import dev.realmid.sdk.pagination.PageOpts;
 import dev.realmid.sdk.pagination.PageReader;
 import dev.realmid.sdk.pagination.Paginated;
 import dev.realmid.sdk.platformtoken.PlatformTokenManager;
+import dev.realmid.sdk.tenants.DetachOptions;
 
 import java.time.Clock;
 import java.util.HashSet;
@@ -77,6 +78,28 @@ public final class OriginsClient {
         if (norm.isEmpty()) return false;
         Set<String> allow = allowlistFor(realmId);
         return allow.contains(norm);
+    }
+
+    /** Remove a realm SPA origin; signs nobody out. See {@link #delete(String, String, DetachOptions)}. */
+    public void delete(String realmId, String originId) { delete(realmId, originId, null); }
+
+    /**
+     * Remove a realm SPA origin ({@code DELETE /platforms/{realmId}/origins/{originId}}).
+     * Signs nobody out unless {@code opts.signOut()} is set ({@code ?sign_out=true}
+     * ends every session of the realm). The last live realm-bound origin is
+     * refused with 409 {@code last_origin}. Drops the realm's cached allowlist
+     * on success. {@code opts} may be null.
+     */
+    public void delete(String realmId, String originId, DetachOptions opts) {
+        if (realmId == null || realmId.isEmpty() || originId == null || originId.isEmpty()) {
+            throw new RealmException(ErrorCode.BAD_REQUEST, "origins.delete: realmId and originId required");
+        }
+        Map<String, Object> q = new LinkedHashMap<>();
+        if (opts != null && opts.signOut()) q.put("sign_out", "true");
+        http.request(HttpTransport.Request.of("DELETE",
+                "/platforms/" + java.net.URLEncoder.encode(realmId, java.nio.charset.StandardCharsets.UTF_8)
+                        + "/origins/" + java.net.URLEncoder.encode(originId, java.nio.charset.StandardCharsets.UTF_8)).query(q));
+        cache.remove(realmId);
     }
 
     /** Drop the cached allowlist for one realm (or all if null). */

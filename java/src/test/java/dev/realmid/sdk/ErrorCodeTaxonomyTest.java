@@ -37,6 +37,19 @@ class ErrorCodeTaxonomyTest {
                 ErrorCode.fromWire("mfa_registration_required"));
     }
 
+    @Test void tenantDisabledResolvesAndPredicateMatches() {
+        // 403 tenant_disabled (spec 0.59.0): the org the token is for is
+        // suspended/deactivated. Not a sign-out.
+        assertEquals(ErrorCode.TENANT_DISABLED, ErrorCode.fromWire("tenant_disabled"));
+        assertEquals("tenant_disabled", ErrorCode.TENANT_DISABLED.wire());
+        org.junit.jupiter.api.Assertions.assertTrue(RealmException.isTenantDisabled(
+                new RealmException(ErrorCode.TENANT_DISABLED, "x", 403, null)));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantDisabled(
+                new RealmException(ErrorCode.USER_SUSPENDED, "x", 403, null)));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantDisabled(null));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantDisabled(new RuntimeException("x")));
+    }
+
     @Test void everyEnumConstantRoundTrips() {
         // A constant whose wire string does not resolve back to itself is
         // unreachable from the network — the only place these are ever built.

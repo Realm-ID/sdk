@@ -7,6 +7,17 @@ items affecting every SDK at once.
 ## Unreleased (HELD) — `USER_SUSPENDED` / `ESCORT_SUSPENDED` registered
 
 Source only (taxonomy parity with go `0.66.0`); no version bump, not released.
+`build.gradle.kts` carries `0.51.0` in source (spec `0.59.0` parity, owner ruling OP-3); still no tag, no publish.
+
+### Added
+- `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode.TENANT_DISABLED`, with the predicate `RealmException.isTenantDisabled(Throwable)`. Java has no session middleware that tears sessions down on `user_suspended`, so there is no relay to mirror.
+- `User.joinedVia()` / `joinedViaDomain()` (wire `joined_via` / `joined_via_domain`) plus `JoinedVia` enum via `User.joinedViaKind()`; an unrecognised wire value resolves to `JoinedVia.UNKNOWN` and the raw string is kept.
+- `UserListOpts.joinedVia` / `emailDomain` filters (query `joined_via`, `email_domain`, sent only when set).
+- `UsersClient.bulkUpdateStatus(tenantId, userIds, BulkStatus)` -> `POST /tenants/{id}/users/bulk-status`, returning `BulkStatusResult` with per-id `BulkStatusOutcome` (unknown outcome -> `UNKNOWN`).
+
+- `TenantsClient.detachDomain(platformId, tenantId, domain[, DetachOptions])` -> `DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}` and `OriginsClient.delete(realmId, originId[, DetachOptions])` -> `DELETE /platforms/{id}/origins/{originId}`. `?sign_out=true` is sent only when `DetachOptions.signOut()` is set; `OriginsClient.delete` also drops that realm's cached allowlist.
+
+- The old 7-arg `User` and 3-arg `UserListOpts` constructors remain.
 
 ### Breaking (when this releases)
 - `user_suspended` becomes a registered `ErrorCode`. Before, it arrived as `FORBIDDEN` with `server_code = "user_suspended"`; a registered code lands on the code and leaves `server_code`. Branch on both during migration.

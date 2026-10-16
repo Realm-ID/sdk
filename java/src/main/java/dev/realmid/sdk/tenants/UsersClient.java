@@ -28,11 +28,15 @@ public final class UsersClient {
         String role = opts == null ? null : opts.role();
         String status = opts == null ? null : opts.status();
         String q = opts == null ? null : opts.q();
+        String joinedVia = opts == null ? null : opts.joinedVia();
+        String emailDomain = opts == null ? null : opts.emailDomain();
         return Paginated.of(pageOpts -> {
             Map<String, Object> query = new LinkedHashMap<>();
             if (role != null) query.put("role", role);
             if (status != null) query.put("status", status);
             if (q != null) query.put("q", q);
+            if (joinedVia != null && !joinedVia.isEmpty()) query.put("joined_via", joinedVia);
+            if (emailDomain != null && !emailDomain.isEmpty()) query.put("email_domain", emailDomain);
             if (pageOpts.cursor() != null) query.put("cursor", pageOpts.cursor());
             if (pageOpts.limit() != null) query.put("limit", pageOpts.limit());
             JsonNode raw = http.request(HttpTransport.Request.of(
@@ -53,6 +57,22 @@ public final class UsersClient {
         JsonNode raw = http.request(HttpTransport.Request.of(
                 "PATCH", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/status").body(b));
         return http.mapper().convertValue(raw, User.class);
+    }
+
+    /**
+     * Suspend or deactivate up to 500 members in one call
+     * ({@code POST /tenants/{id}/users/bulk-status}, gate {@code users:manage}).
+     * No session is ended. Each id gets its own outcome; one refused id does
+     * not fail the call, and the tenant owner is reported as
+     * {@link BulkStatusOutcome#REFUSED_OWNER}.
+     */
+    public BulkStatusResult bulkUpdateStatus(String tenantId, List<String> userIds, BulkStatus status) {
+        Map<String, Object> b = new LinkedHashMap<>();
+        b.put("user_ids", userIds);
+        b.put("status", status.wire());
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/tenants/" + enc(tenantId) + "/users/bulk-status").body(b));
+        return http.mapper().convertValue(raw, BulkStatusResult.class);
     }
 
     public User updateContact(String tenantId, String userId, UpdateContactInput body) {

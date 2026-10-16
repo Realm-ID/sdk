@@ -61,6 +61,79 @@ class TenantsClientTest {
     }
 
     @Test
+    void userListThreadsJoinedViaAndEmailDomainOnlyWhenSet() {
+        java.util.List<String> queries = new java.util.ArrayList<>();
+        fs.on("GET /tenants/t1/users", (ex, body) -> {
+            queries.add(String.valueOf(ex.getRequestURI().getRawQuery()));
+            java.util.Map<String, Object> page = new java.util.LinkedHashMap<>();
+            page.put("items", List.of(Map.of("id", "u1")));
+            page.put("next_cursor", null);
+            return FakeServer.Reply.json(200, page);
+        });
+        realm.tenants().users().list("t1",
+                UserListOpts.empty().withJoinedVia("sso_domain").withEmailDomain("acme.test")).stream().toList();
+        realm.tenants().users().list("t1", UserListOpts.empty()).stream().toList();
+        org.junit.jupiter.api.Assertions.assertTrue(queries.get(0).contains("joined_via=sso_domain"), queries.get(0));
+        org.junit.jupiter.api.Assertions.assertTrue(queries.get(0).contains("email_domain=acme.test"), queries.get(0));
+        org.junit.jupiter.api.Assertions.assertFalse(queries.get(1).contains("joined_via"), queries.get(1));
+        org.junit.jupiter.api.Assertions.assertFalse(queries.get(1).contains("email_domain"), queries.get(1));
+    }
+
+    @Test
+    void userDecodesJoinedViaAndForwardCompat() {
+        fs.on("GET /tenants/t1/users/u1", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "id", "u1", "joined_via", "sso_domain", "joined_via_domain", "acme.test")));
+        fs.on("GET /tenants/t1/users/u2", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "id", "u2", "joined_via", "some_future_value")));
+        fs.on("GET /tenants/t1/users/u3", (ex, body) -> FakeServer.Reply.json(200, Map.of("id", "u3")));
+        User u1 = realm.tenants().users().get("t1", "u1");
+        assertEquals("sso_domain", u1.joinedVia());
+        assertEquals(JoinedVia.SSO_DOMAIN, u1.joinedViaKind());
+        assertEquals("acme.test", u1.joinedViaDomain());
+        User u2 = realm.tenants().users().get("t1", "u2");
+        assertEquals("some_future_value", u2.joinedVia());
+        assertEquals(JoinedVia.UNKNOWN, u2.joinedViaKind());
+        User u3 = realm.tenants().users().get("t1", "u3");
+        org.junit.jupiter.api.Assertions.assertNull(u3.joinedVia());
+        org.junit.jupiter.api.Assertions.assertNull(u3.joinedViaDomain());
+    }
+
+    @Test
+    void bulkStatusSendsRequestAndDecodesPerRowOutcomes() {
+        fs.onJson("POST /tenants/t1/users/bulk-status", (body, rec) -> {
+            assertEquals("suspended", body.get("status"));
+            assertEquals(List.of("u1", "u2"), body.get("user_ids"));
+            return FakeServer.Reply.json(200, Map.of("results", List.of(
+                    Map.of("user_id", "u1", "outcome", "updated"),
+                    Map.of("user_id", "u2", "outcome", "refused_owner"),
+                    Map.of("user_id", "u3", "outcome", "brand_new"))));
+        });
+        BulkStatusResult r = realm.tenants().users().bulkUpdateStatus("t1", List.of("u1", "u2"), BulkStatus.SUSPENDED);
+        assertEquals(3, r.results().size());
+        assertEquals("u1", r.results().get(0).userId());
+        assertEquals("updated", r.results().get(0).outcome());
+        assertEquals(BulkStatusOutcome.UPDATED, r.results().get(0).outcomeKind());
+        assertEquals(BulkStatusOutcome.REFUSED_OWNER, r.results().get(1).outcomeKind());
+        assertEquals(BulkStatusOutcome.UNKNOWN, r.results().get(2).outcomeKind());
+    }
+
+    @Test
+    void detachDomainSendsSignOutOnlyWhenSetAndEncodesPath() {
+        java.util.List<String> seen = new java.util.ArrayList<>();
+        fs.on("DELETE /platforms/p1/tenants/t1/domains/a/b.test", (ex, body) -> {
+            seen.add(ex.getRequestURI().getRawPath() + "?" + ex.getRequestURI().getRawQuery());
+            return FakeServer.Reply.json(200, Map.of());
+        });
+        realm.tenants().detachDomain("p1", "t1", "a/b.test");
+        realm.tenants().detachDomain("p1", "t1", "a/b.test", new DetachOptions(false));
+        realm.tenants().detachDomain("p1", "t1", "a/b.test", new DetachOptions(true));
+        assertEquals(3, seen.size());
+        assertEquals("/platforms/p1/tenants/t1/domains/a%2Fb.test?null", seen.get(0));
+        assertEquals("/platforms/p1/tenants/t1/domains/a%2Fb.test?null", seen.get(1));
+        assertEquals("/platforms/p1/tenants/t1/domains/a%2Fb.test?sign_out=true", seen.get(2));
+    }
+
+    @Test
     void userListThreadsRoleStatusQFilters() {
         java.util.concurrent.atomic.AtomicReference<String> query = new java.util.concurrent.atomic.AtomicReference<>("");
         fs.on("GET /tenants/t1/users", (ex, body) -> {

@@ -55,6 +55,31 @@ class OriginsTest {
     }
 
     @Test
+    void deleteSendsSignOutOnlyWhenSetAndDropsCachedAllowlist() {
+        List<String> queries = new java.util.ArrayList<>();
+        AtomicInteger listCount = new AtomicInteger();
+        fs.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200, Map.of(
+                "access_token", "pt", "refresh_token", "rt", "expires_in", 300, "subject_type", "platform")));
+        fs.on("GET /platforms/" + REALM_ID + "/origins", (ex, body) -> {
+            listCount.incrementAndGet();
+            return FakeServer.Reply.json(200, page(List.of(Map.of("id", "o1", "domain", "app.acme.test")), null));
+        });
+        fs.on("DELETE /platforms/" + REALM_ID + "/origins/o1", (ex, body) -> {
+            queries.add(String.valueOf(ex.getRequestURI().getRawQuery()));
+            return FakeServer.Reply.json(200, Map.of());
+        });
+        Realm r = realm(null);
+        assertTrue(r.origins().validate(REALM_ID, "app.acme.test"));
+        assertEquals(1, listCount.get());
+        r.origins().delete(REALM_ID, "o1");
+        r.origins().delete(REALM_ID, "o1", new dev.realmid.sdk.tenants.DetachOptions(true));
+        assertEquals("null", queries.get(0));
+        assertEquals("sign_out=true", queries.get(1));
+        r.origins().validate(REALM_ID, "app.acme.test");
+        assertEquals(2, listCount.get(), "delete must drop the cached allowlist");
+    }
+
+    @Test
     void normalizeStripsSchemePortPath() {
         assertEquals("app.example.com", OriginsClient.normalize("https://App.Example.com:8443/foo"));
         assertEquals("localhost", OriginsClient.normalize("http://localhost:5173"));

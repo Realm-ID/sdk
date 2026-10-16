@@ -93,6 +93,24 @@ public final class TenantsClient {
     }
 
     /** Plain ownership hand-over (ADR-076). Outgoing owner demoted to the server default. */
+    /** Detach a tenant custom domain; signs nobody out. See {@link #detachDomain(String, String, String, DetachOptions)}. */
+    public void detachDomain(String platformId, String tenantId, String domain) {
+        detachDomain(platformId, tenantId, domain, null);
+    }
+
+    /**
+     * Detach a tenant custom domain ({@code DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}},
+     * ADR-049 amendment). Signs nobody out unless {@code opts.signOut()} is set,
+     * which sends {@code ?sign_out=true} to also end every session of the tenant.
+     * {@code opts} may be null.
+     */
+    public void detachDomain(String platformId, String tenantId, String domain, DetachOptions opts) {
+        Map<String, Object> q = new LinkedHashMap<>();
+        if (opts != null && opts.signOut()) q.put("sign_out", "true");
+        http.request(HttpTransport.Request.of("DELETE",
+                "/platforms/" + enc(platformId) + "/tenants/" + enc(tenantId) + "/domains/" + enc(domain)).query(q));
+    }
+
     public Tenant transferOwner(String id, String newOwnerUserId) {
         return transferOwner(id, newOwnerUserId, null);
     }

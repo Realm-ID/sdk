@@ -128,6 +128,13 @@ public enum ErrorCode {
     USER_SUSPENDED("user_suspended"),
 
     /**
+     * {@code tenant_disabled} (403, spec 0.59.0): the org the token is for is
+     * suspended or deactivated. The session is NOT ended and the person's other
+     * orgs are unaffected. See {@link RealmException#isTenantDisabled}.
+     */
+    TENANT_DISABLED("tenant_disabled"),
+
+    /**
      * {@code escort_suspended} (403 from the issuer, ADR-104 R-d): the BFF's own
      * /auth/* escort account is disabled. A service problem, not the user's.
      */
