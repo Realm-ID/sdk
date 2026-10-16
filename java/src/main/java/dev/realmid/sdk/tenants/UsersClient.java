@@ -112,6 +112,48 @@ public final class UsersClient {
         return raw == null ? Map.of() : http.mapper().convertValue(raw, Map.class);
     }
 
+    /**
+     * Emails the member a single-use, 30-minute password-reset link (ADR-111, SPEC 6.3) —
+     * {@code POST /tenants/{t}/users/{u}/password-reset}. No field names the address: the issuer
+     * picks the member's first active verified email. It changes no credential and revokes no
+     * session. Needs {@code users:manage} in the tenant. Errors: {@code no_verified_email} (409),
+     * {@code reset_throttled} (429), {@code user_not_found} (404).
+     */
+    public PasswordResetSent sendPasswordReset(String tenantId, String userId) {
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/password-reset"));
+        // Plain-map handler: GoFr wraps it as {"data":{status, to, expires_at}}.
+        JsonNode d = raw == null ? null : raw.get("data");
+        if (d == null || !d.isObject()) return new PasswordResetSent("", "", null);
+        return new PasswordResetSent(text(d, "status"), text(d, "to"),
+                d.hasNonNull("expires_at") ? java.time.Instant.parse(d.get("expires_at").asText()) : null);
+    }
+
+    /**
+     * Sets a member's username and/or hands over a TEMPORARY password (ADR-111, SPEC 6.3) —
+     * {@code PUT /tenants/{t}/users/{u}/credentials}. A password set here is stored must-change:
+     * the holder replaces it at first sign-in ({@code PasswordLoginRequest.withNewPassword}).
+     * Needs {@code users:manage}. An empty field is not sent.
+     *
+     * <p>{@code reset_link_required} (409): the member has a verified email, so nothing was
+     * written, the username included; call {@link #sendPasswordReset} instead (a caller that wants
+     * the username anyway re-sends it alone). {@code verified_email_required} (409): the realm's
+     * {@code password_policy.require_verified_email} is on and the member has none. The SDK does
+     * not pre-check the member's contacts: the issuer decides at write time.
+     */
+    public void setCredentials(String tenantId, String userId, SetCredentialsRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (req.username() != null && !req.username().isEmpty()) body.put("username", req.username());
+        if (req.password() != null && !req.password().isEmpty()) body.put("password", req.password());
+        http.request(HttpTransport.Request.of(
+                "PUT", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/credentials").body(body));
+    }
+
+    private static String text(JsonNode d, String field) {
+        JsonNode n = d.get(field);
+        return n != null && n.isTextual() ? n.asText() : "";
+    }
+
     public void resetMfa(String tenantId, String userId) {
         http.request(HttpTransport.Request.of(
                 "DELETE", "/tenants/" + enc(tenantId) + "/users/" + enc(userId) + "/mfa"));

@@ -22,9 +22,33 @@ package dev.realmid.sdk.auth;
  * <p>Neither source yielding one is {@code 400 tenant_required} — a NAMED code,
  * not a credential failure, because it is an integration mistake rather than a
  * wrong password. The SDK does NOT guess a tenant.
+ *
+ * <p><b>Change at sign-in (ADR-111, SPEC 4.1.8).</b> After {@code 403 password_must_change}
+ * (code {@code forbidden}, {@code details.server_code}) repeat the identical request with
+ * {@link #withNewPassword}; {@code presented} is then the CURRENT, temporary password. Send it
+ * ONLY after that 403: otherwise the issuer answers {@code 400 password_change_not_required},
+ * or {@code 400 password_unchanged} if it equals {@code presented}. On success the holder's
+ * other sessions end (ADR-104 R-e): {@link Session#revokedSids()} lists them and the SDK has
+ * already written each into the session store. Both passwords are secrets and never logged.
  */
 public record PasswordLoginRequest(String identifier, String presented,
-                                   String tenantId, String origin) {
+                                   String tenantId, String origin, String newPassword) {
+
+    /** Pre-ADR-111 constructor: no change at sign-in. */
+    public PasswordLoginRequest(String identifier, String presented, String tenantId, String origin) {
+        this(identifier, presented, tenantId, origin, null);
+    }
+
+    /** A copy that changes the password at sign-in; an empty value is not sent. */
+    public PasswordLoginRequest withNewPassword(String newPassword) {
+        return new PasswordLoginRequest(identifier, presented, tenantId, origin, newPassword);
+    }
+
+    /** Never prints the credentials. */
+    @Override
+    public String toString() {
+        return "PasswordLoginRequest[identifier=" + identifier + ", tenantId=" + tenantId + "]";
+    }
 
     public static PasswordLoginRequest of(String identifier, String presented) {
         return new PasswordLoginRequest(identifier, presented, null, null);

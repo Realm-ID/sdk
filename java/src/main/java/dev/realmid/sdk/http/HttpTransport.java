@@ -128,7 +128,7 @@ public final class HttpTransport {
         HttpRequest built = b.build();
         HttpResponse<byte[]> resp;
         try {
-            resp = sendWithRetry(built);
+            resp = r.noRetry ? client.send(built, HttpResponse.BodyHandlers.ofByteArray()) : sendWithRetry(built);
         } catch (IOException e) {
             if (logger.isLoggable(Level.ERROR)) {
                 logger.log(Level.ERROR, "realmid: network error method={0} path={1} message={2}",
@@ -365,6 +365,8 @@ public final class HttpTransport {
         public String bearer;
         public Map<String, String> headers;
         public boolean skipPlatformToken;
+        /** Send exactly once: no EOF retry. For a call that is not safe to replay (ADR-111 consume). */
+        public boolean noRetry;
 
         public Request method(String m) { this.method = m; return this; }
         public Request path(String p) { this.path = p; return this; }
@@ -378,6 +380,7 @@ public final class HttpTransport {
         }
         public Request headers(Map<String, String> h) { this.headers = h; return this; }
         public Request skipPlatformToken(boolean v) { this.skipPlatformToken = v; return this; }
+        public Request noRetry() { this.noRetry = true; return this; }
 
         public static Request of(String method, String path) {
             Request r = new Request();

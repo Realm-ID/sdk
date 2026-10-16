@@ -252,18 +252,18 @@ in the same repo.
 - [ ] **ts: the direct-call lock bound does not cancel the issuer call (critic, 2026-10-16).** `HttpClient` takes no `AbortSignal`, so at the 10s bound the per-session lock is released while the issuer call may still be in flight; Go cancels it. A rotation that lands late is still stored, but a waiter can mint on the old token in that window. Thread an `AbortSignal` through `ts/src/http.ts` and the lock path.
 - [ ] **go/ts/java: the `token\0` outcome fingerprint can collide with a crafted middleware refresh (critic, 2026-10-16).** A middleware refresh with `tenant_id:"token"` and matching `custom_claims` produces the same fingerprint string; self-session only, ends in a 500 (`ts/src/middleware.ts` `o.mint!`). Prefix the two namespaces so they cannot meet.
 
-- [ ] **ADR-104 R-e `revoked_sids` parity (ts/java HELD; Go done in `0.65.0`):** ts/java `passwordLogin`, `me.setPassword` (`PUT /me/password`, no ts/java wrapper at all)
+- [ ] **ADR-104 R-e `revoked_sids` parity (Java only; Go done in `0.65.0`, ts DONE in source 2026-10-16):** Java `passwordLogin`, `me.setPassword` (`PUT /me/password`, no Java wrapper at all)
       (change at sign-in) and `consumePasswordReset` must read `revoked_sids` and write each sid into the
       session store like their logout `{all:true}` path, and expose it on the typed result
-      (`sdk/ts`, `sdk/java`).
-- [ ] **Java has no ADR-111 credential-reset surface** (`setCredentials`,
-      `sendPasswordReset`, `inspectPasswordReset`, `consumePasswordReset`,
-      `PasswordLoginRequest.newPassword`, `password_policy` discovery, the 10
-      new codes in SPEC §3.1). Left out of the 2026-10-09 release on purpose:
-      `java/` on `main` carries the HELD v0.63 work (root `DECISIONS.md`
-      2026-10-02), so a Java release would ship it. `scripts/taxonomy-parity.py`
-      carries reviewed `EXCEPTIONS` for the 10 codes until this lands; delete
-      them with it.
+      (`sdk/java`). **Java half DONE in source 2026-10-16** (`java/.../auth/RevokedSidsTest.java`: login,
+      `me.setPassword`, consume; sid written, next request refused). ts half ticked: `ts/src/revoked-sids.test.ts`, `ts/src/password-reset.test.ts`
+      (ts adds `tenants.users.sendPasswordReset` / `setCredentials`, `auth.inspectPasswordReset` /
+      `consumePasswordReset`, `me.setPassword`, `passwordLogin({ newPassword })`, `password_policy`, the ten codes).
+- [x] **Java has no ADR-111 credential-reset surface** — DONE in source 2026-10-16 (java `0.51.0`,
+      owner ruling: close before publishing): `UsersClient.sendPasswordReset` / `setCredentials`,
+      `AuthClient.inspectPasswordReset` / `consumePasswordReset`, `PasswordLoginRequest.withNewPassword`,
+      `MeClient.setPassword`, `IdentityProvidersResponse.passwordPolicy`, the 10 `ErrorCode`s; the
+      `taxonomy-parity.py` `EXCEPTIONS` for them are deleted. Tests: `PasswordResetTest`, `RevokedSidsTest`.
 
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
       taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes

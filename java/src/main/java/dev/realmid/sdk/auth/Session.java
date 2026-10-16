@@ -1,6 +1,7 @@
 package dev.realmid.sdk.auth;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -68,8 +69,37 @@ public record Session(
         String role,
         // SPEC §4.3a — true on a recovery-code redeem: the code is consumed and the
         // old authenticator cleared, so the user must re-enroll. false everywhere else.
-        @JsonProperty("reenroll_required") @JsonAlias("reenrollRequired") boolean reenrollRequired
+        @JsonProperty("reenroll_required") @JsonAlias("reenrollRequired") boolean reenrollRequired,
+        // ADR-104 R-e - the sessions the issuer ended as a side effect of this call; set only by
+        // passwordLogin with newPassword (change at sign-in ends the holder's whole identity in the
+        // realm). The SDK has ALREADY written each into the session store before returning, so a
+        // partner needs no action; exposed for audit. Never null: empty when none ended or the
+        // issuer predates the field. Filled by AuthClient from the raw body, not by Jackson, so a
+        // malformed value cannot fail the login (and it is never re-serialised, like Go's json:"-").
+        @JsonIgnore List<String> revokedSids
 ) {
+
+    public Session {
+        revokedSids = revokedSids == null ? List.of() : List.copyOf(revokedSids);
+    }
+
+    /** Pre-R-e constructor: {@code revokedSids} is empty. */
+    public Session(String accessToken, String refreshToken, long expiresIn, long refreshExp, long idleTtl,
+                   String expiresAt, String initiatedByUserId, Map<String, Object> user, List<TenantRef> tenants,
+                   String id, String createdAt, String lastUsedAt, String userAgent, String ip, String deviceName,
+                   boolean tenantChoiceRequired, List<TenantChoice> tenantChoices, String tenantId, String role,
+                   boolean reenrollRequired) {
+        this(accessToken, refreshToken, expiresIn, refreshExp, idleTtl, expiresAt, initiatedByUserId, user,
+                tenants, id, createdAt, lastUsedAt, userAgent, ip, deviceName, tenantChoiceRequired,
+                tenantChoices, tenantId, role, reenrollRequired, null);
+    }
+
+    /** A copy carrying the sessions the issuer ended (ADR-104 R-e). */
+    public Session withRevokedSids(List<String> sids) {
+        return new Session(accessToken, refreshToken, expiresIn, refreshExp, idleTtl, expiresAt,
+                initiatedByUserId, user, tenants, id, createdAt, lastUsedAt, userAgent, ip, deviceName,
+                tenantChoiceRequired, tenantChoices, tenantId, role, reenrollRequired, sids);
+    }
 
     /** Pre-§4.3a constructor: {@code reenrollRequired} is false. */
     public Session(String accessToken, String refreshToken, long expiresIn, long refreshExp, long idleTtl,
@@ -78,7 +108,7 @@ public record Session(
                    boolean tenantChoiceRequired, List<TenantChoice> tenantChoices, String tenantId, String role) {
         this(accessToken, refreshToken, expiresIn, refreshExp, idleTtl, expiresAt, initiatedByUserId, user,
                 tenants, id, createdAt, lastUsedAt, userAgent, ip, deviceName, tenantChoiceRequired,
-                tenantChoices, tenantId, role, false);
+                tenantChoices, tenantId, role, false, null);
     }
 
     /**
@@ -154,7 +184,7 @@ public record Session(
                 mint.refreshExp() != 0 ? mint.refreshExp() : refreshExp,
                 idleTtl, expiresAt, initiatedByUserId, user, tenants, id, createdAt,
                 lastUsedAt, userAgent, ip, deviceName,
-                tenantChoiceRequired, tenantChoices, settledTenantId, r, reenrollRequired);
+                tenantChoiceRequired, tenantChoices, settledTenantId, r, reenrollRequired, revokedSids);
     }
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TenantRef(

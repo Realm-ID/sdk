@@ -1,12 +1,14 @@
 package dev.realmid.sdk.me;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.realmid.sdk.auth.AuthClient;
 import dev.realmid.sdk.http.HttpTransport;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Membership self-service — {@code realm.me()} (ADR-092 D5): settle the
@@ -20,8 +22,49 @@ public final class MeClient {
 
     private final HttpTransport http;
 
+    /** Writes one revoked session id into the partner's session store (ADR-104 R-e). */
+    private final Consumer<String> sessionRevoker;
+
     public MeClient(HttpTransport http) {
+        this(http, null);
+    }
+
+    /**
+     * @param sessionRevoker where {@link #setPassword} writes each {@code revoked_sids} entry
+     *                       (the realm's logout path); null writes nothing
+     */
+    public MeClient(HttpTransport http, Consumer<String> sessionRevoker) {
         this.http = http;
+        this.sessionRevoker = sessionRevoker;
+    }
+
+    /**
+     * Sets or changes the signed-in member's own password — {@code PUT /me/password} (ADR-104
+     * R7e). Both /me lanes apply, as on every {@code realm.me()} call: the member's own bearer
+     * ({@link MeAuth#bearer}) or the BFF lane (platform token + {@link MeAuth#onBehalfOf}).
+     *
+     * <p>A success ends every OTHER session of the person in the realm and keeps the caller's; the
+     * response's {@code revoked_sids} are written into the session store before this returns, so a
+     * local verify refuses those tokens (a store write error is logged, never thrown, as in
+     * logout). Errors arrive typed by the SDK's usual mapping: {@code current_password_required},
+     * {@code invalid_credentials} (wrong current password), {@code verified_email_required} (409);
+     * {@code password_too_short} / {@code password_too_long} arrive as {@code details.server_code}.
+     * The SDK does not pre-validate lengths. Both passwords are secrets and are never logged.
+     */
+    public PasswordSet setPassword(SetPasswordRequest req, MeAuth auth) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (req.currentPassword() != null && !req.currentPassword().isEmpty()) {
+            body.put("current_password", req.currentPassword());
+        }
+        body.put("new_password", req.newPassword());
+        JsonNode raw = http.request(apply(HttpTransport.Request.of("PUT", "/me/password").body(body), auth));
+        // The issuer returns a plain map here, which GoFr wraps: {"data":{status, revoked_sids}}.
+        JsonNode data = raw == null ? null : raw.get("data");
+        if (data == null || !data.isObject()) return new PasswordSet("", java.util.List.of());
+        java.util.List<String> ids = AuthClient.sessionIds(null, data.get("revoked_sids"));
+        if (sessionRevoker != null) for (String id : ids) sessionRevoker.accept(id);
+        JsonNode status = data.get("status");
+        return new PasswordSet(status != null && status.isTextual() ? status.asText() : "", ids);
     }
 
     /**

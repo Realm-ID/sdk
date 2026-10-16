@@ -186,7 +186,7 @@ public final class Realm {
         this.admin = new AdminClient(this.http);
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.sessions = new SessionsClient(this.http, this.realmId);
-        this.me = new MeClient(this.http);
+        this.me = new MeClient(this.http, this.auth::revokeSessionEverywhere);
         this.config = new ConfigClient(this.http, this.realmId);
         this.stats = new StatsClient(this.http, this.realmId);
     }
@@ -243,7 +243,7 @@ public final class Realm {
         this.admin = new AdminClient(this.http);
         this.auditEvents = new AuditEventsClient(this.http, this.realmId);
         this.sessions = new SessionsClient(this.http, this.realmId);
-        this.me = new MeClient(this.http);
+        this.me = new MeClient(this.http, this.auth::revokeSessionEverywhere);
         this.config = new ConfigClient(this.http, this.realmId);
         this.stats = new StatsClient(this.http, this.realmId);
     }

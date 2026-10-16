@@ -26,4 +26,19 @@ public record IdentityProvidersResponse(
          * means "the server did not say", never "none".
          */
         @JsonProperty("credential_methods") @JsonAlias("credentialMethods")
-        List<String> credentialMethods) {}
+        List<String> credentialMethods,
+        /**
+         * The promise a login screen shows (ADR-111 P9), present EXACTLY when the realm has
+         * password sign-in on. {@code null} means absent - never {@code false}: a BFF
+         * re-serialising this response must not invent a policy, so a null is omitted on write.
+         */
+        @JsonProperty("password_policy") @JsonAlias("passwordPolicy")
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        PasswordPolicy passwordPolicy) {
+
+    /** Pre-ADR-111 constructor: no password policy. */
+    public IdentityProvidersResponse(String tenantId, List<PublicIdentityProvider> providers,
+                                     List<String> credentialMethods) {
+        this(tenantId, providers, credentialMethods, null);
+    }
+}

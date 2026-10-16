@@ -848,6 +848,9 @@ public final class AuthClient {
         body.put("grant_type", "password");
         body.put("identifier", req.identifier());
         body.put("presented", req.presented());
+        if (req.newPassword() != null && !req.newPassword().isEmpty()) {
+            body.put("new_password", req.newPassword()); // change at sign-in (ADR-111, SPEC 4.1.8)
+        }
         if (req.tenantId() != null && !req.tenantId().isEmpty()) {
             body.put("tenant_id", req.tenantId());
         }
@@ -855,6 +858,11 @@ public final class AuthClient {
         attachOrigin(r, req.origin());
         JsonNode raw = issuer(r);
         Session session = http.mapper().convertValue(raw, Session.class);
+        // ADR-104 R-e: a change at sign-in ended the holder's other sessions; write them into the
+        // session store like logout does so a local verify refuses them. /auth/login is raw(...),
+        // so revoked_sids is top-level here (unlike the GoFr-wrapped reset/me routes).
+        session = session.withRevokedSids(revokeLocally(
+                sessionIds(null, raw == null ? null : raw.get("revoked_sids"))));
         // ADR-102 D10 — same mint rule as login: once the tenant is settled the
         // product-roles handler runs and the session is re-minted. A password
         // login is a login, so it must not be the one lane that returns a
@@ -900,17 +908,8 @@ public final class AuthClient {
         // SPEC 10.1 step 3a: the ISSUER names the session to revoke (sid, and
         // revoked_sids for all=true). Only when it names none do we fall back to
         // the caller's bearer, and only if that verifies unexpired.
-        java.util.LinkedHashSet<String> sids = new java.util.LinkedHashSet<>();
-        if (raw != null && raw.isObject()) {
-            JsonNode sid = raw.get("sid");
-            if (sid != null && sid.isTextual() && !sid.asText().isEmpty()) sids.add(sid.asText());
-            JsonNode many = raw.get("revoked_sids");
-            if (many != null && many.isArray()) {
-                for (JsonNode n : many) {
-                    if (n.isTextual() && !n.asText().isEmpty()) sids.add(n.asText());
-                }
-            }
-        }
+        java.util.List<String> sids = raw != null && raw.isObject()
+                ? sessionIds(raw.get("sid"), raw.get("revoked_sids")) : java.util.List.of();
         if (!sids.isEmpty()) {
             for (String id : sids) revokeSessionEverywhere(id);
         } else {
@@ -919,6 +918,81 @@ public final class AuthClient {
         @SuppressWarnings("unchecked")
         Map<String, Object> out = http.mapper().convertValue(raw, Map.class);
         return out == null ? Map.of("status", "ok") : out;
+    }
+
+    /**
+     * Merges an optional {@code sid} with a {@code revoked_sids} array, de-duplicated and in order,
+     * skipping empties. A non-array {@code revoked_sids} is ignored (never an error: an older
+     * issuer omits it). One copy of the policy shared by logout and the ADR-104 R-e whole-identity
+     * revokes.
+     */
+    public static java.util.List<String> sessionIds(JsonNode sid, JsonNode revokedSids) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        if (sid != null && sid.isTextual() && !sid.asText().isEmpty()) out.add(sid.asText());
+        if (revokedSids != null && revokedSids.isArray()) {
+            for (JsonNode n : revokedSids) {
+                if (n.isTextual() && !n.asText().isEmpty()) out.add(n.asText());
+            }
+        }
+        return java.util.List.copyOf(out);
+    }
+
+    /**
+     * ADR-104 R-e: writes each session id into the session store (and the revocation cache when
+     * configured), as logout does. A store write error is logged by the store layer and never
+     * thrown. Store I/O is bounded at 2s and detached by {@link #revokeSessionEverywhere}.
+     * Returns {@code ids} for chaining.
+     */
+    public java.util.List<String> revokeLocally(java.util.List<String> ids) {
+        for (String id : ids) revokeSessionEverywhere(id);
+        return ids;
+    }
+
+    /** The {@code data} object of a GoFr-wrapped success body, or null when the body is not wrapped. */
+    public static JsonNode gofrData(JsonNode raw) {
+        JsonNode d = raw == null ? null : raw.get("data");
+        return d != null && d.isObject() ? d : null;
+    }
+
+    /**
+     * ADR-111 (SPEC 4.10): asks whether a reset-link token is still usable without writing
+     * anything, so a page can show invalid / expired / used / superseded BEFORE asking for a
+     * password. {@code POST /auth/password/reset/inspect {token}}; the token goes in the body only,
+     * never a query string, and is never logged. The SDK sends its platform bearer as on every auth
+     * call, which pins the call to the configured realm. Errors: reset_token_invalid,
+     * reset_token_expired, reset_token_used, reset_token_superseded.
+     */
+    public PasswordResetInspection inspectPasswordReset(String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", token);
+        JsonNode data = gofrData(issuer(HttpTransport.Request.of("POST", "/auth/password/reset/inspect").body(body)));
+        JsonNode at = data == null ? null : data.get("expires_at");
+        return new PasswordResetInspection(
+                at != null && at.isTextual() ? java.time.Instant.parse(at.asText()) : null);
+    }
+
+    /**
+     * ADR-111 (SPEC 4.10): sets the password a reset link was sent for. It mints NO session: send
+     * the holder to {@link #passwordLogin}, where every MFA and eligibility gate lives.
+     *
+     * <p>NEVER retried by the SDK: a consume replayed after a lost response answers
+     * {@code reset_token_used} even though the password WAS set. Length rules are the issuer's
+     * ({@code password_too_short} / {@code password_too_long} arrive as
+     * {@code details.server_code}); the SDK does not pre-validate. The token and
+     * {@code newPassword} are secrets and are never logged.
+     *
+     * <p>ADR-104 R-e: the consume ends every session of the person in the realm; the response's
+     * {@code revoked_sids} are written into the session store before this returns.
+     */
+    public PasswordResetConsumed consumePasswordReset(String token, String newPassword) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", token);
+        body.put("new_password", newPassword);
+        JsonNode data = gofrData(issuer(HttpTransport.Request.of("POST", "/auth/password/reset")
+                .body(body).noRetry()));
+        java.util.List<String> ids = data == null ? java.util.List.of()
+                : sessionIds(null, data.get("revoked_sids"));
+        return new PasswordResetConsumed(revokeLocally(ids));
     }
 
     /**

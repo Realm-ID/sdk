@@ -279,6 +279,18 @@ public enum ErrorCode {
     // management / generic
     UNAUTHORIZED("unauthorized"),
     FORBIDDEN("forbidden"),
+    // ADR-111 credential reset (SPEC 3.1). password_must_change / password_too_short /
+    // password_too_long are deliberately NOT here: they stay on details.server_code.
+    PASSWORD_UNCHANGED("password_unchanged"),
+    PASSWORD_CHANGE_NOT_REQUIRED("password_change_not_required"),
+    RESET_LINK_REQUIRED("reset_link_required"),
+    NO_VERIFIED_EMAIL("no_verified_email"),
+    VERIFIED_EMAIL_REQUIRED("verified_email_required"),
+    RESET_THROTTLED("reset_throttled"),
+    RESET_TOKEN_INVALID("reset_token_invalid"),
+    RESET_TOKEN_EXPIRED("reset_token_expired"),
+    RESET_TOKEN_USED("reset_token_used"),
+    RESET_TOKEN_SUPERSEDED("reset_token_superseded"),
     NOT_FOUND("not_found"),
     CONFLICT("conflict"),
     RATE_LIMITED("rate_limited"),
