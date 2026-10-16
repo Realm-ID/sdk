@@ -80,6 +80,11 @@ const (
 	// and the person may still be active in another. The BFF middleware relays it
 	// as 403 and never tears the session down.
 	ErrCodeUserSuspended ErrorCode = "user_suspended"
+	// ErrCodeTenantDisabled (403, issuer spec 0.59.0): the org the token is for
+	// is suspended or deactivated. Not a sign-out: the session is NOT ended and
+	// the person may still use their other orgs. The BFF middleware relays it as
+	// 403 and never tears the session down.
+	ErrCodeTenantDisabled ErrorCode = "tenant_disabled"
 	// ErrCodeEscortSuspended (403 from the issuer, ADR-104 R-d): the BFF's own
 	// /auth/* escort account is suspended or deactivated. A service problem, not
 	// the user's; the BFF middleware relays it as 503, session untouched.
@@ -358,6 +363,17 @@ func IsUserSuspended(err error) bool {
 	return re.Code == ErrCodeUserSuspended
 }
 
+// IsTenantDisabled reports whether err is the issuer's 403 tenant_disabled: the
+// org the token is for is suspended or deactivated. The session is not ended;
+// do not sign the user out of their other orgs.
+func IsTenantDisabled(err error) bool {
+	var re *RealmError
+	if !errors.As(err, &re) {
+		return false
+	}
+	return re.Code == ErrCodeTenantDisabled
+}
+
 // IsEscortSuspended reports whether err is the issuer's 403 escort_suspended:
 // the BFF's own escort account is disabled (ADR-104 R-d). A service problem.
 func IsEscortSuspended(err error) bool {
@@ -422,7 +438,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeRealmMismatch:       {},
 	ErrCodeMissingOrigin:       {}, ErrCodeRefreshInvalid: {},
 	ErrCodeTokenStale: {}, ErrCodeLastOwner: {},
-	ErrCodeUserSuspended: {}, ErrCodeEscortSuspended: {},
+	ErrCodeUserSuspended: {}, ErrCodeEscortSuspended: {}, ErrCodeTenantDisabled: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},

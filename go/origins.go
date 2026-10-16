@@ -2,6 +2,7 @@ package realmid
 
 import (
 	ctxpkg "context"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -101,6 +102,29 @@ func (c *OriginsClient) List(_ ctxpkg.Context, opts ListOriginsOptions) (*Pagina
 	return newPaginated[Origin](func(ctx ctxpkg.Context, po PageOpts) (*Page[Origin], error) {
 		return c.fetchPage(ctx, realmID, po)
 	}), nil
+}
+
+// Delete detaches a realm SPA origin (DELETE /platforms/{realmID}/origins/{originID}).
+// It signs nobody out unless opts.SignOut is set (ADR-049 amendment); opts may
+// be nil. The last live realm-bound origin is refused with 409 last_origin.
+// The cached allowlist for the realm is dropped on success.
+func (c *OriginsClient) Delete(ctx ctxpkg.Context, realmID, originID string, opts *DetachOptions) error {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return err
+	}
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "DELETE",
+		Path:   "/platforms/" + url.PathEscape(realmID) + "/origins/" + url.PathEscape(originID),
+		Query:  opts.query(),
+		Bearer: tok,
+	}, nil); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	delete(c.cache, realmID)
+	c.mu.Unlock()
+	return nil
 }
 
 // Validate reports whether the inbound origin is on the realm's

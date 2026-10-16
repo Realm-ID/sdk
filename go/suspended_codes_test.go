@@ -25,11 +25,15 @@ import (
 const (
 	userSuspendedBody   = `{"error":{"code":"user_suspended","error":"user is suspended","message":"user is suspended"}}`
 	escortSuspendedBody = `{"error":{"code":"escort_suspended","error":"the escort's account is suspended or deactivated","message":"the escort's account is suspended or deactivated"}}`
+	tenantDisabledBody  = `{"error":{"code":"tenant_disabled","error":"organisation is disabled","message":"organisation is disabled"}}`
 	// legacyFlatUserSuspendedBody is the pre-GoFr-wrap shape; tolerated, not the wire.
 	legacyFlatUserSuspendedBody = `{"error":"user is suspended","code":"user_suspended"}`
 )
 
 func TestSuspendedCodes_RegisteredAndPredicates(t *testing.T) {
+	if !isKnownCode("tenant_disabled") {
+		t.Fatal("tenant_disabled must be in knownCodes")
+	}
 	if !isKnownCode("user_suspended") || !isKnownCode("escort_suspended") {
 		t.Fatal("user_suspended / escort_suspended must be in knownCodes")
 	}
@@ -43,6 +47,7 @@ func TestSuspendedCodes_RegisteredAndPredicates(t *testing.T) {
 		{"user", userSuspendedBody, ErrCodeUserSuspended, IsUserSuspended, IsEscortSuspended},
 		{"escort", escortSuspendedBody, ErrCodeEscortSuspended, IsEscortSuspended, IsUserSuspended},
 		{"user-legacy-flat", legacyFlatUserSuspendedBody, ErrCodeUserSuspended, IsUserSuspended, IsEscortSuspended},
+		{"tenant-disabled", tenantDisabledBody, ErrCodeTenantDisabled, IsTenantDisabled, IsUserSuspended},
 	} {
 		direct := &RealmError{Code: tc.code, HTTPStatus: 403}
 		if !tc.is(direct) || tc.not(direct) {
@@ -60,6 +65,9 @@ func TestSuspendedCodes_RegisteredAndPredicates(t *testing.T) {
 			t.Errorf("%s: must not read as stale/401", tc.name)
 		}
 	}
+	if IsTenantDisabled(nil) || IsTenantDisabled(errors.New("x")) {
+		t.Error("nil / foreign error must be false for IsTenantDisabled")
+	}
 	if IsUserSuspended(nil) || IsEscortSuspended(errors.New("x")) {
 		t.Error("nil / foreign error must be false")
 	}
@@ -70,6 +78,10 @@ func TestSuspendedCodes_ProxyStatus(t *testing.T) {
 	if st != 403 || code != "user_suspended" {
 		t.Errorf("user_suspended -> %d %q, want 403 user_suspended", st, code)
 	}
+	st, code, _ = ProxyStatus(ParseErrorEnvelope([]byte(tenantDisabledBody), 403))
+	if st != 403 || code != "tenant_disabled" {
+		t.Errorf("tenant_disabled -> %d %q, want 403 tenant_disabled", st, code)
+	}
 	st, code, _ = ProxyStatus(ParseErrorEnvelope([]byte(escortSuspendedBody), 403))
 	if st != 503 || code != "escort_suspended" {
 		t.Errorf("escort_suspended -> %d %q, want 503 escort_suspended", st, code)
@@ -77,7 +89,7 @@ func TestSuspendedCodes_ProxyStatus(t *testing.T) {
 }
 
 func TestSuspendedCodes_TokenLevelErrIsFalseFor403(t *testing.T) {
-	for _, b := range []string{userSuspendedBody, escortSuspendedBody} {
+	for _, b := range []string{userSuspendedBody, escortSuspendedBody, tenantDisabledBody} {
 		re := ParseErrorEnvelope([]byte(b), 403)
 		if tokenLevelErr(&storedErr{Code: string(re.Code), Status: 403}) {
 			t.Errorf("%s must not be token-level", re.Code)
@@ -111,6 +123,7 @@ var suspCases = []suspCase{
 	{"user_suspended", userSuspendedBody, 403, "user_suspended"},
 	{"escort_suspended", escortSuspendedBody, 503, "escort_suspended"},
 	{"legacy_flat_user_suspended", legacyFlatUserSuspendedBody, 403, "user_suspended"},
+	{"tenant_disabled", tenantDisabledBody, 403, "tenant_disabled"},
 }
 
 // suspHarness builds a middleware over a fake issuer. direct: the listed

@@ -17,6 +17,16 @@ that affect every SDK at once are recorded under a shared heading.
 
 Doc comments on `tenants.users.enrollMfa` / `confirmMfa` (ts) and `UsersClient.enrollMfa` / `confirmMfa` (java) now say `userId` must be the caller's own id (`403 forbidden` otherwise, from the issuer release after v0.134.1; owner ruling 2026-10-14) and point at `selfEnrollMfa` / `resetMfa`. SPEC §4.8/§6.2 and the partner guide corrected. No behaviour or signature change. The Go comment waits for the next Go release (`TODO.md` § Go SDK only).
 
+## go `0.67.0` — `tenant_disabled`, `joined_via`, bulk status, `sign_out` on detach (issuer spec 0.59.0) (UNRELEASED)
+
+Go only; ts/java add their halves separately. SPEC §3.1 and §6.3.
+
+### Added — go `0.67.0`
+- `ErrCodeTenantDisabled` / `IsTenantDisabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended). Registered in `knownCodes`; the BFF middleware relays it as 403 and never tears the session down, exactly as for `user_suspended`.
+- `User.JoinedVia` (`JoinedVia` type, 8 constants) and `User.JoinedViaDomain`; `UserListOpts.JoinedVia` / `EmailDomain` filters (`joined_via`, `email_domain`).
+- `Tenants.Users.BulkUpdateStatus(ctx, tenantID, userIDs, status)` → `POST /tenants/{id}/users/bulk-status`, with typed per-row `BulkStatusResult.Outcome`.
+- `Tenants.DetachDomain` and `Origins.Delete` (new methods; the SDK had no detach/delete for either), taking `*DetachOptions{SignOut}` which sends `?sign_out=true` only when set.
+
 ## go `0.66.0` — typed `user_suspended` / `escort_suspended` (issuer ADR-104 R-d) (UNRELEASED)
 
 Go only; ts/java register the codes in source (taxonomy parity) but stay HELD, unreleased (`TODO.md`). SPEC §3.1.

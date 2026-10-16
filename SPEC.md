@@ -225,8 +225,14 @@ SDK failure. It carries:
 `session_limit_reached`, `tenant_required`, `tenant_invalid`,
 `account_suspended`, `account_deactivated`, `realm_origin_mismatch`,
 `realm_mismatch`, `missing_origin`, `refresh_invalid`, `token_stale`,
-`user_suspended`, `escort_suspended`.
+`user_suspended`, `escort_suspended`, `tenant_disabled`.
 
+> `tenant_disabled` (403, issuer spec 0.59.0) means the org the token is for is
+> suspended or deactivated. The session is NOT ended. Like `user_suspended`, the
+> Go BFF middleware relays it as **403** with its real code and never tears the
+> session down; it is not a token-level failure. Go: `ErrCodeTenantDisabled`,
+> `IsTenantDisabled`.
+>
 > `user_suspended` (403, issuer ADR-104 R-d) means the token's subject row in
 > THAT org is suspended or deactivated. `escort_suspended` (403 from the issuer)
 > means the BFF's own `/auth/*` escort account is suspended or deactivated. The
@@ -1953,11 +1959,29 @@ the invitee accepts → user record is provisioned.
     role?:    Role,                    // exact match
     status?:  "active" | "suspended" | "deactivated",
     q?:       string,                  // case-insensitive substring on email
+    joinedVia?:   JoinedVia,           // exact match -> query joined_via
+    emailDomain?: string,              // email ends in @<domain> -> query email_domain
     cursor?:  string,
     limit?:   number,                  // 1..200, default 50
   }
   ```
+  `User` carries `joinedVia` (`invitation | sso_domain | open_signup | import |
+  admin | owner | service | unknown`; wire `joined_via`, recorded once at creation)
+  and `joinedViaDomain` (wire `joined_via_domain`; present only when `joinedVia`
+  is `sso_domain`). Go: `User.JoinedVia` / `JoinedViaDomain`,
+  `UserListOpts.JoinedVia` / `EmailDomain`.
 - `get(tenantId, userId)`
+- `bulkUpdateStatus(tenantId, userIds, status)` — `POST
+  /tenants/{id}/users/bulk-status`; 1..500 ids, `status` is `"suspended" |
+  "deactivated"` (no default). Returns `{ results: [{ userId, outcome }] }` with
+  `outcome` one of `updated | unchanged | not_found | refused_owner`; one refused
+  id does not fail the call, and the tenant owner is `refused_owner`. No session is
+  ended. Go: `Tenants.Users.BulkUpdateStatus(ctx, tenantID, userIDs, status)`.
+- Detach (DELETE, `?sign_out=true` only when set; the default signs nobody out):
+  tenant custom domain, Go `Tenants.DetachDomain(ctx, platformID, tenantID, domain,
+  *DetachOptions)`; realm SPA origin, Go `Origins.Delete(ctx, realmID, originID,
+  *DetachOptions)`. `DetachOptions{SignOut}` ends every session of the tenant
+  (domain) or realm (origin) for the lost-or-compromised-address case.
 - `updateStatus(tenantId, userId, status)` —
   `"active" | "suspended" | "deactivated"`. Deactivating cascades:
   the user's contacts are released and their verifications revoked.

@@ -119,7 +119,27 @@ type User struct {
 	Status      string `json:"status,omitempty"`
 	MFAEnabled  bool   `json:"mfa_enabled,omitempty"`
 	Role        string `json:"role,omitempty"`
+	// JoinedVia records how the membership was created (ADR-049 amendment Q4),
+	// once, at creation. JoinedViaUnknown for rows that predate the record.
+	JoinedVia JoinedVia `json:"joined_via,omitempty"`
+	// JoinedViaDomain is the verified domain whose SSO grant provisioned the
+	// row; present only when JoinedVia is JoinedViaSSODomain.
+	JoinedViaDomain string `json:"joined_via_domain,omitempty"`
 }
+
+// JoinedVia is how a user's membership was created.
+type JoinedVia string
+
+const (
+	JoinedViaInvitation JoinedVia = "invitation"
+	JoinedViaSSODomain  JoinedVia = "sso_domain"
+	JoinedViaOpenSignup JoinedVia = "open_signup"
+	JoinedViaImport     JoinedVia = "import"
+	JoinedViaAdmin      JoinedVia = "admin"
+	JoinedViaOwner      JoinedVia = "owner"
+	JoinedViaService    JoinedVia = "service"
+	JoinedViaUnknown    JoinedVia = "unknown"
+)
 
 // UserStatus is the discrete status field on a user record.
 type UserStatus string
@@ -318,6 +338,38 @@ func (c *TenantsClient) VerifyDomain(ctx ctxpkg.Context, platformID, tenantID, d
 	return &resp, nil
 }
 
+// DetachOptions parameterises TenantsClient.DetachDomain and
+// OriginsClient.Delete. The zero value (or nil) signs nobody out.
+type DetachOptions struct {
+	// SignOut additionally ends every session of the tenant (DetachDomain) or
+	// realm (Origins.Delete): for the lost or compromised address case. Sent
+	// as ?sign_out=true only when set.
+	SignOut bool
+}
+
+func (o *DetachOptions) query() map[string]string {
+	if o != nil && o.SignOut {
+		return map[string]string{"sign_out": "true"}
+	}
+	return nil
+}
+
+// DetachDomain detaches a tenant custom domain (DELETE
+// /platforms/{pid}/tenants/{tid}/domains/{domain}). It signs nobody out unless
+// opts.SignOut is set (ADR-049 amendment). opts may be nil.
+func (c *TenantsClient) DetachDomain(ctx ctxpkg.Context, platformID, tenantID, domain string, opts *DetachOptions) error {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return err
+	}
+	return c.realm.http.do(ctx, requestOptions{
+		Method: "DELETE",
+		Path:   "/platforms/" + url.PathEscape(platformID) + "/tenants/" + url.PathEscape(tenantID) + "/domains/" + url.PathEscape(domain),
+		Query:  opts.query(),
+		Bearer: tok,
+	}, nil)
+}
+
 // TransferOwnerOptions carries the optional ADR-076 direct-transfer knobs
 // for TransferOwner. The zero value is a plain hand-over.
 type TransferOwnerOptions struct {
@@ -428,6 +480,11 @@ type UserListOpts struct {
 	Role   string // exact match: owner|admin|member|viewer
 	Status string // exact match: active|suspended|invited|deactivated
 	Q      string // case-insensitive substring match on email
+	// JoinedVia filters on how the membership was created (exact match).
+	JoinedVia JoinedVia
+	// EmailDomain matches members whose email ends in "@<domain>". It says
+	// nothing about how the member joined; use JoinedVia for that.
+	EmailDomain string
 }
 
 func (c *UsersClient) List(ctx context.Context, tenantID string, opts *UserListOpts) *Paginated[User] {
@@ -446,6 +503,12 @@ func (c *UsersClient) List(ctx context.Context, tenantID string, opts *UserListO
 		}
 		if o.Q != "" {
 			extra["q"] = o.Q
+		}
+		if o.JoinedVia != "" {
+			extra["joined_via"] = string(o.JoinedVia)
+		}
+		if o.EmailDomain != "" {
+			extra["email_domain"] = o.EmailDomain
 		}
 		return fetchFilteredPage[User](ctx, c.realm, path, po, extra)
 	})
@@ -482,6 +545,54 @@ func (c *UsersClient) UpdateStatus(ctx context.Context, tenantID, userID string,
 		return nil, err
 	}
 	return &u, nil
+}
+
+// BulkOutcome is the per-id result of UsersClient.BulkUpdateStatus.
+type BulkOutcome string
+
+const (
+	BulkOutcomeUpdated      BulkOutcome = "updated"
+	BulkOutcomeUnchanged    BulkOutcome = "unchanged"
+	BulkOutcomeNotFound     BulkOutcome = "not_found"
+	BulkOutcomeRefusedOwner BulkOutcome = "refused_owner"
+)
+
+// BulkStatusResult is one row of BulkStatusResponse.Results.
+type BulkStatusResult struct {
+	UserID  string      `json:"user_id"`
+	Outcome BulkOutcome `json:"outcome"`
+}
+
+// BulkStatusResponse is the response from UsersClient.BulkUpdateStatus. One
+// refused id does not fail the call; read each row's Outcome.
+type BulkStatusResponse struct {
+	Results []BulkStatusResult `json:"results"`
+}
+
+// BulkUpdateStatus suspends or deactivates up to 500 members in one call
+// (POST /tenants/{id}/users/bulk-status). status must be UserStatusSuspended
+// or UserStatusDeactivated; there is no default. No session is ended.
+func (c *UsersClient) BulkUpdateStatus(ctx context.Context, tenantID string, userIDs []string, status UserStatus) (*BulkStatusResponse, error) {
+	if len(userIDs) == 0 || len(userIDs) > 500 {
+		return nil, &RealmError{Code: ErrCodeBadRequest, Message: "BulkUpdateStatus: userIDs must hold 1..500 ids"}
+	}
+	if status != UserStatusSuspended && status != UserStatusDeactivated {
+		return nil, &RealmError{Code: ErrCodeBadRequest, Message: "BulkUpdateStatus: status must be suspended or deactivated"}
+	}
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var resp BulkStatusResponse
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/tenants/" + url.PathEscape(tenantID) + "/users/bulk-status",
+		Bearer: tok,
+		Body:   map[string]any{"user_ids": userIDs, "status": string(status)},
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 func (c *UsersClient) EnrollMFA(ctx context.Context, tenantID, userID string) (*MFAEnrollResult, error) {
