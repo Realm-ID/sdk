@@ -79,3 +79,26 @@ describe("AdminDriftReviewsClient (ADR-080)", () => {
     assert.equal(calls[0]!.opts.body, undefined);
   });
 });
+
+describe("AdminUsersClient (ADR-111): the admin console's password calls are inherited from the sdk", () => {
+  // web-admin's transport has ALREADY unwrapped GoFr's `{data}` envelope, so the
+  // sdk decoder must accept the bare body (it also accepts the wrapped one).
+  it("sendPasswordReset POSTs the password-reset path with no body and returns the masked address", async () => {
+    const { http, calls } = makeHttp({ status: "sent", to: "a***@example.com", expires_at: "2026-10-16T10:30:00Z" });
+    const client = new AdminUsersClient(asSdkHttp(http));
+    const out = await client.sendPasswordReset("t 1", "u/2");
+    assert.deepEqual(out, { status: "sent", to: "a***@example.com", expires_at: "2026-10-16T10:30:00Z" });
+    assert.equal(calls[0]!.opts.method, "POST");
+    assert.equal(calls[0]!.opts.path, "/tenants/t%201/users/u%2F2/password-reset");
+    assert.equal(calls[0]!.opts.body, undefined);
+  });
+
+  it("setCredentials PUTs only the fields that are set", async () => {
+    const { http, calls } = makeHttp(undefined);
+    const client = new AdminUsersClient(asSdkHttp(http));
+    await client.setCredentials("t1", "u1", { username: "alice", password: "" });
+    assert.equal(calls[0]!.opts.method, "PUT");
+    assert.equal(calls[0]!.opts.path, "/tenants/t1/users/u1/credentials");
+    assert.deepEqual(calls[0]!.opts.body, { username: "alice" });
+  });
+});

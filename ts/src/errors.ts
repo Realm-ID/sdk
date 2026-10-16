@@ -194,6 +194,20 @@ export type ErrorCode =
   | "invitations_unavailable"
   | "owner_cannot_leave"
   | "already_left"
+  // password credentials (SPEC §3.1; ADR-104 amendment + ADR-111, issuer spec
+  // 0.53.0). `password_must_change`, `password_too_short` and `password_too_long`
+  // are deliberately NOT registered: they predate this and arrive as
+  // `details.server_code`.
+  | "password_unchanged"
+  | "password_change_not_required"
+  | "reset_link_required"
+  | "verified_email_required"
+  | "no_verified_email"
+  | "reset_throttled"
+  | "reset_token_invalid"
+  | "reset_token_expired"
+  | "reset_token_used"
+  | "reset_token_superseded"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -331,6 +345,9 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "owner_cannot_be_revoked", "membership_not_found",
   "single_tenant_not_required", "not_invited",
   "not_pending", "invitations_unavailable", "owner_cannot_leave", "already_left",
+  "password_unchanged", "password_change_not_required", "reset_link_required",
+  "verified_email_required", "no_verified_email", "reset_throttled",
+  "reset_token_invalid", "reset_token_expired", "reset_token_used", "reset_token_superseded",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

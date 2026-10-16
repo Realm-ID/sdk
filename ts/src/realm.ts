@@ -401,6 +401,16 @@ export function createRealm(cfg: RealmConfig): Realm {
   void isMemorySessionStore;
 
   const build = (client: HttpClient): Realm => {
+    const auth = new AuthClient(
+      client,
+      cfg.realmId,
+      originResolver,
+      cfg.revocation,
+      cfg.productRoles,
+      cfg.scopes,
+      cfg.onIdentityResolved,
+      { tokens, verify: (t) => verifier.verify(t), now: nowMs, store: cfg.sessionStore, logger },
+    );
     const handle: Realm = {
       realmId: cfg.realmId,
       baseUrl,
@@ -409,16 +419,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       authority: cfg.authority,
       notifyAuthorityChanged: (change: AuthorityChange) =>
         notifyAuthorityChanged(cfg.authority, cfg.clock, change),
-      auth: new AuthClient(
-        client,
-        cfg.realmId,
-        originResolver,
-        cfg.revocation,
-        cfg.productRoles,
-        cfg.scopes,
-        cfg.onIdentityResolved,
-        { tokens, verify: (t) => verifier.verify(t), now: nowMs, store: cfg.sessionStore, logger },
-      ),
+      auth,
       tenants: new TenantsClient(client, cfg.realmId),
       domains: new DomainsClient(client),
       apiKeys: new ApiKeysClient(client, cfg.realmId),
@@ -444,7 +445,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       integrations: new IntegrationsClient(client, cfg.realmId),
       federationBindings: new FederationBindingsClient(client, cfg.realmId),
       sessions: new SessionsClient(client, cfg.realmId),
-      me: new MeClient(client),
+      me: new MeClient(client, (sids) => auth.revokeSessions(sids)),
       info: () => info.get(),
       verify: (token, opts) => verifier.verify(token, opts),
       middleware: (mwCfg) => createMiddleware(handle, mwCfg),

@@ -4,6 +4,7 @@
  */
 
 import type { HttpClient } from "./http.js";
+import { unwrapData } from "./envelope.js";
 import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 /** Tenant lifecycle status (issuer swagger `Tenant.status`). */
@@ -269,8 +270,65 @@ export interface ImportUsersResult {
   rows: ImportUserRowResult[];
 }
 
+/**
+ * Result of `tenants.users.sendPasswordReset` (SPEC §6.3). `to` is MASKED by the
+ * issuer (first character + domain); show it as-is and never try to unmask it.
+ */
+export interface PasswordResetSent {
+  status: string;
+  to: string;
+  expires_at: string;
+}
+
+/** Body of `tenants.users.setCredentials`. An empty field is not sent; at least one is required. */
+export interface SetCredentialsRequest {
+  username?: string;
+  password?: string;
+}
+
 export class UsersClient {
   constructor(private readonly http: HttpClient) {}
+
+  /**
+   * Emails the member a single-use, 30-minute password-reset link (ADR-111, SPEC
+   * §6.3) — `POST /tenants/{t}/users/{u}/password-reset`, no body. No field names
+   * the address: the issuer picks the member's first active verified email. It
+   * changes no credential and revokes no session. Needs `users:manage` in the
+   * tenant. Errors: `no_verified_email` (409), `reset_throttled` (429),
+   * `user_not_found` (404); `unknown_method` and `bad_request` arrive per SPEC §6.3.
+   */
+  async sendPasswordReset(tenantId: string, userId: string): Promise<PasswordResetSent> {
+    const raw = await this.http.request<unknown>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/password-reset`,
+    });
+    const d = unwrapData<Partial<PasswordResetSent>>(raw) ?? {};
+    return { status: d.status ?? "", to: d.to ?? "", expires_at: d.expires_at ?? "" };
+  }
+
+  /**
+   * Sets a member's username and/or hands over a TEMPORARY password (ADR-111, SPEC
+   * §6.3) — `PUT /tenants/{t}/users/{u}/credentials`. A password set here is
+   * stored must-change: the holder replaces it at first sign-in
+   * (`passwordLogin({ newPassword })`). Needs `users:manage`.
+   *
+   * `reset_link_required` (409): the member has a verified email, so nothing was
+   * written, the username included. Call `sendPasswordReset` instead; a caller
+   * that wants the username anyway re-sends it alone. `verified_email_required`
+   * (409): the realm's `password_policy.require_verified_email` is on and the
+   * member has no verified email. The SDK does not pre-check the member's
+   * contacts: the issuer decides at write time.
+   */
+  async setCredentials(tenantId: string, userId: string, req: SetCredentialsRequest): Promise<void> {
+    await this.http.request<unknown>({
+      method: "PUT",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/credentials`,
+      body: {
+        ...(req.username ? { username: req.username } : {}),
+        ...(req.password ? { password: req.password } : {}),
+      },
+    });
+  }
 
   /**
    * List users in a tenant (SPEC §6.3). `opts` may carry `role`/`status`/`q`

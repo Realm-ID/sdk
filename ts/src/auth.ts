@@ -16,6 +16,7 @@
 
 import type { HttpClient } from "./http.js";
 import { RealmError } from "./errors.js";
+import { unwrapData } from "./envelope.js";
 import { scopeWireValue } from "./scope.js";
 import {
   LoginMintError,
@@ -148,6 +149,14 @@ export interface LoginResponse {
    * re-enroll. `undefined` on every other lane.
    */
   reenrollRequired?: boolean;
+  /**
+   * ADR-104 R-e — the sessions the issuer ended as a side effect of this call;
+   * set only by `passwordLogin` with `newPassword` (a change at sign-in ends the
+   * holder's whole identity in the realm). The SDK has ALREADY written each into
+   * the session store, so a partner needs no action; it is exposed for audit.
+   * Empty when none ended or the issuer predates the field.
+   */
+  revokedSids?: string[];
   /**
    * The tenant this session resolved to, once settled. Empty on the D10
    * multi-tenant branch until `completeLogin` runs.
@@ -558,6 +567,8 @@ interface RawAuthResponse {
   tenant_choice_required?: boolean;
   tenant_choices?: { tenant_id: string; display_name: string; is_owner?: boolean }[];
   reenroll_required?: boolean;
+  /** ADR-104 R-e; only a password change at sign-in carries it. Unvalidated wire value. */
+  revoked_sids?: unknown;
 }
 
 interface RawTokenResponse {
@@ -998,6 +1009,17 @@ export class AuthClient {
     presented: string;
     tenantId?: string;
     origin?: string;
+    /**
+     * Change the password at sign-in (SPEC §4.1.8): set it ONLY after a
+     * `403 password_must_change`, with `presented` = the CURRENT (temporary)
+     * password. Sent as `new_password`; an empty value is not sent. The SDK does
+     * not pre-validate its length (the issuer owns the rule). Success is an
+     * ordinary login that ends the holder's other sessions (ADR-104 R-e): each
+     * is written into the session store and listed in `revokedSids`. A 5xx may
+     * leave the NEW password in force: retry with `presented` = the new
+     * password and no `newPassword`. Never retried by the SDK.
+     */
+    newPassword?: string;
   }): Promise<LoginResponse> {
     const headers = await this.originHeaders(req.origin);
     const raw = await this.http.request<RawAuthResponse>({
@@ -1009,16 +1031,79 @@ export class AuthClient {
         grant_type: "password",
         identifier: req.identifier,
         presented: req.presented,
+        ...(req.newPassword ? { new_password: req.newPassword } : {}),
         ...(req.tenantId ? { tenant_id: req.tenantId } : {}),
       },
     });
     const session = mapAuthResp(raw);
+    // ADR-104 R-e: /auth/login is `raw(...)` (bare), so `revoked_sids` is top-level.
+    session.revokedSids = sessionIds(raw.revoked_sids);
+    await this.revokeSessions(session.revokedSids);
     // ADR-102 D10 — same mint rule as `login`: once the tenant is settled the
     // product-roles handler runs and the session is re-minted. A password login
     // is a login, so it must not be the one lane returning a role-blind token.
     const settled = settledTenant(session);
     if (settled) await this.mintOrThrowWithAnchor(session, settled, "password");
     return session;
+  }
+
+  /**
+   * SPEC §4.10 (ADR-111) — is a reset-link token still usable? Writes nothing,
+   * so a page can show invalid / expired / used / superseded BEFORE asking for a
+   * password. A 200 is not a reservation.
+   *
+   * The token goes in the POST body only, never a query string, and is never
+   * logged. The SDK sends its platform bearer as on every auth call, which pins
+   * the call to the configured realm: a link minted in another realm answers
+   * `reset_token_invalid`. Parsing the token out of the link's URL fragment is
+   * the page's job. Errors: `reset_token_invalid`, `reset_token_expired`,
+   * `reset_token_used`, `reset_token_superseded`.
+   */
+  async inspectPasswordReset(token: string): Promise<PasswordResetInspection> {
+    const raw = await this.http.request<unknown>({
+      method: "POST",
+      path: "/auth/password/reset/inspect",
+      body: { token },
+    });
+    return { expires_at: String(unwrapData<{ expires_at?: unknown }>(raw)?.expires_at ?? "") };
+  }
+
+  /**
+   * SPEC §4.10 (ADR-111) — set the password a reset link was sent for. Mints NO
+   * session: send the holder to `passwordLogin`, where every MFA and eligibility
+   * gate lives. The SDK does not know the identifier and must not chain a login
+   * onto a consume.
+   *
+   * NEVER retried by the SDK: a consume replayed after a lost response answers
+   * `reset_token_used` even though the password WAS set. A page that gets
+   * `reset_token_used` right after its own submit should say "your password may
+   * already be set — try signing in". Length rules are the issuer's
+   * (`password_too_short` / `password_too_long` arrive as
+   * `details.server_code`); the SDK does not pre-validate. The token and
+   * `newPassword` are secrets and are never logged.
+   *
+   * ADR-104 R-e: the consume ends every session of the person in the realm; the
+   * response's `revoked_sids` are written into the session store before this
+   * resolves (a store write error is logged, never thrown, as in `logout`).
+   */
+  async consumePasswordReset(token: string, newPassword: string): Promise<PasswordResetConsumed> {
+    const raw = await this.http.request<unknown>({
+      method: "POST",
+      path: "/auth/password/reset",
+      body: { token, new_password: newPassword },
+    });
+    const revokedSids = sessionIds(unwrapData<{ revoked_sids?: unknown }>(raw)?.revoked_sids);
+    await this.revokeSessions(revokedSids);
+    return { revokedSids };
+  }
+
+  /**
+   * Writes each session id into the session store (and the revocation cache),
+   * like `logout` does. Never throws on a store failure.
+   * @internal `realm.me.setPassword` uses it (ADR-104 R-e).
+   */
+  async revokeSessions(ids: readonly string[]): Promise<void> {
+    for (const id of ids) await this.revokeLocally(id);
   }
 
   /**
@@ -1373,6 +1458,29 @@ export class AuthClient {
     const o = await this.resolveOrigin(perCall);
     return o ? { origin: o } : {};
   }
+}
+
+/** Result of `auth.inspectPasswordReset` (SPEC §4.10): the link's expiry, as the wire sends it. */
+export interface PasswordResetInspection {
+  expires_at: string;
+}
+
+/**
+ * Result of `auth.consumePasswordReset`. `revokedSids` (ADR-104 R-e) are the
+ * sessions the issuer ended (the whole identity in the realm); the SDK has
+ * already written each into the session store. Empty when none ended or the
+ * issuer predates the field.
+ */
+export interface PasswordResetConsumed {
+  revokedSids: string[];
+}
+
+/** De-duplicated, non-empty string members of a wire `revoked_sids`; anything that is not a list yields none. */
+export function sessionIds(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const id of v) if (typeof id === "string" && id && !out.includes(id)) out.push(id);
+  return out;
 }
 
 function mapAuthResp(r: RawAuthResponse): LoginResponse {

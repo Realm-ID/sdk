@@ -15,6 +15,8 @@
  */
 
 import type { HttpClient } from "./http.js";
+import { unwrapData } from "./envelope.js";
+import { sessionIds } from "./auth.js";
 
 /** The end-user credential every `realm.me.*` call needs. */
 export interface MeAuth {
@@ -60,8 +62,58 @@ interface RawMembershipResult {
   released?: number;
 }
 
+/** Input to `me.setPassword` (`PUT /me/password`, ADR-104). */
+export interface SetPasswordRequest extends MeAuth {
+  /** Required when a password already exists; omit (or leave empty) on a first set. */
+  currentPassword?: string;
+  newPassword: string;
+}
+
+/**
+ * Result of `me.setPassword`. `revokedSids` (ADR-104 R-e) are the sessions the
+ * issuer ended across the person's whole identity in the realm, never the
+ * calling session; the SDK has already written each into the session store.
+ */
+export interface PasswordSet {
+  status: string;
+  revokedSids: string[];
+}
+
 export class MeClient {
-  constructor(private readonly http: HttpClient) {}
+  /** `revoke` writes session ids into the realm's session store (ADR-104 R-e); wired by `createRealm`. */
+  constructor(
+    private readonly http: HttpClient,
+    private readonly revoke?: (sids: string[]) => Promise<void>,
+  ) {}
+
+  /**
+   * Sets or changes the signed-in member's own password — `PUT /me/password`
+   * (ADR-104 R7e). Both lanes apply, as on every `realm.me` call.
+   *
+   * A success ends every OTHER session of the person in the realm and keeps the
+   * caller's; the response's `revoked_sids` are written into the session store
+   * before this resolves, so a local verify refuses those tokens (a store write
+   * error is logged, never thrown, as in `logout`). Errors arrive typed by the
+   * SDK's usual mapping: `current_password_required`, `password_too_short` /
+   * `password_too_long` (via `details.server_code`), `invalid_credentials`
+   * (wrong current password) and `verified_email_required` (409). The SDK does
+   * not pre-validate lengths. Both passwords are secrets and are never logged.
+   */
+  async setPassword(req: SetPasswordRequest): Promise<PasswordSet> {
+    const raw = await this.http.request<unknown>({
+      method: "PUT",
+      path: "/me/password",
+      body: {
+        new_password: req.newPassword,
+        ...(req.currentPassword ? { current_password: req.currentPassword } : {}),
+      },
+      ...this.authOf(req),
+    });
+    const d = unwrapData<{ status?: unknown; revoked_sids?: unknown }>(raw) ?? {};
+    const revokedSids = sessionIds(d.revoked_sids);
+    await this.revoke?.(revokedSids);
+    return { status: typeof d.status === "string" ? d.status : "", revokedSids };
+  }
 
   /** Per-call bearer + headers for the two auth modes; see the module doc. */
   private authOf(a: MeAuth): { bearer?: string; headers?: Record<string, string> } {

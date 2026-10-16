@@ -39,6 +39,16 @@ export interface IdentityProvidersResponse {
    * server did not say", never "none".
    */
   credential_methods?: string[];
+  /**
+   * The promise a login screen shows (ADR-111 P9; SPEC §4.1.4). Present exactly
+   * when `credential_methods` contains `"password"`. `require_verified_email`
+   * true: the password is set by its holder through a link sent to their
+   * verified email; false: an administrator may set a first password, which the
+   * holder must change at first sign-in. Absent means "the server did not say",
+   * never `false`; like `credential_methods` it lives here so a BFF
+   * re-serialising this type does not delete it.
+   */
+  password_policy?: { require_verified_email: boolean };
 }
 
 /** Tunes the discovery call (all optional). */

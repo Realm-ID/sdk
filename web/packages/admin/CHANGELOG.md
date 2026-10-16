@@ -2,6 +2,8 @@
 
 ## 0.22.0 — `origins.remove` sign-out option (source only, NOT released)
 
+**Added (ADR-111).** `admin.tenants.users.sendPasswordReset(tenantId, userId)` and `.setCredentials(tenantId, userId, { username?, password? })`, inherited from the bundled `@realm-id/sdk` 0.55.0 through `AdminUsersClient` (pinned by `user-binding.test.ts`); no admin-side code was needed. This is the call the console's "send password reset" button needs.
+
 **Changed.** `admin.origins.remove(platformId, originId, { signOut? })`: removal now signs nobody out by default (issuer spec 0.59.0, ADR-049 amendment 2026-10-16); `{ signOut: true }` sends `?sign_out=true` to also end every session of the realm. The query is sent only when set. The doc comment previously said removal revokes realm sessions; it no longer does unless asked. Callers that relied on the old implicit sign-out must pass `signOut: true`. Bundles `@realm-id/sdk` 0.55.0 (repack gotcha applies).
 
 ## 0.21.0 — `auditEvents.list`, the ADR-055 partner audit feed (2026-09-24)

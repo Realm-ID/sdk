@@ -50,6 +50,15 @@ cross-cutting items affecting every SDK at once.
 - Connect middleware: `escort_suspended` (403 upstream, the BFF's own escort account) is now shown to the SPA as 503, mirroring go `relayStatus`; every other refusal (`user_suspended`, `tenant_disabled`) is relayed with the issuer's status and code, and a 403 never clears the refresh cookie, so the session is kept.
 - `isUserSuspended`, `isEscortSuspended`, `isTenantDisabled` are exported from the package index (they were only in `errors.ts`, unreachable for package consumers).
 
+### Added — ADR-111 password reset + ADR-104 R-e `revoked_sids` (go `0.65.0` / `0.66.0` parity; SPEC §3.1, §4.1.4, §4.1.8, §4.10, §6.3)
+- `auth.inspectPasswordReset(token)` (`POST /auth/password/reset/inspect` → `{ expires_at }`, writes nothing) and `auth.consumePasswordReset(token, newPassword)` (`POST /auth/password/reset` → `{ revokedSids }`; mints no session, never retried).
+- `tenants.users.sendPasswordReset(tenantId, userId)` (`POST …/password-reset` → `{ status, to, expires_at }`, `to` masked) and `tenants.users.setCredentials(tenantId, userId, { username?, password? })` (`PUT …/credentials`; empty fields are not sent). `@realm-id/web-admin` inherits both through `AdminUsersClient`.
+- `realm.me.setPassword({ currentPassword?, newPassword, userBearer | userToken })` (`PUT /me/password` → `{ status, revokedSids }`), the first ts wrapper for that route.
+- `passwordLogin({ …, newPassword? })`: change at sign-in after `403 password_must_change`; sent as `new_password`, omitted when empty.
+- `IdentityProvidersResponse.password_policy?: { require_verified_email }` (absent is not `false`).
+- Ten registered `ErrorCode`s: `password_unchanged`, `password_change_not_required`, `reset_link_required`, `verified_email_required`, `no_verified_email`, `reset_throttled`, `reset_token_invalid`, `reset_token_expired`, `reset_token_used`, `reset_token_superseded`. (`password_must_change`, `password_too_short`, `password_too_long` stay unregistered, as in go: they arrive as `details.server_code`.)
+- **ADR-104 R-e:** `passwordLogin` with `newPassword`, `me.setPassword` and `consumePasswordReset` read `revoked_sids` and write each sid into the session store (and the revocation cache) exactly as `logout({ all: true })` does, so a local verify refuses those tokens. Exposed as `LoginResponse.revokedSids`, `PasswordSet.revokedSids`, `PasswordResetConsumed.revokedSids`. A malformed or absent field writes nothing; a store write error is logged, never thrown. `/auth/login` answers bare, `PUT /me/password` and the reset routes answer `{"data":…}`; the decoders accept both (web-admin's transport has already stripped the envelope).
+
 ### Also held: `user_suspended` / `escort_suspended` registered
 
 Source only (taxonomy parity with go `0.66.0`), not released. `isUserSuspended` / `isEscortSuspended` added.

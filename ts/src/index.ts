@@ -151,6 +151,9 @@ export { ConfigClient } from "./config.js";
 export type { RealmConfigValues, RealmConfigResponse } from "./config.js";
 
 export { MeClient } from "./me.js";
+export type { SetPasswordRequest, PasswordSet } from "./me.js";
+export type { PasswordResetInspection, PasswordResetConsumed } from "./auth.js";
+export type { PasswordResetSent, SetCredentialsRequest } from "./tenants.js";
 export type {
   MeAuth,
   TenantChoiceRequest,
