@@ -4,9 +4,9 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## 0.55.0 — issuer spec 0.59.0 parity: `tenant_disabled`, `joined_via`, bulk status (source only, NOT released)
+## Unreleased (HELD) — issuer spec 0.59.0 parity (`tenant_disabled`, `joined_via`, bulk status) + `user_suspended` / `escort_suspended`
 
-Version bumped in source only (owner ruling OP-3); no tag, not published. Also carries the held `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits its Breaking note.
+`package.json` carries `0.55.0` in source only (owner ruling OP-3); no tag, not published. It also carries the held `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits its Breaking note.
 
 ### Added
 - `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode`, with `isTenantDisabled(e)` (in `errors.ts`, exported like `isUserSuspended`, i.e. not yet from the package index). Before registration it arrives as `forbidden`.
@@ -16,11 +16,11 @@ Version bumped in source only (owner ruling OP-3); no tag, not published. Also c
 - `tenants.detachDomain(platformId, tenantId, domain, { signOut? })` and `origins.remove(realmId, originId, { signOut? })`: detaching signs nobody out by default (ADR-049 amendment); `signOut: true` sends `?sign_out=true`, only when set. `DetachOptions` exported.
 - No middleware change: the connect middleware already relays the issuer's status and code and never clears the refresh cookie on a 403, so `tenant_disabled` keeps the session.
 
-## Unreleased (HELD) — `user_suspended` / `escort_suspended` registered
+### Also held: `user_suspended` / `escort_suspended` registered
 
-Source only (taxonomy parity with go `0.66.0`); no version bump, not released. `isUserSuspended` / `isEscortSuspended` added.
+Source only (taxonomy parity with go `0.66.0`), not released. `isUserSuspended` / `isEscortSuspended` added.
 
-### Breaking (when this releases)
+#### Breaking (when this releases)
 - `user_suspended` becomes a registered code. Before, it arrived as `code: forbidden` with `details.server_code = "user_suspended"`; a registered code lands on `code` and leaves `server_code`. Branch on both during migration.
 
 ## 0.54.0 — `Tenant.status` / `.owner` / `.config` typed per issuer swagger (2026-09-24)
