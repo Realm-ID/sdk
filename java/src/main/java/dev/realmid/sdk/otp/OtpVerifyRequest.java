@@ -13,6 +13,13 @@ package dev.realmid.sdk.otp;
 public record OtpVerifyRequest(String subjectRef, String purpose, String presented,
                                String userId, String userBearer, String onBehalfOfIp) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "OtpVerifyRequest[subjectRef=" + subjectRef + ", purpose=" + purpose + ", userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + "]";
+    }
+
+
     /** Legacy mode: use the user's own access JWT as the bearer. */
     public static OtpVerifyRequest withBearer(String subjectRef, String purpose, String presented, String userBearer) {
         return new OtpVerifyRequest(subjectRef, purpose, presented, null, userBearer, null);

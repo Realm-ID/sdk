@@ -11,4 +11,11 @@ public record OtpIssueResponse(
         String value,
         @JsonProperty("expires_at") @JsonAlias("expiresAt") String expiresAt,
         String purpose,
-        @JsonProperty("subject_ref") @JsonAlias("subjectRef") String subjectRef) {}
+        @JsonProperty("subject_ref") @JsonAlias("subjectRef") String subjectRef) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "OtpIssueResponse[id=" + id + ", expiresAt=" + expiresAt + ", purpose=" + purpose + ", subjectRef=" + subjectRef + "]";
+    }
+}

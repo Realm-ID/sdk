@@ -42,6 +42,13 @@ public record LoginRequest(
          */
         java.util.List<String> rolePermissions) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "LoginRequest[method=" + method + ", origin=" + origin + ", deviceName=" + deviceName + "]";
+    }
+
+
     /** Pre-ADR-100 constructor; supplies no role permission list. */
     public LoginRequest(String method, String providerToken, String origin, String deviceName) {
         this(method, providerToken, origin, deviceName, null);

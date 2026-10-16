@@ -7,6 +7,13 @@ package dev.realmid.sdk.platformtoken;
  */
 public record Credential(String grantType, String apiKey, String subjectToken) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "Credential[grantType=" + grantType + "]";
+    }
+
+
     /** grant_type for the static platform API key. */
     public static final String GRANT_PLATFORM_API_KEY = "platform_api_key";
     /** grant_type for the workload-token exchange. */

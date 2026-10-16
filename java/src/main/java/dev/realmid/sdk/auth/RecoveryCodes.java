@@ -14,4 +14,11 @@ import java.util.List;
 public record RecoveryCodes(
         String status,
         @JsonProperty("recovery_codes") List<String> recoveryCodes
-) {}
+) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "RecoveryCodes[status=" + status + "]";
+    }
+}

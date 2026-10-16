@@ -8,6 +8,13 @@ package dev.realmid.sdk.auth;
  */
 public record RevokeAllSessionsRequest(String userId, String userBearer, String onBehalfOfIp) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "RevokeAllSessionsRequest[userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + "]";
+    }
+
+
     /** BFF mode: revoke all sessions on behalf of {@code userId}. */
     public static RevokeAllSessionsRequest forUser(String userId) {
         return new RevokeAllSessionsRequest(userId, null, null);

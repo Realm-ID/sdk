@@ -10,6 +10,13 @@ package dev.realmid.sdk.auth;
  */
 public record RedeemRecoveryCodeRequest(String challengeToken, String code, String origin, String refreshToken) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "RedeemRecoveryCodeRequest[origin=" + origin + "]";
+    }
+
+
     public static RedeemRecoveryCodeRequest of(String challengeToken, String code) {
         return new RedeemRecoveryCodeRequest(challengeToken, code, null, null);
     }

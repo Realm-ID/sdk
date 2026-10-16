@@ -15,4 +15,10 @@ public record IntegrationMintResult(
         @JsonProperty("expires_in") @JsonAlias("expiresIn") long expiresIn,
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
         String role) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "IntegrationMintResult[expiresIn=" + expiresIn + ", tenantId=" + tenantId + ", role=" + role + "]";
+    }
 }

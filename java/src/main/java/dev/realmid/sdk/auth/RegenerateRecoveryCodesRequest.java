@@ -12,6 +12,13 @@ package dev.realmid.sdk.auth;
  */
 public record RegenerateRecoveryCodesRequest(String userId, String userBearer, String onBehalfOfIp) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "RegenerateRecoveryCodesRequest[userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + "]";
+    }
+
+
     /** BFF mode: regenerate on behalf of {@code userId}. */
     public static RegenerateRecoveryCodesRequest forUser(String userId) {
         return new RegenerateRecoveryCodesRequest(userId, null, null);

@@ -7,4 +7,10 @@ package dev.realmid.sdk.integrations;
  * but is caller-asserted (ADR-082 §7.6).
  */
 public record IntegrationMintRequest(String apiKey, String installationId, String sourceOrgId) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "IntegrationMintRequest[installationId=" + installationId + ", sourceOrgId=" + sourceOrgId + "]";
+    }
 }

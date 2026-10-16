@@ -25,7 +25,14 @@ public final class MemorySessionStore implements SessionStateStore {
         Instant until;
     }
 
-    private record Held(String token, Instant until) {}
+    private record Held(String token, Instant until) {
+        /** Never prints the lock token. */
+        @Override
+        public String toString() {
+            return "Held[redacted]";
+        }
+    }
+
     private record Result(byte[] bytes, Instant until) {}
 
     private final Clock clock;

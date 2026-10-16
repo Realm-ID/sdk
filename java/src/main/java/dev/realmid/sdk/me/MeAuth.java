@@ -21,6 +21,13 @@ package dev.realmid.sdk.me;
  */
 public record MeAuth(String userBearer, String userToken) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "MeAuth[redacted]";
+    }
+
+
     /** Direct mode — the user's access JWT is the wire bearer. */
     public static MeAuth bearer(String userAccessJwt) {
         return new MeAuth(userAccessJwt, null);

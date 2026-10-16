@@ -49,6 +49,13 @@ public record APIKey(
          */
         @JsonProperty("expires_at") @JsonAlias("expiresAt") Long expiresAt
 ) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "APIKey[id=" + id + ", prefix=" + prefix + ", role=" + role + ", label=" + label + ", createdAt=" + createdAt + ", lastUsedAt=" + lastUsedAt + ", revokedAt=" + revokedAt + ", expiresAt=" + expiresAt + "]";
+    }
+
     /** True iff the key has been soft-deleted ({@code revokedAt} set). */
     public boolean revoked() {
         return revokedAt != null;

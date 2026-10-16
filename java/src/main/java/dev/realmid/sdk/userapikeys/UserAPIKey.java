@@ -87,6 +87,13 @@ public record UserAPIKey(
         @JsonProperty("expires_at") @JsonAlias("expiresAt") Long expiresAt,
         @JsonProperty("revoked_at") @JsonAlias("revokedAt") Long revokedAt
 ) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "UserAPIKey[id=" + id + ", prefix=" + prefix + ", label=" + label + ", orgId=" + orgId + ", uncapped=" + uncapped + ", createdAt=" + createdAt + ", lastUsedAt=" + lastUsedAt + ", expiresAt=" + expiresAt + ", revokedAt=" + revokedAt + "]";
+    }
+
     /** True iff the key has been soft-revoked. */
     public boolean revoked() {
         return revokedAt != null;

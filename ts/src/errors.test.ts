@@ -150,6 +150,24 @@ test("HttpClient: an uncanonical code is preserved under details.server_code", a
   });
 });
 
+test("HttpClient: ADR-111 password codes are NOT registered (SPEC 3.1): status-mapped code + details.server_code", async () => {
+  // Mirrors java PasswordResetTest.passwordMustChange_staysOnServerCode.
+  const cases: Array<[number, string, string]> = [
+    [403, "password_must_change", "forbidden"],
+    [400, "password_too_short", "bad_request"],
+    [400, "password_too_long", "bad_request"],
+  ];
+  for (const [status, serverCode, want] of cases) {
+    const c = new HttpClient({
+      baseUrl: "https://x.example",
+      fetch: fixedFetch(status, { error: { code: serverCode, message: "m" } }),
+    });
+    await assert.rejects(() => c.request({ path: "/auth/login", method: "POST" }), (e: Error) => {
+      return e instanceof RealmError && e.code === want && e.details?.["server_code"] === serverCode;
+    }, serverCode);
+  }
+});
+
 test("HttpClient: the issuer's real step-up 412 reaches the caller with its token", async () => {
   // The gate payload is NESTED inside `error` — GoFr merges the issuer's
   // `Response()` map into one object and renders it under that key. A caller

@@ -11,6 +11,13 @@ package dev.realmid.sdk.auth;
  */
 public record MfaVerifyOtpRequest(String mfaToken, String presented, String origin, String refreshToken) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "MfaVerifyOtpRequest[origin=" + origin + "]";
+    }
+
+
     public MfaVerifyOtpRequest(String mfaToken, String presented, String origin) {
         this(mfaToken, presented, origin, null);
     }

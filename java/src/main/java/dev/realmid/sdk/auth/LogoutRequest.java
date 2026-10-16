@@ -18,6 +18,13 @@ package dev.realmid.sdk.auth;
  *                     (SPEC 10.1 step 3a.2, owner ruling 2026-10-01)
  */
 public record LogoutRequest(String refreshToken, String origin, String accessToken, boolean all) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "LogoutRequest[origin=" + origin + ", all=" + all + "]";
+    }
+
     public LogoutRequest(String refreshToken, String origin, String accessToken) {
         this(refreshToken, origin, accessToken, false);
     }

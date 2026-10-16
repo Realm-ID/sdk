@@ -24,4 +24,10 @@ public record MfaEnrollment(
         @JsonProperty("recovery_codes") @JsonAlias("recoveryCodes") List<String> recoveryCodes,
         @JsonProperty("mfa_challenge_token") @JsonAlias("mfaChallengeToken") String mfaChallengeToken,
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "MfaEnrollment[tenantId=" + tenantId + "]";
+    }
 }

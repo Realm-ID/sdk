@@ -9,6 +9,13 @@ package dev.realmid.sdk.auth;
  */
 public record DisableMfaRequest(String userId, String userBearer, String onBehalfOfIp, String code) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "DisableMfaRequest[userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + "]";
+    }
+
+
     /** BFF mode: disable on behalf of {@code userId} with the given TOTP code. */
     public static DisableMfaRequest forUser(String userId, String code) {
         return new DisableMfaRequest(userId, null, null, code);

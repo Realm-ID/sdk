@@ -116,6 +116,77 @@ class PasswordResetTest {
         }
     }
 
+    /** Drops the first connection without a reply (the shape sendWithRetry resends on), counts hits. */
+    private FakeServer.Reply dropOnce(com.sun.net.httpserver.HttpExchange ex, AtomicInteger hits) {
+        if (hits.incrementAndGet() == 1) {
+            ex.close(); // no response: the client sees EOF
+        }
+        return FakeServer.Reply.json(200, Map.of("data", Map.of("status", "ok", "revoked_sids", List.of())));
+    }
+
+    @Test
+    void passwordLoginWithNewPassword_isSentOnce_notReplayedOnDroppedConnection() {
+        AtomicInteger hits = new AtomicInteger();
+        fs.on("POST /auth/login", (ex, b) -> {
+            if (!new String(b).contains("\"password\"")) {
+                return FakeServer.Reply.json(200, Map.of("access_token", "a", "expires_in", 300));
+            }
+            return dropOnce(ex, hits);
+        });
+        RealmException e = assertThrows(RealmException.class, () -> realm.auth().passwordLogin(
+                PasswordLoginRequest.of("a@b.c", "old").withNewPassword("brand-new-pass-1")));
+        assertEquals(ErrorCode.NETWORK, e.getCode());
+        assertEquals(1, hits.get(), "a change-at-sign-in must never be replayed");
+    }
+
+    @Test
+    void meSetPassword_isSentOnce_notReplayedOnDroppedConnection() {
+        AtomicInteger hits = new AtomicInteger();
+        fs.on("PUT /me/password", (ex, b) -> dropOnce(ex, hits));
+        RealmException e = assertThrows(RealmException.class, () -> realm.me().setPassword(
+                SetPasswordRequest.change("old-old-old-1", "new-new-new-12"), MeAuth.bearer("ub")));
+        assertEquals(ErrorCode.NETWORK, e.getCode());
+        assertEquals(1, hits.get(), "a password change must never be replayed");
+    }
+
+    @Test
+    void consumePasswordReset_isSentOnce_notReplayedOnDroppedConnection() {
+        AtomicInteger hits = new AtomicInteger();
+        fs.on("POST /auth/password/reset", (ex, b) -> dropOnce(ex, hits));
+        RealmException e = assertThrows(RealmException.class,
+                () -> realm.auth().consumePasswordReset("t", "pw-long-enough-12"));
+        assertEquals(ErrorCode.NETWORK, e.getCode());
+        assertEquals(1, hits.get());
+    }
+
+    @Test
+    void sendPasswordReset_isSentOnce_notReplayedOnDroppedConnection() {
+        AtomicInteger hits = new AtomicInteger();
+        fs.on("POST /tenants/t1/users/u1/password-reset", (ex, b) -> dropOnce(ex, hits));
+        RealmException e = assertThrows(RealmException.class,
+                () -> realm.tenants().users().sendPasswordReset("t1", "u1"));
+        assertEquals(ErrorCode.NETWORK, e.getCode());
+        assertEquals(1, hits.get(), "a replayed send mails the user twice");
+    }
+
+    @Test
+    void sendPasswordReset_malformedExpiresAtIsARealmException() {
+        fs.on("POST /tenants/t1/users/u1/password-reset", (ex, b) -> FakeServer.Reply.json(202, Map.of("data",
+                Map.of("status", "sent", "to", "a***@example.com", "expires_at", "not-a-time"))));
+        RealmException e = assertThrows(RealmException.class,
+                () -> realm.tenants().users().sendPasswordReset("t1", "u1"));
+        assertEquals(ErrorCode.SERVER_ERROR, e.getCode());
+        assertEquals(1, fs.recorded.stream().filter(r -> r.path.endsWith("/password-reset")).count());
+    }
+
+    @Test
+    void inspectPasswordReset_malformedExpiresAtIsARealmException() {
+        fs.on("POST /auth/password/reset/inspect", (ex, b) -> FakeServer.Reply.json(200,
+                Map.of("data", Map.of("expires_at", "not-a-time"))));
+        RealmException e = assertThrows(RealmException.class, () -> realm.auth().inspectPasswordReset("t"));
+        assertEquals(ErrorCode.SERVER_ERROR, e.getCode());
+    }
+
     @Test
     void sendPasswordReset() {
         fs.on("POST /tenants/t1/users/u1/password-reset", (ex, b) -> FakeServer.Reply.json(202, Map.of("data",

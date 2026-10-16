@@ -17,6 +17,13 @@ package dev.realmid.sdk.auth;
  */
 public record SelfEnrollMfaRequest(String refreshToken, String tenantId, String method, String origin) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "SelfEnrollMfaRequest[tenantId=" + tenantId + ", method=" + method + ", origin=" + origin + "]";
+    }
+
+
     /** Enroll the user behind {@code refreshToken} in the default ("totp") method. */
     public static SelfEnrollMfaRequest of(String refreshToken, String tenantId) {
         return new SelfEnrollMfaRequest(refreshToken, tenantId, null, null);

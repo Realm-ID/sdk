@@ -23,6 +23,13 @@ public record RefreshOutcome(String fp, boolean ok, int status, String code, Str
                              String tenantId, String role, String refreshToken, String minted,
                              long refreshExp, long idleTtl, String subjectType) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "RefreshOutcome[fp=" + fp + ", ok=" + ok + ", status=" + status + ", message=" + message + ", tenantId=" + tenantId + ", role=" + role + ", idleTtl=" + idleTtl + ", subjectType=" + subjectType + "]";
+    }
+
+
     /** The fingerprint of an MFA verify / recovery redeem outcome (SPEC §4.3). */
     public static final String MFA_FINGERPRINT = "mfa-verify";
 

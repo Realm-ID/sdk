@@ -8,6 +8,13 @@ package dev.realmid.sdk.otp;
  */
 public record OtpViewOptions(String userId, String userBearer, String onBehalfOfIp) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "OtpViewOptions[userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + "]";
+    }
+
+
     public static OtpViewOptions empty() {
         return new OtpViewOptions(null, null, null);
     }

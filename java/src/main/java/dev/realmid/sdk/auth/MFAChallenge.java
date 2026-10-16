@@ -11,4 +11,11 @@ import java.util.List;
 public record MFAChallenge(
         @JsonProperty("mfa_challenge_token") @JsonAlias("mfaChallengeToken") String mfaChallengeToken,
         List<String> methods
-) {}
+) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "MFAChallenge[redacted]";
+    }
+}

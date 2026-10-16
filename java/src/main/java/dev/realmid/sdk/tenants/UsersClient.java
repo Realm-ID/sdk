@@ -1,6 +1,8 @@
 package dev.realmid.sdk.tenants;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.realmid.sdk.ErrorCode;
+import dev.realmid.sdk.RealmException;
 import dev.realmid.sdk.http.HttpTransport;
 import dev.realmid.sdk.pagination.PageReader;
 import dev.realmid.sdk.pagination.Paginated;
@@ -125,8 +127,17 @@ public final class UsersClient {
         // Plain-map handler: GoFr wraps it as {"data":{status, to, expires_at}}.
         JsonNode d = raw == null ? null : raw.get("data");
         if (d == null || !d.isObject()) return new PasswordResetSent("", "", null);
-        return new PasswordResetSent(text(d, "status"), text(d, "to"),
-                d.hasNonNull("expires_at") ? java.time.Instant.parse(d.get("expires_at").asText()) : null);
+        java.time.Instant expires = null;
+        if (d.hasNonNull("expires_at")) {
+            try {
+                expires = java.time.Instant.parse(d.get("expires_at").asText());
+            } catch (java.time.format.DateTimeParseException e) {
+                // The send already committed; this is a decode failure, not a transport one, and the
+                // call is single-shot so nothing resends the mail.
+                throw new RealmException(ErrorCode.SERVER_ERROR, "unexpected expires_at in password-reset response", e);
+            }
+        }
+        return new PasswordResetSent(text(d, "status"), text(d, "to"), expires);
     }
 
     /**

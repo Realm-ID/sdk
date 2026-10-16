@@ -10,6 +10,13 @@ package dev.realmid.sdk.auth;
  */
 public record OtpLoginRequest(String identifier, String presented, String tenantId, String origin) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "OtpLoginRequest[identifier=" + identifier + ", tenantId=" + tenantId + ", origin=" + origin + "]";
+    }
+
+
     public static OtpLoginRequest of(String identifier, String presented) {
         return new OtpLoginRequest(identifier, presented, null, null);
     }

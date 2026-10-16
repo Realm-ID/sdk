@@ -79,6 +79,13 @@ public record Session(
         @JsonIgnore List<String> revokedSids
 ) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "Session[expiresIn=" + expiresIn + ", idleTtl=" + idleTtl + ", expiresAt=" + expiresAt + ", initiatedByUserId=" + initiatedByUserId + ", id=" + id + ", createdAt=" + createdAt + ", lastUsedAt=" + lastUsedAt + ", userAgent=" + userAgent + ", ip=" + ip + ", deviceName=" + deviceName + ", tenantChoiceRequired=" + tenantChoiceRequired + ", tenantId=" + tenantId + ", role=" + role + ", reenrollRequired=" + reenrollRequired + "]";
+    }
+
+
     public Session {
         revokedSids = revokedSids == null ? List.of() : List.copyOf(revokedSids);
     }

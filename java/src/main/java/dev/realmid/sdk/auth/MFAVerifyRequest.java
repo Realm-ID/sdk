@@ -14,6 +14,13 @@ package dev.realmid.sdk.auth;
 public record MFAVerifyRequest(String challengeToken, String code, String method, String origin,
                                String refreshToken) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "MFAVerifyRequest[method=" + method + ", origin=" + origin + "]";
+    }
+
+
     public MFAVerifyRequest(String challengeToken, String code, String method, String origin) {
         this(challengeToken, code, method, origin, null);
     }

@@ -128,7 +128,10 @@ public final class HttpTransport {
         HttpRequest built = b.build();
         HttpResponse<byte[]> resp;
         try {
-            resp = r.noRetry ? client.send(built, HttpResponse.BodyHandlers.ofByteArray()) : sendWithRetry(built);
+            // Only a GET is replay-safe. Every write is sent exactly once, as in sdk/go (no retry
+            // loop): a replay of a committed password change presents a dead password and loses
+            // the first reply's revoked_sids.
+            resp = (r.noRetry || !"GET".equalsIgnoreCase(method)) ? client.send(built, HttpResponse.BodyHandlers.ofByteArray()) : sendWithRetry(built);
         } catch (IOException e) {
             if (logger.isLoggable(Level.ERROR)) {
                 logger.log(Level.ERROR, "realmid: network error method={0} path={1} message={2}",
@@ -174,7 +177,7 @@ public final class HttpTransport {
      * Send with one retry on EOF — a known JDK HttpClient quirk where a
      * pooled keep-alive socket is closed by the server between requests and
      * the next send sees "header parser received no bytes" before any reply.
-     * Idempotent for our usage (auth-id mint + management calls are safe).
+     * Used for GET only; every write is single-shot (see {@code request}).
      */
     private HttpResponse<byte[]> sendWithRetry(HttpRequest req) throws IOException, InterruptedException {
         IOException last = null;

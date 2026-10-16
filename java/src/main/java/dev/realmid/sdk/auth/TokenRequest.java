@@ -93,6 +93,13 @@ public record TokenRequest(
          */
         java.util.List<String> productRoles) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "TokenRequest[tenantId=" + tenantId + ", origin=" + origin + "]";
+    }
+
+
     /** Pre-ADR-102 constructor; supplies no product roles. */
     public TokenRequest(String refreshToken, String tenantId,
                         Map<String, Object> customClaims, String origin,

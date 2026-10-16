@@ -854,7 +854,8 @@ public final class AuthClient {
         if (req.tenantId() != null && !req.tenantId().isEmpty()) {
             body.put("tenant_id", req.tenantId());
         }
-        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
+        // Never replayed: with newPassword set a replay presents the now-dead password.
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body).noRetry();
         attachOrigin(r, req.origin());
         JsonNode raw = issuer(r);
         Session session = http.mapper().convertValue(raw, Session.class);
@@ -925,6 +926,9 @@ public final class AuthClient {
      * skipping empties. A non-array {@code revoked_sids} is ignored (never an error: an older
      * issuer omits it). One copy of the policy shared by logout and the ADR-104 R-e whole-identity
      * revokes.
+     *
+     * <p><b>INTERNAL, no stability promise:</b> {@code public} only because {@code MeClient} (another
+     * package) shares it. Not part of the SDK API; may change in any release.
      */
     public static java.util.List<String> sessionIds(JsonNode sid, JsonNode revokedSids) {
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
@@ -943,13 +947,13 @@ public final class AuthClient {
      * thrown. Store I/O is bounded at 2s and detached by {@link #revokeSessionEverywhere}.
      * Returns {@code ids} for chaining.
      */
-    public java.util.List<String> revokeLocally(java.util.List<String> ids) {
+    java.util.List<String> revokeLocally(java.util.List<String> ids) {
         for (String id : ids) revokeSessionEverywhere(id);
         return ids;
     }
 
     /** The {@code data} object of a GoFr-wrapped success body, or null when the body is not wrapped. */
-    public static JsonNode gofrData(JsonNode raw) {
+    static JsonNode gofrData(JsonNode raw) {
         JsonNode d = raw == null ? null : raw.get("data");
         return d != null && d.isObject() ? d : null;
     }
@@ -967,8 +971,12 @@ public final class AuthClient {
         body.put("token", token);
         JsonNode data = gofrData(issuer(HttpTransport.Request.of("POST", "/auth/password/reset/inspect").body(body)));
         JsonNode at = data == null ? null : data.get("expires_at");
-        return new PasswordResetInspection(
-                at != null && at.isTextual() ? java.time.Instant.parse(at.asText()) : null);
+        try {
+            return new PasswordResetInspection(
+                    at != null && at.isTextual() ? java.time.Instant.parse(at.asText()) : null);
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new RealmException(ErrorCode.SERVER_ERROR, "unexpected expires_at in password-reset inspect response", e);
+        }
     }
 
     /**
@@ -1087,7 +1095,14 @@ public final class AuthClient {
     }
 
     /** Result of {@link #mintMfaChallenge(String)} (SPEC §10.4). */
-    public record MfaChallengeMint(String challengeToken, java.util.List<String> methods) {}
+    public record MfaChallengeMint(String challengeToken, java.util.List<String> methods) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "MfaChallengeMint[redacted]";
+    }
+}
 
     /**
      * Self-service MFA enroll — refresh-authed {@code POST /auth/mfa/enroll}

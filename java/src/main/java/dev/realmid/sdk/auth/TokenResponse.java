@@ -25,4 +25,11 @@ public record TokenResponse(
         @JsonProperty("subject_type") @JsonAlias("subjectType") String subjectType,
         @JsonProperty("tenant_id") @JsonAlias("tenantId") String tenantId,
         String role
-) {}
+) {
+
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "TokenResponse[expiresIn=" + expiresIn + ", idleTtl=" + idleTtl + ", subjectType=" + subjectType + ", tenantId=" + tenantId + ", role=" + role + "]";
+    }
+}

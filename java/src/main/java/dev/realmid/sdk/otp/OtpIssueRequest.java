@@ -34,6 +34,13 @@ public record OtpIssueRequest(String subjectRef, String purpose,
                               String userId, String userBearer, String onBehalfOfIp,
                               String deliveryMode) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "OtpIssueRequest[subjectRef=" + subjectRef + ", purpose=" + purpose + ", userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + ", deliveryMode=" + deliveryMode + "]";
+    }
+
+
     /** ADR-071 §4: plaintext OTP returned to the authorized caller. The default. */
     public static final String DELIVERY_MODE_VIEW_BFF = "view_bff";
 

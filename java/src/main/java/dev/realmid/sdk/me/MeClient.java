@@ -57,7 +57,7 @@ public final class MeClient {
             body.put("current_password", req.currentPassword());
         }
         body.put("new_password", req.newPassword());
-        JsonNode raw = http.request(apply(HttpTransport.Request.of("PUT", "/me/password").body(body), auth));
+        JsonNode raw = http.request(apply(HttpTransport.Request.of("PUT", "/me/password").body(body).noRetry(), auth));
         // The issuer returns a plain map here, which GoFr wraps: {"data":{status, revoked_sids}}.
         JsonNode data = raw == null ? null : raw.get("data");
         if (data == null || !data.isObject()) return new PasswordSet("", java.util.List.of());

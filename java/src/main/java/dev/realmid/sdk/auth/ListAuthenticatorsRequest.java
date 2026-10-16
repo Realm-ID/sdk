@@ -9,6 +9,13 @@ package dev.realmid.sdk.auth;
  */
 public record ListAuthenticatorsRequest(String userId, String userBearer, String onBehalfOfIp) {
 
+    /** Never prints a credential. */
+    @Override
+    public String toString() {
+        return "ListAuthenticatorsRequest[userId=" + userId + ", onBehalfOfIp=" + onBehalfOfIp + "]";
+    }
+
+
     /** BFF mode: list on behalf of {@code userId}. */
     public static ListAuthenticatorsRequest forUser(String userId) {
         return new ListAuthenticatorsRequest(userId, null, null);
