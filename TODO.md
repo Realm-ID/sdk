@@ -259,11 +259,11 @@ in the same repo.
       `me.setPassword`, consume; sid written, next request refused). ts half ticked: `ts/src/revoked-sids.test.ts`, `ts/src/password-reset.test.ts`
       (ts adds `tenants.users.sendPasswordReset` / `setCredentials`, `auth.inspectPasswordReset` /
       `consumePasswordReset`, `me.setPassword`, `passwordLogin({ newPassword })`, `password_policy`, the ten codes).
-- [x] **Java has no ADR-111 credential-reset surface** — DONE in source 2026-10-16 (java `0.51.0`,
-      owner ruling: close before publishing): `UsersClient.sendPasswordReset` / `setCredentials`,
-      `AuthClient.inspectPasswordReset` / `consumePasswordReset`, `PasswordLoginRequest.withNewPassword`,
-      `MeClient.setPassword`, `IdentityProvidersResponse.passwordPolicy`, the 10 `ErrorCode`s; the
-      `taxonomy-parity.py` `EXCEPTIONS` for them are deleted. Tests: `PasswordResetTest`, `RevokedSidsTest`.
+> ~~**Java has no ADR-111 credential-reset surface**~~ **CLOSED 2026-10-16** — shipped in java
+> `0.51.0` (owner ruling: close before publishing): `UsersClient.sendPasswordReset` / `setCredentials`,
+> `AuthClient.inspectPasswordReset` / `consumePasswordReset`, `PasswordLoginRequest.withNewPassword`,
+> `MeClient.setPassword`, `IdentityProvidersResponse.passwordPolicy`, the 10 `ErrorCode`s; the
+> `taxonomy-parity.py` `EXCEPTIONS` for them are deleted. Tests: `PasswordResetTest`, `RevokedSidsTest`.
 
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
       taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes
