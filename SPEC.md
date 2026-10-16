@@ -3,11 +3,12 @@
 **Current as of 2026-10-16 — go `0.67.0` · ts `0.55.0` · java `0.51.0` · web `web-v0.9.0`
 (being tagged together; all three languages implement the v0.63 surface below)** (see §13 for the tag matrix).
 
-> ⚠️ **UNRELEASED, 2026-10-09 — password reset links and change at sign-in (issuer ADR-111 +
-> ADR-104 § Amendment 2026-10-09, issuer spec `0.53.0`).** Specified here AHEAD of code. Targets:
-> go `0.65.0` (shipped), ts `0.55.0` (publishing with the v0.63 work it now carries), `@realm-id/web-admin` `0.22.0`. **Java parity is NOT in
-> this release** — every section below says so where it applies. None of these tags exists yet;
-> this note is deleted in the commit that releases them, and the version cells move to §13.
+> ⚠️ **UNRELEASED (ts/java), 2026-10-16 — password reset links and change at sign-in (issuer ADR-111 +
+> ADR-104 § Amendment 2026-10-09 and R-e `revoked_sids`, issuer spec `0.53.0`).** go `0.65.0` is
+> shipped; ts `0.55.0` and java `0.51.0` implement the same surface at Go parity and are being
+> published together (owner ruling 2026-10-16), as is `@realm-id/web-admin` `0.22.0`. The ts/java
+> tags do not exist yet; this note is deleted in the commit that releases them, and the version
+> cells move to §13.
 >
 > | § | Surface | Visible to an existing partner? |
 > |---|---|---|
@@ -355,8 +356,8 @@ SDK failure. It carries:
 > security property and no taxonomy change may erode it.
 
 **Password-credential codes** (issuer spec `0.53.0`: ADR-104 § Amendment 2026-10-09 and
-ADR-111; go `0.65.0` · ts `0.55.0` · web-admin `0.22.0`, UNRELEASED; **not in Java this
-release**):
+ADR-111; go `0.65.0` · ts `0.55.0` · java `0.51.0` · web-admin `0.22.0`; ts/java
+UNRELEASED):
 
 | Code | HTTP | Raised by | Meaning / remedy |
 |---|---|---|---|
@@ -381,12 +382,9 @@ release**):
 > its generic status-derived code; that fallback is never what a caller sees for these three,
 > because the code is registered.
 >
-> **Java is out of this release, and `scripts/taxonomy-parity.py` will say so.** The gate
-> requires set-equal taxonomies across ts, go and java. Each of the ten codes therefore needs a
-> reviewed `EXCEPTIONS` entry ("go + ts only until Java parity, ADR-111; see `TODO.md`
-> § Cross-language parity gaps") in the same commit that registers it, and the entries are
-> deleted by the Java parity change. An exception added without the TODO item is a silenced
-> failure, not a decision.
+> **Java is at parity as of `java 0.51.0`.** The ten codes are registered in all three
+> taxonomies, so `scripts/taxonomy-parity.py` needs no `EXCEPTIONS` entry for them (the
+> interim "go + ts only until Java parity" entries are gone).
 >
 > **Deliberately NOT registered in this release: `password_must_change` (403),
 > `password_too_short` and `password_too_long` (400).** They predate it (ADR-104) and today
@@ -862,7 +860,7 @@ the field; do not read absence as "credential login is off" and hide a working
 method.
 
 **`passwordPolicy` — the promise a login screen shows (ADR-111 P9; go `0.65.0` ·
-ts `0.55.0`, UNRELEASED; not in Java this release).** Discovery gains
+ts `0.55.0` · java `0.51.0`, ts/java UNRELEASED).** Discovery gains
 `password_policy: { require_verified_email: boolean }`, present EXACTLY when
 `credential_methods` contains `password`.
 
@@ -985,7 +983,7 @@ Rules:
 
 Design and the full reasoning: `docs/design/pre-mint-hook.md`.
 
-#### 4.1.8 Change at sign-in — `newPassword` (ADR-104 § Amendment R14-R21; go `0.65.0` · ts `0.55.0`, UNRELEASED; not in Java this release)
+#### 4.1.8 Change at sign-in — `newPassword` (ADR-104 § Amendment R14-R21; go `0.65.0` · ts `0.55.0` · java `0.51.0`, ts/java UNRELEASED)
 
 A password an administrator handed over is an assertion, not a proof, so the
 login that presents it answers `403 password_must_change` (the password was
@@ -996,6 +994,7 @@ identical request with `newPassword` added.
 |---|---|---|
 | Go | `PasswordLoginRequest.NewPassword string` | `new_password`, omitted when empty |
 | ts | `passwordLogin({ identifier, presented, tenantId?, newPassword? })` | same |
+| Java | `PasswordLoginRequest.newPassword()` (`withNewPassword(String)`) | same |
 
 - **Send it only after `password_must_change`.** `presented` is then the CURRENT
   (temporary) password. An empty `newPassword` is treated as absent and is not
@@ -1011,7 +1010,11 @@ identical request with `newPassword` added.
 - Identifier throttled → `429 login_throttled`; nothing changes.
 - **Success is an ordinary login** (§4.1, §4.1.1 minting included): the new
   password is stored, the obligation cleared, EVERY other session of that
-  membership revoked, and the holder notified (no link, no code). MFA gates apply
+  membership revoked, and the holder notified (no link, no code). The sessions
+  ended are reported in the result's `revoked_sids` (ADR-104 R-e) and the SDK
+  writes each into the SessionStore before returning, like logout (§10.1):
+  Go `Session.RevokedSIDs`, ts `session.revokedSids`, Java
+  `Session.revokedSids()` (an immutable list, empty when none). MFA gates apply
   unchanged, so `mfa_required` / `mfa_registration_required` may still follow,
   carrying the session as in §4.1.6.
 - **A `5xx` may leave the NEW password in force.** The SDK does not retry this
@@ -1556,7 +1559,7 @@ acts on another user).
 > result. The SDK stores nothing — persistence and refresh of the user
 > JWT stay the caller's responsibility.
 
-### 4.10 Password reset links — `auth.inspectPasswordReset` / `auth.consumePasswordReset` (ADR-111; go `0.65.0` · ts `0.55.0`, UNRELEASED; not in Java this release)
+### 4.10 Password reset links — `auth.inspectPasswordReset` / `auth.consumePasswordReset` (ADR-111; go `0.65.0` · ts `0.55.0` · java `0.51.0`, ts/java UNRELEASED)
 
 The two calls a **reset page** makes. An administrator sends the link with
 `tenants.users.sendPasswordReset` (§6.3); the member opens it, and the page sets
@@ -1575,11 +1578,19 @@ with `Referrer-Policy: no-referrer`; and send the token only in a POST body. The
 SDK takes the token as an argument and never reads or builds a URL; parsing the
 fragment is the page's job (partner guide § Password reset links).
 
-| Call | Go | ts | Wire | Success |
-|---|---|---|---|---|
-| inspect | `AuthClient.InspectPasswordReset(ctx, token string) (*PasswordResetInspection, error)` | `auth.inspectPasswordReset(token)` | `POST /auth/password/reset/inspect {token}` | `200 {expires_at}` → `{ ExpiresAt time.Time }` / `{ expires_at: string }` |
-| consume | `AuthClient.ConsumePasswordReset(ctx, token, newPassword string) (*PasswordResetConsumed, error)` | `auth.consumePasswordReset(token, newPassword)` | `POST /auth/password/reset {token, new_password}` | `200 {status: "password_set", revoked_sids?}` → Go `{ RevokedSIDs []string }` (ADR-104 R-e: each sid is written to the SessionStore, like logout) / ts resolves `void` (HELD) |
-| set own password | `MeClient.SetPassword(ctx, SetPasswordRequest{MeAuth, CurrentPassword, NewPassword}) (*PasswordSet, error)` | held (ts) | `PUT /me/password {current_password?, new_password}` | `200 {status: "updated", revoked_sids?}` → Go `{ Status, RevokedSIDs []string }` (ADR-104 R7e/R-e: both /me lanes; each sid written to the SessionStore, like logout) |
+| Call | Go | ts | Java | Wire | Success |
+|---|---|---|---|---|---|
+| inspect | `AuthClient.InspectPasswordReset(ctx, token string) (*PasswordResetInspection, error)` | `auth.inspectPasswordReset(token)` | `AuthClient.inspectPasswordReset(String token)` → `PasswordResetInspection` | `POST /auth/password/reset/inspect {token}` | `200 {expires_at}` → `{ ExpiresAt time.Time }` / `{ expires_at: string }` / `PasswordResetInspection(Instant expiresAt)` |
+| consume | `AuthClient.ConsumePasswordReset(ctx, token, newPassword string) (*PasswordResetConsumed, error)` | `auth.consumePasswordReset(token, newPassword)` | `AuthClient.consumePasswordReset(String token, String newPassword)` → `PasswordResetConsumed` | `POST /auth/password/reset {token, new_password}` | `200 {status: "password_set", revoked_sids?}` → Go `{ RevokedSIDs []string }` / ts `{ revokedSids: string[] }` / Java `PasswordResetConsumed(List<String> revokedSids)` (ADR-104 R-e: each sid is written to the SessionStore, like logout; empty when the field is absent) |
+| set own password | `MeClient.SetPassword(ctx, SetPasswordRequest{MeAuth, CurrentPassword, NewPassword}) (*PasswordSet, error)` | `me.setPassword({ userBearer \| ..., currentPassword?, newPassword })` | `MeClient.setPassword(SetPasswordRequest, MeAuth)` → `PasswordSet` (`SetPasswordRequest.of(newPassword)` for a first set) | `PUT /me/password {current_password?, new_password}` | `200 {status: "updated", revoked_sids?}` → Go `{ Status, RevokedSIDs []string }` / ts `{ status, revokedSids: string[] }` / Java `PasswordSet(String status, List<String> revokedSids)` (ADR-104 R7e/R-e: both /me lanes; each sid written to the SessionStore, like logout) |
+
+- **Envelope tolerance (ts only, allowed).** Both routes answer GoFr's wrapped
+  `{"data": …}` (plain-map handlers; `raw(...)` handlers are bare, so read the
+  issuer handler before writing a decoder). Go and Java REQUIRE the envelope. The
+  ts decoders on the wrapped routes accept BOTH `{"data": …}` and a bare body,
+  because `@realm-id/web-admin`'s transport strips the envelope before the SDK
+  sees it. This is an accepted divergence in leniency only: it can never turn a
+  failure into a success or change a result.
 
 - **Inspect writes nothing.** It exists so a page can show invalid / expired /
   used / superseded BEFORE asking for a password. A `200` is not a reservation:
@@ -2000,8 +2011,8 @@ the invitee accepts → user record is provisioned.
   forbidden`); `resetMfa` is the admin path for another user. Self-service
   first-login enrollment is `selfEnrollMfa` (§4.8).
 - **Passwords: an admin SENDS A LINK; only a member with no verified email is
-  HANDED a password (ADR-111; go `0.65.0` · ts `0.55.0` · web-admin `0.22.0`,
-  UNRELEASED; not in Java this release).** Which path applies is decided by the
+  HANDED a password (ADR-111; go `0.65.0` · ts `0.55.0` · java `0.51.0` · web-admin
+  `0.22.0`; ts/java UNRELEASED).** Which path applies is decided by the
   MEMBER's row, not by the admin: "verified email" = an active email contact with
   `verified_at` set (phones do not count until SMS delivery ships). Both need
   `users:manage` in the tenant, and both collapse a missing member and a member of
@@ -2011,7 +2022,8 @@ the invitee accepts → user record is provisioned.
     `POST /tenants/{tid}/users/{uid}/password-reset`, no body: no field names the
     address, the issuer picks the member's first active verified email. Answers
     `202 { status: "sent", to: "a***@example.com", expires_at }` → Go
-    `PasswordResetSent{ Status, To string; ExpiresAt time.Time }`. `to` is MASKED
+    `PasswordResetSent{ Status, To string; ExpiresAt time.Time }`; Java
+    `UsersClient.sendPasswordReset(tenantId, userId)` → `PasswordResetSent`. `to` is MASKED
     (first character + domain); show it as-is, never try to unmask it. Supersedes
     the member's outstanding links; the new one is single-use and valid 30 minutes.
     **It changes no credential and revokes no session** — sending a link cannot
@@ -2021,7 +2033,8 @@ the invitee accepts → user record is provisioned.
     those two arrive as `details.server_code` / the generic code.
   - `setCredentials(tenantId, userId, { username?, password? })` — Go
     `UsersClient.SetCredentials(ctx, tenantID, userID string, req SetCredentialsRequest) error`
-    with `SetCredentialsRequest{ Username, Password string }` (empty = not sent; at
+    with `SetCredentialsRequest{ Username, Password string }`; Java
+    `UsersClient.setCredentials(tenantId, userId, SetCredentialsRequest)` (empty = not sent; at
     least one required, else the issuer's `400 bad_request`).
     `PUT /tenants/{tid}/users/{uid}/credentials`. **NEW in this release** — no SDK
     wrapped this route before; partners called it over HTTP. A `password` set here
@@ -4501,10 +4514,10 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.67.0` (being tagged; last tagged `go/v0.64.2`)        | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) targets `go/v0.65.0`, UNRELEASED. |
+| Go       | `go/v0.67.0` (tagged 2026-10-16)                            | slash form; resolved by `go get`. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) shipped in `go/v0.65.0` (2026-10-12). |
 | Web core | `web-v0.9.0`        | `@realm-id/web@0.9.0` on npm. Cross-tab refresh, `logout({ all })`. |
-| TS       | `ts-v0.54.0`        | `@realm-id/sdk@0.54.0` on npm. Same §4.1.7 surface; the v0.63 surface arrives with the next tag. ts `0.55.0` is being published (latest tag today `ts-v0.54.0`). |
-| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface; the v0.63 surface arrives with the next tag. java `0.51.0` is being published (latest tag today `java-v0.50.0`). **No ADR-111 surface** (§4.1.8, §4.10, §6.3 passwords, the §3.1 password codes): Java parity is deliberately NOT in that release — the one place the "lockstep" rule below is broken on purpose, and `taxonomy-parity.py` carries it as reviewed exceptions. |
+| TS       | `ts-v0.54.0`        | `@realm-id/sdk@0.54.0` on npm. Same §4.1.7 surface; the v0.63 surface and the ADR-111 / ADR-104 R-e surface (§4.1.8, §4.10, §6.3 passwords, `revokedSids`) arrive with the next tag. ts `0.55.0` is being published (latest tag today `ts-v0.54.0`). |
+| Java     | `java-v0.50.0`      | `dev.realmid:sdk:0.50.0` on Maven Central. Same §4.1.7 surface; the v0.63 surface and the ADR-111 / ADR-104 R-e surface (§4.1.8, §4.10, §6.3 passwords, the §3.1 password codes, `Session.revokedSids()`, `PasswordResetConsumed`, `PasswordSet`) arrive with the next tag. java `0.51.0` is being published (latest tag today `java-v0.50.0`) at Go parity; the earlier deliberate gap is closed. |
 
 > ⚠️ **This table was stale by TWO releases on every language** until 2026-09-21 — it
 > read `go/v0.58.0` / `ts-v0.51.0` / `java-v0.48.0` while the repo held `go/v0.60.0`,
