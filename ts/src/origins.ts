@@ -104,6 +104,21 @@ export class OriginsClient {
     return allowlist.has(norm);
   }
 
+  /**
+   * Remove a realm origin: `DELETE /platforms/{realmId}/origins/{originId}`. Signs
+   * nobody out unless `opts.signOut` is set (ADR-049 amendment 2026-10-16); 409
+   * `last_origin` for the only live realm origin. Drops the cached allowlist.
+   */
+  async remove(realmId: string, originId: string, opts?: { signOut?: boolean }): Promise<{ status?: string }> {
+    const out = await this.http.request<{ status?: string }>({
+      method: "DELETE",
+      path: `/platforms/${encodeURIComponent(realmId)}/origins/${encodeURIComponent(originId)}`,
+      ...(opts?.signOut === true ? { query: { sign_out: "true" } } : {}),
+    });
+    this.invalidate(realmId);
+    return out;
+  }
+
   /** Drop the cached allowlist for one realm (or all when omitted). */
   invalidate(realmId?: string): void {
     if (realmId) this.cache.delete(realmId);

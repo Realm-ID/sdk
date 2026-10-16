@@ -4,15 +4,15 @@ import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
 
-function mkFetch(handler: (url: string) => Response): typeof fetch {
-  return (async (input: RequestInfo | URL): Promise<Response> => {
+function mkFetch(handler: (url: string, init?: RequestInit) => Response): typeof fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     if (url.endsWith("/auth/login")) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
     }
-    return handler(url);
+    return handler(url, init);
   }) as typeof fetch;
 }
 
@@ -306,4 +306,54 @@ test("tenants.invitations.list: threads status filter onto the query (S-07)", as
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
   await realm.tenants.invitations.list("t1", { status: "pending" }).page();
   assert.match(hitUrl, /status=pending/);
+});
+
+test("tenants.users.list: joined_via + email_domain filters reach the query", async () => {
+  let hitUrl = "";
+  const fetch = mkFetch((url) => {
+    hitUrl = url;
+    return new Response(JSON.stringify({ items: [], next_cursor: null }),
+      { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  await realm.tenants.users.list("t1", { joinedVia: "sso_domain", emailDomain: "acme.com" }).page();
+  assert.match(hitUrl, /joined_via=sso_domain/);
+  assert.match(hitUrl, /email_domain=acme\.com/);
+  await realm.tenants.users.list("t1").page();
+  assert.doesNotMatch(hitUrl, /joined_via|email_domain/);
+});
+
+test("tenants.users.get: decodes joined_via / joined_via_domain typed", async () => {
+  const fetch = mkFetch(() => new Response(
+    JSON.stringify({ id: "u1", joined_via: "sso_domain", joined_via_domain: "acme.com" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  ));
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const u = await realm.tenants.users.get("t1", "u1");
+  const jv: "invitation" | "sso_domain" | "open_signup" | "import" | "admin" | "owner" | "service" | "unknown" | undefined = u.joined_via;
+  const jd: string | undefined = u.joined_via_domain;
+  assert.equal(jv, "sso_domain");
+  assert.equal(jd, "acme.com");
+});
+
+test("tenants.users.bulkStatus: POSTs user_ids+status, returns per-row outcomes", async () => {
+  let hitUrl = "";
+  let hitMethod = "";
+  let hitBody: Record<string, unknown> = {};
+  const fetch = mkFetch((url, init) => {
+    hitUrl = url;
+    hitMethod = String(init?.method);
+    hitBody = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ results: [
+      { user_id: "u1", outcome: "updated" },
+      { user_id: "u2", outcome: "refused_owner" },
+    ] }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: "r", apiKey: "rk_live_x", baseUrl: "https://auth.test", fetch });
+  const out = await realm.tenants.users.bulkStatus("t1", ["u1", "u2"], "suspended");
+  assert.equal(hitMethod, "POST");
+  assert.match(hitUrl, /\/tenants\/t1\/users\/bulk-status$/);
+  assert.deepEqual(hitBody, { user_ids: ["u1", "u2"], status: "suspended" });
+  assert.equal(out.results[0]!.outcome, "updated");
+  assert.equal(out.results[1]!.outcome, "refused_owner");
 });

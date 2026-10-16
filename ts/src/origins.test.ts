@@ -221,3 +221,26 @@ test("origins.list: paginates and uses platform-token auth", async () => {
   for await (const o of realm.origins.list({ realmId: REALM_ID })) got.push(o.domain);
   assert.deepEqual(got, ["a.com", "b.com"]);
 });
+
+test("origins.remove: DELETE, sign_out only when set; drops the cached allowlist", async () => {
+  const { fetch, calls } = recorder([() => new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } })]);
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  await realm.origins.remove(REALM_ID, "o/1");
+  await realm.origins.remove(REALM_ID, "o1", { signOut: false });
+  await realm.origins.remove(REALM_ID, "o1", { signOut: true });
+  const dels = calls.filter((c) => c.method === "DELETE");
+  assert.equal(dels.length, 3);
+  assert.match(dels[0]!.url, /\/platforms\/01HREALM\/origins\/o%2F1$/);
+  assert.doesNotMatch(dels[1]!.url, /sign_out/);
+  assert.match(dels[2]!.url, /\/origins\/o1\?sign_out=true$/);
+});
+
+test("tenants.detachDomain: DELETE tenant domain, sign_out only when set", async () => {
+  const { fetch, calls } = recorder([() => new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "content-type": "application/json" } })]);
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
+  await realm.tenants.detachDomain("p1", "t1", "app.acme.com");
+  await realm.tenants.detachDomain("p1", "t1", "app.acme.com", { signOut: true });
+  const dels = calls.filter((c) => c.method === "DELETE");
+  assert.match(dels[0]!.url, /\/platforms\/p1\/tenants\/t1\/domains\/app\.acme\.com$/);
+  assert.match(dels[1]!.url, /\/domains\/app\.acme\.com\?sign_out=true$/);
+}) ;

@@ -173,3 +173,20 @@ test("HttpClient: the issuer's real step-up 412 reaches the caller with its toke
       && e.details?.["reason"] === "stale_mfa";
   });
 });
+
+// issuer swagger 0.59.0 / ADR-049 amendment: `tenant_disabled` (403) is a registered
+// code, like `user_suspended` — the org is suspended/deactivated, the session is NOT ended.
+test("tenant_disabled: registered code, lands on .code, predicate matches", async () => {
+  const { isKnownCode, isTenantDisabled } = await import("./errors.js");
+  assert.equal(isKnownCode("tenant_disabled"), true);
+  const c = new HttpClient({
+    baseUrl: "https://x.example",
+    fetch: fixedFetch(403, { error: { code: "tenant_disabled", message: "organisation is suspended" } }),
+  });
+  await assert.rejects(() => c.request({ path: "/tenants/t1/users" }), (e: Error) => {
+    return e instanceof RealmError && e.code === "tenant_disabled" && e.httpStatus === 403
+      && e.details?.["server_code"] === undefined && isTenantDisabled(e);
+  });
+  assert.equal(isTenantDisabled(new RealmError({ code: "forbidden", message: "x" })), false);
+  assert.equal(isTenantDisabled(new Error("x")), false);
+});

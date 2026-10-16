@@ -152,7 +152,28 @@ export interface User {
   status?: string;
   mfa_enabled?: boolean;
   role?: string;
+  /** How this membership was created (ADR-049 amendment Q4); recorded once at creation. */
+  joined_via?: JoinedVia;
+  /** The verified domain whose SSO grant provisioned the row; only when `joined_via` is `sso_domain`. */
+  joined_via_domain?: string;
   [k: string]: unknown;
+}
+
+export type JoinedVia =
+  | "invitation" | "sso_domain" | "open_signup" | "import"
+  | "admin" | "owner" | "service" | "unknown";
+
+/** Per-id outcome of {@link UsersClient.bulkStatus}. */
+export type BulkStatusOutcome = "updated" | "unchanged" | "not_found" | "refused_owner";
+
+export interface BulkStatusResult {
+  results: Array<{ user_id: string; outcome: BulkStatusOutcome }>;
+}
+
+/** Options for {@link TenantsClient.detachDomain} and {@link OriginsClient.remove}. */
+export interface DetachOptions {
+  /** Also end every session of the tenant / realm. Default false: nobody is signed out. */
+  signOut?: boolean;
 }
 
 export type UserStatus = "active" | "suspended" | "deactivated";
@@ -165,6 +186,10 @@ export interface UserListOpts {
   status?: string;
   /** Case-insensitive substring match on email. */
   q?: string;
+  /** Exact match on how the membership was created (sent as `joined_via`). */
+  joinedVia?: JoinedVia;
+  /** Members whose email ends in `@<domain>` (sent as `email_domain`); says nothing about how they joined. */
+  emailDomain?: string;
 }
 
 /** Optional filters for {@link InvitationsClient.list} (SPEC §6.2, S-07). */
@@ -261,6 +286,8 @@ export class UsersClient {
           role: opts?.role,
           status: opts?.status,
           q: opts?.q,
+          joined_via: opts?.joinedVia,
+          email_domain: opts?.emailDomain,
           cursor: po.cursor,
           limit: po.limit ?? opts?.limit,
         },
@@ -281,6 +308,20 @@ export class UsersClient {
       method: "PATCH",
       path: `/tenants/${encodeURIComponent(tenantId)}/users/${encodeURIComponent(userId)}/status`,
       body: { status },
+    });
+  }
+
+  /**
+   * Suspend or deactivate up to 500 members in one call:
+   * `POST /tenants/{id}/users/bulk-status`. Each id gets its own outcome in `results`;
+   * one refused id does not fail the call (the tenant owner is `refused_owner`).
+   * No session is ended. Gate: `users:manage`.
+   */
+  async bulkStatus(tenantId: string, userIds: string[], status: "suspended" | "deactivated"): Promise<BulkStatusResult> {
+    return this.http.request<BulkStatusResult>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/users/bulk-status`,
+      body: { user_ids: userIds, status },
     });
   }
 
@@ -555,6 +596,20 @@ export class TenantsClient {
         owner: body.owner,
         ...rest(body, ["id", "displayName", "signupMode", "createdAt", "owner"]),
       },
+    });
+  }
+
+  /**
+   * Detach a tenant custom domain: `DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`.
+   * Signs nobody out unless `opts.signOut` is set (ADR-049 amendment 2026-10-16);
+   * `signOut: true` also ends every session of the tenant (lost or compromised
+   * address). `?sign_out=true` is sent only when set.
+   */
+  async detachDomain(platformId: string, tenantId: string, domain: string, opts?: DetachOptions): Promise<void> {
+    await this.http.request({
+      method: "DELETE",
+      path: `/platforms/${encodeURIComponent(platformId)}/tenants/${encodeURIComponent(tenantId)}/domains/${encodeURIComponent(domain)}`,
+      ...(opts?.signOut === true ? { query: { sign_out: "true" } } : {}),
     });
   }
 

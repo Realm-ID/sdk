@@ -90,6 +90,11 @@ export type ErrorCode =
   // `user_suspended` (403, issuer ADR-104 R-d): the subject's row in THAT org is
   // suspended or deactivated. Not a sign-out; the person may be active elsewhere.
   | "user_suspended"
+  // `tenant_disabled` (403, issuer swagger 0.59.0): the org the token is for (or, on
+  // login/refresh, the org explicitly requested) is suspended or deactivated. The
+  // session is NOT ended: pick another org, or wait for this one to be reactivated.
+  // Distinct from `user_suspended` (the end user's own row).
+  | "tenant_disabled"
   // `escort_suspended` (403 from the issuer, ADR-104 R-d): the BFF's own /auth/*
   // escort account is disabled. A service problem, not the user's.
   | "escort_suspended"
@@ -243,6 +248,11 @@ export function isUserSuspended(e: unknown): boolean {
   return e instanceof RealmError && e.code === "user_suspended";
 }
 
+/** True when `e` is the issuer's 403 `tenant_disabled` (org suspended/deactivated; session NOT ended). */
+export function isTenantDisabled(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "tenant_disabled";
+}
+
 /** True when `e` is the issuer's 403 `escort_suspended` (ADR-104 R-d). */
 export function isEscortSuspended(e: unknown): boolean {
   return e instanceof RealmError && e.code === "escort_suspended";
@@ -275,7 +285,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "account_deactivated", "contact_admin_required",
   "realm_origin_mismatch", "realm_mismatch",
   "missing_origin", "refresh_invalid", "token_stale", "last_owner",
-  "user_suspended", "escort_suspended",
+  "user_suspended", "escort_suspended", "tenant_disabled",
   "invalid_scope", "too_many_scopes", "scope_too_long", "scope_not_supported",
   "reserved_claim_key", "realmid_audience_immutable", "invalid_rename",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",

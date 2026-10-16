@@ -83,3 +83,21 @@ describe("OriginsClient", () => {
     assert.equal(calls[0]!.opts.path, "/platforms/p%201/origins/o%2F2");
   });
 });
+
+describe("OriginsClient.remove sign_out", () => {
+  it("sends no sign_out query by default (no sign-out unless asked)", async () => {
+    const { http, calls } = makeHttp({ status: "ok" });
+    const client = new OriginsClient(http);
+    await client.remove("p1", "o2");
+    assert.equal(calls[0]!.opts.query, undefined);
+    await client.remove("p1", "o2", { signOut: false });
+    assert.equal(calls[1]!.opts.query, undefined);
+  });
+
+  it("signOut: true sends sign_out=true", async () => {
+    const { http, calls } = makeHttp({ status: "ok" });
+    const client = new OriginsClient(http);
+    await client.remove("p1", "o2", { signOut: true });
+    assert.deepEqual(calls[0]!.opts.query, { sign_out: "true" });
+  });
+});

@@ -68,13 +68,16 @@ export class OriginsClient {
   }
 
   /**
-   * DELETE /platforms/{id}/origins/{originId} — detach an origin (revokes
-   * realm sessions). 409 `last_origin` when it's the only live origin.
+   * DELETE /platforms/{id}/origins/{originId} — detach an origin. Signs
+   * nobody out by default (ADR-049 amendment, 2026-10-16); pass
+   * `{ signOut: true }` to ALSO end every session of the realm (the lost or
+   * compromised address case). 409 `last_origin` when it's the only live origin.
    */
-  async remove(platformId: string, originId: string): Promise<{ status?: string }> {
+  async remove(platformId: string, originId: string, opts?: { signOut?: boolean }): Promise<{ status?: string }> {
     return this.http.request<{ status?: string }>({
       method: "DELETE",
       path: `/platforms/${encodeURIComponent(platformId)}/origins/${encodeURIComponent(originId)}`,
+      ...(opts?.signOut === true ? { query: { sign_out: "true" } } : {}),
     });
   }
 }

@@ -4,6 +4,18 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.55.0 — issuer spec 0.59.0 parity: `tenant_disabled`, `joined_via`, bulk status (source only, NOT released)
+
+Version bumped in source only (owner ruling OP-3); no tag, not published. Also carries the held `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits its Breaking note.
+
+### Added
+- `tenant_disabled` (403: the org the token is for is suspended or deactivated; the session is NOT ended) is a registered `ErrorCode`, with `isTenantDisabled(e)` (in `errors.ts`, exported like `isUserSuspended`, i.e. not yet from the package index). Before registration it arrives as `forbidden`.
+- `User.joined_via` (`JoinedVia`: invitation | sso_domain | open_signup | import | admin | owner | service | unknown) and `User.joined_via_domain` (only for `sso_domain`).
+- `tenants.users.list` options `joinedVia` / `emailDomain`, sent as `joined_via` / `email_domain`, omitted when unset.
+- `tenants.users.bulkStatus(tenantId, userIds, status)`: `POST /tenants/{id}/users/bulk-status` (1-500 ids, `suspended` | `deactivated`), typed `BulkStatusResult` with a per-id `outcome` (updated | unchanged | not_found | refused_owner). One refused id does not fail the call; no session is ended.
+- `tenants.detachDomain(platformId, tenantId, domain, { signOut? })` and `origins.remove(realmId, originId, { signOut? })`: detaching signs nobody out by default (ADR-049 amendment); `signOut: true` sends `?sign_out=true`, only when set. `DetachOptions` exported.
+- No middleware change: the connect middleware already relays the issuer's status and code and never clears the refresh cookie on a 403, so `tenant_disabled` keeps the session.
+
 ## Unreleased (HELD) — `user_suspended` / `escort_suspended` registered
 
 Source only (taxonomy parity with go `0.66.0`); no version bump, not released. `isUserSuspended` / `isEscortSuspended` added.
