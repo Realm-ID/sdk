@@ -35,6 +35,7 @@ interface SetupOpts {
   store?: SessionStateStore;
   mw?: Record<string, unknown>;
   hook?: (ev: IdentityResolvedEvent) => void;
+  productRoles?: () => Promise<string[]>;
 }
 
 async function setup(opts: SetupOpts = {}) {
@@ -45,6 +46,7 @@ async function setup(opts: SetupOpts = {}) {
     realmId: REALM, apiKey: "rk_live_x", baseUrl: BASE, origin: "https://app.test", audience: AUD,
     fetch: f.fetch, clock: () => new Date(NOW * 1000), sessionStore: store,
     ...(opts.hook ? { onIdentityResolved: opts.hook } : {}),
+    ...(opts.productRoles ? { productRoles: opts.productRoles } : {}),
   });
   const mw = realm.middleware({ exemptPaths: ["/health"], ...(opts.mw ?? {}) });
   let mints = 0;
@@ -410,13 +412,18 @@ test("TestToken_InternalCallersNeverDoubleLock: login/mfa mints and middleware r
   const inner = createMemorySessionStore({ now: () => Date.now() });
   const s = await setup({
     store: wrapStore(inner, { acquireRefreshLock: async (k, t) => { acquires++; return inner.acquireRefreshLock(k, t); } }),
-    hook: () => undefined, // forces the post-verify mint through the internal token path
+    hook: () => undefined,
+    // A configured productRoles handler is what FORCES the post-verify mint (auth.ts: without
+    // productRoles/scopes and with an access_token in the verify response it returns early).
+    productRoles: async () => ["viewer"],
   });
   await s.realm.auth.mfaVerify({ challengeToken: "c", code: "1", refreshToken: "rt-old" });
+  assert.equal(s.f.count("/auth/token"), 1, "the post-verify inner mint really ran");
   assert.equal(acquires, 1, "direct MFA lock only; its inner mint does not re-lock");
   acquires = 0;
   const r = await drive(s.mw as never, refreshReq("rt-m"));
   assert.equal(r.res.statusCode, 200);
+  assert.equal(s.f.count("/auth/token"), 3, "refresh mint plus its derived-claims re-mint both ran");
   assert.equal(acquires, 1, "middleware refresh lock only; its mint and enrichment do not re-lock");
 });
 

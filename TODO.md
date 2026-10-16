@@ -249,6 +249,9 @@ in the same repo.
 
 ## Cross-language parity gaps
 
+- [ ] **ts: the direct-call lock bound does not cancel the issuer call (critic, 2026-10-16).** `HttpClient` takes no `AbortSignal`, so at the 10s bound the per-session lock is released while the issuer call may still be in flight; Go cancels it. A rotation that lands late is still stored, but a waiter can mint on the old token in that window. Thread an `AbortSignal` through `ts/src/http.ts` and the lock path.
+- [ ] **go/ts/java: the `token\0` outcome fingerprint can collide with a crafted middleware refresh (critic, 2026-10-16).** A middleware refresh with `tenant_id:"token"` and matching `custom_claims` produces the same fingerprint string; self-session only, ends in a 500 (`ts/src/middleware.ts` `o.mint!`). Prefix the two namespaces so they cannot meet.
+
 - [ ] **ADR-104 R-e `revoked_sids` parity (ts/java HELD; Go done in `0.65.0`):** ts/java `passwordLogin`, `me.setPassword` (`PUT /me/password`, no ts/java wrapper at all)
       (change at sign-in) and `consumePasswordReset` must read `revoked_sids` and write each sid into the
       session store like their logout `{all:true}` path, and expose it on the typed result
@@ -494,6 +497,7 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
+- [ ] `go/auth.go` `Token()` — a hop that ends in an error drops the newer rotated refresh token; only the 3-hop give-up returns it. Pre-existing, deliberately unchanged in 0.67.0. ts (`ts/src/auth.ts`) and java (`java/src/main/java/dev/realmid/sdk/auth/AuthClient.java`) have the same shape: check and align all three together.
 - [ ] **Go doc comments for `UsersClient.EnrollMFA` / `ConfirmMFA` (`go/tenants.go`) — ship with the NEXT Go release.** Issuer commit 705df35 (next issuer release after v0.134.1) makes both routes SELF-ONLY (`userID` must be the caller, else `403 forbidden`; owner ruling 2026-10-14; an admin uses `ResetMFA`). ts/java/SPEC/guide already say so; the Go comment was left out because editing `go/tenants.go` changes the module hash and `tag-hygiene.sh unreleased-go` demands a `const Version` bump (go/v0.66.0 is tagged). Text: "userID must be the CALLER's own id: from the issuer release after v0.134.1 the route is self-only and answers 403 `forbidden` for any other user; for first-login use AuthClient.SelfEnrollMFA, for another user ResetMFA."
 
 - [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the

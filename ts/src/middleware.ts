@@ -25,7 +25,7 @@ import { NOOP_LOGGER } from "./logger.js";
 import { lockKey, outKey } from "./session-store.js";
 import {
   LOCK_TTL_MS, OUTCOME_TTL_MS, POLL_MS, POLL_TRIES, MFA_VERIFY_FP, sleepMs,
-  boundedOutcome, readOutcome, relayStatus, rotatedRefreshToken, stableJson, withSessionLock,
+  boundedOutcome, boundedStore, outcomeRelayStatus, readOutcome, relayStatus, rotatedRefreshToken, stableJson, withSessionLock,
   type RefreshOutcome,
 } from "./session-lock.js";
 
@@ -278,7 +278,10 @@ async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: 
   try {
     const out = await realm.auth.login(loginReq);
     finishSession(res, cfg, out, await realm.orgSessionMode());
-  } catch (e) {
+  } catch (raw) {
+    // A post-login tenant mint the issuer refused (user_suspended, escort_suspended, tenant_disabled,
+    // mfa_required, ...) rides a LoginMintError; relay the ISSUER's refusal, never the wrapper (go asRealmError).
+    const e = unwrapMintError(raw);
     if (e instanceof RealmError && e.code === "mfa_required") {
       const d = e.details ?? {};
       sendJson(res, 200, {
@@ -290,6 +293,16 @@ async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: 
     }
     sendError(res, e);
   }
+}
+
+/**
+ * The issuer's own refusal sitting DIRECTLY inside a LoginMintError; a partner hook's error (or any
+ * other cause) becomes a generic server_error so its text never reaches the SPA. Anything else passes through.
+ */
+function unwrapMintError(e: unknown): unknown {
+  if (!(e instanceof Error) || e.name !== "LoginMintError") return e;
+  const c = (e as { cause?: unknown }).cause;
+  return c instanceof RealmError ? c : new RealmError({ code: "server_error", message: "mint failed", httpStatus: 500 });
 }
 
 async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
@@ -332,7 +345,7 @@ function handOver(res: ConnectRes, cfg: Resolved, refreshToken: string | undefin
 
 function respondOutcome(res: ConnectRes, cfg: Resolved, fp: string, o: RefreshOutcome): void {
   if (!o.ok) {
-    sendJson(res, o.status ?? 500, o.body);
+    sendJson(res, outcomeRelayStatus(o), o.body);
     return;
   }
   if (o.fp !== fp) {
@@ -409,7 +422,7 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
     // The outcome is stored by `settle`; a mint that finishes after the 504
     // settles late, so a rotation the issuer performed is never lost.
     const settle = async (o: RefreshOutcome) => {
-      await store.putRefreshResult(ok, JSON.stringify(o), OUTCOME_TTL_MS).catch(() => undefined);
+      await boundedStore(store.putRefreshResult(ok, JSON.stringify(o), OUTCOME_TTL_MS)).catch(() => undefined);
       // §10.1 step 4b: only a ROTATING refresh supersedes older tokens; compare
       // against the candidate that MINTED. A loser never reaches here.
       if (o.ok && o.refreshToken && o.refreshToken !== o.minter && o.mint) {
@@ -420,7 +433,7 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
     await settle(outcome);
     respondOutcome(res, cfg, fp, outcome);
   } finally {
-    await lock.release().catch(() => undefined);
+    await boundedStore(lock.release()).catch((e) => cfg.logger.warn("realmid: refresh lock release failed", { message: (e as Error).message }));
   }
 }
 
@@ -482,11 +495,7 @@ async function handleMfaLike(
     // A post-verify MINT failure after the issuer rotated: the client must keep the live token, not the spent one.
     const rotated = candidate ? rotatedRefreshToken(undefined, e) : "";
     // The issuer's own refusal inside a LoginMintError is relayed; a partner hook's error is not leaked to the SPA.
-    const inner = e instanceof Error && e.name === "LoginMintError"
-      ? ((e as { cause?: unknown }).cause instanceof RealmError
-        ? (e as { cause: RealmError }).cause
-        : new RealmError({ code: "server_error", message: "mint failed", httpStatus: 500 }))
-      : e;
+    const inner = unwrapMintError(e);
     if (rotated) {
       if (cfg.tokenDelivery === "cookie") setRefreshCookie(res, cfg, rotated);
       else if (inner instanceof RealmError) {
@@ -856,8 +865,9 @@ function globToRegex(pat: string, braces = false): RegExp {
       // `/**` = zero or more segments, so it also matches the bare prefix.
       re += "(?:/.*)?";
       i += 3;
-      // A following "/" belongs to the segments the group already spans.
-      if (pat[i] === "/") i++;
+      // A following "/" is KEPT as the boundary before the next literal: `/a/**/b`
+      // must not match `/ab` or `/a/xb` (that failed OPEN for exemptPaths).
+      if (pat[i] === "/") { re += "/"; i++; }
     } else if (c === "*" && pat[i + 1] === "*") {
       re += ".*";
       i += 2;

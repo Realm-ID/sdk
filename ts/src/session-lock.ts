@@ -32,6 +32,22 @@ export const MFA_VERIFY_FP = "mfa-verify";
 /** How many times `auth.token` follows a rotated token handed over by a winner. */
 const TOKEN_MAX_HOPS = 3;
 
+/** The bound on every outcome load/store and lock release (go `storeOutcomeTimeout`). */
+export const STORE_OUTCOME_TIMEOUT_MS = 2_000;
+
+/**
+ * Bounds a store call at {@link STORE_OUTCOME_TIMEOUT_MS}, INDEPENDENT of the request: a hung store
+ * rejects at the bound instead of hanging the lock path (go `freshCtx`). Callers map the
+ * rejection exactly as they map any store error.
+ */
+export function boundedStore<T>(p: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const t = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`session store timed out after ${STORE_OUTCOME_TIMEOUT_MS} ms`)), STORE_OUTCOME_TIMEOUT_MS);
+  });
+  return Promise.race([p, t]).finally(() => clearTimeout(timer));
+}
+
 export const sleepMs = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export interface LockDeps {
@@ -73,9 +89,17 @@ export function relayStatus(e: RealmError, dflt = 500): number {
   return e.httpStatus ?? dflt;
 }
 
+/** The status a stored error outcome shows the SPA: the stored ISSUER status, remapped only here (go `toStoredErr` + relay). */
+export function outcomeRelayStatus(o: RefreshOutcome): number {
+  const code = ((o.body ?? {}) as { error?: { code?: string } }).error?.code;
+  if (code === "escort_suspended") return 503;
+  return o.status ?? 500;
+}
+
 export function errorOutcome(fp: string, e: unknown): RefreshOutcome {
   if (e instanceof RealmError) {
-    return { fp, ok: false, status: relayStatus(e), body: { ...(e.details ?? {}), error: { code: e.code, message: e.message } } };
+    // The ISSUER's status is stored; the relay remap (escort -> 503) happens on the wire only.
+    return { fp, ok: false, status: e.httpStatus ?? 500, body: { ...(e.details ?? {}), error: { code: e.code, message: e.message } } };
   }
   return { fp, ok: false, status: 500, body: { error: { code: "server_error", message: (e as Error).message ?? "unknown" } } };
 }
@@ -103,13 +127,13 @@ const inProgress = (): RealmError =>
  * the session).
  */
 export async function readOutcome(store: SessionStateStore, outcomeKey: string): Promise<RefreshOutcome | undefined> {
-  const raw = await store.getRefreshResult(outcomeKey);
+  const raw = await boundedStore(store.getRefreshResult(outcomeKey));
   return raw === undefined ? undefined : (JSON.parse(raw) as RefreshOutcome);
 }
 
 export async function storeOutcome(deps: LockDeps, refreshToken: string, o: RefreshOutcome): Promise<void> {
   try {
-    await deps.store.putRefreshResult(await outKey(refreshToken), JSON.stringify(o), OUTCOME_TTL_MS);
+    await boundedStore(deps.store.putRefreshResult(await outKey(refreshToken), JSON.stringify(o), OUTCOME_TTL_MS));
   } catch (e) {
     deps.logger.warn("realmid: storing refresh outcome failed", { message: (e as Error).message });
   }
@@ -134,7 +158,7 @@ export async function acquireSessionLock(deps: LockDeps, refreshToken: string): 
     }
     if (l.acquired) {
       return async () => {
-        try { await l.release(); } catch (e) { deps.logger.warn("realmid: refresh lock release failed", { message: (e as Error).message }); }
+        try { await boundedStore(l.release()); } catch (e) { deps.logger.warn("realmid: refresh lock release failed", { message: (e as Error).message }); }
       };
     }
     if (i + 1 < POLL_TRIES) await sleepMs(POLL_MS);
@@ -288,6 +312,7 @@ async function tokenLockedOnce(
     throw unavailable(e);
   }
   let oc: RefreshOutcome | undefined;
+  let mintErr: unknown;
   if (lock.acquired) {
     try {
       try {
@@ -303,13 +328,18 @@ async function tokenLockedOnce(
       if (!oc) {
         const settle = (o: RefreshOutcome) => storeOutcome(deps, key, o);
         oc = await boundedOutcome(fp, async () => {
-          const r = await mint(req);
-          return { fp, ok: true, refreshToken: r.refreshToken, token: r };
+          try {
+            const r = await mint(req);
+            return { fp, ok: true, refreshToken: r.refreshToken, token: r };
+          } catch (e) {
+            mintErr = e; // the winner rethrows the ORIGINAL (cause intact); the stored copy is for losers
+            throw e;
+          }
         }, settle);
         await settle(oc); // errors too: a retry of a consumed token is a reuse
       }
     } finally {
-      await lock.release().catch((e) => deps.logger.warn("realmid: refresh lock release failed", { message: (e as Error).message }));
+      await boundedStore(lock.release()).catch((e) => deps.logger.warn("realmid: refresh lock release failed", { message: (e as Error).message }));
     }
   } else {
     for (let i = 0; i < POLL_TRIES && !oc; i++) {
@@ -320,6 +350,7 @@ async function tokenLockedOnce(
     if (!oc) throw inProgress();
   }
   if (!oc.ok) {
+    if (mintErr instanceof RealmError && oc.fp === fp) throw mintErr;
     if (oc.fp === fp || tokenLevelErr(oc)) throw errorOfOutcome(oc);
     // Another request's shape-specific failure says nothing about this one. Every issuer 4xx on /auth/token is
     // returned before the rotation is written, so the token is still live: go round again on it.

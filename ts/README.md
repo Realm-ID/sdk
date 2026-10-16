@@ -39,7 +39,7 @@ for await (const tenant of realm.tenants.list()) {
 }
 ```
 
-## Upgrading to 0.63.0 — breaking changes
+## Upgrading to 0.55.0 — breaking changes
 
 - **`sessionStore` is REQUIRED** (SPEC §6.7.5). `createRealm` throws
   `RealmError` code `invalid_config` without one. Pass

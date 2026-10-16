@@ -161,10 +161,19 @@ export class Verifier {
     // cache. Opt-in: nil cache → no-op. Cache errors fail closed
     // (request rejected).
     const sessionKey = sessionKeyOf(claims);
-    if (this.revocation && sessionKey) {
+    if (this.revocation) {
+      // Keyed on the session key AND, when it differs, the jti: a partner that calls
+      // revoke(claims.jti, …) itself (the pre-0.63 documented use) must stay effective
+      // once sid != jti (go verifier.go parity).
+      const keys: string[] = sessionKey ? [sessionKey] : [];
+      const jti = typeof claims.jti === "string" ? claims.jti : "";
+      if (jti && jti !== sessionKey) keys.push(jti);
       let revoked = false;
       try {
-        revoked = await this.revocation.isRevoked(sessionKey);
+        for (const k of keys) {
+          if (!k) continue;
+          if (await this.revocation.isRevoked(k)) { revoked = true; break; }
+        }
       } catch (e) {
         throw rerr("unauthorized", "revocation cache: " + (e as Error).message);
       }
