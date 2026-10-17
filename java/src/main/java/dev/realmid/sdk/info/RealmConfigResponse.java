@@ -55,6 +55,26 @@ public final class RealmConfigResponse {
         return singleTenantPendingReconciliation;
     }
 
+    /**
+     * Typed view of the realm's {@code phone_otp} config group (ADR-115; SPEC 6.5): how many phone
+     * codes (SMS and WhatsApp together) one number may be sent per window. Default 5 per 900s;
+     * RealmID's ceiling is 20 per 3600s. Written through the generic config PATCH, e.g.
+     * {@code Map.of("phone_otp", Map.of("max_per_window", 8))} (a PATCH merges).
+     *
+     * <p>Empty means the issuer did not send it (an older issuer) or sent something unreadable;
+     * it is never a zeroed object, which would invent a limit of 0.
+     */
+    public java.util.Optional<PhoneOtpConfig> phoneOtp() {
+        if (!(config.get("phone_otp") instanceof Map<?, ?> m)) return java.util.Optional.empty();
+        if (!(m.get("max_per_window") instanceof Number max) || !(m.get("window_seconds") instanceof Number win)) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new PhoneOtpConfig(max.intValue(), win.intValue()));
+    }
+
+    /** The {@code phone_otp} config group as read (ADR-115). */
+    public record PhoneOtpConfig(int maxPerWindow, int windowSeconds) {}
+
     public void setId(String v) { this.id = v; }
     public void setConfig(Map<String, Object> v) {
         this.config = v == null ? new LinkedHashMap<>() : v;

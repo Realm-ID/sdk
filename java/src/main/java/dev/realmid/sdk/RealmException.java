@@ -66,4 +66,27 @@ public class RealmException extends RuntimeException {
     public static boolean isEscortSuspended(Throwable t) {
         return t instanceof RealmException re && re.code == ErrorCode.ESCORT_SUSPENDED;
     }
+
+    /** 400 {@code invalid_channel_config}: a messaging save broke a shape rule; the message names the field. */
+    public static boolean isInvalidChannelConfig(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.INVALID_CHANNEL_CONFIG;
+    }
+
+    /** 422 {@code channel_validation_failed}: the provider refused the credentials; nothing was stored. */
+    public static boolean isChannelValidationFailed(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.CHANNEL_VALIDATION_FAILED;
+    }
+
+    /** 404 {@code channel_not_configured}: the realm has saved nothing for that channel. */
+    public static boolean isChannelNotConfigured(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.CHANNEL_NOT_CONFIGURED;
+    }
+
+    /**
+     * 429 {@code phone_otp_rate_limited}: this number was sent the realm's limit of phone codes
+     * within the window. The wait is the Retry-After header, which this SDK does not surface.
+     */
+    public static boolean isPhoneOtpRateLimited(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.PHONE_OTP_RATE_LIMITED;
+    }
 }

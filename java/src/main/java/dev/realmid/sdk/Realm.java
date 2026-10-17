@@ -25,6 +25,7 @@ import dev.realmid.sdk.integrations.IntegrationsClient;
 import dev.realmid.sdk.sessions.SessionsClient;
 import dev.realmid.sdk.me.MeClient;
 import dev.realmid.sdk.signingkeys.SigningKeysClient;
+import dev.realmid.sdk.messaging.MessagingClient;
 import dev.realmid.sdk.stats.StatsClient;
 import dev.realmid.sdk.sources.SourcesClient;
 import dev.realmid.sdk.tenants.TenantsClient;
@@ -99,6 +100,7 @@ public final class Realm {
     private final RealmInfoClient info;
     private final ConfigClient config;
     private final StatsClient stats;
+    private final MessagingClient messaging;
     private final PlatformTokenManager platformTokens;
     private final Clock clock;
     private final dev.realmid.sdk.authority.AuthorityCache authority;
@@ -189,6 +191,7 @@ public final class Realm {
         this.me = new MeClient(this.http, this.auth::revokeSessionEverywhere);
         this.config = new ConfigClient(this.http, this.realmId);
         this.stats = new StatsClient(this.http, this.realmId);
+        this.messaging = new MessagingClient(this.http, this.realmId);
     }
 
     /**
@@ -246,6 +249,7 @@ public final class Realm {
         this.me = new MeClient(this.http, this.auth::revokeSessionEverywhere);
         this.config = new ConfigClient(this.http, this.realmId);
         this.stats = new StatsClient(this.http, this.realmId);
+        this.messaging = new MessagingClient(this.http, this.realmId);
     }
 
     /**
@@ -407,6 +411,8 @@ public final class Realm {
     public ConfigClient config() { return config; }
     /** Platform KPI rollup (orgs/users/sessions-24h/MFA coverage). */
     public StatsClient stats() { return stats; }
+    /** Phone-code channels: the realm's own Twilio / WhatsApp credentials (ADR-115, SPEC 6.16). */
+    public MessagingClient messaging() { return messaging; }
     public RealmInfo info() { return info.info(); }
 
     /** Test-only / advanced: clear the cached realm info and audience. */
