@@ -400,7 +400,7 @@ UNRELEASED):
 
 | Code | HTTP | Raised by | Meaning / remedy |
 |---|---|---|---|
-| `invalid_channel_config` | 400 | `messaging.put` | The body breaks a shape rule: neither or both auth forms, neither or both sender forms, a field that belongs to the other provider, or a `from_number` that is not strict E.164. The message names the field. Nothing was stored. |
+| `invalid_channel_config` | 400 | `messaging.put` | The body breaks a shape rule: neither or both auth forms, neither or both sender forms, a field that belongs to the other provider, or a `from_number` that is not strict E.164, or a secret under 20 characters. The message names the field. Nothing was stored. |
 | `channel_validation_failed` | 422 | `messaging.put` | The provider refused the credentials when RealmID asked it (no message is sent for this check). The message carries the provider's reason, never a secret. Nothing was stored. Fix the credentials and save again. |
 | `channel_not_configured` | 404 | `messaging.get` | The realm has no saved credentials for that channel. Not a failure for a first-time setup screen: show the empty form. |
 | `phone_otp_rate_limited` | 429 | `otp.issue` with `deliveryMode` `sms` / `whatsapp` | This phone number has already been sent the realm's `phone_otp` limit within the window (one counter for both channels). Wait, then retry. The wait is the `Retry-After` header (seconds). |
@@ -428,9 +428,10 @@ UNRELEASED):
 > reads the header off its own HTTP response until that lands. ts/java were not checked.
 >
 > A per-recipient refusal (this ONE number cannot receive on the channel: invalid, opted out, not
-> on WhatsApp) is a 4xx the issuer may add; its code is not settled (ADR-115 open item 7) and is
-> NOT in this table. Until it is, such a refusal reaches the caller as its status-derived code with
-> the issuer's code in `details.server_code`.
+> on WhatsApp; Twilio `21608` and Meta `130497` are of this class) answers `400
+> no_delivery_address`, the message naming the channel ("this phone number cannot receive codes on
+> <channel>"). It is the existing registered code, so it lands on `.Code` like any other. It is
+> the number's problem, not the realm's: it never marks the channel `failing`.
 
 **Management / generic codes:**
 
@@ -2679,7 +2680,8 @@ Promoted from a nested namespace for ergonomics:
   `{ max_per_window, window_seconds }` — how many phone codes (SMS and WhatsApp together, one
   counter per realm and phone number) one number may be sent per window. Default **5 per 900
   seconds**. A PATCH MERGES into the group, so `{"phone_otp": {"max_per_window": 8}}` leaves the
-  window alone. RealmID's ceiling is a RATE of **20 codes per 3600 seconds**, checked on the merged
+  window alone. RealmID's ceiling is a RATE of **20 codes per 3600 seconds**, so `window_seconds` may not exceed
+  **3600** (`400 invalid_config_value`), and the rate is checked on the merged
   pair: a patch that would exceed it answers `400 invalid_config_value` naming the ceiling and is
   never clamped. An unknown key inside the group is `400 unknown_config_key`. `realm.config.get()`
   returns the group like any other key. Go adds a typed READ view, `ConfigValues.PhoneOTP()` →
@@ -3192,7 +3194,10 @@ form: `from_number` (strict E.164) OR `messaging_service_sid` (`MG…`). **Save 
 `template_language` (e.g. `en`, `en_US`); the template is an APPROVED authentication template with
 a copy-code button, created by the partner in its own WhatsApp Business Account. `provider` may be
 sent (`twilio` / `meta`) and must match the channel. A field of the other provider, or a broken
-exactly-one-of rule, is `400 invalid_channel_config` naming the field.
+exactly-one-of rule, is `400 invalid_channel_config` naming the field. So is a secret
+(`auth_token`, `api_key_secret`, `access_token`) shorter than **20 characters** (real ones are 32+;
+the 4-character `secret_hint` must stay a small part of the value). The SDKs do not pre-check this;
+the issuer is the authority.
 
 **Secrets are write-only.** `auth_token`, `api_key_secret` and `access_token` exist ONLY on the
 write type of every SDK; no read type has them, so a read can never echo one back by accident.
@@ -4087,6 +4092,9 @@ constants per language (go `DeliveryModeViewBFF` / `…Email` / `…SMS` / `…W
 - `view_bff` returns the plaintext OTP to the **caller** (the BFF/manager
   console) rather than delivering it to the subject — the handoff used to log
   service accounts in (§6.11).
+- Viewing an OTP again (`GET /auth/otp/{id}`) returns the code **ONLY for `view_bff` OTPs**; every
+  other delivery mode answers `404 otp_not_found`, as does an OTP the caller did not mint (a
+  security fix: a delivered code must never be readable by the caller).
 - `email` / `sms` / `whatsapp` have RealmID deliver it to the SUBJECT. The caller does **not**
   receive the plaintext: `value` is omitted and `delivered` reports which
   transport ran. **There is no fallback between them** — asking for `sms` and

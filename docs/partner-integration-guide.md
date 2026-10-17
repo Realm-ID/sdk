@@ -498,7 +498,10 @@ There is no fallback: a `whatsapp` request is never quietly sent as an SMS.
 means Meta accepted the message, not that it arrived: if the number is not on WhatsApp,
 or Meta holds the message back, nobody tells RealmID, and your user would otherwise wait
 for a code that is not coming. If a send is refused with `503 delivery_unavailable`,
-the response names the `channel` that failed; offer the other one.
+the response names the `channel` that failed (and carries `Retry-After`); offer the other one.
+If the provider says THIS number cannot receive (invalid, opted out, not on WhatsApp; Twilio
+`21608`, Meta `130497`), the answer is `400 no_delivery_address` naming the channel; that is the
+number's problem, not yours, and the channel stays healthy.
 
 **5. The limit.** By default one phone number may be sent 5 codes per 15 minutes in
 your realm, SMS and WhatsApp counted together (switching channel does not reset it).
@@ -512,8 +515,8 @@ curl -X PATCH https://auth.realmid.dev/platforms/$REALM_ID/config \
   -d '{"phone_otp":{"max_per_window":8,"window_seconds":900}}'
 ```
 
-RealmID's ceiling is 20 codes per 3600 seconds; asking for more is refused
-(`400 invalid_config_value`), not trimmed. The limit protects the person whose phone it
+RealmID's ceiling is 20 codes per 3600 seconds, so `window_seconds` may not exceed 3600;
+asking for more is refused (`400 invalid_config_value`), not trimmed. The limit protects the person whose phone it
 is, so set it to what a real user needs, not to what you can afford.
 
 ### Password reset links and change at sign-in (ADR-111, ADR-104 amendment — issuer spec `0.53.0`, live since issuer `v0.134.0`)
@@ -1500,7 +1503,8 @@ approver) consume it, with RealmID owning the hash, the consume,
 and the audit trail. Three HTTP routes:
 
 - `POST /auth/otp/issue { subject_ref, purpose }` — mint.
-- `GET  /auth/otp/{id}` — re-display plaintext (issuer-scoped, until TTL).
+- `GET  /auth/otp/{id}` — re-display plaintext, for `view_bff` OTPs ONLY (issuer-scoped,
+  until TTL); every other delivery mode, and any OTP you did not mint, answers `404`.
 - `POST /auth/otp/verify { subject_ref, purpose, presented }` —
   hash-match, consume, return the issuer for partner audit.
 
