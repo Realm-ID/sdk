@@ -291,6 +291,14 @@ public enum ErrorCode {
     RESET_TOKEN_EXPIRED("reset_token_expired"),
     RESET_TOKEN_USED("reset_token_used"),
     RESET_TOKEN_SUPERSEDED("reset_token_superseded"),
+    // Phone-delivery channel codes (SPEC section 3.1; ADR-115, issuer spec 0.60.0).
+    // delivery_unavailable is deliberately NOT here: it has shipped since ADR-103 and
+    // arrives as details.server_code, so registering it would move it. Its new
+    // `channel` field lands in details.channel.
+    INVALID_CHANNEL_CONFIG("invalid_channel_config"),
+    CHANNEL_VALIDATION_FAILED("channel_validation_failed"),
+    CHANNEL_NOT_CONFIGURED("channel_not_configured"),
+    PHONE_OTP_RATE_LIMITED("phone_otp_rate_limited"),
     NOT_FOUND("not_found"),
     CONFLICT("conflict"),
     RATE_LIMITED("rate_limited"),

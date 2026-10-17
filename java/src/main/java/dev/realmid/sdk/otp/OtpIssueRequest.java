@@ -53,6 +53,12 @@ public record OtpIssueRequest(String subjectRef, String purpose,
      */
     public static final String DELIVERY_MODE_SMS = "sms";
 
+    /**
+     * ADR-115: RealmID sends the code by WhatsApp through the realm's own Meta account. Allowed
+     * for {@code purpose="login"}. No fallback to {@code sms}; a 200 means Meta ACCEPTED the message.
+     */
+    public static final String DELIVERY_MODE_WHATSAPP = "whatsapp";
+
     /** Back-compat 5-arg constructor (no delivery mode — issuer default). */
     public OtpIssueRequest(String subjectRef, String purpose,
                            String userId, String userBearer, String onBehalfOfIp) {
