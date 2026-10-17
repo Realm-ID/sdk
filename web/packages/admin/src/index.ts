@@ -25,6 +25,7 @@ import {
   DomainsClient,
   AdminClient,
   SigningKeysClient as OwnerSigningKeysClient,
+  MessagingClient,
   ServiceAccountsClient,
   SourcesClient,
   IntegrationsClient,
@@ -104,6 +105,12 @@ export interface Admin {
   signingKeys: SigningKeysClient;
   /** Owner-facing signing-key read + self-serve rotate (/platforms/{id}/signing-keys). */
   keys: OwnerSigningKeysClient;
+  /**
+   * The realm's own SMS (Twilio) / WhatsApp (Meta) credentials for phone sign-in
+   * codes (ADR-115; SPEC §6.16). Secrets are write-only: they exist on the save
+   * types and on no read type. Gated on the realm permission `platform:config`.
+   */
+  messaging: MessagingClient;
   /** Service accounts (ADR-071) — kind=service identities per tenant. */
   serviceAccounts: ServiceAccountsClient;
   /** Cross-realm integrations (ADR-082/083): source register/mint + target install. */
@@ -173,6 +180,7 @@ export function createAdmin(realm: Realm, opts: CreateAdminOptions): Admin {
     federationBindings: new FederationBindingsClient(httpAsClient, rid),
     signingKeys: new SigningKeysClient(http),
     keys: new OwnerSigningKeysClient(httpAsClient, rid),
+    messaging: new MessagingClient(httpAsClient, rid),
     serviceAccounts: new ServiceAccountsClient(httpAsClient),
     sources: new SourcesClient(httpAsClient, rid),
     integrations: new IntegrationsClient(httpAsClient, rid),
@@ -229,7 +237,25 @@ export {
   capAllows,
   isUserApiKeyRevoked,
   DELIVERY_MODE_VIEW_BFF,
+  DELIVERY_MODE_SMS,
+  DELIVERY_MODE_WHATSAPP,
 } from "@realm-id/sdk/internal";
+
+/**
+ * ADR-115 phone-code delivery: the four registered channel codes' predicates and
+ * the typed `phone_otp` config view, re-exported so a console never re-derives
+ * them. `delivery_unavailable` is NOT registered; read `details.server_code` and
+ * `details.channel`.
+ */
+export {
+  isInvalidChannelConfig,
+  isChannelValidationFailed,
+  isChannelNotConfigured,
+  isPhoneOtpRateLimited,
+  phoneOtpConfig,
+  offersPhoneLogin,
+} from "@realm-id/sdk";
+export type { PhoneOtpConfig } from "@realm-id/sdk";
 
 // Wire types.
 export type * from "./types.js";
@@ -267,6 +293,11 @@ export type {
   SigningKeyRotation,
   SigningKeysResponse,
   RotateSigningKeyResult,
+  MessagingChannel,
+  MessagingChannelName,
+  MessagingDeleteResult,
+  TwilioChannel,
+  WhatsAppChannel,
   DomainClaim,
   DomainVerifyResult,
   PlatformOwner,

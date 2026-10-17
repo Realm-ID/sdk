@@ -152,6 +152,17 @@ export interface ProvidersResponse {
    * "credential login is off" and hide a working method.
    */
   credentialMethods?: string[];
+  /**
+   * ADR-115 (SPEC §4.1.4a) — the phone channels the realm has configured AND
+   * that are operational right now, in the fixed order `"whatsapp"`, `"sms"`.
+   *
+   * **ABSENT means "the server did not say"** (an older issuer); `[]` means
+   * "this realm has no working phone channel". Do not read absence as `[]`.
+   * Offer a phone option via `offersPhoneLogin`, and keep "send by SMS instead"
+   * visible beside WhatsApp whenever `"sms"` is listed (WhatsApp can fail to
+   * arrive after the issuer accepted it).
+   */
+  phoneChannels?: Array<"whatsapp" | "sms">;
 }
 
 export interface MeResponse {

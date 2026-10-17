@@ -32,7 +32,7 @@ import type { HttpClient } from "./http.js";
  * which is the whole property. A subject with no address of the requested kind
  * is a 400 and the issue FAILS.
  */
-export type OtpDeliveryMode = "view_bff" | "email" | "sms";
+export type OtpDeliveryMode = "view_bff" | "email" | "sms" | "whatsapp";
 
 /** Returns the plaintext to the authorized caller (ADR-071 §4). The default. */
 export const DELIVERY_MODE_VIEW_BFF: OtpDeliveryMode = "view_bff";
@@ -40,6 +40,13 @@ export const DELIVERY_MODE_VIEW_BFF: OtpDeliveryMode = "view_bff";
 export const DELIVERY_MODE_EMAIL: OtpDeliveryMode = "email";
 /** RealmID texts the code to the subject's phone (ADR-103). Allowed for `purpose=login`, any kind. */
 export const DELIVERY_MODE_SMS: OtpDeliveryMode = "sms";
+
+/**
+ * RealmID sends the code to the subject on WhatsApp, through the realm's own
+ * Meta account (ADR-115). Allowed for `purpose=login`, any kind; never falls
+ * back to SMS.
+ */
+export const DELIVERY_MODE_WHATSAPP: OtpDeliveryMode = "whatsapp";
 
 export interface OtpIssueRequest {
   subjectRef: string;
@@ -58,6 +65,12 @@ export interface OtpIssueRequest {
 export interface OtpIssueResponse {
   id: string;
   value: string;
+  /**
+   * The transport that ran when RealmID delivered the code; absent for
+   * `view_bff`, where `value` is set instead. For `sms` / `whatsapp` a 200 means
+   * the provider ACCEPTED the message, not that it arrived.
+   */
+  delivered?: "email" | "sms" | "whatsapp";
   expiresAt: string;
   purpose: string;
   subjectRef: string;
@@ -90,6 +103,7 @@ export interface OtpVerifyResponse {
 interface RawIssueResp {
   id: string;
   value: string;
+  delivered?: unknown;
   expires_at: string;
   purpose: string;
   subject_ref: string;
@@ -128,9 +142,11 @@ export class OtpClient {
       bearer: req.userBearer,
       body,
     });
+    const delivered = raw.delivered;
     return {
       id: raw.id,
       value: raw.value,
+      ...(delivered === "email" || delivered === "sms" || delivered === "whatsapp" ? { delivered } : {}),
       expiresAt: raw.expires_at,
       purpose: raw.purpose,
       subjectRef: raw.subject_ref,
