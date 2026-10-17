@@ -20,6 +20,7 @@ import { RolesClient } from "./roles.js";
 import { RoleTemplatesClient } from "./role-templates.js";
 import { ScopesClient } from "./scopes.js";
 import { SigningKeysClient } from "./signing-keys.js";
+import { MessagingClient } from "./messaging.js";
 import { IdentityProviderConfigClient } from "./identity-provider-config.js";
 import { IdentityProvidersClient } from "./identity-providers.js";
 import { FederationBindingsClient } from "./federation-bindings.js";
@@ -215,6 +216,11 @@ export interface Realm {
   readonly scopes: ScopesClient;
   /** Owner-facing signing-key read + self-serve rotate. */
   readonly signingKeys: SigningKeysClient;
+  /**
+   * The realm's own SMS (Twilio) / WhatsApp (Meta) credentials for phone
+   * sign-in codes (ADR-115; SPEC §6.16). Secrets are write-only.
+   */
+  readonly messaging: MessagingClient;
   /**
    * Realm-admin CRUD for social/OIDC identity-provider configs. Distinct
    * from the public IdP discovery surface.
@@ -430,6 +436,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       roleTemplates: new RoleTemplatesClient(client, cfg.realmId),
       scopes: new ScopesClient(client, cfg.realmId),
       signingKeys: new SigningKeysClient(client, cfg.realmId),
+      messaging: new MessagingClient(client, cfg.realmId),
       identityProviderConfig: new IdentityProviderConfigClient(client, cfg.realmId),
       identityProviders: new IdentityProvidersClient(client, cfg.realmId),
       origins: new OriginsClient(client, platformTokens),

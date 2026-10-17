@@ -37,7 +37,7 @@ export type { SessionStateStore, SessionState, RefreshLock } from "./session-sto
 export { OrgSessionModeResolver } from "./org-session.js";
 export type { OrgSessionMode } from "./org-session.js";
 
-export { RealmError, RefreshSupersededError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled } from "./errors.js";
+export { RealmError, RefreshSupersededError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled, isInvalidChannelConfig, isChannelValidationFailed, isChannelNotConfigured, isPhoneOtpRateLimited } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";
@@ -147,8 +147,8 @@ export type {
   RoleTemplateDeleted,
 } from "./role-templates.js";
 
-export { ConfigClient } from "./config.js";
-export type { RealmConfigValues, RealmConfigResponse } from "./config.js";
+export { ConfigClient, phoneOtpConfig } from "./config.js";
+export type { RealmConfigValues, RealmConfigResponse, PhoneOtpConfig } from "./config.js";
 
 export { MeClient } from "./me.js";
 export type { SetPasswordRequest, PasswordSet } from "./me.js";
@@ -164,6 +164,16 @@ export type {
 
 export { StatsClient } from "./stats.js";
 export type { PlatformStats, MfaCoverage } from "./stats.js";
+
+export { MessagingClient, MESSAGING_CHANNEL_SMS, MESSAGING_CHANNEL_WHATSAPP } from "./messaging.js";
+export type {
+  MessagingChannel,
+  MessagingChannelName,
+  MessagingStatus,
+  MessagingDeleteResult,
+  TwilioChannel,
+  WhatsAppChannel,
+} from "./messaging.js";
 
 export { SigningKeysClient } from "./signing-keys.js";
 export type {
@@ -185,7 +195,7 @@ export type {
   IdpClientType,
 } from "./identity-provider-config.js";
 
-export { IdentityProvidersClient } from "./identity-providers.js";
+export { IdentityProvidersClient, offersPhoneLogin } from "./identity-providers.js";
 export type {
   IdentityProvider,
   IdentityProvidersResponse,
@@ -228,6 +238,7 @@ export {
   DELIVERY_MODE_VIEW_BFF,
   DELIVERY_MODE_EMAIL,
   DELIVERY_MODE_SMS,
+  DELIVERY_MODE_WHATSAPP,
 } from "./otp.js";
 export type {
   OtpDeliveryMode,

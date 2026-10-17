@@ -73,6 +73,15 @@ export {
 } from "./scopes.js";
 
 export {
+  MessagingClient,
+  type MessagingChannel,
+  type MessagingChannelName,
+  type MessagingDeleteResult,
+  type TwilioChannel,
+  type WhatsAppChannel,
+} from "./messaging.js";
+
+export {
   SigningKeysClient,
   type SigningKey,
   type SigningKeyRotation,
