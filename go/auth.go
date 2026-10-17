@@ -73,6 +73,10 @@ const (
 	// DeliveryModeSMS has RealmID text the code to the subject's phone
 	// (ADR-103). Allowed for purpose=login, for a principal of ANY kind.
 	DeliveryModeSMS = "sms"
+	// DeliveryModeWhatsApp has RealmID send the code to the subject's phone on
+	// WhatsApp, through the realm's own Meta account (ADR-115). Allowed for
+	// purpose=login, for a principal of ANY kind; never falls back to SMS.
+	DeliveryModeWhatsApp = "whatsapp"
 )
 
 // LoginRequest carries the inputs to realm.Auth.Login. Custom claims

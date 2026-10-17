@@ -31,7 +31,10 @@ class SecretToStringTest {
             "RefreshOutcome.code",       // an error code
             "OtpVerifyResponse.otpId",   // a row id
             "DomainClaim.claimToken",    // published by design: the caller puts it in a DNS TXT record
-            "TxtRecord.value");          // ditto
+            "TxtRecord.value",           // ditto
+            "TwilioChannel.apiKeySid",   // a public identifier (SK...); the secret half is apiKeySecret
+            "MessagingChannel.apiKeySid", // ditto, on the read type
+            "MessagingChannel.secretHint"); // the last 4 chars of the primary secret, by design (SPEC 6.16)
 
     @Test
     void noRecordToStringCarriesASecret() throws Exception {

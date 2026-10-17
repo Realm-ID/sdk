@@ -34,11 +34,34 @@ public record IdentityProvidersResponse(
          */
         @JsonProperty("password_policy") @JsonAlias("passwordPolicy")
         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-        PasswordPolicy passwordPolicy) {
+        PasswordPolicy passwordPolicy,
+        /**
+         * The phone channels ({@code "whatsapp"}, {@code "sms"}) the realm has configured AND that are
+         * operational right now (ADR-115; SPEC 4.1.4a). {@code null} means the server did not say (an older
+         * issuer); an EMPTY list means the realm has no working phone channel. They are different facts and
+         * both survive re-serialisation (null is omitted, an empty list is written as {@code []}). Offer a
+         * phone option via {@link #offersPhoneLogin()}.
+         */
+        @JsonProperty("phone_channels") @JsonAlias("phoneChannels")
+        @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+        List<String> phoneChannels) {
+
+    /** Pre-ADR-115 constructor: no phone channels (absent). */
+    public IdentityProvidersResponse(String tenantId, List<PublicIdentityProvider> providers,
+                                     List<String> credentialMethods, PasswordPolicy passwordPolicy) {
+        this(tenantId, providers, credentialMethods, passwordPolicy, null);
+    }
+
+    /** True when a login screen should offer a phone option: credentialMethods has "otp" AND phoneChannels is present and non-empty. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public boolean offersPhoneLogin() {
+        return phoneChannels != null && !phoneChannels.isEmpty()
+                && credentialMethods != null && credentialMethods.contains("otp");
+    }
 
     /** Pre-ADR-111 constructor: no password policy. */
     public IdentityProvidersResponse(String tenantId, List<PublicIdentityProvider> providers,
                                      List<String> credentialMethods) {
-        this(tenantId, providers, credentialMethods, null);
+        this(tenantId, providers, credentialMethods, null, null);
     }
 }

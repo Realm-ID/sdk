@@ -51,6 +51,30 @@ type IdentityProvidersResponse struct {
 	// CredentialMethods it must live here so a BFF re-serialising this struct
 	// does not delete it.
 	PasswordPolicy *PasswordPolicy `json:"password_policy,omitempty"`
+
+	// PhoneChannels lists the phone channels ("whatsapp", "sms") the realm has
+	// configured AND that are operational right now (ADR-115 B3a; SPEC §4.1.4a).
+	// A POINTER TO A SLICE: nil means the server did not say (an older issuer);
+	// non-nil and empty means the realm has no working phone channel. A plain
+	// slice with omitempty would drop `[]` and make the two facts one. Like
+	// CredentialMethods it must live here so a BFF re-serialising this struct
+	// does not delete it. Offer a phone option via OffersPhoneLogin.
+	PhoneChannels *[]string `json:"phone_channels,omitempty"`
+}
+
+// OffersPhoneLogin reports whether a login screen should offer a phone option:
+// CredentialMethods contains "otp" AND PhoneChannels is present and non-empty.
+// An absent PhoneChannels (older issuer) offers nothing.
+func (r *IdentityProvidersResponse) OffersPhoneLogin() bool {
+	if r == nil || r.PhoneChannels == nil || len(*r.PhoneChannels) == 0 {
+		return false
+	}
+	for _, m := range r.CredentialMethods {
+		if m == "otp" {
+			return true
+		}
+	}
+	return false
 }
 
 // PasswordPolicy is the discovery view of a realm's password promise.

@@ -27,6 +27,32 @@ import type { RealmInfo } from "./info.js";
  */
 export type RealmConfigValues = Record<string, unknown>;
 
+/**
+ * Typed view of the realm's `phone_otp` config group (ADR-115 B4; SPEC §6.5):
+ * how many phone codes (SMS and WhatsApp together) one number may be sent per
+ * window. Default 5 per 900s; RealmID's ceiling is 20 per 3600s. Written through
+ * the generic patch, e.g. `update({ phone_otp: { max_per_window: 8 } })` (a PATCH
+ * merges).
+ */
+export interface PhoneOtpConfig {
+  max_per_window: number;
+  window_seconds: number;
+}
+
+/**
+ * Read the `phone_otp` group from `config.get().config`. `undefined` means the
+ * issuer did not send it (an older issuer) or sent something unreadable; it is
+ * never a zeroed object, which would invent a limit of 0.
+ */
+export function phoneOtpConfig(values: RealmConfigValues): PhoneOtpConfig | undefined {
+  const g = values["phone_otp"];
+  if (typeof g !== "object" || g === null) return undefined;
+  const max = Reflect.get(g, "max_per_window");
+  const win = Reflect.get(g, "window_seconds");
+  if (typeof max !== "number" || typeof win !== "number") return undefined;
+  return { max_per_window: max, window_seconds: win };
+}
+
 /** GET /platforms/{id}/config body: the realm id plus its config. */
 export interface RealmConfigResponse {
   id: string;

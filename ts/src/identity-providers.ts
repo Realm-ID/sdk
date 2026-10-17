@@ -49,6 +49,27 @@ export interface IdentityProvidersResponse {
    * re-serialising this type does not delete it.
    */
   password_policy?: { require_verified_email: boolean };
+  /**
+   * The phone channels the realm has configured AND that are operational right
+   * now, in the fixed order `"whatsapp"`, `"sms"` (ADR-115 B3a; SPEC §4.1.4a).
+   * ABSENT means "the server did not say" (an older issuer); `[]` means "this
+   * realm has no working phone channel". They are different facts: do not read
+   * absence as `[]`. Like `credential_methods` it lives here so a BFF
+   * re-serialising this type does not delete it. Offer a phone option via
+   * {@link offersPhoneLogin}.
+   */
+  phone_channels?: Array<"whatsapp" | "sms">;
+}
+
+/**
+ * Whether a login screen should offer a phone option: `credential_methods`
+ * contains `"otp"` AND `phone_channels` is present and non-empty. An absent
+ * `phone_channels` (older issuer) offers nothing.
+ */
+export function offersPhoneLogin(r: IdentityProvidersResponse): boolean {
+  const ch = r.phone_channels;
+  if (ch === undefined || ch.length === 0) return false;
+  return (r.credential_methods ?? []).includes("otp");
 }
 
 /** Tunes the discovery call (all optional). */

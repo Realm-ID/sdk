@@ -41,8 +41,12 @@ type IssueRequest struct {
 
 // IssueResponse mirrors api/internal/httpapi otpIssueResp.
 type IssueResponse struct {
-	ID         string    `json:"id"`
-	Value      string    `json:"value"`
+	ID    string `json:"id"`
+	Value string `json:"value"`
+	// Delivered names the transport that ran when RealmID delivered the code
+	// ("email", "sms", "whatsapp"); empty for view_bff, where Value is set
+	// instead. For sms/whatsapp a 200 means the provider ACCEPTED the message.
+	Delivered  string    `json:"delivered,omitempty"`
 	ExpiresAt  time.Time `json:"-"` // parsed from string field below
 	ExpiresAtS string    `json:"expires_at"`
 	Purpose    string    `json:"purpose"`

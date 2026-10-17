@@ -32,6 +32,32 @@ type ConfigPatch map[string]any
 //     applies_to_service}.
 type ConfigValues map[string]any
 
+// PhoneOTPConfig is the typed view of the realm's `phone_otp` config group
+// (ADR-115 B4; SPEC §6.5): how many phone codes (SMS and WhatsApp together) one
+// number may be sent per window. Default 5 per 900s; RealmID's ceiling is 20 per
+// 3600s. Written through the generic ConfigPatch, e.g.
+// ConfigPatch{"phone_otp": map[string]any{"max_per_window": 8}} (a PATCH merges).
+type PhoneOTPConfig struct {
+	MaxPerWindow  int `json:"max_per_window"`
+	WindowSeconds int `json:"window_seconds"`
+}
+
+// PhoneOTP reads the `phone_otp` group. nil means the issuer did not send it
+// (an older issuer) or sent something unreadable; it is never a zeroed struct,
+// which would invent a limit of 0.
+func (v ConfigValues) PhoneOTP() *PhoneOTPConfig {
+	m, ok := v["phone_otp"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	max, ok1 := m["max_per_window"].(float64)
+	win, ok2 := m["window_seconds"].(float64)
+	if !ok1 || !ok2 {
+		return nil
+	}
+	return &PhoneOTPConfig{MaxPerWindow: int(max), WindowSeconds: int(win)}
+}
+
 // ConfigResponse is the GET /platforms/{id}/config body: the realm id plus
 // its configuration projected onto the PATCH allowlist key set.
 type ConfigResponse struct {

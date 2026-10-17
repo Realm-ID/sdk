@@ -13,6 +13,10 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.5.4 — peer range accepts @realm-id/web 0.11 (2026-10-17)
+
+No source change. The `@realm-id/web` peer range was capped at `^0.8.0`, so a partner on web 0.11 (the release that adds `offersPhoneLogin()`) hit npm ERESOLVE. It now also accepts `^0.9.0 || ^0.10.0 || ^0.11.0`; core 0.9-0.11 are additive and this package imports only `AuthState`, `LoginRequest`, `LoginResponse`, `Realm`, `TenantRef`, `UserSummary`.
+
 ## 0.5.3 — declare `repository`, `license` and `homepage` (2026-09-18)
 
 No source change. This package.json carried none of them, alone among the five

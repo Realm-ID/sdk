@@ -4,6 +4,17 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.56.0 — bring-your-own phone-code delivery (ADR-115, issuer spec 0.60.0) (2026-10-17)
+
+At Go `0.68.0` parity. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1. Additive.
+
+### Added
+- `phone_channels` on discovery (`IdentityProvidersResponse`; absent is not `[]`) and `offersPhoneLogin(providers)`.
+- `deliveryMode` `"whatsapp"` (`DELIVERY_MODE_WHATSAPP`).
+- `MessagingClient` (`realm.messaging`) for `/platforms/{id}/messaging/{channel}`: save / read / delete the realm's Twilio (SMS) or WhatsApp credentials. Secrets are write-only (on the save types, on no read type).
+- `phoneOtpConfig(values)` / `PhoneOtpConfig` for the `phone_otp` realm config group.
+- Four newly REGISTERED codes with predicates: `invalid_channel_config`, `channel_validation_failed`, `channel_not_configured`, `phone_otp_rate_limited`. `delivery_unavailable` stays unregistered and carries `channel` in `details`.
+
 ## 0.55.0 — issuer spec 0.59.0 parity (`tenant_disabled`, `joined_via`, bulk status) + `user_suspended` / `escort_suspended` (2026-10-16)
 
 Published 2026-10-16 when the owner lifted the ts/java hold ("all SDKs at par"). It carries the formerly held v0.63-v0.64 session surface and the `user_suspended` / `escort_suspended` registration below, so `0.55.0` inherits their Breaking notes.

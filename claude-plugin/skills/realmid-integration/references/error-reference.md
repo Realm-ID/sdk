@@ -126,9 +126,20 @@ These come from issuing, viewing and verifying a one-time code. HTTP status is i
 | `invalid_purpose` | [400] `purpose` is not lowercase letters, digits and underscores, starting with a letter, up to 64 characters. | Fix the request. |
 | `invalid_subject_ref` | [400] `subject_ref` is empty or over 256 characters; for a `login` code it must be exactly `user:<id>`. | Fix the request. |
 | `invalid_scope` | [400] The call has no tenant or no acting user to scope the code to. (A scope rename also uses it for a name that is not a valid RFC 6749 scope token.) | Call with a user-scoped, tenant-scoped token. |
-| `unsupported_delivery_mode` | [400] `delivery_mode` is not `view_bff`, `email` or `sms` (WhatsApp is not available). | Use a supported mode, or omit it for `view_bff`. |
-| `delivery_unavailable` | [503] The mode is valid but this deployment has no transport configured for it. | Not your request's fault; use another mode or contact support. |
-| `no_delivery_address` | [400] `delivery_mode` is `email` and the code's subject has no email address on record. | Add an address first, or use another mode. |
+| `unsupported_delivery_mode` | [400] `delivery_mode` is not `view_bff`, `email`, `sms` or `whatsapp`. | Use a supported mode, or omit it for `view_bff`. |
+| `delivery_unavailable` | [503] The mode is valid but nothing can send it. For `sms` and `whatsapp` the body carries a `channel` field (`sms` or `whatsapp`; the SDKs put it in `details.channel`): the realm has not saved credentials for that channel, or the channel is marked `failing`. Not a registered SDK code: it reaches you as `details.server_code`. | Not the end user's fault. Offer the other channel if the realm lists one in discovery `phone_channels`; otherwise tell the realm owner to check the channel (`GET /platforms/{id}/messaging/{channel}` shows `status` and `status_reason`). |
+| `phone_otp_rate_limited` | [429] This phone number was already sent the realm's `phone_otp` limit of codes (default 5 per 15 minutes, one counter for SMS and WhatsApp together) within the window. The `Retry-After` header gives the seconds to wait. | Show "try again in a few minutes" and wait; switching channel does not help. The realm owner can raise the limit with `phone_otp` in realm config, up to RealmID's ceiling (20 per hour). |
+| `no_delivery_address` | [400] `delivery_mode` is `email` and the code's subject has no email address on record (or `sms` / `whatsapp` and no phone number). | Add an address first, or use another mode. |
+
+## Phone-code channel codes (`/platforms/{id}/messaging/{channel}`)
+
+These come from saving, reading and deleting a realm's own SMS (Twilio) or WhatsApp (Meta) credentials. HTTP status is in brackets. All three need the realm permission `platform:config`.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_channel_config` | [400] The saved body breaks a shape rule: neither or both Twilio auth forms (`auth_token` or `api_key_sid` + `api_key_secret`), neither or both sender forms (`from_number` in E.164 or `messaging_service_sid`), a field that belongs to the other provider, or a field of the wrong type. The message names the field. Nothing was stored. | Fix the named field and save again. |
+| `channel_validation_failed` | [422] Twilio or Meta refused the credentials when RealmID checked them (no message is sent for this check). The message is the provider's reason, never a secret. Nothing was stored. | Read the reason, fix the credential in the provider's console, save again. |
+| `channel_not_configured` | [404] The realm has no saved credentials for this channel. | For a first-time setup, show an empty form. Otherwise save the credentials with `PUT`. |
 
 ## API key codes
 

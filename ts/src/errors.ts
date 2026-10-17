@@ -208,6 +208,14 @@ export type ErrorCode =
   | "reset_token_expired"
   | "reset_token_used"
   | "reset_token_superseded"
+  // phone-delivery channels (SPEC §3.1; ADR-115, issuer spec 0.60.0), all new to
+  // the wire in that spec. `delivery_unavailable` is deliberately NOT registered:
+  // it has shipped since ADR-103 and arrives as `details.server_code`, so
+  // registering it would move it. Its new `channel` lands in `details.channel`.
+  | "invalid_channel_config"
+  | "channel_validation_failed"
+  | "channel_not_configured"
+  | "phone_otp_rate_limited"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -298,6 +306,30 @@ export function isEscortSuspended(e: unknown): boolean {
   return e instanceof RealmError && e.code === "escort_suspended";
 }
 
+/** True when `e` is the issuer's 400 `invalid_channel_config` (a messaging save broke a shape rule; the message names the field). */
+export function isInvalidChannelConfig(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "invalid_channel_config";
+}
+
+/** True when `e` is the issuer's 422 `channel_validation_failed` (the provider refused the credentials; nothing was stored). */
+export function isChannelValidationFailed(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "channel_validation_failed";
+}
+
+/** True when `e` is the issuer's 404 `channel_not_configured` (the realm saved nothing for that channel). */
+export function isChannelNotConfigured(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "channel_not_configured";
+}
+
+/**
+ * True when `e` is the issuer's 429 `phone_otp_rate_limited` (this number was
+ * sent the realm's limit of phone codes within the window). The wait is the
+ * `Retry-After` header, which this SDK does not surface.
+ */
+export function isPhoneOtpRateLimited(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "phone_otp_rate_limited";
+}
+
 /**
  * Map an HTTP status code to a fallback ErrorCode when the server response
  * does not carry an explicit `code` field.
@@ -348,6 +380,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "password_unchanged", "password_change_not_required", "reset_link_required",
   "verified_email_required", "no_verified_email", "reset_throttled",
   "reset_token_invalid", "reset_token_expired", "reset_token_used", "reset_token_superseded",
+  "invalid_channel_config", "channel_validation_failed", "channel_not_configured",
+  "phone_otp_rate_limited",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

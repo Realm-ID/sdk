@@ -4,6 +4,20 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.52.0 — bring-your-own phone-code delivery (ADR-115, issuer spec 0.60.0) (2026-10-17)
+
+At Go `0.68.0` parity; `build.gradle.kts` carries `0.52.0`. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1.
+
+### Added
+- `IdentityProvidersResponse.phoneChannels()` (`phone_channels`; null = absent, empty = none working) and `offersPhoneLogin()`.
+- `OtpIssueRequest.DELIVERY_MODE_WHATSAPP`.
+- `realm.messaging()` (`MessagingClient`, `TwilioChannel`, `WhatsAppChannel`, `MessagingChannel`, `MessagingDeleteResult`) for `/platforms/{id}/messaging/{channel}`. Secrets are write-only and redacted in `toString`.
+- `RealmConfigResponse.phoneOtp()` / `PhoneOtpConfig` for the `phone_otp` config group.
+- Four newly REGISTERED `ErrorCode`s with `RealmException` predicates: `INVALID_CHANNEL_CONFIG`, `CHANNEL_VALIDATION_FAILED`, `CHANNEL_NOT_CONFIGURED`, `PHONE_OTP_RATE_LIMITED`. `delivery_unavailable` stays unregistered and carries `channel` in details.
+
+### Changed — source-compatibility note
+- The records `OtpIssueResponse` and `IdentityProvidersResponse` gained a component. The previous constructors are kept, so `new` call sites compile, but **record deconstruction patterns over either record no longer compile** (arity changed).
+
 ## 0.51.0 — Go parity: session surface, `USER_SUSPENDED` / `ESCORT_SUSPENDED` (2026-10-16)
 
 Taxonomy parity with go `0.66.0` and the go `0.63`-`0.64.2` session surface. `build.gradle.kts` carries
