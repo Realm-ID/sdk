@@ -853,3 +853,76 @@ item moved to `TODO.md` § *Go SDK only*; its records are below, verbatim.
   `context.Background()`, which is why it could not catch this), then a Go patch release. Check the
   held ts/java v0.63 code for the same shape before they ship.
   **CLOSED 2026-10-02, go `0.63.1`** (SPEC §6.7.2 "Cancellation is not a store error"; RCA in `CHANGELOG.md` and `DECISIONS.md`).
+
+## Closed 2026-10-17 — TODO review sweep
+
+> ~~**All three SDKs' `integrations.install()` send the retired `role_id`
+> body — a current issuer refuses it.**~~ **CLOSED — the claim is FALSE as of
+> 2026-09-13, verified in source here.** `go/integrations.go:85-88` is
+> `InstallRequest{IntegrationID, Permissions []string}` with no `RoleID` field
+> at all, and `go/integrations_test.go:106` actively asserts `role_id` is
+> ABSENT from the body; `ts/src/integrations.ts:49` mentions `role_id` only in
+> a comment explaining what replaced it; java's `InstallRequest` likewise names
+> `roleId` only in migration doc-comments (`:10,23`). All three speak the
+> `permissions` contract. **The fix landed and the entry was never closed** —
+> and it is a bad one to leave standing, because it tells a reader the shipped
+> SDKs are broken against prod when they are not.
+>
+> ~~ADR-101 D7 (issuer `v0.113.0`) replaced
+> the role-based install with a stated `permissions: []string` grant; the
+> issuer's `installReq` has no `role_id` field and an absent/empty
+> `permissions` is `400 permissions_required`. `ts/src/integrations.ts:229`
+> (`body: { integration_id, role_id }`), `go/integrations.go:76`
+> (`InstallRequest.RoleID`), and java's equivalent all still speak the old
+> contract, and the error unions still carry `role_not_service_typed` /
+> `role_not_installable` / `role_unavailable`, which no current issuer emits.
+> Fix in all three + SPEC, with a drift test against the issuer swagger.
+> *(Found 2026-08-31 during the docs audit; the docs now describe the issuer
+> contract and warn about this lag — `docs/integration-guide.md` §9.2/§9.3,
+> `docs/error-reference.md`.)*~~
+>
+> ⚠️ **Residual worth checking when someone next touches this area** (NOT
+> verified in this pass, so it stays a question, not a finding): the entry also
+> claimed the error unions still carry `role_not_service_typed` /
+> `role_not_installable` / `role_unavailable`, which no current issuer emits.
+> The request-body half is definitively fixed; the error-union half was not
+> re-checked. Also re-read `docs/integration-guide.md` §9.2/§9.3 and
+> `docs/error-reference.md` — they were written to WARN about this lag, so
+> those warnings are now themselves stale and will mislead a partner.
+
+> ~~**`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`**~~
+> **CLOSED BY DELETION 2026-09-18**, not by reconciliation. The duplication is gone
+> because the SURFACE is gone: ADR-101 (issuer `v0.113.0`) retired starter roles
+> entirely, so `PlatformCreate.starter_roles`, the `StarterRole` union and
+> `platforms.seedStarterRoles()` were removed in `web-admin 0.19.0`. The field
+> was a hard `400 starter_roles_retired` for any non-empty value and the route
+> a `404`. The proposed fix — a `GET /platforms/starter-roles` discovery
+> endpoint to drive both from one source — is moot: there is no menu.
+
+> ~~**Java has no ADR-111 credential-reset surface**~~ **CLOSED 2026-10-16** — shipped in java
+> `0.51.0` (owner ruling: close before publishing): `UsersClient.sendPasswordReset` / `setCredentials`,
+> `AuthClient.inspectPasswordReset` / `consumePasswordReset`, `PasswordLoginRequest.withNewPassword`,
+> `MeClient.setPassword`, `IdentityProvidersResponse.passwordPolicy`, the 10 `ErrorCode`s; the
+> `taxonomy-parity.py` `EXCEPTIONS` for them are deleted. Tests: `PasswordResetTest`, `RevokedSidsTest`.
+
+> ~~`web/packages/core/src/types.ts` — `ProvidersResponse.tenantId` /
+> `IdentityProvider.nickname` are populated only by our own adapter, so a
+> spec-following partner BFF breaks login.~~
+> **CLOSED 2026-09-18.** `web/BFF-SPEC.md`
+> § `GET /providers` now names `tenantId` (response root) and `nickname`
+> (each provider row) as OPTIONAL, in the example AND in a table stating
+> what ABSENT means — for `tenantId`, "the server did not resolve one",
+> never "no tenant", since a realm-root origin legitimately has none.
+> Documentation-shaped, not a code fix: both fields were already typed in
+> `@realm-id/web`; the spec a partner BFF author implements from named
+> neither. *(Filed 2026-08-30 from W2.)*
+
+> ~~**ts/java carry `user_suspended` / `escort_suspended` in source, UNRELEASED (go `0.66.0`, ADR-104 R-d; HELD with the v0.63 session).**~~ **CLOSED 2026-10-17** — released: ts `0.55.0` and java `0.51.0` CHANGELOG headings dated 2026-10-16 (`ts-v0.55.0`, `java-v0.51.0` tags exist); java predicates and the 503 relay in `RealmFilter` verified 2026-10-16.
+
+> ~~**ADR-104 R-e `revoked_sids` parity (Java only; Go done in `0.65.0`, ts done in source)**~~ **CLOSED 2026-10-17** — Java half done 2026-10-16 (`java/.../auth/RevokedSidsTest.java`), ts half `ts/src/revoked-sids.test.ts` + `ts/src/password-reset.test.ts`; both shipped in ts `0.55.0` / java `0.51.0`.
+
+> ~~**Finish and release ts `0.55.0` / java `0.51.0` (the v0.63 session surface) — HELD 2026-10-02.**~~ **CLOSED 2026-10-17** (release parts) — hold lifted by the owner 2026-10-16 (root `DECISIONS.md`); items (0) recovery-code/lock parity, (1) ts fix round (`wip/sdk-v063-ts-java` commit `89f7536` is contained in `main`), (4) parity, (5) release and (6) cancellation shape all DONE and shipped in ts `0.55.0` / java `0.51.0` (`CHANGELOG.md` 2026-10-16; tags `ts-v0.55.0`, `java-v0.51.0`; SPEC §13 commit `69ed871`). Residual (ts/java sdk-e2e for the session surface, critic pass) stays open as its own item in `TODO.md`.
+
+> ~~**`@realm-id/web` peer ranges exclude `0.9.0`**~~ residual line, see the narrowed open item in `TODO.md`; `web-bff-realmid` `0.7.0` now declares `^0.9.0 || ^0.10.0`.
+
+> ~~**Residual of the `role_id` install entry (error unions still carry `role_not_service_typed` / `role_not_installable` / `role_unavailable`; guide warnings stale)**~~ **CLOSED 2026-10-17** — the three codes are RETAINED-BUT-DEAD on purpose and say so (`ts/src/errors.ts:141`, `java/.../ErrorCode.java:193`); `docs/error-reference.md:397-408` and `docs/integration-guide.md:1618` describe `role_id` as retired and `permissions_required` as the current refusal, so no warning misleads.

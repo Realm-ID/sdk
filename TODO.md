@@ -21,113 +21,18 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
 
 ---
 
-- [ ] **ts/java carry `user_suspended` / `escort_suspended` in source, UNRELEASED (go `0.66.0`, ADR-104 R-d; HELD with the v0.63 session).** ts has `isUserSuspended`/`isEscortSuspended` + the union/array entries; java has `ErrorCode.USER_SUSPENDED`/`ESCORT_SUSPENDED`. Versions not bumped. Still to do when the hold lifts: the java predicates, any ts/java middleware relay (escort_suspended as 503), and tests. (java: predicates and the 503 relay exist in source, `RealmFilter`; verified 2026-10-16.)
+- [ ] **ts and java sdk-e2e (`tests/sdk-e2e`, live issuer) have not been run for the v0.63 session surface** (recovery-code redeem, the per-session
+  refresh lock, `revoked_sids`, required session store); Go's was run (sdk-e2e/go). `tests/sdk-e2e/ts` and `tests/sdk-e2e/java` hold only the
+  device-name, integration-install and org-access/password cases. Also no independent critic pass on the java v0.63 parity or the ts round (ts/java
+  were released 2026-10-16 on test evidence alone: `V063*`/`V064*` java tests, `ts/src/v064-lock.test.ts`). Owner ruling 2026-10-16 asked for both before the tags.
 
-- [ ] **Finish and release ts `0.55.0` / java `0.51.0` (the v0.63 session surface) — HELD 2026-10-02.**
-  Go `0.63.0` and web `0.9.0` shipped without them (owner ruling, root `DECISIONS.md`
-  2026-10-02: no active ts/java consumers). Their v0.63 code is on `main`, UNRELEASED
-  (SPEC header says so). Open items, summarised here because the critic notes in the
-  umbrella `.scratch/sdk-v063/` are not durable:
-  (0) **Recovery-code redeem parity (go `0.64.0` shipped it, ts/java did not):** add
-  `redeemRecoveryCode` / `redeemRecoveryCode(...)` (SPEC §4.3a), the `reenroll_required` field,
-  a distinct `mfa_recovery` flow value, and the middleware `recoveryPath` route, OPT-IN with no default (SPEC §10.1 step
-  5a — same per-session lock as the MFA-verify route, same outcome fingerprint) in ts and java.
-  **Also the optional `refreshToken` field on `mfaVerify` / `mfaVerifyOtp` / `redeemRecoveryCode`
-  (go `0.64.2`, SPEC §4.3/§4.3a):** when set, the direct call takes the per-session refresh lock,
-  waits for it, and stores the `mfa-verify` outcome under the key; never sent on the wire; the
-  middleware handlers must NOT set it (lock is not re-entrant). Needs a pinning test that they don't.
-  go `0.64.2` ALSO changed, all needing parity: `Token`/TokenManager serialize on the same lock
-  (`go/token_lock.go`, only token-level 401/`refresh_invalid` outcomes shared across request
-  shapes); an outcome-store READ error answers 503 and never re-mints (middleware refresh too);
-  the in-memory store sweeps expired entries; the superseded give-up is a typed error with a
-  redacted token. Sdk `DECISIONS.md` 2026-10-03 lists each with its RCA.
-  **java (0): DONE 2026-10-16** (`java/` `V064DirectLockTest`, `V064MiddlewareTest`, `MemorySessionStoreSweepTest`;
-  `redeemRecoveryCode`, `reenrollRequired`, `AuthFlow.MFA_RECOVERY`, opt-in `recoveryPath`, `refreshToken` on the
-  three direct calls, `token()`/`TokenManager` under the lock, `RefreshSupersededException`, read-error 503, store sweep).
-  (1) **ts Wave-4 fix round is unfinished** — WIP on branch `wip/sdk-v063-ts-java`,
-  commit `89f7536` (touches `ts/src/auth.ts`, `ts/src/middleware.ts`); merge it, then
-  re-run the critic pass against SPEC §5.1/§5.1.1/§6.7/§6.7.6/§10.1/§10.2/§11.4-11.5.
-  (2) **java**: `bc5353c` landed (Wave 4 java); its sdk-e2e and a fresh critic pass are
-  not done. (java: parity re-verified against SPEC/go 2026-10-16 by test, see (4); still no critic pass and no sdk-e2e.) (3) **ts and java sdk-e2e** (`tests/sdk-e2e`, live issuer) have not been run
-  for the v0.63 surface; Go's was run (sdk-e2e/go). (4) Parity to hold: the required
-  session store (§6.7.5), ctx/async-first session API, `Evict` by session key,
-  `Revocation` keyed on session key AND jti, `typ`/`events`/blank-`sub` refusal,
-  logout fallback to a verified UNEXPIRED bearer + `revoked_sids` for `all`, the
-  default-on logout gate (§10.1 step 6a), `/x/**` matching bare `/x` (BREAKING in
-  ts/java) and `{name}` in `mfaProtectedPaths`, `ScopeDecision.missing` on `anyOf`,
-  `writeDenied`. **java (4): VERIFIED 2026-10-16**, every point held by a passing test already on `main`
-  (`V063VerifierTest`, `V063MiddlewareTest`, `V063Wave4Test`, `V063PathsAndWriteDeniedTest`, `TokensClientTest`); no fix was needed.
-  The session API is blocking (Java idiom), so "ctx-first" reduces to (6). (5) Release: bump versions, per-language CHANGELOG headings with the
-  Breaking block (SPEC front matter lists it), remove the SPEC "PARTLY RELEASED" note,
-  then `make release-check LANGUAGE=ts|java`.
-  (6) **Cancellation shape (checked 2026-10-02 against go 0.63.1's fix, SPEC §6.7.2):**
-  ts `TokensClient.isRevoked` (`ts/src/tokens.ts`) and java `TokensClient` (`TokensClient.java:126`)
-  carry the same fail-open-on-store-error catch, but neither threads a request
-  signal/context into `sessionStates`, so the SDK itself cannot hand a client-cancelled
-  read to the store; a partner store that aborts on its own request scope can still
-  hit it. Decide before release whether to document that or detach. NOT changed (held).
-  **ts status, 2026-10-16 (hold lifted; uncommitted in the working tree):** ts items (0), (1), (4) and (6)
-  are DONE to go parity — `redeemRecoveryCode`, `reenrollRequired`, `"mfa_recovery"` flow, opt-in
-  `recoveryPath`, `refreshToken` on the direct MFA calls, `auth.token` + `TokenManager` under the
-  per-session lock, outcome-read error answers 503, memory-store sweep, `RefreshSupersededError`
-  (tests `ts/src/v064-lock.test.ts`, mirroring the go test names); (6) is a 2 s bound on every store call
-  in `TokensClient` (ts store methods take no signal, so there is nothing to detach). (4) was verified
-  by `ts/src/v063-*.test.ts` (394 pass before this round). STILL OPEN for ts: (3) sdk-e2e against a
-  live issuer, and (5) release (SPEC "PARTLY RELEASED" note, tag, `make release-check LANGUAGE=ts`).
-  **java (6): DONE 2026-10-16** (owner ruling: parity with go 0.63.1, detach): every `TokensClient` store call runs on a
-  detached thread bounded at 2 s, interrupt status restored (`TokensClientCancelTest`).
-- [ ] **`@realm-id/web` peer ranges exclude `0.9.0`** — `web-admin`, `web-react`,
-  `bff-realmid`, `firebase` and `google` declare `@realm-id/web` `^0.4.0 … ^0.8.0`
-  (a `0.x` caret never reaches `0.9.0`). Not released with core `0.9.0`; widen the
-  ranges and release them when an app needs core `0.9.0` alongside them (npm will
-  warn on peer conflict until then).
-
-> ~~**All three SDKs' `integrations.install()` send the retired `role_id`
-> body — a current issuer refuses it.**~~ **CLOSED — the claim is FALSE as of
-> 2026-09-13, verified in source here.** `go/integrations.go:85-88` is
-> `InstallRequest{IntegrationID, Permissions []string}` with no `RoleID` field
-> at all, and `go/integrations_test.go:106` actively asserts `role_id` is
-> ABSENT from the body; `ts/src/integrations.ts:49` mentions `role_id` only in
-> a comment explaining what replaced it; java's `InstallRequest` likewise names
-> `roleId` only in migration doc-comments (`:10,23`). All three speak the
-> `permissions` contract. **The fix landed and the entry was never closed** —
-> and it is a bad one to leave standing, because it tells a reader the shipped
-> SDKs are broken against prod when they are not.
->
-> ~~ADR-101 D7 (issuer `v0.113.0`) replaced
-> the role-based install with a stated `permissions: []string` grant; the
-> issuer's `installReq` has no `role_id` field and an absent/empty
-> `permissions` is `400 permissions_required`. `ts/src/integrations.ts:229`
-> (`body: { integration_id, role_id }`), `go/integrations.go:76`
-> (`InstallRequest.RoleID`), and java's equivalent all still speak the old
-> contract, and the error unions still carry `role_not_service_typed` /
-> `role_not_installable` / `role_unavailable`, which no current issuer emits.
-> Fix in all three + SPEC, with a drift test against the issuer swagger.
-> *(Found 2026-08-31 during the docs audit; the docs now describe the issuer
-> contract and warn about this lag — `docs/integration-guide.md` §9.2/§9.3,
-> `docs/error-reference.md`.)*~~
->
-> ⚠️ **Residual worth checking when someone next touches this area** (NOT
-> verified in this pass, so it stays a question, not a finding): the entry also
-> claimed the error unions still carry `role_not_service_typed` /
-> `role_not_installable` / `role_unavailable`, which no current issuer emits.
-> The request-body half is definitively fixed; the error-union half was not
-> re-checked. Also re-read `docs/integration-guide.md` §9.2/§9.3 and
-> `docs/error-reference.md` — they were written to WARN about this lag, so
-> those warnings are now themselves stale and will mislead a partner.
-
-> ~~**`StarterRole` union duplicates the issuer's `realmrole.StarterRoles`**~~
-> **CLOSED BY DELETION 2026-09-18**, not by reconciliation. The duplication is gone
-> because the SURFACE is gone: ADR-101 (issuer `v0.113.0`) retired starter roles
-> entirely, so `PlatformCreate.starter_roles`, the `StarterRole` union and
-> `platforms.seedStarterRoles()` were removed in `web-admin 0.19.0`. The field
-> was a hard `400 starter_roles_retired` for any non-empty value and the route
-> a `404`. The proposed fix — a `GET /platforms/starter-roles` discovery
-> endpoint to drive both from one source — is moot: there is no menu.
+- [ ] **`@realm-id/web` peer ranges exclude `0.9.0` and `0.10.0`** — `web-admin` (`^0.5.0 … ^0.8.0`), `web-react`, `web-firebase` and `web-google`
+  (`^0.4.0 … ^0.8.0`) still stop at `0.8.0` (a `0.x` caret never reaches `0.9.0`); only `web-bff-realmid` `0.7.0` was widened. Core is `0.10.0`. Widen and release
+  them when an app needs core `0.9.0`/`0.10.0` alongside them (npm will warn on peer conflict until then).
 
 - [ ] Remaining partner-facing gaps (lower priority): `GET /me` caller identity;
-  tenant domain delete (`DELETE /platforms/{pid}/tenants/{tid}/domains/{domain}`);
-  realm origin bind/detach (`POST` / `DELETE /platforms/{id}/origins[/{id}]`).
+  realm origin BIND (`POST /platforms/{id}/origins`). Tenant domain detach and origin delete shipped in
+  go `0.67.0` / ts `0.55.0` / java `0.51.0` (`DetachDomain`, `Origins.Delete`, `detachDomain`, `OriginsClient.remove`).
   Operator/base-realm surfaces (platform create/rename, `/admin/*`
   suspend/rotate/notes) are intentionally out of the partner SDK.
 
@@ -252,18 +157,6 @@ in the same repo.
 - [ ] **ts: the direct-call lock bound does not cancel the issuer call (critic, 2026-10-16).** `HttpClient` takes no `AbortSignal`, so at the 10s bound the per-session lock is released while the issuer call may still be in flight; Go cancels it. A rotation that lands late is still stored, but a waiter can mint on the old token in that window. Thread an `AbortSignal` through `ts/src/http.ts` and the lock path.
 - [ ] **go/ts/java: the `token\0` outcome fingerprint can collide with a crafted middleware refresh (critic, 2026-10-16).** A middleware refresh with `tenant_id:"token"` and matching `custom_claims` produces the same fingerprint string; self-session only, ends in a 500 (`ts/src/middleware.ts` `o.mint!`). Prefix the two namespaces so they cannot meet.
 
-- [ ] **ADR-104 R-e `revoked_sids` parity (Java only; Go done in `0.65.0`, ts DONE in source 2026-10-16):** Java `passwordLogin`, `me.setPassword` (`PUT /me/password`, no Java wrapper at all)
-      (change at sign-in) and `consumePasswordReset` must read `revoked_sids` and write each sid into the
-      session store like their logout `{all:true}` path, and expose it on the typed result
-      (`sdk/java`). **Java half DONE in source 2026-10-16** (`java/.../auth/RevokedSidsTest.java`: login,
-      `me.setPassword`, consume; sid written, next request refused). ts half ticked: `ts/src/revoked-sids.test.ts`, `ts/src/password-reset.test.ts`
-      (ts adds `tenants.users.sendPasswordReset` / `setCredentials`, `auth.inspectPasswordReset` /
-      `consumePasswordReset`, `me.setPassword`, `passwordLogin({ newPassword })`, `password_policy`, the ten codes).
-> ~~**Java has no ADR-111 credential-reset surface**~~ **CLOSED 2026-10-16** — shipped in java
-> `0.51.0` (owner ruling: close before publishing): `UsersClient.sendPasswordReset` / `setCredentials`,
-> `AuthClient.inspectPasswordReset` / `consumePasswordReset`, `PasswordLoginRequest.withNewPassword`,
-> `MeClient.setPassword`, `IdentityProvidersResponse.passwordPolicy`, the 10 `ErrorCode`s; the
-> `taxonomy-parity.py` `EXCEPTIONS` for them are deleted. Tests: `PasswordResetTest`, `RevokedSidsTest`.
 
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
       taxonomy** — `web/packages/admin/src/transport.ts` holds **33** codes
@@ -339,17 +232,6 @@ in the same repo.
       `total` alongside `data`), and that is not said at its call sites — only
       in the function's own doc comment. Name it where it is called, or return
       the siblings. *(Filed 2026-08-30 from W2; re-scoped 2026-09-18.)*
-> ~~`web/packages/core/src/types.ts` — `ProvidersResponse.tenantId` /
-> `IdentityProvider.nickname` are populated only by our own adapter, so a
-> spec-following partner BFF breaks login.~~
-> **CLOSED 2026-09-18.** `web/BFF-SPEC.md`
-> § `GET /providers` now names `tenantId` (response root) and `nickname`
-> (each provider row) as OPTIONAL, in the example AND in a table stating
-> what ABSENT means — for `tenantId`, "the server did not resolve one",
-> never "no tenant", since a realm-root origin legitimately has none.
-> Documentation-shaped, not a code fix: both fields were already typed in
-> `@realm-id/web`; the spec a partner BFF author implements from named
-> neither. *(Filed 2026-08-30 from W2.)*
 - [ ] `web/packages/admin/` — three `ui/web/src/api.ts` shims were NOT in the
       W2 move list and still have no SDK resource: `fetchPlatformAuditEvents`
       (`GET /platforms/{id}/audit-events`, ADR-055 — distinct from the
