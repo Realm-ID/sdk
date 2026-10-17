@@ -392,7 +392,9 @@ which would make an identity depend on which store answered first.
   sends a reset link to a member with a verified email instead, and a handed-over
   password is replaced in the sign-in call itself. See the next section.
 - **`delivery_mode: "sms"`** on `POST /auth/otp/issue` texts the code to the
-  subject's phone, and `purpose=login` now accepts it for a principal of ANY
+  subject's phone (and `"whatsapp"` sends it there), through YOUR OWN provider
+  account — see "Send sign-in codes by SMS or WhatsApp" below — and
+  `purpose=login` accepts both for a principal of ANY
   kind. There is no fallback between modes: a subject with no phone is
   `400 no_delivery_address` and the issue FAILS rather than quietly mailing it.
 - ⚠️ **BREAKING: a phone must be canonical E.164.** `+1 (555) 010-9999` is now a
@@ -414,6 +416,105 @@ re-serialises it, use go `0.53.1` / ts `0.46.1` / java `0.43.1` or later. The
 `.0` releases had no field for `credential_methods` and therefore DELETED it in
 transit, silently — credential sign-in was unreachable from any BFF-fronted
 console.
+
+### Send sign-in codes by SMS or WhatsApp with your own provider account (ADR-115 — issuer spec `0.60.0`)
+
+RealmID has no phone sender of its own. To text or WhatsApp sign-in codes to your
+users you give your realm YOUR Twilio and/or Meta account, and every code for your
+realm goes out through it. You pay your provider directly, and a problem with your
+account never affects another partner. Until you save credentials for a channel,
+asking for it answers `503 delivery_unavailable` and your sign-in screen is told the
+channel does not exist.
+
+**1. Create what the provider needs.**
+
+| Channel | In the provider's console | You will end up with |
+|---|---|---|
+| SMS (Twilio) | Your account's **Account SID**. Then either your **Auth Token**, or (preferred) an **API Key**: it is revocable on its own, so you can rotate it without touching anything else. Then a sender: a **From number** you own on that account, or a **Messaging Service**. | `AC…` Account SID; an Auth Token or an API Key SID (`SK…`) plus its secret; a From number such as `+15551234567` or a Messaging Service SID (`MG…`). |
+| WhatsApp (Meta) | A **WhatsApp Business Account** with a registered phone number; a **System User** in Meta Business Manager with an access token that carries the `whatsapp_business_messaging` and `whatsapp_business_management` permissions; and an **authentication template with a copy-code button**, submitted and **APPROVED** by Meta. A template that is pending or rejected cannot be saved. | The phone number id; the WhatsApp Business Account id; the System User access token; the template's exact name and language, for example `login_code` and `en`. |
+
+**2. Save them.** Any caller holding `platform:config` on your realm (an admin, or a
+bot that holds it) can write. With the SDKs this is `realm.messaging`; over HTTP it
+is the platform token you already use for realm config:
+
+```bash
+# SMS, with a Twilio API key and a From number
+curl -X PUT https://auth.realmid.dev/platforms/$REALM_ID/messaging/sms \
+  -H "Authorization: Bearer $PLATFORM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"account_sid":"AC0123…","api_key_sid":"SK4567…","api_key_secret":"…",
+       "from_number":"+15551234567"}'
+
+# WhatsApp
+curl -X PUT https://auth.realmid.dev/platforms/$REALM_ID/messaging/whatsapp \
+  -H "Authorization: Bearer $PLATFORM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"phone_number_id":"1098…","waba_id":"2210…","access_token":"EAAG…",
+       "template_name":"login_code","template_language":"en"}'
+```
+
+Give exactly one way to authenticate to Twilio (an Auth Token, or an API Key SID with
+its secret) and exactly one sender (a From number in `+` international form, or a
+Messaging Service SID); anything else is `400 invalid_channel_config` naming the field.
+
+- **Before anything is stored, RealmID asks the provider whether the credentials
+  work, without sending a message.** If the provider says no, you get
+  `422 channel_validation_failed` with the provider's own reason (for example "the
+  template is not approved"), and nothing is saved. Fix it and save again.
+- **Secrets are write-only.** `GET /platforms/$REALM_ID/messaging/sms` returns your
+  non-secret settings plus `secret_hint` (the last four characters, so you can tell
+  which credential is saved), `status`, `status_reason`, `validated_at` and
+  `updated_at`, and never a secret. A save replaces the whole channel; to change one
+  field, send them all again. `DELETE` removes it (and succeeds if there was
+  nothing to remove). A channel nobody saved is `404 channel_not_configured`.
+- Every save and delete is audited with who did it and the `secret_hint`.
+  Whoever holds `platform:config` can point your sender at an account they control
+  and read the codes in its message log, so grant it as carefully as you would a
+  password-reset capability.
+
+**3. What `operational` means.** A saved channel is `operational` when it passed the
+check above and no failure caused by its configuration (a revoked token, a number your
+Twilio account does not own, an unapproved template, a suspended account) has happened
+since. Only `operational` channels appear in the `phone_channels` list that sign-in
+discovery returns. If a real send hits a configuration failure, the channel flips to
+`failing`, `status_reason` says why, and it **disappears from the sign-in screen** until
+you either save fixed credentials again or RealmID's re-check, which runs every 10
+minutes and sends no message, finds it working. A passing blip such as the provider
+being briefly down or slow never hides a channel.
+
+**4. Build the sign-in screen from discovery, and keep SMS visible.**
+`GET /platforms/{id}/identity-providers` now also returns `phone_channels`, for example
+`["whatsapp","sms"]`. Offer the phone option only when `credential_methods` contains
+`otp` AND `phone_channels` is non-empty. **Absent means an older issuer; `[]` means
+your realm has no working phone channel.** Then send the code with the channel the user
+picked:
+
+```bash
+curl -X POST https://auth.realmid.dev/auth/otp/issue … \
+  -d '{"subject_ref":"user:<id>","purpose":"login","delivery_mode":"whatsapp"}'
+# 200 {"id":"…","delivered":"whatsapp",…}   (the code is NOT in the response)
+```
+
+There is no fallback: a `whatsapp` request is never quietly sent as an SMS.
+**Keep a "send by SMS instead" link next to WhatsApp whenever `sms` is listed.** A `200`
+means Meta accepted the message, not that it arrived: if the number is not on WhatsApp,
+or Meta holds the message back, nobody tells RealmID, and your user would otherwise wait
+for a code that is not coming. If a send is refused with `503 delivery_unavailable`,
+the response names the `channel` that failed; offer the other one.
+
+**5. The limit.** By default one phone number may be sent 5 codes per 15 minutes in
+your realm, SMS and WhatsApp counted together (switching channel does not reset it).
+Past that, `otp/issue` answers `429 phone_otp_rate_limited` with a `Retry-After`
+header in seconds. Change it with the realm config, which merges, so you may send one
+key:
+
+```bash
+curl -X PATCH https://auth.realmid.dev/platforms/$REALM_ID/config \
+  -H "Authorization: Bearer $PLATFORM_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"phone_otp":{"max_per_window":8,"window_seconds":900}}'
+```
+
+RealmID's ceiling is 20 codes per 3600 seconds; asking for more is refused
+(`400 invalid_config_value`), not trimmed. The limit protects the person whose phone it
+is, so set it to what a real user needs, not to what you can afford.
 
 ### Password reset links and change at sign-in (ADR-111, ADR-104 amendment — issuer spec `0.53.0`, live since issuer `v0.134.0`)
 
