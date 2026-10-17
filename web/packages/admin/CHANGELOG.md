@@ -1,5 +1,9 @@
 # @realm-id/web-admin — changelog
 
+## 0.23.0 — `admin.messaging`, the realm's own SMS / WhatsApp credentials (ADR-115) (2026-10-17)
+
+**Added.** `admin.messaging` (the bundled `@realm-id/sdk` 0.56.0 `MessagingClient`) over `/platforms/{id}/messaging/{channel}`: save / read / delete the realm's Twilio or WhatsApp credentials, secrets write-only; gated on `platform:config`. Re-exports `isInvalidChannelConfig`, `isChannelValidationFailed`, `isChannelNotConfigured`, `isPhoneOtpRateLimited`, `phoneOtpConfig`, `offersPhoneLogin`, `DELIVERY_MODE_WHATSAPP` and the messaging types. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1.
+
 ## 0.22.0 — `origins.remove` sign-out option (2026-10-16)
 
 **Added (ADR-111).** `admin.tenants.users.sendPasswordReset(tenantId, userId)` and `.setCredentials(tenantId, userId, { username?, password? })`, inherited from the bundled `@realm-id/sdk` 0.55.0 through `AdminUsersClient` (pinned by `user-binding.test.ts`); no admin-side code was needed. This is the call the console's "send password reset" button needs.

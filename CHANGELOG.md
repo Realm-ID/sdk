@@ -17,6 +17,17 @@ that affect every SDK at once are recorded under a shared heading.
 
 Doc comments on `tenants.users.enrollMfa` / `confirmMfa` (ts) and `UsersClient.enrollMfa` / `confirmMfa` (java) now say `userId` must be the caller's own id (`403 forbidden` otherwise, from the issuer release after v0.134.1; owner ruling 2026-10-14) and point at `selfEnrollMfa` / `resetMfa`. SPEC §4.8/§6.2 and the partner guide corrected. No behaviour or signature change. The Go comment waits for the next Go release (`TODO.md` § Go SDK only).
 
+## go `0.68.0` — bring-your-own phone-code delivery (ADR-115, issuer spec 0.60.0) (2026-10-17)
+
+Go side of the cross-language ADR-115 release (ts `0.56.0`, java `0.52.0`, web `0.11.0`, web-admin `0.23.0`, web-bff-realmid `0.8.0`). Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1. Additive; nothing here changes an existing call.
+
+### Added — go `0.68.0`
+- `IdentityProvidersResponse.PhoneChannels` (`phone_channels`; ABSENT is not `[]`: absent = an older issuer that did not say, empty = no working phone channel) and `OffersPhoneLogin()`. A BFF that re-serialises discovery through an older struct DELETES the field.
+- `DeliveryMode` `"whatsapp"` on OTP issue.
+- `Realm.Messaging` (`MessagingClient`: `PutSMS`, `PutWhatsApp`, `Get`, `Delete`) for `/platforms/{id}/messaging/{channel}`. Secrets are write-only: they exist on the save types and on no read type.
+- `ConfigValues.PhoneOTP()` / `PhoneOTPConfig` for the nested `phone_otp: {max_per_window, window_seconds}` realm config group.
+- Four newly REGISTERED codes with predicates: `invalid_channel_config`, `channel_validation_failed`, `channel_not_configured`, `phone_otp_rate_limited`. `delivery_unavailable` stays UNREGISTERED but its `Details` now carry `channel`.
+
 ## go `0.67.0` — `tenant_disabled`, `joined_via`, bulk status, `sign_out` on detach (issuer spec 0.59.0) (2026-10-16)
 
 Go only; ts/java add their halves separately. SPEC §3.1 and §6.3.

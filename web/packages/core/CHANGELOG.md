@@ -14,6 +14,12 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.11.0 — phone channels on discovery (ADR-115) (2026-10-17)
+
+Additive. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1. Needs `@realm-id/web-bff-realmid` 0.8.0 to map `phone_channels`.
+
+- **`phoneChannels`** on the discovery type (`("whatsapp" | "sms")[]`; absent is not `[]`) and **`offersPhoneLogin()`**.
+
 ## 0.10.0 — password reset links + change-at-sign-in (ADR-111) (2026-10-09)
 
 Pairs with SPEC §4.1.4, §4.1.8, §4.10, §3.1. Additive. Needs `@realm-id/web-bff-realmid` 0.7.0 to emit
