@@ -37,13 +37,6 @@ import os
 import re
 import sys
 
-# SPEC §3.1 registers the four ADR-115 phone-channel codes in every language; Go ships first.
-# DELETE these four entries in the commit that registers them in ts and java.
-_BYO_GO_FIRST = (
-    "ADR-115 phone-delivery code: registered in go ahead of ts/java (SPEC §3.1, "
-    "'Phone-delivery channel codes'). Temporary: remove with the ts/java registration."
-)
-
 # Reviewed exceptions. An entry here is a DECISION with a reason, not a
 # silenced failure — the gate prints it every run so it cannot rot unnoticed.
 EXCEPTIONS = {
@@ -53,10 +46,6 @@ EXCEPTIONS = {
         "SPEC fixes a different form per language: Go ErrSessionStoreRequired, "
         "Java IllegalStateException."
     ),
-    "invalid_channel_config": _BYO_GO_FIRST,
-    "channel_validation_failed": _BYO_GO_FIRST,
-    "channel_not_configured": _BYO_GO_FIRST,
-    "phone_otp_rate_limited": _BYO_GO_FIRST,
     "not_service": (
         "declared by ts + Java, emitted by NO issuer handler (its only "
         "near-match is the distinct `role_not_service_typed`). Deliberately "
