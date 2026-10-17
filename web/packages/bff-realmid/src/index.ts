@@ -112,6 +112,19 @@ interface RealmidProvidersBody {
   credential_methods?: string[];
   /** ADR-111 — the realm's password promise; absent on an older issuer. */
   password_policy?: { require_verified_email?: unknown };
+  /** ADR-115 — operational phone channels; absent on an older issuer, `[]` when none work. */
+  phone_channels?: unknown;
+}
+
+/**
+ * ADR-115: keep the known channel names, in the order sent. Returns `undefined`
+ * when the server did not send a list at all, so absence is never mapped to `[]`.
+ */
+function mapPhoneChannels(v: unknown): Array<"whatsapp" | "sms"> | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: Array<"whatsapp" | "sms"> = [];
+  for (const c of v) if (c === "whatsapp" || c === "sms") out.push(c);
+  return out;
 }
 
 function mapTenant(t: RealmidLoginTenant): TenantRef {
@@ -216,6 +229,11 @@ const adaptProviders: NonNullable<ResponseAdapters["providers"]> = (raw, _ctx): 
     // ADR-111 — only when the server stated a boolean; absent = "did not say".
     ...(typeof body.password_policy?.require_verified_email === "boolean"
       ? { passwordPolicy: { requireVerifiedEmail: body.password_policy.require_verified_email } }
+      : {}),
+    // ADR-115 — a list (possibly empty) only when the server sent one; absence
+    // stays absent so a login page can tell "none work" from "did not say".
+    ...(mapPhoneChannels(body.phone_channels) !== undefined
+      ? { phoneChannels: mapPhoneChannels(body.phone_channels) }
       : {}),
     allowedSignupDomains: body.allowed_signup_domains,
     // Origin-bound discovery states the tenant it resolved to, or nothing at a

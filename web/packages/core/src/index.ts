@@ -25,6 +25,8 @@ export type { ErrorCode } from "./errors.js";
 
 export { resolveExpiresIn, parseExpiresAt } from "./util.js";
 
+export { offersPhoneLogin } from "./phone-login.js";
+
 export type {
   AdapterContext,
   AuthEvent,

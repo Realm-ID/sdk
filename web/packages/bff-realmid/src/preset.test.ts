@@ -385,6 +385,35 @@ test("realmid preset: providers adapter maps wire `type` → `provider`", async 
   realm.close();
 });
 
+// ADR-115 (SPEC §4.1.4a): the providers adapter builds the result field by
+// field, so an unmapped key is silently dropped. phone_channels must survive,
+// and `[]` ("no working phone channel") must stay different from absent
+// ("the server did not say").
+test("SPEC4_1_4a realmid preset: providers adapter keeps phone_channels, [] distinct from absent", async () => {
+  const run = async (extra: Record<string, unknown>) => {
+    const { fetch } = mockFetch((call) => {
+      if (call.url.includes("/identity-providers")) {
+        return { status: 200, body: { providers: [], credential_methods: ["otp"], ...extra } };
+      }
+      if (call.url.endsWith("/me")) return { status: 401 };
+      return { status: 404 };
+    });
+    const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+    await realm.ready();
+    const out = await realm.providers({ clientType: "web" });
+    realm.close();
+    return out;
+  };
+  const listed = await run({ phone_channels: ["whatsapp", "sms"] });
+  assert.deepEqual(listed.phoneChannels, ["whatsapp", "sms"]);
+  const empty = await run({ phone_channels: [] });
+  assert.deepEqual(empty.phoneChannels, []);
+  const absent = await run({});
+  assert.equal("phoneChannels" in absent, false, "absent must stay absent, not become []");
+  const junk = await run({ phone_channels: ["whatsapp", "carrier-pigeon", 3] });
+  assert.deepEqual(junk.phoneChannels, ["whatsapp"], "unknown channel names are dropped, known ones kept");
+});
+
 // ADR-111 (SPEC §4.1.8): the login request adapter builds the body field by
 // field, so an unlisted key is silently dropped. Without new_password the
 // must-change step re-sends the temporary password alone and loops forever.

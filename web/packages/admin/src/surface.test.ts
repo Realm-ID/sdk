@@ -22,6 +22,33 @@ import { isRoleAssignableTo, isRoleSeatable, rolesAssignableTo, confersAuthority
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
+// ---- ADR-115: bring-your-own phone delivery ----
+
+test("SPEC6_16 createAdmin wires the realm messaging client and the helpers are re-exported", async () => {
+  const sdk = await import("@realm-id/sdk");
+  assert.equal(admin.isInvalidChannelConfig, sdk.isInvalidChannelConfig);
+  assert.equal(admin.isChannelValidationFailed, sdk.isChannelValidationFailed);
+  assert.equal(admin.isChannelNotConfigured, sdk.isChannelNotConfigured);
+  assert.equal(admin.isPhoneOtpRateLimited, sdk.isPhoneOtpRateLimited);
+  assert.equal(admin.phoneOtpConfig, sdk.phoneOtpConfig);
+  assert.equal(admin.DELIVERY_MODE_WHATSAPP, "whatsapp");
+
+  const calls: Array<{ method: string; url: string }> = [];
+  const realm = {
+    async fetch(url: string | URL | Request, init: RequestInit = {}) {
+      calls.push({ method: init.method ?? "GET", url: String(url) });
+      return new Response(JSON.stringify({ status: "deleted" }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  } as unknown as import("@realm-id/web").Realm;
+  const a = admin.createAdmin(realm, { baseUrl: "https://bff.test", realmId: "r1" });
+  assert.equal(typeof a.messaging.putSms, "function");
+  assert.equal(typeof a.messaging.putWhatsApp, "function");
+  const out = await a.messaging.delete("sms");
+  assert.equal(out.status, "deleted");
+  const hit = calls.find((c) => c.method === "DELETE");
+  assert.ok(hit && /\/platforms\/r1\/messaging\/sms$/.test(hit.url), JSON.stringify(calls));
+});
+
 // ---- A1: the predicates, and the split ----
 
 test("the wave-1 predicates are re-exported by identity, not re-implemented", async () => {

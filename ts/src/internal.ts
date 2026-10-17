@@ -186,6 +186,7 @@ export {
   DELIVERY_MODE_VIEW_BFF,
   DELIVERY_MODE_EMAIL,
   DELIVERY_MODE_SMS,
+  DELIVERY_MODE_WHATSAPP,
   type OtpDeliveryMode,
   type OtpIssueRequest,
   type OtpIssueResponse,
