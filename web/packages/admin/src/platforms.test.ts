@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { PlatformsClient } from "./platforms.js";
 import type { HttpLike } from "./transport.js";
 import type { RequestOptions } from "@realm-id/sdk/internal";
-import type { PlatformStats, RealmConfigView } from "./types.js";
+import type { PlatformStats, RealmConfigPatch, RealmConfigView } from "./types.js";
 import type { PlatformCreate } from "./platforms.js";
 
 interface Captured {
@@ -53,6 +53,23 @@ describe("PlatformsClient config read/write (issuer v0.52.0)", () => {
     assert.equal(out.idle_ttl_seconds, 0);
     assert.equal(out.mfa_policy, "");
     assert.ok("idle_ttl_seconds" in out);
+  });
+
+  it("types the phone_otp group on both the patch and the view (ADR-115)", async () => {
+    // Compile-time: no cast needed to write or read the group (tsc -p tsconfig.test.json).
+    const patch: RealmConfigPatch = { phone_otp: { max_per_window: 8, window_seconds: 900 } };
+    const partial: RealmConfigPatch = { phone_otp: { max_per_window: 8 } };
+    const { http, calls } = makeHttp({
+      id: "p1",
+      config: { phone_otp: { max_per_window: 5, window_seconds: 900 } } as unknown as RealmConfigView,
+    });
+    const client = new PlatformsClient(http);
+    await client.updateConfig("p1", partial);
+    assert.deepEqual(calls[0]!.opts.body, partial);
+    const out = await client.getConfig("p1");
+    const max: number | undefined = out.phone_otp?.max_per_window;
+    assert.equal(max, 5);
+    assert.equal(patch.phone_otp?.window_seconds, 900);
   });
 
   it("updateConfig PATCHes the patch body verbatim", async () => {

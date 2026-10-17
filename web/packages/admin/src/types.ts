@@ -1,4 +1,5 @@
 import type { AuditEvent } from "@realm-id/sdk/internal";
+import type { PhoneOtpConfig } from "@realm-id/sdk";
 
 /**
  * Shared wire types for the admin SDK. Shapes mirror `ui/web/src/api.ts`
@@ -437,6 +438,12 @@ export interface RealmConfigPatch {
   // Signing keys
   signing_key_rotation_mode?: "auto" | "manual";
   signing_key_rotation_interval?: "1w" | "1mo" | "1y";
+  /**
+   * ADR-115: how many phone codes (SMS and WhatsApp together) one number may be
+   * sent per window. A PATCH merges, so either field may be sent alone. Default
+   * 5 per 900s; RealmID's ceiling is 20 per 3600s.
+   */
+  phone_otp?: Partial<PhoneOtpConfig>;
 }
 
 /**
@@ -447,6 +454,7 @@ export interface RealmConfigPatch {
  */
 export type RealmConfigView = Omit<
   Required<RealmConfigPatch>,
+  | "phone_otp"
   | "mfa_policy"
   | "session_eviction_policy"
   | "signing_key_rotation_mode"
@@ -458,6 +466,8 @@ export type RealmConfigView = Omit<
   session_eviction_policy: string;
   signing_key_rotation_mode: string;
   signing_key_rotation_interval: string;
+  /** Absent from an issuer older than spec 0.60.0, hence optional (unlike the other keys). */
+  phone_otp?: PhoneOtpConfig;
 };
 
 /** Response envelope of GET/PATCH `/platforms/{id}/config`. */
