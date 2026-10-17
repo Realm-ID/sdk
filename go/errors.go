@@ -262,6 +262,16 @@ const (
 	ErrCodeResetTokenUsed            ErrorCode = "reset_token_used"
 	ErrCodeResetTokenSuperseded      ErrorCode = "reset_token_superseded"
 
+	// Phone-delivery channel codes (SPEC §3.1; ADR-115, issuer spec 0.60.0), all
+	// new to the wire in that spec. delivery_unavailable is deliberately NOT
+	// registered: it has shipped since ADR-103 and reaches callers as
+	// Details["server_code"], so registering it would move it. Its new `channel`
+	// field lands in Details["channel"].
+	ErrCodeInvalidChannelConfig    ErrorCode = "invalid_channel_config"
+	ErrCodeChannelValidationFailed ErrorCode = "channel_validation_failed"
+	ErrCodeChannelNotConfigured    ErrorCode = "channel_not_configured"
+	ErrCodePhoneOTPRateLimited     ErrorCode = "phone_otp_rate_limited"
+
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
 	ErrCodeForbidden    ErrorCode = "forbidden"
@@ -374,6 +384,28 @@ func IsTenantDisabled(err error) bool {
 	return re.Code == ErrCodeTenantDisabled
 }
 
+// IsInvalidChannelConfig reports whether err is the issuer's 400
+// invalid_channel_config: a messaging save broke a shape rule; the message names
+// the field (SPEC §6.16).
+func IsInvalidChannelConfig(err error) bool { return IsCode(err, ErrCodeInvalidChannelConfig) }
+
+// IsChannelValidationFailed reports whether err is the issuer's 422
+// channel_validation_failed: the provider refused the credentials; the message is
+// the provider's reason. Nothing was stored.
+func IsChannelValidationFailed(err error) bool {
+	return IsCode(err, ErrCodeChannelValidationFailed)
+}
+
+// IsChannelNotConfigured reports whether err is the issuer's 404
+// channel_not_configured: the realm has saved nothing for that channel.
+func IsChannelNotConfigured(err error) bool { return IsCode(err, ErrCodeChannelNotConfigured) }
+
+// IsPhoneOTPRateLimited reports whether err is the issuer's 429
+// phone_otp_rate_limited: this number was sent the realm's limit of phone codes
+// within the window. The wait is the Retry-After header, which this SDK does not
+// yet surface.
+func IsPhoneOTPRateLimited(err error) bool { return IsCode(err, ErrCodePhoneOTPRateLimited) }
+
 // IsEscortSuspended reports whether err is the issuer's 403 escort_suspended:
 // the BFF's own escort account is disabled (ADR-104 R-d). A service problem.
 func IsEscortSuspended(err error) bool {
@@ -471,6 +503,9 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeNoVerifiedEmail: {}, ErrCodeResetThrottled: {},
 	ErrCodeResetTokenInvalid: {}, ErrCodeResetTokenExpired: {},
 	ErrCodeResetTokenUsed: {}, ErrCodeResetTokenSuperseded: {},
+	// SPEC §3.1 phone-delivery channel codes (ADR-115).
+	ErrCodeInvalidChannelConfig: {}, ErrCodeChannelValidationFailed: {},
+	ErrCodeChannelNotConfigured: {}, ErrCodePhoneOTPRateLimited: {},
 }
 
 func isKnownCode(s string) bool {

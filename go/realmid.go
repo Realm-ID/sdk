@@ -190,6 +190,9 @@ type Realm struct {
 	// SigningKeys is the owner-facing signing-key read + self-serve rotate
 	// surface (roles/signing-keys overhaul).
 	SigningKeys *SigningKeysClient
+	// Messaging is the realm's own SMS (Twilio) / WhatsApp (Meta) credentials for
+	// phone sign-in codes (ADR-115; SPEC §6.16). Secrets are write-only.
+	Messaging *MessagingClient
 	// IdentityProviderConfig is the realm-admin CRUD surface for
 	// federated identity providers (distinct from the read-only
 	// Realm.IdentityProviders SPA discovery method).
@@ -298,6 +301,7 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.Roles = &RolesClient{realm: r}
 	r.RoleTemplates = &RoleTemplatesClient{realm: r}
 	r.SigningKeys = &SigningKeysClient{realm: r}
+	r.Messaging = &MessagingClient{realm: r}
 	r.IdentityProviderConfig = &IdentityProviderConfigClient{realm: r}
 	r.Origins = newOriginsClient(r)
 	r.modes = newOrgModeCache(r)
