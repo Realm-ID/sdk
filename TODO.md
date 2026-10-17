@@ -132,6 +132,7 @@ in the same repo.
 > would ever have looked here. They now sit under the heading that
 > describes them.
 
+- [ ] `SPEC.md` §X.6 — the Go single-factor example passes `RealmID:` to `realmid.OTPLoginRequest`, which has no such field (`go/auth.go:853-858`: Identifier, Presented, Origin, TenantID); §X.4's request line says `{ realmId, … }` too. Found 2026-10-17 (ADR-116 W0 docs).
 - [ ] `docs/partner-integration-guide.md` + `docs/integration-guide.md` — TWO
       partner integration guides now sit side by side (~1600 and ~1700 lines) and
       overlap substantially. The first arrived 2026-08-28 from the private

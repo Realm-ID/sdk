@@ -433,6 +433,33 @@ UNRELEASED):
 > <channel>"). It is the existing registered code, so it lands on `.Code` like any other. It is
 > the number's problem, not the realm's: it never marks the channel `failing`.
 
+**Sign-in code send codes** (issuer ADR-116, spec `0.61.0`, NOT RELEASED; §X.4a):
+
+| Code | HTTP | Raised by | Meaning / remedy |
+|---|---|---|---|
+| `sign_in_ip_rate_limited` | 429 | `auth.sendLoginCode` | The end user's IP (the `onBehalfOfIp` you passed) has used the realm's `phone_otp.sign_in_per_ip_per_hour`. Wait `Retry-After` seconds. Never raised when no IP was passed. |
+| `method_not_enabled` | 403 | `auth.sendLoginCode` | The realm has one-time-code sign-in switched off (`otp_login_enabled = false`). Do not offer the phone option. |
+
+> **`sign_in_ip_rate_limited` is REGISTERED in every language.** It is new to the wire in spec
+> `0.61.0`, so registering it breaks no existing branch.
+>
+> **`method_not_enabled`: registration is OPEN** (issuer ADR-116 open item 1). The plan says
+> "registered", but the code has ALREADY shipped as `400` on the ADR-094 domain-SSO routes, where
+> it reaches callers today as `details.server_code`; by the rule above, registering it would move
+> it to `.code` there, a silent break. Until the owner rules, SDK builders implement the helper
+> below and do NOT add it to the registered set.
+>
+> `phone_otp_rate_limited` (429) is raised by this call too, for the SIGN-IN per-phone counter,
+> which is separate from the counter `otp.issue` charges (ADR-116 N3). `delivery_unavailable`
+> (503, with `details.channel`) stays UNREGISTERED, as above.
+>
+> **Helpers.** Go `IsSignInIPRateLimited(err)`, `IsDeliveryUnavailable(err)`; ts
+> `isSignInIpRateLimited(e)`, `isDeliveryUnavailable(e)`; java
+> `RealmException.isSignInIpRateLimited(t)`, `RealmException.isDeliveryUnavailable(t)`.
+> `IsDeliveryUnavailable` is true when the code is `delivery_unavailable` on `.code` OR on
+> `details.server_code`, because the code is not registered; it never needs to change if the code
+> is registered later.
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,
@@ -2686,6 +2713,14 @@ Promoted from a nested namespace for ergonomics:
   never clamped. An unknown key inside the group is `400 unknown_config_key`. `realm.config.get()`
   returns the group like any other key. Go adds a typed READ view, `ConfigValues.PhoneOTP()` →
   `*PhoneOTPConfig` (`nil` when the issuer did not send it); there is still no typed per-key PATCH.
+  **Issuer ADR-116 (spec `0.61.0`, NOT RELEASED)** adds a third key to the group,
+  `sign_in_per_ip_per_hour`: how many sign-in codes (§X.4a) one END-USER IP may request per hour.
+  Default **10**, range **1-60**; it cannot be turned off, and a value outside the range is
+  `400 invalid_config_value`. It is separate from the per-phone pair and not part of its ceiling.
+  Go's `PhoneOTPConfig` gains `SignInPerIPPerHour`; ts `PhoneOtpConfig` gains
+  `sign_in_per_ip_per_hour`; java the same field. Since ADR-116 the per-phone pair is charged on
+  two SEPARATE counters with the same numbers: one for sign-in codes and one for codes to signed-in
+  users (`otp.issue`, MFA, contact verification), plus a per-USER counter for the latter.
 - `realm.config.get()` → `{ id, config, singleTenantPendingReconciliation? }`.
   The count is how many people still hold 2+ active memberships while the
   rule is on — a user who never logs in never resolves, so it is the only
@@ -3241,6 +3276,10 @@ Every save and delete is audited on the issuer (the audit row carries the actor 
 `secret_hint`, never the secret). **The accepted risk, for a partner's own review:** a holder of
 `platform:config` can point the realm's sender at an account they control and read the codes in that
 account's message log, so grant `platform:config` accordingly.
+
+**Sending a sign-in code to someone who is not signed in** goes through the same channels:
+`auth.sendLoginCode` (§X.4a, issuer ADR-116, NOT RELEASED). Its codes and limits are in §3.1 and
+§6.5.
 
 ## 7. Pagination
 
@@ -4160,6 +4199,74 @@ delivery. Realm precondition: `otp_login_enabled = true`.
 Request: `{ realmId, identifier, presented }` — `identifier` is an
 E.164 phone or email; the server resolves it to a tenant-scoped user.
 Response: same shape as `login()`.
+
+### X.4a `auth.sendLoginCode(req)` / `Auth.SendLoginCode(...)` — send the sign-in code (issuer ADR-116, spec `0.61.0`, NOT RELEASED)
+
+The first half of a phone sign-in for a person who is NOT signed in yet: asks RealmID to send a
+sign-in code to a phone number by SMS or WhatsApp, through the realm's own channel (§6.16). The
+person then types the code, and the partner calls `auth.otpLogin` (§X.4) with the same
+`identifier` (and the same `tenantId`, if one was sent). Before ADR-116 there was no way to do this:
+`otp.issue` needs a signed-in user in the target's own org.
+
+Wraps `POST /auth/otp/send-login`. Authenticates with the platform token (no user session).
+
+| Language | Call |
+|---|---|
+| Go | `r.Auth.SendLoginCode(ctx, realmid.SendLoginCodeRequest{Identifier, DeliveryMode, TenantID, OnBehalfOfIP})` → `(*SendLoginCodeResponse, error)` |
+| ts | `realm.auth.sendLoginCode({ identifier, deliveryMode, tenantId?, onBehalfOfIp? })` → `Promise<SendLoginCodeResponse>` |
+| java | `realm.auth().sendLoginCode(SendLoginCodeRequest)` → `SendLoginCodeResponse` |
+
+Request:
+
+- `identifier` — the phone number, strict E.164 (`+919999000011`). Not rewritten by the SDK or the
+  issuer; anything else is `400 invalid_identifier`.
+- `deliveryMode` — `"sms"` or `"whatsapp"`, required (the §X.1 constants). There is no default and
+  no fallback between them. Offer only what discovery's `phone_channels` lists (§4.1.4a).
+- `tenantId` — optional hint about which org to look in; send the same one to `otpLogin`.
+- `onBehalfOfIp` — the END USER's IP as your server saw it, sent as `X-On-Behalf-Of-IP` like every
+  other lane that has this field. Strongly recommended: the per-IP limit protects your users only
+  when you pass it. Without it, only the per-phone limit applies; your server's own IP is never
+  counted.
+
+Response: ALWAYS `202 {"sent_if_registered": true}` on success (`SentIfRegistered: true` /
+`sentIfRegistered: true`). **It does not say whether the number belongs to anyone**, by design:
+an unknown number, a user with no phone and a failed provider send all answer the same, and the
+send happens after the response. Show the same text either way, for example "If this number is
+registered, we sent a code by SMS."
+
+Errors (§3.1):
+
+| status | code | what to do |
+|---|---|---|
+| 400 | `invalid_identifier` | ask for the number again, in international form |
+| 400 | `unsupported_delivery_mode` | a caller bug: send `sms` or `whatsapp` |
+| 403 | `method_not_enabled` | the realm has one-time-code sign-in off; hide the phone option |
+| 429 | `sign_in_ip_rate_limited` | this end user asked for too many codes; wait `Retry-After` seconds |
+| 429 | `phone_otp_rate_limited` | this number was sent too many codes; wait `Retry-After` seconds |
+| 429 | `rate_limited` | the issuer's burst limiter; back off |
+| 503 | `delivery_unavailable` (`details.channel`) | that channel is not working for the realm; offer the other one if discovery lists it, never switch automatically |
+| 503 | `store_unavailable` | retry later; nothing was sent |
+
+Both 429s are counted BEFORE the issuer looks the number up, so they reveal nothing about the
+person. These counters are separate from the ones `otp.issue` uses for signed-in users (MFA,
+contact verification), so a burst of sign-in requests never blocks a user's MFA code. Limits:
+§6.5 `phone_otp`.
+
+```go
+_, err := r.Auth.SendLoginCode(ctx, realmid.SendLoginCodeRequest{
+    Identifier: "+919999000011", DeliveryMode: realmid.DeliveryModeSMS, OnBehalfOfIP: clientIP,
+})
+switch {
+case realmid.IsSignInIPRateLimited(err), realmid.IsPhoneOTPRateLimited(err):
+    // show "Too many codes requested", wait Retry-After
+case realmid.IsDeliveryUnavailable(err):
+    // offer the other channel if discovery lists it
+case err != nil:
+    // other error
+}
+// later, same identifier (and the same TenantID if one was sent):
+// r.Auth.OTPLogin(ctx, realmid.OTPLoginRequest{Identifier: "+919999000011", Presented: code})
+```
 
 ### X.5 `auth.mfaVerifyOtp(req)` / `Auth.MFAVerifyOTP(...)` — second factor
 
