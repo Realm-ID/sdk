@@ -3246,7 +3246,8 @@ A transient provider failure never hides a channel. While `failing`, `otp.issue`
 | Language | Surface |
 |---|---|
 | Go | `Realm.Messaging.PutSMS(ctx, TwilioChannel{…})`, `.PutWhatsApp(ctx, WhatsAppChannel{…})`, `.Get(ctx, channel)`, `.Delete(ctx, channel)`; read type `MessagingChannel`; channel constants `MessagingChannelSMS` / `MessagingChannelWhatsApp`. |
-| ts / java | The same four operations and the same read/write split, added by the ts/java release. |
+| ts (`@realm-id/sdk`) | `realm.messaging.putSms(body)`, `.putWhatsApp(body)`, `.get(channel)`, `.delete(channel)`; snake_case wire field names; read type `MessagingChannel` (timestamps are RFC3339 strings, `status_reason` / `validated_at` are `null` when unset); `TwilioChannel` / `WhatsAppChannel` are the only types with secrets. `@realm-id/web-admin` exposes the same client as `admin.messaging`. Helpers: `isInvalidChannelConfig` / `isChannelValidationFailed` / `isChannelNotConfigured` / `isPhoneOtpRateLimited`, `phoneOtpConfig(config)` → `PhoneOtpConfig \| undefined`, `offersPhoneLogin(discovery)`; `@realm-id/web`: `ProvidersResponse.phoneChannels` (absent ≠ `[]`) and `offersPhoneLogin`. |
+| java | The same four operations and the same read/write split, added by the java release. |
 
 Every save and delete is audited on the issuer (the audit row carries the actor and the
 `secret_hint`, never the secret). **The accepted risk, for a partner's own review:** a holder of
