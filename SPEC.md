@@ -1,7 +1,7 @@
 # Realm ID SDK — cross-language specification
 
 **Current as of 2026-10-17 — go `0.68.0` · ts `0.56.0` · java `0.52.0` · web `0.11.0` · web-admin `0.23.0` · web-bff-realmid `0.8.0`
-(release cut; tags pending; all three languages implement the ADR-115 phone-delivery surface and the v0.63 surface below)** (see §13 for the tag matrix).
+(tagged 2026-10-17: go/v0.68.0, ts-v0.56.0, java-v0.52.0; all three languages implement the ADR-115 phone-delivery surface and the v0.63 surface below)** (see §13 for the tag matrix).
 
 > ⚠️ **UNRELEASED (ts/java), 2026-10-16 — password reset links and change at sign-in (issuer ADR-111 +
 > ADR-104 § Amendment 2026-10-09 and R-e `revoked_sids`, issuer spec `0.53.0`).** go `0.65.0` is
@@ -4670,10 +4670,10 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 
 | Language | Latest released tag | Notes |
 |----------|---------------------|-------|
-| Go       | `go/v0.68.0` (release cut 2026-10-17; tag pending)                            | slash form; resolved by `go get`. `0.68.0` adds the ADR-115 phone-delivery surface (§3.1 four codes, §4.1.4a, §6.5 `phone_otp`, §6.16, §X.1; issuer spec 0.60.0); `go/v0.67.0` was the previous tag. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) shipped in `go/v0.65.0` (2026-10-12). |
-| Web core | `web-v0.11.0` (tag pending) | `@realm-id/web@0.11.0` (with web-admin 0.23.0, web-bff-realmid 0.8.0): ADR-115 `phoneChannels` / `offersPhoneLogin`. 0.9.0 was cross-tab refresh, `logout({ all })`. |
-| TS       | `ts-v0.56.0` (release cut 2026-10-17; tag pending; `ts-v0.55.0` was previous) | `@realm-id/sdk@0.56.0` (0.55.0 is the last published; ADR-115 surface added) with `@realm-id/web-admin@0.23.0` (0.22.0 last published). At Go `0.67.0` parity: §4.1.7, the v0.63 surface, the ADR-111 / ADR-104 R-e surface (§4.1.8, §4.10, §6.3 passwords, `revokedSids`) and the ADR-049 amendment (`tenant_disabled`, `joined_via`, bulk status, `sign_out` on detach). This cell read `ts-v0.54.0` until 2026-10-17. |
-| Java     | `java-v0.52.0` (release cut 2026-10-17; tag pending; `java-v0.51.0` was previous) | `dev.realmid:sdk:0.52.0` (0.51.0 is the last published; ADR-115 surface added). At Go `0.67.0` parity: the same surfaces as TS above, plus the §3.1 password codes, `Session.revokedSids()`, `PasswordResetConsumed`, `PasswordSet`. This cell read `java-v0.50.0` until 2026-10-17. |
+| Go       | `go/v0.68.0` (tagged 2026-10-17)                            | slash form; resolved by `go get`. `0.68.0` adds the ADR-115 phone-delivery surface (§3.1 four codes, §4.1.4a, §6.5 `phone_otp`, §6.16, §X.1; issuer spec 0.60.0); `go/v0.67.0` was the previous tag. Carries §4.1.7 `OnIdentityResolved`, the v0.63.0 surface (§5.1, §5.1.1, §6.7, §10.1, §10.2, §11.4-11.5) and §4.3a. This cell read `go/v0.63.0` until 2026-10-09. The ADR-111 surface (§4.1.8, §4.10, §6.3 passwords) shipped in `go/v0.65.0` (2026-10-12). |
+| Web core | no `web-v` tag (published 2026-10-17 by the `ts-v0.56.0` publish-npm run) | `@realm-id/web@0.11.0` (with web-admin 0.23.0, web-bff-realmid 0.8.0): ADR-115 `phoneChannels` / `offersPhoneLogin`. 0.9.0 was cross-tab refresh, `logout({ all })`. |
+| TS       | `ts-v0.56.0` (tagged 2026-10-17; `ts-v0.55.0` was previous) | `@realm-id/sdk@0.56.0` (ADR-115 surface added) with `@realm-id/web-admin@0.23.0`. At Go `0.67.0` parity: §4.1.7, the v0.63 surface, the ADR-111 / ADR-104 R-e surface (§4.1.8, §4.10, §6.3 passwords, `revokedSids`) and the ADR-049 amendment (`tenant_disabled`, `joined_via`, bulk status, `sign_out` on detach). This cell read `ts-v0.54.0` until 2026-10-17. |
+| Java     | `java-v0.52.0` (tagged 2026-10-17; `java-v0.51.0` was previous) | `dev.realmid:sdk:0.52.0` (ADR-115 surface added). At Go `0.67.0` parity: the same surfaces as TS above, plus the §3.1 password codes, `Session.revokedSids()`, `PasswordResetConsumed`, `PasswordSet`. This cell read `java-v0.50.0` until 2026-10-17. |
 
 > ⚠️ **This table was stale by TWO releases on every language** until 2026-09-21 — it
 > read `go/v0.58.0` / `ts-v0.51.0` / `java-v0.48.0` while the repo held `go/v0.60.0`,
