@@ -3,6 +3,23 @@
 **Current as of 2026-10-16 — go `0.67.0` · ts `0.55.0` · java `0.51.0` · web `web-v0.9.0`
 (being tagged together; all three languages implement the v0.63 surface below)** (see §13 for the tag matrix).
 
+> ⚠️ **UNRELEASED, 2026-10-17 — bring-your-own phone-code delivery (issuer ADR-115, issuer spec `0.60.0`).**
+> A partner saves its OWN Twilio (SMS) and/or Meta WhatsApp credentials; RealmID sends that realm's
+> phone codes only through them. Go implements it first (a minor, additive release); ts and java
+> follow, and the sections below are the contract for all three. This note is deleted in the commit
+> that releases them, and the version cells move to §13.
+>
+> | § | Surface | Visible to an existing partner? |
+> |---|---|---|
+> | **§3.1** | Four new codes: `invalid_channel_config`, `channel_validation_failed`, `channel_not_configured`, `phone_otp_rate_limited`. `delivery_unavailable` stays UNREGISTERED and gains `details.channel`. | No — the issuer emits none of the four before `0.60.0`. |
+> | **§4.1.4a** | Discovery gains `phone_channels` (absent ≠ `[]`). | No — additive. ⚠️ A BFF re-serialising discovery through an older SDK struct DELETES it. |
+> | **§X.1** | `deliveryMode` gains `"whatsapp"`. | No — additive. |
+> | **§6.5** | Realm config gains the nested `phone_otp: {max_per_window, window_seconds}` knob. | No — rides the generic config PATCH. |
+> | **§6.16** | `realm.messaging.*` — save / read / delete a realm's SMS or WhatsApp credentials (write-only secrets). | No — new. |
+>
+> **Cite as** `SPEC3_1_channels`, `SPEC4_1_4a`, `SPECX_1_whatsapp`, `SPEC6_5_phone_otp`,
+> `SPEC6_16` in test names, so a parity sweep can find each across languages.
+
 > ⚠️ **UNRELEASED (ts/java), 2026-10-16 — password reset links and change at sign-in (issuer ADR-111 +
 > ADR-104 § Amendment 2026-10-09 and R-e `revoked_sids`, issuer spec `0.53.0`).** go `0.65.0` is
 > shipped; ts `0.55.0` and java `0.51.0` implement the same surface at Go parity and are being
@@ -395,6 +412,42 @@ UNRELEASED):
 > register them (with a changelog **Breaking** line) is an open question for a later release.
 > `invalid_credentials` (401) and `login_throttled` (429) likewise stay `unauthorized` /
 > `rate_limited` with the server code preserved.
+
+**Phone-delivery channel codes** (issuer spec `0.60.0`, ADR-115; §6.16 and §X.1):
+
+| Code | HTTP | Raised by | Meaning / remedy |
+|---|---|---|---|
+| `invalid_channel_config` | 400 | `messaging.put` | The body breaks a shape rule: neither or both auth forms, neither or both sender forms, a field that belongs to the other provider, or a `from_number` that is not strict E.164. The message names the field. Nothing was stored. |
+| `channel_validation_failed` | 422 | `messaging.put` | The provider refused the credentials when RealmID asked it (no message is sent for this check). The message carries the provider's reason, never a secret. Nothing was stored. Fix the credentials and save again. |
+| `channel_not_configured` | 404 | `messaging.get` | The realm has no saved credentials for that channel. Not a failure for a first-time setup screen: show the empty form. |
+| `phone_otp_rate_limited` | 429 | `otp.issue` with `deliveryMode` `sms` / `whatsapp` | This phone number has already been sent the realm's `phone_otp` limit within the window (one counter for both channels). Wait, then retry. The wait is the `Retry-After` header (seconds). |
+
+> **All four are REGISTERED, in every language.** A registered code lands on `RealmError.code`
+> and is never duplicated into `details.server_code` (§3.3), so a caller branches on it directly.
+> Registering a code that has already shipped moves it off `server_code` and breaks callers
+> already branching there, so a new code is registered in the release that introduces it, which is
+> this one. All four are new to the wire in spec `0.60.0`, so no existing branch breaks. Two of
+> them would otherwise hide among siblings: `invalid_channel_config` among every other 400, and
+> `phone_otp_rate_limited` among the other 429s (`rate_limited`, `login_throttled`).
+>
+> **`delivery_unavailable` (503) is deliberately NOT registered.** It has shipped since ADR-103,
+> so it reaches callers with `details.server_code` = `delivery_unavailable` (§3.3), and
+> registering it would move it, a silent break for anyone already branching there. From spec
+> `0.60.0` an `sms` / `whatsapp` request that cannot be sent carries one more body field,
+> `channel` (`"sms"` or `"whatsapp"`), which §3.2 collects into `details.channel`. There is NO
+> new `channel_unavailable` code (owner ruling 2026-10-17); the change is additive. The same 503
+> covers a channel with no saved credentials and one marked `failing`, so the remedy a caller
+> offers is the same either way: the other channel, if the realm lists one (§4.1.4a).
+>
+> **`Retry-After`.** The issuer sends it on `phone_otp_rate_limited`. The Go SDK does not put
+> response headers into `details` (verified 2026-10-17: no code in `go/` reads `Retry-After`,
+> although §3's `rate_limited` row says it does; filed in `TODO.md`), so a BFF that needs the wait
+> reads the header off its own HTTP response until that lands. ts/java were not checked.
+>
+> A per-recipient refusal (this ONE number cannot receive on the channel: invalid, opted out, not
+> on WhatsApp) is a 4xx the issuer may add; its code is not settled (ADR-115 open item 7) and is
+> NOT in this table. Until it is, such a refusal reaches the caller as its status-derived code with
+> the issuer's code in `details.server_code`.
 
 **Management / generic codes:**
 
@@ -886,6 +939,32 @@ exist on the Go type even though no Go code reads it, and a round-trip test
 (decode → encode → field still present, and still absent when absent) is the
 proof. A pointer is required for the second half: a plain `bool` would encode
 `false` for an absent policy and invent a promise.
+
+#### 4.1.4a Discovery reports the PHONE channels (ADR-115 B3a; issuer spec `0.60.0`)
+
+Discovery gains `phone_channels`: an array whose items are `"whatsapp"` or `"sms"`, in that fixed
+order, listing only the channels the realm has configured AND that are `operational` right now
+(§6.16). Anonymous like the rest of the response: it says which channels exist, never a credential.
+
+| Language | Field |
+|---|---|
+| Go | `IdentityProvidersResponse.PhoneChannels *[]string` with `json:"phone_channels,omitempty"`. A POINTER TO A SLICE, because `omitempty` on a plain slice drops `[]`, and an absent field and an empty list would become the same thing. `nil` = absent; non-nil and empty = `[]`. Helper `OffersPhoneLogin()`. |
+| ts (`@realm-id/sdk`) | `phone_channels?: Array<"whatsapp" \| "sms">`, wire snake_case like `credential_methods`. |
+
+- **ABSENT means an older issuer ("the server did not say")**; `[]` means "this realm has no working
+  phone channel". They are different facts: a screen that reads absence as `[]` hides a phone option
+  the realm may well have.
+- **A login screen offers a phone option only when `credential_methods` contains `otp` AND
+  `phone_channels` is present and non-empty.** Absent therefore offers nothing, which is the safe
+  direction: against an older issuer there is no channel the SDK can promise.
+- Offer exactly the listed channels, each as its own choice. The caller picks the channel and the
+  issuer never falls back (§X.1). **Keep "send by SMS instead" visible beside WhatsApp whenever
+  `sms` is listed:** WhatsApp can fail to deliver silently after the issuer has accepted the message
+  (the recipient is not on WhatsApp, or Meta holds it back), and the `200` cannot tell you that.
+- ⚠️ The same BFF trap as `credential_methods` and `password_policy`: a BFF that decodes
+  discovery into the SDK struct and re-serialises it DELETES a field the struct lacks. The
+  round-trip test covers both halves: a present list survives, and `[]` stays `[]` rather than
+  vanishing.
 
 #### 4.1.5 `login` is not the only lane that mints
 
@@ -2613,6 +2692,15 @@ Promoted from a nested namespace for ergonomics:
   and a conflicting membership is thereafter an ERROR (invite and
   ownership transfer refuse with `409 single_tenant_membership`), never an
   automatic move.
+- `phone_otp` (ADR-115 B4, issuer spec `0.60.0`) rides the same generic PATCH, as a NESTED group:
+  `{ max_per_window, window_seconds }` — how many phone codes (SMS and WhatsApp together, one
+  counter per realm and phone number) one number may be sent per window. Default **5 per 900
+  seconds**. A PATCH MERGES into the group, so `{"phone_otp": {"max_per_window": 8}}` leaves the
+  window alone. RealmID's ceiling is a RATE of **20 codes per 3600 seconds**, checked on the merged
+  pair: a patch that would exceed it answers `400 invalid_config_value` naming the ceiling and is
+  never clamped. An unknown key inside the group is `400 unknown_config_key`. `realm.config.get()`
+  returns the group like any other key. Go adds a typed READ view, `ConfigValues.PhoneOTP()` →
+  `*PhoneOTPConfig` (`nil` when the issuer did not send it); there is still no typed per-key PATCH.
 - `realm.config.get()` → `{ id, config, singleTenantPendingReconciliation? }`.
   The count is how many people still hold 2+ active memberships while the
   rule is on — a user who never logs in never resolves, so it is the only
@@ -3097,6 +3185,73 @@ Errors: `owner_cannot_leave` (409 — same NOT NULL rule as
 known set in every language, so they reach `error.code` instead of
 collapsing into the generic 409 `conflict` — each carries a distinct
 remedy and they are indistinguishable by status alone.
+
+### 6.16 Phone-code channels — `realm.messaging.*` (ADR-115; issuer spec `0.60.0`)
+
+Bring-your-own delivery for phone sign-in codes. The realm saves its OWN provider account, and
+RealmID sends that realm's SMS and WhatsApp codes only through it. Authenticates with the platform
+token, like `realm.config.*`; the realm's own id is sent as `{id}` automatically. The gate is the
+realm permission `platform:config` (admins and bots that hold it included), the same as the config
+PATCH. Missing it is `403 forbidden`.
+
+```
+PUT    /platforms/{id}/messaging/{channel}     save (replaces the whole row)
+GET    /platforms/{id}/messaging/{channel}     read the non-secret config and status
+DELETE /platforms/{id}/messaging/{channel}     remove  -> 200 {"status":"deleted"}
+```
+
+`channel` is `"sms"` (provider Twilio) or `"whatsapp"` (provider Meta Cloud API).
+
+**Save body, `sms`:** `account_sid` (`AC…`); EXACTLY ONE auth form: `auth_token`, OR
+`api_key_sid` + `api_key_secret` (preferred: a key is revocable on its own); EXACTLY ONE sender
+form: `from_number` (strict E.164) OR `messaging_service_sid` (`MG…`). **Save body, `whatsapp`:**
+`phone_number_id`, `waba_id`, `access_token` (a System User token), `template_name`,
+`template_language` (e.g. `en`, `en_US`); the template is an APPROVED authentication template with
+a copy-code button, created by the partner in its own WhatsApp Business Account. `provider` may be
+sent (`twilio` / `meta`) and must match the channel. A field of the other provider, or a broken
+exactly-one-of rule, is `400 invalid_channel_config` naming the field.
+
+**Secrets are write-only.** `auth_token`, `api_key_secret` and `access_token` exist ONLY on the
+write type of every SDK; no read type has them, so a read can never echo one back by accident.
+
+**Save validates first.** RealmID asks the provider whether the credentials work, WITHOUT sending
+a message, before storing anything. A refusal is `422 channel_validation_failed` carrying the
+provider's reason, and nothing is stored. A save that succeeds returns the read shape with
+`status: "operational"`.
+
+**Read shape:** `channel`, `provider`, the non-secret fields that were saved (`account_sid`,
+`api_key_sid`, `from_number`, `messaging_service_sid`, `phone_number_id`, `waba_id`,
+`template_name`, `template_language`), and:
+
+| Field | Meaning |
+|---|---|
+| `secret_hint` | The last 4 characters of the primary secret, so an operator can tell which credential is saved. Never more. |
+| `status` | `operational` or `failing` (below). |
+| `status_reason` | Why it went `failing`, in the provider's words, never a secret. Null when operational. |
+| `status_changed_at` | When `status` last changed. |
+| `validated_at` | When the credentials last passed a validation call. Null if never. |
+| `updated_at` | When the credentials were last saved. |
+
+`GET` on a channel with nothing saved is `404 channel_not_configured`. `DELETE` is idempotent:
+removing a channel that is not saved succeeds the same way, with the usual `{status}` body.
+
+**`operational` and `failing`.** A channel is `operational` when it was saved, passed validation,
+and no configuration-class send failure has happened since. A configuration-class failure (a
+revoked token, a number the account does not own, an unapproved template, a suspended account)
+flips it to `failing` and HIDES it from discovery (§4.1.4a) until the realm re-saves it or the
+issuer's background re-check, which runs every 10 minutes and sends no message, finds it working.
+A transient provider failure never hides a channel. While `failing`, `otp.issue` answers
+`503 delivery_unavailable` with `details.channel` (§3.1) and sends nothing.
+
+| Language | Surface |
+|---|---|
+| Go | `Realm.Messaging.PutSMS(ctx, TwilioChannel{…})`, `.PutWhatsApp(ctx, WhatsAppChannel{…})`, `.Get(ctx, channel)`, `.Delete(ctx, channel)`; read type `MessagingChannel`; channel constants `MessagingChannelSMS` / `MessagingChannelWhatsApp`. |
+| ts / java | The same four operations and the same read/write split, added by the ts/java release. |
+
+Every save and delete is audited on the issuer (the audit row carries the actor and the
+`secret_hint`, never the secret). **The accepted risk, for a partner's own review:** a holder of
+`platform:config` can point the realm's sender at an account they control and read the codes in that
+account's message log, so grant `platform:config` accordingly.
 
 ## 7. Pagination
 
@@ -3940,19 +4095,19 @@ concurrently; codes stack until consumed or expired.
 
 Request: `{ subjectRef, purpose, deliveryMode? }` — `subjectRef` /
 `purpose` are opaque tenant-scoped strings. `deliveryMode` is one of
-`"view_bff"` (ADR-071), `"email"` (ADR-095 D7) or `"sms"` (ADR-103), with
-constants per language (go `DeliveryModeViewBFF` / `…Email` / `…SMS`, ts
-`DELIVERY_MODE_VIEW_BFF` / `…_EMAIL` / `…_SMS`, java
-`OtpIssueRequest.DELIVERY_MODE_VIEW_BFF` / `…_EMAIL` / `…_SMS`).
+`"view_bff"` (ADR-071), `"email"` (ADR-095 D7), `"sms"` (ADR-103) or `"whatsapp"` (ADR-115), with
+constants per language (go `DeliveryModeViewBFF` / `…Email` / `…SMS` / `…WhatsApp`, ts
+`DELIVERY_MODE_VIEW_BFF` / `…_EMAIL` / `…_SMS` / `…_WHATSAPP`, java
+`OtpIssueRequest.DELIVERY_MODE_VIEW_BFF` / `…_EMAIL` / `…_SMS` / `…_WHATSAPP`).
 
 - `view_bff` returns the plaintext OTP to the **caller** (the BFF/manager
   console) rather than delivering it to the subject — the handoff used to log
   service accounts in (§6.11).
-- `email` / `sms` have RealmID deliver it to the SUBJECT. The caller does **not**
+- `email` / `sms` / `whatsapp` have RealmID deliver it to the SUBJECT. The caller does **not**
   receive the plaintext: `value` is omitted and `delivered` reports which
-  transport ran. **There is no fallback between the two** — asking for `sms` and
-  silently getting mail would substitute the channel the subject controls, which
-  is the whole property.
+  transport ran. **There is no fallback between them** — asking for `sms` and
+  silently getting mail, or asking for `whatsapp` and silently getting a text, would
+  substitute the channel the subject controls, which is the whole property.
 
 **`purpose: "login"` (ADR-103 D3/D4):**
 
@@ -3960,12 +4115,21 @@ constants per language (go `DeliveryModeViewBFF` / `…Email` / `…SMS`, ts
 |---|---|---|
 | `view_bff` | allowed, `kind=service` subjects ONLY | the PARTNER reads the plaintext |
 | `sms` | allowed, ANY kind | the SUBJECT reads it, on a channel only they hold |
+| `whatsapp` | allowed, ANY kind | same reason as `sms` |
 | `email` | **refused** | a login code mailed to an address turns mailbox access into account access with no second factor — a separate security decision, not an enum value |
 
 Errors: `400 unsupported_delivery_mode`, `400 no_delivery_address` (the subject
 has no address of the requested kind — the issue FAILS rather than handing you
 an id for a code nobody will receive), `503 delivery_unavailable` (the mode is
-legal but the deployment has no transport wired).
+legal but nothing can send it; for `sms` / `whatsapp` that means the REALM has no operational
+channel of that kind, and `details.channel` names it — §3.1), `429 phone_otp_rate_limited`
+(`sms` / `whatsapp` only, any `purpose`: this number was sent too many codes within the realm's
+`phone_otp` window, §6.5).
+
+**Phone codes go out through the realm's OWN provider account (ADR-115).** The realm saves its
+Twilio / Meta credentials with §6.16; RealmID has no sender of its own. WhatsApp is sent inside
+the issue request, like SMS, so a `200` means the provider ACCEPTED the message (Meta's "held for
+quality assessment" included), not that it arrived. `value` is omitted for `whatsapp` as for `sms`.
 
 Response: `{ id, value?, delivered?, expiresAt, purpose, subjectRef }`.
 
