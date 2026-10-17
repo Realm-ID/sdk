@@ -25,6 +25,7 @@ Open work only; shipped items live in `CHANGELOG.md` + `DECISIONS.md`.
   refresh lock, `revoked_sids`, required session store); Go's was run (sdk-e2e/go). `tests/sdk-e2e/ts` and `tests/sdk-e2e/java` hold only the
   device-name, integration-install and org-access/password cases. Also no independent critic pass on the java v0.63 parity or the ts round (ts/java
   were released 2026-10-16 on test evidence alone: `V063*`/`V064*` java tests, `ts/src/v064-lock.test.ts`). Owner ruling 2026-10-16 asked for both before the tags.
+  **Ruling 2026-10-17: run both now, after the fact; any defect ships as ts `0.55.x` / java `0.51.x`** (root `DECISIONS.md` 2026-10-17).
 
 - [ ] **`@realm-id/web` peer ranges exclude `0.9.0` and `0.10.0`** — `web-admin` (`^0.5.0 … ^0.8.0`), `web-react`, `web-firebase` and `web-google`
   (`^0.4.0 … ^0.8.0`) still stop at `0.8.0` (a `0.x` caret never reaches `0.9.0`); only `web-bff-realmid` `0.7.0` was widened. Core is `0.10.0`. Widen and release
