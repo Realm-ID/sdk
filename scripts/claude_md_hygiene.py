@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from claude-config skills/claude-md-hygiene @ 283ad50399b7 — edit canonical, not this copy
+# VENDORED from claude-config skills/claude-md-hygiene @ b7892028ceed — edit canonical, not this copy
 """claude-md-hygiene: byte budgets and a history-text ban for every CLAUDE.md in a repo.
 
 Spec: ~/.claude/skills/claude-md-hygiene/SKILL.md.  Stdlib only.
@@ -66,6 +66,10 @@ SCHEME = re.compile(r'^[a-zA-Z][a-zA-Z0-9+.-]*:')
 # "<path>.md §X", with the path bare, in backticks, or as a markdown link target; ~/ and / paths
 # are the laptop's, not the repo's, so the lookbehind refuses a path that continues one
 PATH_SECTION = re.compile(r'(?:\]\(([^)\s#]+\.md)\)|`?(?<![\w~/.-])([\w.-][\w./-]*\.md)`?)\s*§\s*')
+# a code span holding nothing but a relative .md path: `docs/x.md`, `CHANGELOG.md`; a placeholder,
+# glob, command, URL, ~/ or absolute path fails the character class, so it is not a pointer
+BARE_PATH = re.compile(r'`([\w.-][\w./-]*\.md)`')
+LINK_TEXT = re.compile(r'\[[^\]\n]*\]\(')
 SECTION_STOP = re.compile(r'[.,;:()\[\]`"…]| §')
 NUMBERING = re.compile(r'^\d+(?:\.\d+)*\.?\s+')
 
@@ -300,6 +304,23 @@ class Pointers:
                 msg = self.section(found, sec, to_eol)
                 if msg:
                     yield msg
+        link_texts = [m.span() for m in LINK_TEXT.finditer(text)]
+        for m in BARE_PATH.finditer(text):
+            # a link's text (the link is checked) and "`x.md` §S" (checked above) count once
+            if any(a <= m.start() and m.end() <= b for a, b in link_texts) \
+                    or re.match(r'\s*§', text[m.end():]):
+                continue
+            rel = m.group(1)
+            self.checked += 1
+            first = rel.split('/')[0] if '/' in rel else None
+            if first not in (None, '.', '..') and not any(
+                    os.path.exists(os.path.join(d, first)) for d in (base, self.root)):
+                self.unresolvable += 1  # someone else's tree: `issuer/docs/x.md` from the ui repo
+                continue
+            _, msg = self.locate(list(dict.fromkeys([os.path.join(base, rel),
+                                                     os.path.join(self.root, rel)])))
+            if msg:
+                yield msg
 
 
 def check(root, cfg):

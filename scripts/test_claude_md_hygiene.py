@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from claude-config skills/claude-md-hygiene @ a4f64b245ded — edit canonical, not this copy
+# VENDORED from claude-config skills/claude-md-hygiene @ e00abd4c66cd — edit canonical, not this copy
 """Tests for claude_md_hygiene.py -- stdlib only, unittest. Spec: ~/.claude/skills/claude-md-hygiene/SKILL.md
 
 INTERFACE ASSUMED OF claude_md_hygiene.py:
@@ -346,9 +346,7 @@ DOC = '# Doc\n\n## 2. Stack\n\n## 21 Other\n\n## Breaking changes\n\n## Service 
       '## API contract — CI enforcement\n\n```\n## Not a heading\n```\n'
 
 
-class TestPointers(Base):
-    """CM4: a pointer from a CLAUDE.md to a doc or a section that does not resolve."""
-
+class PointerCase(Base):
     def setUp(self):
         super().setUp()
         self.r.write('docs/a.md', DOC)
@@ -369,6 +367,10 @@ class TestPointers(Base):
         self.assertEqual(rc, 1, out)
         self.assertIn('CM4 CLAUDE.md:%d:' % line, out)
         return out
+
+
+class TestPointers(PointerCase):
+    """CM4: a pointer from a CLAUDE.md to a doc or a section that does not resolve."""
 
     def test_link_to_existing_file_is_clean(self):
         out = self.assertClean('See [a](docs/a.md) and [dir](docs/).\n')
@@ -473,6 +475,74 @@ class TestPointers(Base):
             self.r.config(pointer_aliases=bad)
             self.r.write('CLAUDE.md', CLEAN)
             self.assertEqual(self.r.run()[0], 2, bad)
+
+
+class TestBarePaths(PointerCase):
+    """CM4 also checks a backticked .md path with no § (owner option A, 2026-10-18)."""
+
+    def test_missing_path(self):
+        self.assertCM4('The ledger is `docs/gone.md`.\n')
+
+    def test_existing_path_is_counted(self):
+        out = self.assertClean('The doc is `docs/a.md`.\n')
+        self.assertIn('1 pointers checked', out)
+
+    def test_first_folder_absent_is_unresolvable(self):
+        out = self.assertClean('From the ui repo: `issuer/docs/ui-web.md`.\n')
+        self.assertIn('1 unresolvable here', out)
+
+    def test_first_folder_beside_nested_claude_md(self):
+        self.r.config()
+        self.r.write('CLAUDE.md', CLEAN)
+        self.r.write('svc/CLAUDE.md', 'See `web/gone.md`.\n')
+        self.r.write('svc/web/README.md', '# web\n')
+        rc, out = self.r.run()
+        self.assertIn('CM4 svc/CLAUDE.md:1:', out)
+
+    def test_link_text_span_is_not_a_second_pointer(self):
+        out = self.assertClean('[`docs/gone.md`](docs/a.md)\n')
+        self.assertIn('1 pointers checked', out)
+
+    def test_placeholder_or_glob_skipped(self):
+        out = self.assertClean('Each `docs/<name>.md`, `docs/*.md`, `${DIR}/x.md`.\n')
+        self.assertIn('0 pointers checked', out)
+
+    def test_command_span_skipped(self):
+        self.assertClean('Run `dsec docs/gone.md Stack`.\n')
+
+    def test_code_path_not_checked(self):
+        self.assertClean('Entry is `src/api.ts` in `Realm-ID/api`.\n')
+
+    def test_bare_name_missing(self):
+        self.assertCM4('Update `CHANGELOG.md` on release.\n')
+
+    def test_bare_name_at_root_resolves_from_nested(self):
+        self.r.config()
+        self.r.write('CHANGELOG.md', '# Changelog\n')
+        self.r.write('CLAUDE.md', CLEAN)
+        self.r.write('svc/CLAUDE.md', 'Update `CHANGELOG.md`.\n')
+        rc, out = self.r.run()
+        self.assertEqual(rc, 0, out)
+
+    def test_bare_name_is_not_searched_for(self):
+        self.r.write('docs/integration-guide.md', '# Guide\n')
+        self.assertCM4('See `integration-guide.md`.\n')
+
+    def test_path_with_section_counted_once(self):
+        out = self.assertClean('Read `docs/a.md` §2 first.\n')
+        self.assertIn('1 pointers checked', out)
+
+    def test_url_and_home_paths_skipped(self):
+        out = self.assertClean('`https://x.io/a.md`, `~/.claude/x.md`, `/etc/x.md`.\n')
+        self.assertIn('0 pointers checked', out)
+
+    def test_fenced_ignored(self):
+        self.assertClean('```\n`docs/gone.md`\n```\n')
+
+    def test_waiver_covers_it(self):
+        self.assertClean('Each repo keeps `docs/gone.md`.\n',
+                         waivers=[{'check': 'CM4', 'path': 'CLAUDE.md', 'match': 'Each repo keeps',
+                                   'reason': 'generic mention, not a pointer'}])
 
 
 class TestSelfTest(Base):
