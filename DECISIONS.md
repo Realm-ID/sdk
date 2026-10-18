@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-125 entries total — 70 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+126 entries total — 71 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-18 — 2026-10-18 — sendLoginCode in go/ts/java; method_not_enabled registered (ADR-116)](#2026-10-18--2026-10-18--sendlogincode-in-gotsjava-method_not_enabled-registered-adr-116)
 - [2026-10-14 — unreleased-go: a clone with no go/ tags fails loudly instead of passing](#2026-10-14--unreleased-go-a-clone-with-no-go-tags-fails-loudly-instead-of-passing)
 - [2026-10-14 — mcp deploy workflow aligned to the website pattern; Node 22 Docker tooling](#2026-10-14--mcp-deploy-workflow-aligned-to-the-website-pattern-node-22-docker-tooling)
 - [2026-10-14 — ts flaky SPEC10_1_4a test: the winner of a concurrent refresh is not the first caller](#2026-10-14--ts-flaky-spec10_1_4a-test-the-winner-of-a-concurrent-refresh-is-not-the-first-caller)
@@ -137,6 +138,19 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-18 — 2026-10-18 — sendLoginCode in go/ts/java; method_not_enabled registered (ADR-116)
+
+**Context.** Issuer ADR-116 adds `POST /auth/otp/send-login` (spec `0.61.0`, not yet released) so a partner can send a sign-in code to someone who is not signed in. SPEC §X.4a, §3.1, §6.5 were written first; this entry is the SDK half in go, ts and java.
+
+**Decisions.**
+- `sendLoginCode` decodes the BARE 202 body `{"sent_if_registered": true}`. The issuer handler returns `raw(...)`, not GoFr's `{"data":...}` wrapper (ADR-116 appendix), so no `gofrData` unwrap and no `data` lookup.
+- `X-On-Behalf-Of-IP` is set only when the field is non-empty, the same way the existing MFA and session lanes set it; the SDK does NOT validate the address, the issuer answers `400 invalid_on_behalf_of_ip`.
+- `method_not_enabled` is REGISTERED in all three SDKs (owner ruling 2026-10-18, ADR-116 Q1), reversing SPEC §3.1's "never register an already-shipped code" for this one code. The effect is a behaviour change on the ADR-094 domain-SSO routes: the code moves from `details.server_code` to `.code`. There was no explicit "copy list" to edit: the copy into `server_code` happens for any code the registry does not know, so registering the code is the whole change. Called out as a behaviour change in each CHANGELOG.
+- `delivery_unavailable` stays unregistered; `IsDeliveryUnavailable` checks `.code` OR `details.server_code` so it keeps working if the code is registered later.
+- `PhoneOTPConfig.SignInPerIPPerHour` is a plain int in Go/Java (0 = issuer did not send it) and optional in ts; the typed view is NOT made nil/empty when only that key is missing, so an older issuer keeps its existing view.
+
+**Not done.** No version bump and no tag (release step). Not run against a live issuer: the route is not built, so sdk-e2e is out of this unit.
 
 ## 2026-10-14 — unreleased-go: a clone with no go/ tags fails loudly instead of passing
 

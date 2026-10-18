@@ -493,6 +493,9 @@ curl -X POST https://auth.realmid.dev/auth/otp/issue … \
 # 200 {"id":"…","delivered":"whatsapp",…}   (the code is NOT in the response)
 ```
 
+That call needs a signed-in user. For a person who is NOT signed in yet, use the
+sign-in send in step 4a below.
+
 There is no fallback: a `whatsapp` request is never quietly sent as an SMS.
 **Keep a "send by SMS instead" link next to WhatsApp whenever `sms` is listed.** A `200`
 means Meta accepted the message, not that it arrived: if the number is not on WhatsApp,
@@ -502,6 +505,47 @@ the response names the `channel` that failed (and carries `Retry-After`); offer 
 If the provider says THIS number cannot receive (invalid, opted out, not on WhatsApp; Twilio
 `21608`, Meta `130497`), the answer is `400 no_delivery_address` naming the channel; that is the
 number's problem, not yours, and the channel stays healthy.
+
+**4a. Send the sign-in code (issuer ADR-116, spec `0.61.0`).** For a person who is not
+signed in, your server asks RealmID to send the code, with the platform token you already
+hold. SDKs: Go `Auth.SendLoginCode`, ts `auth.sendLoginCode`, java `auth().sendLoginCode`;
+over HTTP:
+
+```bash
+curl -X POST https://auth.realmid.dev/auth/otp/send-login \
+  -H "Authorization: Bearer $PLATFORM_TOKEN" -H 'Content-Type: application/json' \
+  -H "X-On-Behalf-Of-IP: $END_USER_IP" \
+  -d '{"identifier":"+919999000011","delivery_mode":"sms"}'
+# 202 {"sent_if_registered":true}
+```
+
+- **The answer is always `202 {"sent_if_registered": true}`, by design.** It does not say
+  whether the number belongs to anyone: an unknown number, a user with no phone and a failed
+  provider send all answer the same, and the send happens after the response. Show the same
+  text either way, for example "If this number is registered, we sent a code by SMS."
+- `delivery_mode` is `sms` or `whatsapp`, required, no default and no fallback; offer only
+  what discovery's `phone_channels` lists. `identifier` is strict E.164. `tenant_id` is an
+  optional hint; send the same one when you later sign the person in.
+- **Pass the end user's IP in `X-On-Behalf-Of-IP`** (SDK field `OnBehalfOfIP` /
+  `onBehalfOfIp`). The per-IP limit protects your users only when you pass it. If you
+  omit it, only the per-phone limit applies, and your own server's IP is never counted. If
+  you pass something that is not an IPv4 or IPv6 address the call is
+  `400 invalid_on_behalf_of_ip`. An IPv4 address is counted per address, an IPv6 address
+  per `/64` prefix, so one household cannot dodge the limit by rotating addresses.
+- Then, when the person types the code, call `otpLogin` / `OTPLogin` with the same
+  `identifier` (and the same `tenant_id`, if one was sent).
+- Errors: `403 method_not_enabled` (the realm has one-time-code sign-in off; hide the phone
+  option), `429 sign_in_ip_rate_limited` and `429 phone_otp_rate_limited` (wait `Retry-After`
+  seconds), `503 delivery_unavailable` (offer the other channel; Go `IsDeliveryUnavailable`,
+  ts `isDeliveryUnavailable`, java `RealmException.isDeliveryUnavailable`).
+  See the error reference.
+- **Behaviour change for existing integrations:** `method_not_enabled` used to reach go/ts/java
+  callers of the per-org domain-SSO routes as `details.server_code`. From the release that
+  adds this call it is the error's `code` and is no longer in `details.server_code`.
+- The limits: `phone_otp.sign_in_per_ip_per_hour` (default 10 per IP per hour, range 1-60,
+  cannot be turned off) and the per-phone pair in step 5. Sign-in sends are counted
+  separately from codes sent to signed-in users, so a burst of sign-in requests never blocks
+  someone's MFA code.
 
 **5. The limit.** By default one phone number may be sent 5 codes per 15 minutes in
 your realm, SMS and WhatsApp counted together (switching channel does not reset it).
