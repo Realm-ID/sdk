@@ -37,6 +37,12 @@ export type RealmConfigValues = Record<string, unknown>;
 export interface PhoneOtpConfig {
   max_per_window: number;
   window_seconds: number;
+  /**
+   * ADR-116 (spec 0.61.0): sign-in codes one end-user IP may request per hour
+   * (default 10, range 1-60, cannot be turned off). `undefined` when the issuer
+   * did not send it (an older issuer).
+   */
+  sign_in_per_ip_per_hour?: number;
 }
 
 /**
@@ -50,7 +56,12 @@ export function phoneOtpConfig(values: RealmConfigValues): PhoneOtpConfig | unde
   const max = Reflect.get(g, "max_per_window");
   const win = Reflect.get(g, "window_seconds");
   if (typeof max !== "number" || typeof win !== "number") return undefined;
-  return { max_per_window: max, window_seconds: win };
+  const perIp = Reflect.get(g, "sign_in_per_ip_per_hour");
+  return {
+    max_per_window: max,
+    window_seconds: win,
+    ...(typeof perIp === "number" ? { sign_in_per_ip_per_hour: perIp } : {}),
+  };
 }
 
 /** GET /platforms/{id}/config body: the realm id plus its config. */

@@ -216,6 +216,14 @@ export type ErrorCode =
   | "channel_validation_failed"
   | "channel_not_configured"
   | "phone_otp_rate_limited"
+  // sign-in code send (SPEC §3.1; ADR-116, issuer spec 0.61.0). `sign_in_ip_rate_limited`
+  // and `invalid_on_behalf_of_ip` are new to the wire. `method_not_enabled` is
+  // registered although it already ships (400 on the ADR-094 domain-SSO routes, where
+  // it arrived as `details.server_code`): a BEHAVIOUR CHANGE, owner ruling 2026-10-18.
+  // `delivery_unavailable` stays unregistered; see isDeliveryUnavailable.
+  | "sign_in_ip_rate_limited"
+  | "method_not_enabled"
+  | "invalid_on_behalf_of_ip"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -331,6 +339,26 @@ export function isPhoneOtpRateLimited(e: unknown): boolean {
 }
 
 /**
+ * True when `e` is the issuer's 429 `sign_in_ip_rate_limited` (this end user's
+ * IP, the `onBehalfOfIp` passed to `sendLoginCode`, used the realm's
+ * `phone_otp.sign_in_per_ip_per_hour`).
+ */
+export function isSignInIpRateLimited(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "sign_in_ip_rate_limited";
+}
+
+/**
+ * True when `e` is the issuer's 503 `delivery_unavailable` (the realm has no
+ * working channel for the requested delivery mode; `details.channel` names it).
+ * The code is NOT registered, so it arrives as `details.server_code`; this
+ * checks both places and keeps working if the code is registered later.
+ */
+export function isDeliveryUnavailable(e: unknown): boolean {
+  if (!(e instanceof RealmError)) return false;
+  return (e.code as string) === "delivery_unavailable" || e.details?.["server_code"] === "delivery_unavailable";
+}
+
+/**
  * Map an HTTP status code to a fallback ErrorCode when the server response
  * does not carry an explicit `code` field.
  */
@@ -382,6 +410,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "reset_token_invalid", "reset_token_expired", "reset_token_used", "reset_token_superseded",
   "invalid_channel_config", "channel_validation_failed", "channel_not_configured",
   "phone_otp_rate_limited",
+  "sign_in_ip_rate_limited", "method_not_enabled", "invalid_on_behalf_of_ip",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

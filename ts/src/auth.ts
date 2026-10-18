@@ -102,6 +102,11 @@ export interface UserSummary {
   [k: string]: unknown;
 }
 
+/** `auth.sendLoginCode` result (SPEC §X.4a): always `sentIfRegistered: true`. */
+export interface SendLoginCodeResponse {
+  sentIfRegistered: boolean;
+}
+
 export interface LoginResponse {
   accessToken: string;
   refreshToken: string;
@@ -937,6 +942,35 @@ export class AuthClient {
       tenantId: raw.tenant_id,
       role: raw.role,
     };
+  }
+
+  /**
+   * SPEC §X.4a (issuer ADR-116) — send the sign-in code to a person who is NOT
+   * signed in, by SMS or WhatsApp. `POST /auth/otp/send-login` with the platform
+   * token. The answer is enumeration-safe by design: `sentIfRegistered` is always
+   * true and does not say whether the number belongs to anyone, so show the same
+   * text either way, then call `otpLogin` with the same `identifier` (and
+   * `tenantId`). `onBehalfOfIp` is the END USER's IP, sent as
+   * `X-On-Behalf-Of-IP`; without it only the per-phone limit applies. The 202
+   * body is bare, not `{"data":…}`.
+   */
+  async sendLoginCode(req: {
+    identifier: string;
+    deliveryMode: "sms" | "whatsapp";
+    tenantId?: string;
+    onBehalfOfIp?: string;
+  }): Promise<SendLoginCodeResponse> {
+    const raw = await this.http.request<{ sent_if_registered: boolean }>({
+      method: "POST",
+      path: "/auth/otp/send-login",
+      headers: req.onBehalfOfIp ? { "X-On-Behalf-Of-IP": req.onBehalfOfIp } : undefined,
+      body: {
+        identifier: req.identifier,
+        delivery_mode: req.deliveryMode,
+        ...(req.tenantId ? { tenant_id: req.tenantId } : {}),
+      },
+    });
+    return { sentIfRegistered: raw.sent_if_registered };
   }
 
   /**

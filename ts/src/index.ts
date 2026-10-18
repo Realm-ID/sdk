@@ -37,7 +37,7 @@ export type { SessionStateStore, SessionState, RefreshLock } from "./session-sto
 export { OrgSessionModeResolver } from "./org-session.js";
 export type { OrgSessionMode } from "./org-session.js";
 
-export { RealmError, RefreshSupersededError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled, isInvalidChannelConfig, isChannelValidationFailed, isChannelNotConfigured, isPhoneOtpRateLimited } from "./errors.js";
+export { RealmError, RefreshSupersededError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled, isInvalidChannelConfig, isChannelValidationFailed, isChannelNotConfigured, isPhoneOtpRateLimited, isSignInIpRateLimited, isDeliveryUnavailable } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";
@@ -47,6 +47,7 @@ export type { Logger } from "./logger.js";
 export type {
   LoginRequest,
   LoginResponse,
+  SendLoginCodeResponse,
   TenantChoice,
   TokenRequest,
   TokenResponse,
