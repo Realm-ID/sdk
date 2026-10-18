@@ -441,7 +441,7 @@ These fire from any HTTP-backed call.
 | `forbidden`     | Server returned 403. Role does not permit the operation.              | Surface a permission error. Check that the API key's role covers the call.                              |
 | `not_found`     | Server returned 404.                                                  | Treat as resource-not-present. Useful for `realm.tenants.get(unknownId)`.                                |
 | `conflict`      | Server returned 409. Optimistic-concurrency or unique-constraint violation. | Re-fetch and retry, or surface to user (e.g. duplicate tenant name).                                |
-| `rate_limited`  | Server returned 429.                                                  | Read `Retry-After` (the SDK puts it in `details`). Back off and retry.                                  |
+| `rate_limited`  | Server returned 429.                                                  | Read `Retry-After` from the error's `retryAfter` field (Go `RetryAfter`, ts `retryAfterSeconds`, Java `getRetryAfter()`). Back off and retry. |
 | `bad_request`   | Server returned 400 / 412 with a non-mfa code, or the SDK rejected your input shape. | Inspect `details` for field-level info; fix the request.                                       |
 | `network`       | Transport failure — DNS, TCP, TLS handshake, timeout.                 | Treat as transient. The SDK does not retry; caller policy varies.                                       |
 | `server_error`  | Server returned 5xx, or returned an unexpected wire shape.            | Treat as transient. If repeating, capture the request id (in `details.request_id` if present) for support. |

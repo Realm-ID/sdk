@@ -9,6 +9,7 @@ items affecting every SDK at once.
 SPEC §X.4a, §3.1, §6.5. The issuer route is not released yet.
 
 ### Added
+- `RealmException.getRetryAfter()` → `Optional<Duration>`: the server's `Retry-After` (delta-seconds or HTTP-date) on any non-2xx; empty when absent, unparseable or non-positive. SPEC §3.
 - `realm.auth().sendLoginCode(SendLoginCodeRequest)` → `SendLoginCodeResponse(sentIfRegistered)`: `POST /auth/otp/send-login` with the platform token; `onBehalfOfIp` rides as `X-On-Behalf-Of-IP`. Decodes the BARE 202 body.
 - `ErrorCode.SIGN_IN_IP_RATE_LIMITED`, `INVALID_ON_BEHALF_OF_IP`, `METHOD_NOT_ENABLED`; helpers `RealmException.isSignInIpRateLimited`, `isDeliveryUnavailable` (reads `details.server_code`; `delivery_unavailable` stays unregistered).
 - `RealmConfigResponse.PhoneOtpConfig.signInPerIpPerHour` (0 when the issuer did not send it); the two-argument constructor is kept.

@@ -13,6 +13,10 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go · ts · java — errors carry the server's `Retry-After` (ADR-116 A8) (UNRELEASED)
+
+SPEC §3, §X.4a. Go: `RealmError.RetryAfter time.Duration`; ts: `RealmError.retryAfterSeconds?: number`; java: `RealmException.getRetryAfter()` → `Optional<Duration>`. Set on any non-2xx; delta-seconds or HTTP-date, anything else (absent, garbage, non-positive, past) is "no hint". Additive; nothing is copied into `details`. Lets a BFF relay the wait for the console's resend countdown.
+
 ## go · ts · java — send the sign-in code, `sendLoginCode` (ADR-116, issuer spec 0.61.0) (UNRELEASED)
 
 SPEC §X.4a, §3.1, §6.5; issuer ADR-116 (the route is not released yet). Go: `Auth.SendLoginCode(ctx, SendLoginCodeRequest{Identifier, DeliveryMode, TenantID, OnBehalfOfIP})` → `*SendLoginCodeResponse{SentIfRegistered}`, `POST /auth/otp/send-login` with the platform token, `OnBehalfOfIP` as `X-On-Behalf-Of-IP`, bare 202 body. New registered codes `sign_in_ip_rate_limited`, `invalid_on_behalf_of_ip`, `method_not_enabled`; Go helpers `IsSignInIPRateLimited`, `IsDeliveryUnavailable` (`.Code` OR `Details["server_code"]`); `PhoneOTPConfig.SignInPerIPPerHour`. ts and java: see their own changelogs.

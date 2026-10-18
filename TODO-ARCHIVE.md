@@ -926,3 +926,7 @@ item moved to `TODO.md` § *Go SDK only*; its records are below, verbatim.
 > ~~**`@realm-id/web` peer ranges exclude `0.9.0`**~~ residual line, see the narrowed open item in `TODO.md`; `web-bff-realmid` `0.7.0` now declares `^0.9.0 || ^0.10.0`.
 
 > ~~**Residual of the `role_id` install entry (error unions still carry `role_not_service_typed` / `role_not_installable` / `role_unavailable`; guide warnings stale)**~~ **CLOSED 2026-10-17** — the three codes are RETAINED-BUT-DEAD on purpose and say so (`ts/src/errors.ts:141`, `java/.../ErrorCode.java:193`); `docs/error-reference.md:397-408` and `docs/integration-guide.md:1618` describe `role_id` as retired and `permissions_required` as the current refusal, so no warning misleads.
+
+## Closed 2026-10-18
+
+- **`Retry-After` is never read** (`go/http.go`; SPEC §3 and `docs/error-reference.md` said `details` carried it) — fixed in all three SDKs: `RealmError.RetryAfter` / `retryAfterSeconds` / `getRetryAfter()`; SPEC §3 now states the field and parse rule.

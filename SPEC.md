@@ -206,6 +206,15 @@ SDK failure. It carries:
 - `details?` — server-supplied envelope siblings (e.g. `revocation_token`,
   `mfa_challenge_token`, `active_sessions`, `tenant_id`).
 - `cause?` — wrapped underlying error.
+- `retryAfter` — the server's `Retry-After` response header, on ANY non-2xx response (a `429`, a
+  `503`, ...). It is a wait, not a timestamp. The value is parsed as delta-seconds (a whole number
+  of seconds, greater than zero); failing that, as an HTTP-date (RFC 9110), where the wait is the
+  date minus now. Absent, unparseable, zero, negative, or a date already past all mean "no hint".
+  Go: `RealmError.RetryAfter time.Duration` (`0` = no hint). ts: `retryAfterSeconds?: number`
+  (whole seconds, `undefined` = no hint). Java: `RealmException.getRetryAfter()` →
+  `Optional<Duration>` (empty = no hint). No other response header is carried, and the value is
+  NOT copied into `details`. A BFF relaying a rate-limit refusal reads this field and sends it on
+  as its own `Retry-After` (issuer ADR-116 A8). Not yet released (go `0.69.0`).
 
 ### 3.1 Error code taxonomy
 
@@ -422,10 +431,9 @@ UNRELEASED):
 > covers a channel with no saved credentials and one marked `failing`, so the remedy a caller
 > offers is the same either way: the other channel, if the realm lists one (§4.1.4a).
 >
-> **`Retry-After`.** The issuer sends it on `phone_otp_rate_limited`. The Go SDK does not put
-> response headers into `details` (verified 2026-10-17: no code in `go/` reads `Retry-After`,
-> although §3's `rate_limited` row says it does; filed in `TODO.md`), so a BFF that needs the wait
-> reads the header off its own HTTP response until that lands. ts/java were not checked.
+> **`Retry-After`.** The issuer sends it on `phone_otp_rate_limited`. The SDK surfaces it as
+> `retryAfter` on the error in all three languages (§3), not in `details`; a BFF relaying the
+> refusal reads it there. (Before this landed, no code in `go/` read the header.)
 >
 > A per-recipient refusal (this ONE number cannot receive on the channel: invalid, opted out, not
 > on WhatsApp; Twilio `21608` and Meta `130497` are of this class) answers `400
@@ -4255,6 +4263,9 @@ Errors (§3.1):
 | 429 | `rate_limited` | the issuer's burst limiter; back off |
 | 503 | `delivery_unavailable` (`details.channel`) | that channel is not working for the realm; offer the other one if discovery lists it, never switch automatically |
 | 503 | `store_unavailable` | retry later; nothing was sent |
+
+On both 429 codes the wait is the error's `retryAfter` field (§3), so a caller can drive a resend
+countdown from it.
 
 Both 429s are counted BEFORE the issuer looks the number up, so they reveal nothing about the
 person. These counters are separate from the ones `otp.issue` uses for signed-in users (MFA,

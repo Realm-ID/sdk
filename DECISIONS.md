@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-126 entries total — 71 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+127 entries total — 72 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-18 — RealmError carries Retry-After (go RetryAfter, ts retryAfterSeconds, java getRetryAfter; ADR-116 A8)](#2026-10-18--realmerror-carries-retry-after-go-retryafter-ts-retryafterseconds-java-getretryafter-adr-116-a8)
 - [2026-10-18 — 2026-10-18 — sendLoginCode in go/ts/java; method_not_enabled registered (ADR-116)](#2026-10-18--2026-10-18--sendlogincode-in-gotsjava-method_not_enabled-registered-adr-116)
 - [2026-10-14 — unreleased-go: a clone with no go/ tags fails loudly instead of passing](#2026-10-14--unreleased-go-a-clone-with-no-go-tags-fails-loudly-instead-of-passing)
 - [2026-10-14 — mcp deploy workflow aligned to the website pattern; Node 22 Docker tooling](#2026-10-14--mcp-deploy-workflow-aligned-to-the-website-pattern-node-22-docker-tooling)
@@ -138,6 +139,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-18 — RealmError carries Retry-After (go RetryAfter, ts retryAfterSeconds, java getRetryAfter; ADR-116 A8)
+
+**Context.** The console's resend countdown needs the wait the issuer sends as `Retry-After` on `429 phone_otp_rate_limited` / `sign_in_ip_rate_limited` (issuer ADR-116 A8). The BFF is a thin SDK wrapper (ADR-050), but no SDK error carried response headers: SPEC §3 and `docs/error-reference.md` claimed `details` held the wait, and no language read the header (verified in go; ts and java checked now too).
+
+**Decision.** Every SDK error carries the parsed header on any non-2xx: go `RealmError.RetryAfter time.Duration` (0 = no hint), ts `retryAfterSeconds?: number`, java `RealmException.getRetryAfter()` → `Optional<Duration>`. Parse rule, identical in all three: delta-seconds greater than zero; else an HTTP-date, taken as the wait from now; anything else, a non-positive value or a past date is "no hint". HTTP-date is included because each stdlib parses it at no cost. Not copied into `details`: a typed field cannot collide with a server sibling key.
+
+**Rejected.** The BFF bypassing the SDK for one route to read the header itself: ADR-050 makes the BFF a thin SDK wrapper, and partners need the value too. Putting it in `details` (what the docs claimed): mixes a transport header into server-envelope siblings and is untyped.
+
+**Not done.** No version bump (go `0.69.0` is already unreleased) and no tag. SPEC §3 and §X.4a updated; the stale "does not surface" notes and the TODO item are closed.
 
 ## 2026-10-18 — 2026-10-18 — sendLoginCode in go/ts/java; method_not_enabled registered (ADR-116)
 
