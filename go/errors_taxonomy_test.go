@@ -109,6 +109,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		// ADR-115 (SPEC §3.1 phone-delivery channel codes).
 		ErrCodeInvalidChannelConfig, ErrCodeChannelValidationFailed,
 		ErrCodeChannelNotConfigured, ErrCodePhoneOTPRateLimited,
+		// ADR-116 (SPEC §3.1 sign-in code send codes).
+		ErrCodeSignInIPRateLimited, ErrCodeMethodNotEnabled, ErrCodeInvalidOnBehalfOfIP,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

@@ -13,6 +13,12 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go · ts · java — send the sign-in code, `sendLoginCode` (ADR-116, issuer spec 0.61.0) (UNRELEASED)
+
+SPEC §X.4a, §3.1, §6.5; issuer ADR-116 (the route is not released yet). Go: `Auth.SendLoginCode(ctx, SendLoginCodeRequest{Identifier, DeliveryMode, TenantID, OnBehalfOfIP})` → `*SendLoginCodeResponse{SentIfRegistered}`, `POST /auth/otp/send-login` with the platform token, `OnBehalfOfIP` as `X-On-Behalf-Of-IP`, bare 202 body. New registered codes `sign_in_ip_rate_limited`, `invalid_on_behalf_of_ip`, `method_not_enabled`; Go helpers `IsSignInIPRateLimited`, `IsDeliveryUnavailable` (`.Code` OR `Details["server_code"]`); `PhoneOTPConfig.SignInPerIPPerHour`. ts and java: see their own changelogs.
+
+⚠️ **BEHAVIOUR CHANGE (owner ruling 2026-10-18): `method_not_enabled` is now REGISTERED** although it already ships as a `400` on the ADR-094 domain-SSO routes. Callers there used to read it from `Details["server_code"]` (Go) / `details.server_code` (ts, java); it now lands on `.Code` and is no longer copied into `Details["server_code"]`. Branch on the code instead.
+
 ## ts · java — doc comments: MFA enroll/confirm are self-only (UNRELEASED, doc-only)
 
 Doc comments on `tenants.users.enrollMfa` / `confirmMfa` (ts) and `UsersClient.enrollMfa` / `confirmMfa` (java) now say `userId` must be the caller's own id (`403 forbidden` otherwise, from the issuer release after v0.134.1; owner ruling 2026-10-14) and point at `selfEnrollMfa` / `resetMfa`. SPEC §4.8/§6.2 and the partner guide corrected. No behaviour or signature change. The Go comment waits for the next Go release (`TODO.md` § Go SDK only).

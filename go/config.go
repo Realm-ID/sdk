@@ -40,6 +40,10 @@ type ConfigValues map[string]any
 type PhoneOTPConfig struct {
 	MaxPerWindow  int `json:"max_per_window"`
 	WindowSeconds int `json:"window_seconds"`
+	// SignInPerIPPerHour (ADR-116, spec 0.61.0) is how many sign-in codes one
+	// end-user IP may request per hour (default 10, range 1-60, cannot be turned
+	// off). 0 means the issuer did not send it (an older issuer).
+	SignInPerIPPerHour int `json:"sign_in_per_ip_per_hour"`
 }
 
 // PhoneOTP reads the `phone_otp` group. nil means the issuer did not send it
@@ -55,7 +59,8 @@ func (v ConfigValues) PhoneOTP() *PhoneOTPConfig {
 	if !ok1 || !ok2 {
 		return nil
 	}
-	return &PhoneOTPConfig{MaxPerWindow: int(max), WindowSeconds: int(win)}
+	perIP, _ := m["sign_in_per_ip_per_hour"].(float64)
+	return &PhoneOTPConfig{MaxPerWindow: int(max), WindowSeconds: int(win), SignInPerIPPerHour: int(perIP)}
 }
 
 // ConfigResponse is the GET /platforms/{id}/config body: the realm id plus

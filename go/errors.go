@@ -272,6 +272,16 @@ const (
 	ErrCodeChannelNotConfigured    ErrorCode = "channel_not_configured"
 	ErrCodePhoneOTPRateLimited     ErrorCode = "phone_otp_rate_limited"
 
+	// Sign-in code send codes (SPEC §3.1; ADR-116, issuer spec 0.61.0).
+	// sign_in_ip_rate_limited and invalid_on_behalf_of_ip are new to the wire.
+	// method_not_enabled is registered although it already ships (400 on the
+	// ADR-094 domain-SSO routes, where it used to arrive as
+	// Details["server_code"]): a BEHAVIOUR CHANGE, owner ruling 2026-10-18.
+	// delivery_unavailable stays unregistered; see IsDeliveryUnavailable.
+	ErrCodeSignInIPRateLimited ErrorCode = "sign_in_ip_rate_limited"
+	ErrCodeMethodNotEnabled    ErrorCode = "method_not_enabled"
+	ErrCodeInvalidOnBehalfOfIP ErrorCode = "invalid_on_behalf_of_ip"
+
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
 	ErrCodeForbidden    ErrorCode = "forbidden"
@@ -406,6 +416,25 @@ func IsChannelNotConfigured(err error) bool { return IsCode(err, ErrCodeChannelN
 // yet surface.
 func IsPhoneOTPRateLimited(err error) bool { return IsCode(err, ErrCodePhoneOTPRateLimited) }
 
+// IsSignInIPRateLimited reports whether err is the issuer's 429
+// sign_in_ip_rate_limited: this end user's IP (the OnBehalfOfIP passed to
+// SendLoginCode) has used the realm's phone_otp.sign_in_per_ip_per_hour.
+func IsSignInIPRateLimited(err error) bool { return IsCode(err, ErrCodeSignInIPRateLimited) }
+
+// IsDeliveryUnavailable reports whether err is the issuer's 503
+// delivery_unavailable: the realm has no working channel for the requested
+// delivery mode (Details["channel"] names it). The code is NOT registered (it
+// shipped before the taxonomy named it), so it arrives as
+// Details["server_code"]; this checks both places and keeps working if the code
+// is registered later.
+func IsDeliveryUnavailable(err error) bool {
+	var re *RealmError
+	if !errors.As(err, &re) {
+		return false
+	}
+	return string(re.Code) == "delivery_unavailable" || detailCode(re) == "delivery_unavailable"
+}
+
 // IsEscortSuspended reports whether err is the issuer's 403 escort_suspended:
 // the BFF's own escort account is disabled (ADR-104 R-d). A service problem.
 func IsEscortSuspended(err error) bool {
@@ -506,6 +535,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	// SPEC §3.1 phone-delivery channel codes (ADR-115).
 	ErrCodeInvalidChannelConfig: {}, ErrCodeChannelValidationFailed: {},
 	ErrCodeChannelNotConfigured: {}, ErrCodePhoneOTPRateLimited: {},
+	// SPEC §3.1 sign-in code send codes (ADR-116).
+	ErrCodeSignInIPRateLimited: {}, ErrCodeMethodNotEnabled: {}, ErrCodeInvalidOnBehalfOfIP: {},
 }
 
 func isKnownCode(s string) bool {

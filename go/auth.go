@@ -857,6 +857,26 @@ type OTPLoginRequest struct {
 	TenantID   string
 }
 
+// SendLoginCodeRequest is the input for AuthClient.SendLoginCode (SPEC §X.4a,
+// issuer ADR-116). Identifier is a strict E.164 phone number; DeliveryMode is
+// DeliveryModeSMS or DeliveryModeWhatsApp (required, no default, no fallback).
+// TenantID is an optional hint; send the same one to OTPLogin. OnBehalfOfIP is
+// the END USER's IP, sent as X-On-Behalf-Of-IP: without it only the per-phone
+// limit applies; when set it must parse as IPv4/IPv6 (else 400
+// invalid_on_behalf_of_ip).
+type SendLoginCodeRequest struct {
+	Identifier   string
+	DeliveryMode string
+	TenantID     string
+	OnBehalfOfIP string
+}
+
+// SendLoginCodeResponse is the bare 202 body. SentIfRegistered is ALWAYS true:
+// it does not say whether the number belongs to anyone.
+type SendLoginCodeResponse struct {
+	SentIfRegistered bool `json:"sent_if_registered"`
+}
+
 // MFAVerifyOTPRequest is the input for AuthClient.MFAVerifyOTP (partner
 // OTP proposal §3.2.2). The MFA challenge token comes from the prior
 // /auth/login response; Presented is the OTP value the user typed.
@@ -866,6 +886,40 @@ type MFAVerifyOTPRequest struct {
 	OnBehalfOfIP string
 	// RefreshToken: see MFAVerifyRequest.RefreshToken.
 	RefreshToken string
+}
+
+// SendLoginCode asks RealmID to send a sign-in code by SMS or WhatsApp to a
+// person who is NOT signed in (SPEC §X.4a, ADR-116): POST /auth/otp/send-login
+// with the platform token. The reply is enumeration-safe by design, so show the
+// same text whether or not the number is registered, then call OTPLogin with the
+// same Identifier (and TenantID). The 202 body is bare, not {"data":…}.
+func (a *AuthClient) SendLoginCode(ctx ctxpkg.Context, req SendLoginCodeRequest) (*SendLoginCodeResponse, error) {
+	tok, err := a.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{}
+	if req.OnBehalfOfIP != "" {
+		headers["X-On-Behalf-Of-IP"] = req.OnBehalfOfIP
+	}
+	body := map[string]any{
+		"identifier":    req.Identifier,
+		"delivery_mode": req.DeliveryMode,
+	}
+	if req.TenantID != "" {
+		body["tenant_id"] = req.TenantID
+	}
+	var resp SendLoginCodeResponse
+	if err := a.realm.http.do(ctx, requestOptions{
+		Method:  "POST",
+		Path:    "/auth/otp/send-login",
+		Bearer:  tok,
+		Body:    body,
+		Headers: headers,
+	}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // OTPLogin exchanges an identifier + manager-issued OTP for a realm-
