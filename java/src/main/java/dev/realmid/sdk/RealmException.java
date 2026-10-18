@@ -1,7 +1,13 @@
 package dev.realmid.sdk;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Unified runtime exception for every SDK failure (SPEC §3).
@@ -13,6 +19,7 @@ public class RealmException extends RuntimeException {
     private final ErrorCode code;
     private final int httpStatus;
     private final Map<String, Object> details;
+    private final Duration retryAfter;
 
     public RealmException(ErrorCode code, String message) {
         this(code, message, 0, null, null);
@@ -27,10 +34,44 @@ public class RealmException extends RuntimeException {
     }
 
     public RealmException(ErrorCode code, String message, int httpStatus, Map<String, Object> details, Throwable cause) {
+        this(code, message, httpStatus, details, cause, null);
+    }
+
+    public RealmException(ErrorCode code, String message, int httpStatus, Map<String, Object> details,
+                          Throwable cause, Duration retryAfter) {
         super(message, cause);
         this.code = code;
         this.httpStatus = httpStatus;
         this.details = details == null ? Collections.emptyMap() : Collections.unmodifiableMap(details);
+        this.retryAfter = retryAfter != null && !retryAfter.isNegative() && !retryAfter.isZero() ? retryAfter : null;
+    }
+
+    /**
+     * The server's {@code Retry-After} on a non-2xx response (SPEC §3): delta-seconds, or an
+     * HTTP-date taken as the wait from now. Empty when the header was absent, unparseable,
+     * non-positive or a date already past. No other response header is carried.
+     */
+    public Optional<Duration> getRetryAfter() { return Optional.ofNullable(retryAfter); }
+
+    /** Parses a {@code Retry-After} header value (SPEC §3); empty on null, garbage, or a non-positive wait. */
+    public static Optional<Duration> parseRetryAfter(String v, Instant now) {
+        if (v == null || v.isBlank()) return Optional.empty();
+        String s = v.trim();
+        if (s.chars().allMatch(c -> c >= '0' && c <= '9')) {
+            try {
+                long secs = Long.parseLong(s);
+                return secs > 0 && secs <= Integer.MAX_VALUE ? Optional.of(Duration.ofSeconds(secs)) : Optional.empty();
+            } catch (NumberFormatException e) {
+                return Optional.empty();
+            }
+        }
+        try {
+            Instant at = ZonedDateTime.parse(s, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            Duration d = Duration.between(now, at);
+            return d.isNegative() || d.isZero() ? Optional.empty() : Optional.of(d);
+        } catch (DateTimeParseException e) {
+            return Optional.empty();
+        }
     }
 
     public ErrorCode getCode() { return code; }
@@ -84,7 +125,7 @@ public class RealmException extends RuntimeException {
 
     /**
      * 429 {@code phone_otp_rate_limited}: this number was sent the realm's limit of phone codes
-     * within the window. The wait is the Retry-After header, which this SDK does not surface.
+     * within the window. The wait is {@link #getRetryAfter()}.
      */
     public static boolean isPhoneOtpRateLimited(Throwable t) {
         return t instanceof RealmException re && re.code == ErrorCode.PHONE_OTP_RATE_LIMITED;

@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -165,7 +166,9 @@ public final class HttpTransport {
             return parsed;
         }
 
-        RealmException ex = mapErrorResponse(status, parsed, method, r.path);
+        RealmException ex = mapErrorResponse(status, parsed, method, r.path,
+                RealmException.parseRetryAfter(resp.headers().firstValue("Retry-After").orElse(null), Instant.now())
+                        .orElse(null));
         if (logger.isLoggable(Level.ERROR)) {
             logger.log(Level.ERROR, "realmid: request failed method={0} path={1} status={2} code={3}",
                     method, r.path, status, ex.getCode().wire());
@@ -211,7 +214,8 @@ public final class HttpTransport {
         return false;
     }
 
-    private static RealmException mapErrorResponse(int status, JsonNode body, String method, String path) {
+    private static RealmException mapErrorResponse(int status, JsonNode body, String method, String path,
+                                                   Duration retryAfter) {
         ErrorCode code = ErrorCode.fromHttpStatus(status);
         String message = method + " " + path + " failed with HTTP " + status;
         Map<String, Object> details = null;
@@ -309,7 +313,7 @@ public final class HttpTransport {
             if (!sib.isEmpty()) details = sib;
         }
 
-        return new RealmException(code, message, status, details);
+        return new RealmException(code, message, status, details, null, retryAfter);
     }
 
     private static Object unwrap(JsonNode v) {
