@@ -438,16 +438,22 @@ UNRELEASED):
 | Code | HTTP | Raised by | Meaning / remedy |
 |---|---|---|---|
 | `sign_in_ip_rate_limited` | 429 | `auth.sendLoginCode` | The end user's IP (the `onBehalfOfIp` you passed) has used the realm's `phone_otp.sign_in_per_ip_per_hour`. Wait `Retry-After` seconds. Never raised when no IP was passed. |
-| `method_not_enabled` | 403 | `auth.sendLoginCode` | The realm has one-time-code sign-in switched off (`otp_login_enabled = false`). Do not offer the phone option. |
+| `method_not_enabled` | 403 | `auth.sendLoginCode` (also `400` on the ADR-094 domain-SSO routes) | The realm has one-time-code sign-in switched off (`otp_login_enabled = false`). Do not offer the phone option. |
+| `invalid_on_behalf_of_ip` | 400 | `auth.sendLoginCode` | The `onBehalfOfIp` you passed is not a parseable IPv4 or IPv6 address. Nothing was counted or sent. Pass the end user's real address, or omit the field. |
 
-> **`sign_in_ip_rate_limited` is REGISTERED in every language.** It is new to the wire in spec
-> `0.61.0`, so registering it breaks no existing branch.
+> **All three are REGISTERED in every language.** `sign_in_ip_rate_limited` and
+> `invalid_on_behalf_of_ip` are new to the wire in spec `0.61.0`, so registering them breaks no
+> existing branch.
 >
-> **`method_not_enabled`: registration is OPEN** (issuer ADR-116 open item 1). The plan says
-> "registered", but the code has ALREADY shipped as `400` on the ADR-094 domain-SSO routes, where
-> it reaches callers today as `details.server_code`; by the rule above, registering it would move
-> it to `.code` there, a silent break. Until the owner rules, SDK builders implement the helper
-> below and do NOT add it to the registered set.
+> **`method_not_enabled` is registered although it has already shipped: a BEHAVIOUR CHANGE (owner
+> ruling 2026-10-18, issuer ADR-116 Q1).** It has been on the wire, unregistered, as `400` on the
+> ADR-094 domain-SSO routes, so a caller there has been reading it from `details.server_code`.
+> From the release that registers it, it lands on `.code` on those routes too and is no longer
+> duplicated into `details.server_code`; a caller branching on
+> `details.server_code == "method_not_enabled"` must switch to the code. The owner accepted this
+> exception to the rule above for this one code. The go, ts and java CHANGELOG entries of that
+> release each call it out as a behaviour change, and the partner notice for the release mentions
+> it.
 >
 > `phone_otp_rate_limited` (429) is raised by this call too, for the SIGN-IN per-phone counter,
 > which is separate from the counter `otp.issue` charges (ADR-116 N3). `delivery_unavailable`
@@ -4226,7 +4232,9 @@ Request:
 - `onBehalfOfIp` — the END USER's IP as your server saw it, sent as `X-On-Behalf-Of-IP` like every
   other lane that has this field. Strongly recommended: the per-IP limit protects your users only
   when you pass it. Without it, only the per-phone limit applies; your server's own IP is never
-  counted.
+  counted. When passed it must be a parseable IPv4 or IPv6 address, or the call is
+  `400 invalid_on_behalf_of_ip`. The issuer counts an IPv4 address per address and an IPv6
+  address per `/64` prefix.
 
 Response: ALWAYS `202 {"sent_if_registered": true}` on success (`SentIfRegistered: true` /
 `sentIfRegistered: true`). **It does not say whether the number belongs to anyone**, by design:
@@ -4240,6 +4248,7 @@ Errors (§3.1):
 |---|---|---|
 | 400 | `invalid_identifier` | ask for the number again, in international form |
 | 400 | `unsupported_delivery_mode` | a caller bug: send `sms` or `whatsapp` |
+| 400 | `invalid_on_behalf_of_ip` | a caller bug: `onBehalfOfIp` is not an IP address; pass the real one or omit it |
 | 403 | `method_not_enabled` | the realm has one-time-code sign-in off; hide the phone option |
 | 429 | `sign_in_ip_rate_limited` | this end user asked for too many codes; wait `Retry-After` seconds |
 | 429 | `phone_otp_rate_limited` | this number was sent too many codes; wait `Retry-After` seconds |
