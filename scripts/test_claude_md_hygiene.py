@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from claude-config skills/claude-md-hygiene @ ee5cefa3bdb0 — edit canonical, not this copy
+# VENDORED from claude-config skills/claude-md-hygiene @ a4f64b245ded — edit canonical, not this copy
 """Tests for claude_md_hygiene.py -- stdlib only, unittest. Spec: ~/.claude/skills/claude-md-hygiene/SKILL.md
 
 INTERFACE ASSUMED OF claude_md_hygiene.py:
@@ -8,7 +8,7 @@ INTERFACE ASSUMED OF claude_md_hygiene.py:
   load_config(path) -> cfg         raises ConfigError on a bad config
   class ConfigError(Exception)
 
-Output contract: first line `examined: N files (R root, M nested, W waived, S nested repos skipped, G gitignored dirs skipped)`,
+Output contract: first line `examined: N files (R root, M nested, W waived, S nested repos skipped, G gitignored dirs skipped); P pointers checked, U unresolvable here`,
 then `CMn path:line: message` per finding. Exit 0 clean / 1 findings / 2 config-usage error or
 nothing examined.
 
@@ -340,6 +340,139 @@ class TestScan(Base):
         self.r.write('DECISIONS.md', 'Prior v1.0.0 until 2026-01-01, run 12345678901\n')
         rc, out = self.r.run()
         self.assertEqual(rc, 0, out)
+
+
+DOC = '# Doc\n\n## 2. Stack\n\n## 21 Other\n\n## Breaking changes\n\n## Service `Release gate`\n\n' \
+      '## API contract — CI enforcement\n\n```\n## Not a heading\n```\n'
+
+
+class TestPointers(Base):
+    """CM4: a pointer from a CLAUDE.md to a doc or a section that does not resolve."""
+
+    def setUp(self):
+        super().setUp()
+        self.r.write('docs/a.md', DOC)
+
+    def cm4(self, body, **cfg):
+        self.r.config(**cfg)
+        self.r.write('CLAUDE.md', CLEAN + body)
+        return self.r.run()
+
+    def assertClean(self, body, **cfg):
+        rc, out = self.cm4(body, **cfg)
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn('CM4', out)
+        return out
+
+    def assertCM4(self, body, line=4, **cfg):
+        rc, out = self.cm4(body, **cfg)
+        self.assertEqual(rc, 1, out)
+        self.assertIn('CM4 CLAUDE.md:%d:' % line, out)
+        return out
+
+    def test_link_to_existing_file_is_clean(self):
+        out = self.assertClean('See [a](docs/a.md) and [dir](docs/).\n')
+        self.assertIn('2 pointers checked', out)
+
+    def test_link_to_missing_file(self):
+        self.assertCM4('See [gone](docs/gone.md).\n')
+
+    def test_urls_ignored(self):
+        out = self.assertClean('[x](https://example.com/a.md) [m](mailto:a@b.c)\n')
+        self.assertIn('0 pointers checked', out)
+
+    def test_link_anchor_resolves_by_github_slug(self):
+        self.assertClean('[s](docs/a.md#2-stack) [b](docs/a.md#breaking-changes) '
+                         '[c](docs/a.md#api-contract--ci-enforcement)\n')
+
+    def test_link_anchor_missing(self):
+        self.assertCM4('[s](docs/a.md#deploy)\n')
+
+    def test_same_file_anchor(self):
+        self.assertClean('## Local\n\n[l](#local)\n')
+        rc, out = self.cm4('[l](#nowhere)\n')
+        self.assertIn('CM4 CLAUDE.md:4:', out)
+
+    def test_path_section_number(self):
+        self.assertClean('Read `docs/a.md` §2 first.\n')
+        self.assertCM4('Read `docs/a.md` §3 first.\n')
+
+    def test_section_number_is_not_a_prefix_of_a_longer_number(self):
+        self.assertCM4('Read `docs/a.md` §1.\n')  # "## 21 Other" must not match §1 or §2.1
+
+    def test_path_section_words(self):
+        self.assertClean('Root docs/a.md § Breaking changes, root half.\n')
+        self.assertCM4('Root docs/a.md § Breaking stuff, root half.\n')
+
+    def test_section_matches_a_wrapped_heading_prefix(self):
+        self.assertClean('Root `docs/a.md` §API contract\n')
+
+    def test_quoted_section(self):
+        self.assertClean('`docs/a.md` § "Service `Release gate`".\n')
+
+    def test_pointer_running_on_into_prose(self):
+        self.r.write('TODO.md', '# TODO\n\n## Post-release obligations (opened 2026-08-30)\n')
+        self.assertClean('`TODO.md` § Post-release obligations is authoritative.\n')
+        self.assertCM4('`TODO.md` § Post-launch obligations is authoritative.\n')
+
+    def test_sibling_heading_does_not_cover_a_deleted_one(self):
+        self.r.write('docs/b.md', '## API contract — runtime version signal\n')
+        self.assertCM4('`docs/b.md` §API contract — CI enforcement.\n')
+
+    def test_placeholder_section_is_not_a_pointer(self):
+        self.assertClean('Cited as "detail §<heading>".\n', pointer_aliases={'detail': 'docs/a.md'})
+
+    def test_section_words_against_numbered_heading(self):
+        self.assertClean('`docs/a.md` §Stack.\n')
+
+    def test_heading_inside_code_fence_does_not_count(self):
+        self.assertCM4('`docs/a.md` §Not a heading.\n')
+
+    def test_section_in_missing_file(self):
+        self.assertCM4('`docs/gone.md` §2.\n')
+
+    def test_alias(self):
+        aliases = {'pointer_aliases': {'detail': 'docs/a.md'}}
+        self.assertClean('Detail §Stack. Also detail §Breaking changes.\n', **aliases)
+        self.assertCM4('Long form: detail §Gone.\n', **aliases)
+
+    def test_alias_resolves_beside_each_claude_md(self):
+        self.r.config(pointer_aliases={'detail': 'docs/a.md'})
+        self.r.write('CLAUDE.md', CLEAN)
+        self.r.write('svc/CLAUDE.md', 'Detail §Stack.\n')
+        rc, out = self.r.run()
+        self.assertIn('CM4 svc/CLAUDE.md:1:', out)  # svc/docs/a.md does not exist
+        self.r.write('svc/docs/a.md', DOC)
+        rc, out = self.r.run()
+        self.assertEqual(rc, 0, out)
+
+    def test_word_without_alias_is_not_a_pointer(self):
+        self.assertClean('Detail §Gone.\n')
+
+    def test_pointer_in_code_fence_ignored(self):
+        self.assertClean('```\n[gone](docs/gone.md)\n```\n')
+
+    def test_target_outside_root_skipped(self):
+        out = self.assertClean('Up: [u](../../elsewhere/x.md), home ~/.claude/x.md §2.\n')
+        self.assertIn('1 unresolvable here', out)
+
+    def test_gitignored_absent_target_skipped(self):
+        env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+        subprocess.run(['git', '-C', self.r.root, 'init', '-q'], env=env, check=True)
+        self.r.write('.gitignore', 'svc/\n')
+        out = self.assertClean('Clone: [s](svc/docs/x.md), `svc/README.md` §2.\n')
+        self.assertIn('2 unresolvable here', out)
+
+    def test_cm4_waiver(self):
+        self.assertClean('`docs/gone.md` §2 lives in the umbrella.\n',
+                         waivers=[{'check': 'CM4', 'path': 'CLAUDE.md', 'match': 'docs/gone.md',
+                                   'reason': 'umbrella doc, absent in this repo'}])
+
+    def test_bad_aliases_are_exit_2(self):
+        for bad in ([], {'detail': ''}, {'': 'x.md'}, {'detail': 3}):
+            self.r.config(pointer_aliases=bad)
+            self.r.write('CLAUDE.md', CLEAN)
+            self.assertEqual(self.r.run()[0], 2, bad)
 
 
 class TestSelfTest(Base):
