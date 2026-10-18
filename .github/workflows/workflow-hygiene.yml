@@ -101,3 +101,18 @@ jobs:
 
           rm -f "$tmp"
           echo "self-test: fires on a mutable third-party ref, silent on a first-party release tag."
+
+  # Fleet CLAUDE.md checker (skill claude-md-hygiene): byte budget plus no
+  # history-shaped text. VENDORED from claude-config: never edit
+  # scripts/claude_md_hygiene.py here; fix the canonical copy and re-vendor.
+  # Config: .claude-md-hygiene.json.
+  claude-md-hygiene:
+    name: CLAUDE.md hygiene (CM1-CM3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Vendored copy matches its stamp
+        run: python3 scripts/claude_md_hygiene.py --self-test
+      - name: Check
+        run: python3 scripts/claude_md_hygiene.py

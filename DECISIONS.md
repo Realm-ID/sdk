@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-127 entries total — 72 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+128 entries total — 73 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-18 — Vendor the CLAUDE.md hygiene checker into CI (CM1-CM3)](#2026-10-18--vendor-the-claudemd-hygiene-checker-into-ci-cm1-cm3)
 - [2026-10-18 — RealmError carries Retry-After (go RetryAfter, ts retryAfterSeconds, java getRetryAfter; ADR-116 A8)](#2026-10-18--realmerror-carries-retry-after-go-retryafter-ts-retryafterseconds-java-getretryafter-adr-116-a8)
 - [2026-10-18 — 2026-10-18 — sendLoginCode in go/ts/java; method_not_enabled registered (ADR-116)](#2026-10-18--2026-10-18--sendlogincode-in-gotsjava-method_not_enabled-registered-adr-116)
 - [2026-10-14 — unreleased-go: a clone with no go/ tags fails loudly instead of passing](#2026-10-14--unreleased-go-a-clone-with-no-go-tags-fails-loudly-instead-of-passing)
@@ -139,6 +140,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-18 — Vendor the CLAUDE.md hygiene checker into CI (CM1-CM3)
+
+**Problem.** This repo's CLAUDE.md loads into every umbrella session as a nested file, and the rule "current state only, no history" was prose that had failed twice in the umbrella. The umbrella's own CI never has this clone checked out, so the root scan cannot catch a change at this repo's PR.
+
+**Decision.** Vendor the fleet checker (`scripts/claude_md_hygiene.py` + its test, stamped from claude-config skill `claude-md-hygiene`) with `.claude-md-hygiene.json` = `{"budgets": {"root": 12000, "nested": 12000}}` (nested budget on purpose: this CLAUDE.md is nested in the umbrella). A `claude-md-hygiene` job in `workflow-hygiene.yml` runs `--self-test` then the check on every push and PR; that workflow has no path filter, so a CLAUDE.md-only commit is seen. Owner approval 2026-10-18 ("do now"), requested by devops.
+
+**Tradeoffs.** Never edit the vendored copy; change canonical and re-vendor. No waiver exists for the size check, so an over-budget file must be trimmed.
 
 ## 2026-10-18 — RealmError carries Retry-After (go RetryAfter, ts retryAfterSeconds, java getRetryAfter; ADR-116 A8)
 
