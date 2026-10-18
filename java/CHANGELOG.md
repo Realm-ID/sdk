@@ -4,6 +4,18 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## Unreleased — send the sign-in code (ADR-116, issuer spec 0.61.0)
+
+SPEC §X.4a, §3.1, §6.5. The issuer route is not released yet.
+
+### Added
+- `realm.auth().sendLoginCode(SendLoginCodeRequest)` → `SendLoginCodeResponse(sentIfRegistered)`: `POST /auth/otp/send-login` with the platform token; `onBehalfOfIp` rides as `X-On-Behalf-Of-IP`. Decodes the BARE 202 body.
+- `ErrorCode.SIGN_IN_IP_RATE_LIMITED`, `INVALID_ON_BEHALF_OF_IP`, `METHOD_NOT_ENABLED`; helpers `RealmException.isSignInIpRateLimited`, `isDeliveryUnavailable` (reads `details.server_code`; `delivery_unavailable` stays unregistered).
+- `RealmConfigResponse.PhoneOtpConfig.signInPerIpPerHour` (0 when the issuer did not send it); the two-argument constructor is kept.
+
+### Changed — BEHAVIOUR CHANGE
+- `method_not_enabled` is now REGISTERED (owner ruling 2026-10-18). It already ships as a `400` on the ADR-094 domain-SSO routes, where it used to arrive with `details.server_code == "method_not_enabled"`. It now lands on `getCode()` (`METHOD_NOT_ENABLED`) and is no longer copied into `details.server_code`. A caller branching on `details.server_code` must switch to the code.
+
 ## 0.52.0 — bring-your-own phone-code delivery (ADR-115, issuer spec 0.60.0) (2026-10-17)
 
 At Go `0.68.0` parity; `build.gradle.kts` carries `0.52.0`. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1.

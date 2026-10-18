@@ -69,11 +69,20 @@ public final class RealmConfigResponse {
         if (!(m.get("max_per_window") instanceof Number max) || !(m.get("window_seconds") instanceof Number win)) {
             return java.util.Optional.empty();
         }
-        return java.util.Optional.of(new PhoneOtpConfig(max.intValue(), win.intValue()));
+        int perIp = m.get("sign_in_per_ip_per_hour") instanceof Number n ? n.intValue() : 0;
+        return java.util.Optional.of(new PhoneOtpConfig(max.intValue(), win.intValue(), perIp));
     }
 
-    /** The {@code phone_otp} config group as read (ADR-115). */
-    public record PhoneOtpConfig(int maxPerWindow, int windowSeconds) {}
+    /**
+     * The {@code phone_otp} config group as read (ADR-115). {@code signInPerIpPerHour} (ADR-116,
+     * spec 0.61.0) is how many sign-in codes one end-user IP may request per hour (default 10,
+     * range 1-60, cannot be turned off); 0 means the issuer did not send it (an older issuer).
+     */
+    public record PhoneOtpConfig(int maxPerWindow, int windowSeconds, int signInPerIpPerHour) {
+        public PhoneOtpConfig(int maxPerWindow, int windowSeconds) {
+            this(maxPerWindow, windowSeconds, 0);
+        }
+    }
 
     public void setId(String v) { this.id = v; }
     public void setConfig(Map<String, Object> v) {

@@ -824,6 +824,28 @@ public final class AuthClient {
     }
 
     /**
+     * SPEC X.4a (issuer ADR-116) — send the sign-in code to a person who is NOT signed in, by SMS
+     * or WhatsApp: {@code POST /auth/otp/send-login} with the platform token. The answer is
+     * enumeration-safe by design ({@code sentIfRegistered} is always true), so show the same text
+     * whether or not the number is registered, then call {@link #otpLogin} with the same
+     * identifier (and tenantId). {@code onBehalfOfIp} rides as {@code X-On-Behalf-Of-IP}. The 202
+     * body is bare, not {@code {"data":...}}. Mirrors Go's {@code Auth.SendLoginCode} / TS's
+     * {@code auth.sendLoginCode}.
+     */
+    public SendLoginCodeResponse sendLoginCode(SendLoginCodeRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("identifier", req.identifier());
+        body.put("delivery_mode", req.deliveryMode());
+        if (req.tenantId() != null && !req.tenantId().isEmpty()) body.put("tenant_id", req.tenantId());
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/otp/send-login").body(body);
+        if (req.onBehalfOfIp() != null && !req.onBehalfOfIp().isEmpty()) {
+            r.header("x-on-behalf-of-ip", req.onBehalfOfIp());
+        }
+        JsonNode raw = issuer(r);
+        return new SendLoginCodeResponse(raw != null && raw.path("sent_if_registered").asBoolean(false));
+    }
+
+    /**
      * ADR-104 — sign in with a native username/password credential.
      *
      * <p>Every failure collapses to {@code 401 invalid_credentials} — an unknown

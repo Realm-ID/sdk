@@ -89,4 +89,22 @@ public class RealmException extends RuntimeException {
     public static boolean isPhoneOtpRateLimited(Throwable t) {
         return t instanceof RealmException re && re.code == ErrorCode.PHONE_OTP_RATE_LIMITED;
     }
+
+    /**
+     * 429 {@code sign_in_ip_rate_limited}: this end user's IP (the {@code onBehalfOfIp} passed to
+     * {@code sendLoginCode}) used the realm's {@code phone_otp.sign_in_per_ip_per_hour}.
+     */
+    public static boolean isSignInIpRateLimited(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.SIGN_IN_IP_RATE_LIMITED;
+    }
+
+    /**
+     * 503 {@code delivery_unavailable}: the realm has no working channel for the requested
+     * delivery mode ({@code details.channel} names it). The code is NOT registered, so it arrives
+     * as {@code details.server_code}; this checks that place and keeps working if the code is
+     * registered later.
+     */
+    public static boolean isDeliveryUnavailable(Throwable t) {
+        return t instanceof RealmException re && "delivery_unavailable".equals(re.details.get("server_code"));
+    }
 }

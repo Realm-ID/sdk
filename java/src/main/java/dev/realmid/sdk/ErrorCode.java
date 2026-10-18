@@ -299,6 +299,14 @@ public enum ErrorCode {
     CHANNEL_VALIDATION_FAILED("channel_validation_failed"),
     CHANNEL_NOT_CONFIGURED("channel_not_configured"),
     PHONE_OTP_RATE_LIMITED("phone_otp_rate_limited"),
+    // Sign-in code send codes (SPEC section 3.1; ADR-116, issuer spec 0.61.0).
+    // sign_in_ip_rate_limited and invalid_on_behalf_of_ip are new to the wire. method_not_enabled
+    // is registered although it already ships (400 on the ADR-094 domain-SSO routes, where it
+    // arrived as details.server_code): a BEHAVIOUR CHANGE, owner ruling 2026-10-18.
+    // delivery_unavailable stays unregistered; see RealmException.isDeliveryUnavailable.
+    SIGN_IN_IP_RATE_LIMITED("sign_in_ip_rate_limited"),
+    METHOD_NOT_ENABLED("method_not_enabled"),
+    INVALID_ON_BEHALF_OF_IP("invalid_on_behalf_of_ip"),
     NOT_FOUND("not_found"),
     CONFLICT("conflict"),
     RATE_LIMITED("rate_limited"),
