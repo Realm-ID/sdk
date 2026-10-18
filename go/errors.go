@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ErrorCode is a stable, machine-readable identifier for an SDK failure.
@@ -294,12 +295,18 @@ const (
 )
 
 // RealmError is the unified error returned from every SDK operation.
+//
+// RetryAfter is the server's Retry-After on a non-2xx response (SPEC §3): a
+// delta-seconds value, or an HTTP-date taken as the wait from now. Zero means
+// the header was absent, unparseable, negative, or already in the past. No other
+// response header is carried.
 type RealmError struct {
 	Code       ErrorCode
 	Message    string
 	HTTPStatus int
 	Details    map[string]any
 	Cause      error
+	RetryAfter time.Duration
 }
 
 // Error implements the error interface.
@@ -412,8 +419,7 @@ func IsChannelNotConfigured(err error) bool { return IsCode(err, ErrCodeChannelN
 
 // IsPhoneOTPRateLimited reports whether err is the issuer's 429
 // phone_otp_rate_limited: this number was sent the realm's limit of phone codes
-// within the window. The wait is the Retry-After header, which this SDK does not
-// yet surface.
+// within the window. The wait is RealmError.RetryAfter.
 func IsPhoneOTPRateLimited(err error) bool { return IsCode(err, ErrCodePhoneOTPRateLimited) }
 
 // IsSignInIPRateLimited reports whether err is the issuer's 429

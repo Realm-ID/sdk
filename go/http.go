@@ -9,9 +9,32 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// parseRetryAfter reads a Retry-After value: delta-seconds, else an HTTP-date
+// (the wait from now). Anything else, a non-positive value, or a date already
+// past is zero, which callers read as "no hint".
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.ParseInt(v, 10, 32); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
+}
 
 // httpClient is the SDK's internal wrapper around net/http. It attaches
 // auth + content-type headers, parses error envelopes per SPEC §3.2, and
@@ -124,7 +147,9 @@ func (c *httpClient) do(ctx context.Context, opts requestOptions, out any) error
 	}
 
 	if resp.StatusCode >= 400 {
-		return mapErrorResponse(resp.StatusCode, raw, method, opts.Path)
+		re := mapErrorResponse(resp.StatusCode, raw, method, opts.Path)
+		re.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		return re
 	}
 
 	if out == nil || len(raw) == 0 {
