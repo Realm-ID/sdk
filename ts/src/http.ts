@@ -10,7 +10,7 @@
  * `POST /auth/platform-token` call inside `PlatformTokenManager`.
  */
 
-import { RealmError, statusToCode, isKnownCode, type ErrorCode } from "./errors.js";
+import { RealmError, parseRetryAfterSeconds, statusToCode, isKnownCode, type ErrorCode } from "./errors.js";
 import { parseErrorEnvelope } from "./envelope.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER, redactCredential } from "./logger.js";
@@ -148,7 +148,9 @@ export class HttpClient {
     }
 
     if (!resp.ok) {
-      const err = mapErrorResponse(resp.status, body, opts.method ?? "GET", opts.path);
+      const err = mapErrorResponse(
+        resp.status, body, opts.method ?? "GET", opts.path, parseRetryAfterSeconds(resp.headers.get("retry-after")),
+      );
       this.logger.error("realmid: request failed", {
         method: init.method,
         path: opts.path,
@@ -181,7 +183,13 @@ export class HttpClient {
   }
 }
 
-function mapErrorResponse(status: number, body: unknown, method: string, path: string): RealmError {
+function mapErrorResponse(
+  status: number,
+  body: unknown,
+  method: string,
+  path: string,
+  retryAfterSeconds?: number,
+): RealmError {
   // The three envelope shapes are parsed in ONE place (envelope.ts) and mapped
   // into the SDK taxonomy here. An unrecognised server code is preserved under
   // `details.server_code` rather than dropped: a code the union does not yet
@@ -196,5 +204,5 @@ function mapErrorResponse(status: number, body: unknown, method: string, path: s
   if (env.code !== undefined && !isKnownCode(env.code)) {
     details = { ...(details ?? {}), server_code: env.code };
   }
-  return new RealmError({ code, message, httpStatus: status, details });
+  return new RealmError({ code, message, httpStatus: status, details, retryAfterSeconds });
 }

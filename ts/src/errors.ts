@@ -240,6 +240,7 @@ export interface RealmErrorOptions {
   httpStatus?: number;
   details?: Record<string, unknown>;
   cause?: unknown;
+  retryAfterSeconds?: number;
 }
 
 export class RealmError extends Error {
@@ -247,6 +248,13 @@ export class RealmError extends Error {
   readonly httpStatus?: number;
   readonly details?: Record<string, unknown>;
   override readonly cause?: unknown;
+  /**
+   * The server's `Retry-After` on a non-2xx response (SPEC §3), in whole
+   * seconds: delta-seconds, or an HTTP-date taken as the wait from now.
+   * `undefined` when the header was absent, unparseable, non-positive or a
+   * date already past. No other response header is carried.
+   */
+  readonly retryAfterSeconds?: number;
 
   constructor(opts: RealmErrorOptions) {
     super(opts.message);
@@ -255,7 +263,22 @@ export class RealmError extends Error {
     this.httpStatus = opts.httpStatus;
     this.details = opts.details;
     this.cause = opts.cause;
+    this.retryAfterSeconds = opts.retryAfterSeconds;
   }
+}
+
+/** Parse a `Retry-After` header value to whole seconds, or undefined (SPEC §3). */
+export function parseRetryAfterSeconds(v: string | null | undefined, nowMs: number = Date.now()): number | undefined {
+  const s = v?.trim();
+  if (!s) return undefined;
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return n > 0 && Number.isSafeInteger(n) ? n : undefined;
+  }
+  const at = Date.parse(s);
+  if (Number.isNaN(at)) return undefined;
+  const secs = Math.ceil((at - nowMs) / 1000);
+  return secs > 0 ? secs : undefined;
 }
 
 /**
