@@ -11,7 +11,7 @@ R7 + R9. The issuer routes are on `main`, not released yet. Version unchanged (t
 ### Added
 - `RealmConfigResponse.uniqueKinds()` (`Optional<List<String>>`, from `config.contacts.unique_kinds`; empty Optional = key not sent, present-empty list = explicit `[]`) and the read-only `uniqueKindsReport()` (`Map<String, UniqueKindReport(valuesOnMultipleMemberships)>`; empty map = unknown, never zero).
 - `realm.config().update(patch, confirmLockout)`: `true` sends the QUERY parameter `?confirm_lockout=true`. The one-argument `update` is unchanged.
-- `realm.me().sendContactProof(contactId, deliveryMode, auth)` → `ContactProofSent(delivered)` and `confirmContactProof(contactId, code, auth)` → `ContactProofConfirmed`. Neither is retried.
+- `realm.me().sendContactProof(contactId, deliveryMode, auth)` → `ContactProofSent(delivered)` and `confirmContactProof(contactId, code, auth)` → `ContactProofConfirmed`. Neither is retried. `realm.me().listContacts(auth)` → `Paginated<MeContact(id, kind, value, verified, tenantId)>` (`GET /me/contacts`, issuer spec 0.63.0): the caller's own active contacts, each id one `sendContactProof` takes.
 - `realm.auth().inspectInvitation(token)` → `InvitationInspection`; `realm.auth().acceptInvitation(AcceptInvitationRequest)` → the same `Session` as `passwordLogin` (an MFA challenge arrives as the same `mfa_required` error; never retried); `realm.tenants().invitations().resend(tenantId, inviteId)`.
 - 17 newly REGISTERED `ErrorCode`s (`UNIQUE_KIND_LOCKOUT`, `UNIQUE_KIND_DUPLICATES`, `INVALID_INVITATION_TOKEN`, `CONTACT_NOT_FOUND`, `CONTACT_CHANGED` and the rest of SPEC section 3.2's new set). `invalid_config_value` and `identifier_collision` already ship and stay unregistered (they arrive as `details.server_code`).
 

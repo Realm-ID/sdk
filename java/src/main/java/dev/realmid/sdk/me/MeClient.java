@@ -3,6 +3,8 @@ package dev.realmid.sdk.me;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.realmid.sdk.auth.AuthClient;
 import dev.realmid.sdk.http.HttpTransport;
+import dev.realmid.sdk.pagination.PageReader;
+import dev.realmid.sdk.pagination.Paginated;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -151,6 +153,22 @@ public final class MeClient {
         return raw == null
                 ? new MembershipResult(tenantId, "")
                 : http.mapper().convertValue(raw, MembershipResult.class);
+    }
+
+    /**
+     * Pages the caller's own ACTIVE contacts ({@code GET /me/contacts}, issuer spec 0.63.0). Every
+     * {@code id} listed is one {@link #sendContactProof} accepts; a released contact is not listed.
+     * Only a signed-in person may list: an API-key session or a bare platform bearer gets
+     * {@code permission_cap_exceeded} (403).
+     */
+    public Paginated<MeContact> listContacts(MeAuth auth) {
+        return Paginated.of(opts -> {
+            Map<String, Object> q = new LinkedHashMap<>();
+            if (opts.cursor() != null) q.put("cursor", opts.cursor());
+            if (opts.limit() != null) q.put("limit", opts.limit());
+            JsonNode raw = http.request(apply(HttpTransport.Request.of("GET", "/me/contacts").query(q), auth));
+            return PageReader.read(http.mapper(), raw, MeContact.class);
+        });
     }
 
     /**
