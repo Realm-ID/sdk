@@ -35,12 +35,24 @@ public final class ConfigClient {
         return http.mapper().convertValue(raw, RealmConfigResponse.class);
     }
 
-    @SuppressWarnings("unchecked")
     public Map<String, Object> update(Map<String, Object> patch) {
-        JsonNode raw = http.request(HttpTransport.Request.of(
+        return update(patch, false);
+    }
+
+    /**
+     * As {@link #update(Map)}, with ADR-117 D8's {@code confirm_lockout}. {@code true} sends the
+     * QUERY parameter {@code ?confirm_lockout=true} (never a header), which proceeds past
+     * {@code 409 unique_kind_lockout} and is audited with the exact counts. It never escapes a
+     * {@code 503 unique_kind_lockout_check_failed} or any other refusal. {@code false} sends no query.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> update(Map<String, Object> patch, boolean confirmLockout) {
+        HttpTransport.Request req = HttpTransport.Request.of(
                 "PATCH",
                 "/platforms/" + URLEncoder.encode(realmId, StandardCharsets.UTF_8) + "/config")
-                .body(patch));
+                .body(patch);
+        if (confirmLockout) req.query(Map.of("confirm_lockout", "true"));
+        JsonNode raw = http.request(req);
         return raw == null ? Map.of() : http.mapper().convertValue(raw, Map.class);
     }
 }
