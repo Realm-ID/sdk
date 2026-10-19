@@ -1,4 +1,5 @@
 import { RealmError } from "./errors.js";
+import { unwrapData } from "./envelope.js";
 import { Observable } from "./observable.js";
 import { Transport } from "./transport.js";
 import {
@@ -17,6 +18,8 @@ import { createTabBus, type TabBus } from "./multi-tab.js";
 import { resolveExpiresIn } from "./util.js";
 import { memoryStorage, type StorageAdapter, type StoredSession } from "./storage.js";
 import type {
+  AcceptInvitationRequest,
+  InvitationInspection,
   AuthEvent,
   AuthState,
   GateRule,
@@ -393,8 +396,41 @@ export class Realm {
 
   async login(req: LoginRequest): Promise<LoginResponse> {
     const wireBody = this.requestAdapters.login ? this.requestAdapters.login(req) : req;
+    return this.loginVia(this.loginEndpoint, wireBody, req);
+  }
+
+  /**
+   * ADR-117 D6: is this emailed sign-up link still usable, and for which org? Anonymous (no cookie,
+   * the token rides the body, never the URL). Writes and consumes nothing.
+   */
+  async inspectInvitation(token: string): Promise<InvitationInspection> {
+    const res = await this.transport.request<unknown>("POST", "/auth/invitations/inspect", {
+      body: { token },
+      credentials: "omit",
+      applyCsrf: false,
+    });
+    const b = unwrapData<{ tenant_id?: string; tenant_display_name?: string; expires_at?: string }>(res.body);
+    return {
+      tenantId: b?.tenant_id ?? "",
+      tenantDisplayName: b?.tenant_display_name ?? "",
+      expiresAt: b?.expires_at ?? "",
+    };
+  }
+
+  /**
+   * ADR-117 D6: choose a username and password for an invited membership and sign in. Everything
+   * after the request is `login`'s tail: the session, the tenant picker, and an MFA challenge
+   * (412 `mfa_required`, left pending for `mfa.verify`). A taken username is `409 conflict` with
+   * `details.server_code: "identifier_collision"`.
+   */
+  async acceptInvitation(req: AcceptInvitationRequest): Promise<LoginResponse> {
+    const wire = { token: req.token, username: req.username, password: req.password };
+    return this.loginVia("/auth/invitations/accept", wire, { method: "password" });
+  }
+
+  private async loginVia(endpoint: string, wireBody: unknown, req: LoginRequest): Promise<LoginResponse> {
     try {
-      const res = await this.transport.request<unknown>("POST", this.loginEndpoint, {
+      const res = await this.transport.request<unknown>("POST", endpoint, {
         body: wireBody,
         gates: this.gates,
       });

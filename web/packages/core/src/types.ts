@@ -10,6 +10,21 @@ import type { StorageAdapter } from "./storage.js";
 /** Login methods the spec recognises; partners may add their own. */
 export type LoginMethod = "firebase" | "google" | "microsoft" | "password" | "otp" | (string & {});
 
+/** ADR-117 D6: what an invitation sign-up link points at (`inspectInvitation`). */
+export interface InvitationInspection {
+  tenantId: string;
+  tenantDisplayName: string;
+  /** When the link stops working (ISO-8601, as the issuer sent it). */
+  expiresAt: string;
+}
+
+/** ADR-117 D6: the sign-up form (`acceptInvitation`). The token is the credential. */
+export interface AcceptInvitationRequest {
+  token: string;
+  username: string;
+  password: string;
+}
+
 export interface LoginRequest {
   method: LoginMethod;
   providerToken?: string;

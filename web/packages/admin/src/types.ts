@@ -444,7 +444,17 @@ export interface RealmConfigPatch {
    * 5 per 900s; RealmID's ceiling is 20 per 3600s.
    */
   phone_otp?: Partial<PhoneOtpConfig>;
+  /**
+   * ADR-117 D1: which contact kinds identify a person in this realm. `unique_kinds` is a nullable
+   * list on write: `null` (or absent) resets to the default `["email","phone"]`, `[]` means no
+   * identifying kind. Narrowing it can answer `409 unique_kind_lockout` (retry with
+   * `updateConfig(…, { confirmLockout: true })`) or `503 unique_kind_lockout_check_failed`.
+   */
+  contacts?: { unique_kinds?: UniqueContactKind[] | null };
 }
+
+/** A contact kind that can identify a person in a realm (ADR-117). */
+export type UniqueContactKind = "email" | "phone";
 
 /**
  * The read projection of {@link RealmConfigPatch}. Unlike the patch, EVERY
@@ -455,6 +465,7 @@ export interface RealmConfigPatch {
 export type RealmConfigView = Omit<
   Required<RealmConfigPatch>,
   | "phone_otp"
+  | "contacts"
   | "mfa_policy"
   | "session_eviction_policy"
   | "signing_key_rotation_mode"
@@ -468,12 +479,20 @@ export type RealmConfigView = Omit<
   signing_key_rotation_interval: string;
   /** Absent from an issuer older than spec 0.60.0, hence optional (unlike the other keys). */
   phone_otp?: PhoneOtpConfig;
+  /** ADR-117: always present on read (the RESOLVED list); optional here for an older issuer. */
+  contacts?: { unique_kinds: UniqueContactKind[] };
 };
 
 /** Response envelope of GET/PATCH `/platforms/{id}/config`. */
 export interface RealmConfigResponse {
   id: string;
   config: RealmConfigView;
+  /**
+   * ADR-117: per contact kind, how many values are proven on more than one membership. Counts
+   * only, read-only and DERIVED (PATCHing it answers `400 unknown_config_key`). Absent = the
+   * issuer omitted it; never zero-filled.
+   */
+  unique_kinds_report?: Record<string, { values_on_multiple_memberships?: number }>;
 }
 
 export interface AdminPlatformsResponse {

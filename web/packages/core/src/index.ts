@@ -40,6 +40,8 @@ export type {
   LoginMethod,
   LoginRequest,
   LoginResponse,
+  InvitationInspection,
+  AcceptInvitationRequest,
   MeResponse,
   ProvidersResponse,
   RealmConfig,

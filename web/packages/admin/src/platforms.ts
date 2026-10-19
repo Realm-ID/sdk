@@ -145,6 +145,17 @@ export class PlatformsClient {
   }
 
   /**
+   * GET /platforms/{id}/config with the envelope kept: `config` plus the read-only
+   * `unique_kinds_report` (ADR-117 D8), the counts a lockout dialog shows.
+   */
+  async getConfigResponse(platformId: string): Promise<RealmConfigResponse> {
+    return this.http.request<RealmConfigResponse>({
+      method: "GET",
+      path: `/platforms/${encodeURIComponent(platformId)}/config`,
+    });
+  }
+
+  /**
    * PATCH /platforms/{id}/config — partial update of the allowlisted
    * realm-config keys. Unknown keys are rejected server-side with a 400, and
    * out-of-range values with `invalid_config_value`.
@@ -152,10 +163,14 @@ export class PlatformsClient {
   async updateConfig(
     platformId: string,
     patch: RealmConfigPatch,
+    opts?: { confirmLockout?: boolean },
   ): Promise<RealmConfigResponse> {
     return this.http.request<RealmConfigResponse>({
       method: "PATCH",
       path: `/platforms/${encodeURIComponent(platformId)}/config`,
+      // ADR-117 D8: a QUERY parameter, never a header. It never escapes 503
+      // unique_kind_lockout_check_failed or any other refusal.
+      query: opts?.confirmLockout ? { confirm_lockout: "true" } : undefined,
       body: patch,
     });
   }

@@ -14,6 +14,14 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## Unreleased — invitation sign-up (ADR-117 D6)
+
+Additive. Needs a BFF serving `POST /auth/invitations/inspect` and `/accept` (api 5d5bea4).
+
+- **`realm.inspectInvitation(token)`** → `{ tenantId, tenantDisplayName, expiresAt }`. Anonymous (no cookie), token in the body, nothing consumed.
+- **`realm.acceptInvitation({ token, username, password })`** → the `login` result. It rides `login`'s tail: session and tenant state, the tenant picker, and an MFA challenge (412 `mfa_required`, left pending for `realm.mfa.verify`). A taken username is `409 conflict` with `details.server_code: "identifier_collision"`.
+- Types `InvitationInspection`, `AcceptInvitationRequest`. Not yet version-bumped.
+
 ## 0.11.0 — phone channels on discovery (ADR-115) (2026-10-17)
 
 Additive. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1. Needs `@realm-id/web-bff-realmid` 0.8.0 to map `phone_channels`.

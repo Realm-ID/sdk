@@ -1,5 +1,13 @@
 # @realm-id/web-admin — changelog
 
+## Unreleased — contact uniqueness, contact proof, invitation resend (ADR-117, R7 + R9)
+
+**Added.** Realm config `contacts.unique_kinds` on `RealmConfigPatch` (nullable list; `null` resets) and on `RealmConfigView`; `PlatformsClient.updateConfig(id, patch, { confirmLockout })` sends `confirm_lockout=true` as a QUERY parameter; `PlatformsClient.getConfigResponse(id)` keeps the envelope so the read-only `unique_kinds_report` (counts per kind) is reachable. `UniqueContactKind` exported.
+
+**Added.** `admin.me.sendContactProof({ contactId, deliveryMode })` (`POST /me/contacts/{id}/proof`, answers 200 `{delivered}`) and `admin.me.confirmContactProof({ contactId, code })` (`…/proof/confirm`).
+
+**Pinned.** `admin.tenants.invitations.resend(tenantId, invitationId)` (inherited from the bundled `@realm-id/sdk`) and the 17 new ADR-117 error codes, which the admin transport claims instead of collapsing to the status fallback (`adr117.test.ts`). Needs the bundled `@realm-id/sdk` to carry spec 0.62.0 (registry and `resend`). Not yet version-bumped.
+
 ## 0.23.0 — `admin.messaging`, the realm's own SMS / WhatsApp credentials (ADR-115) (2026-10-17)
 
 **Added.** `admin.messaging` (the bundled `@realm-id/sdk` 0.56.0 `MessagingClient`) over `/platforms/{id}/messaging/{channel}`: save / read / delete the realm's Twilio or WhatsApp credentials, secrets write-only; gated on `platform:config`. Re-exports `isInvalidChannelConfig`, `isChannelValidationFailed`, `isChannelNotConfigured`, `isPhoneOtpRateLimited`, `phoneOtpConfig`, `offersPhoneLogin`, `DELIVERY_MODE_WHATSAPP` and the messaging types. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1.
