@@ -4,7 +4,7 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased — unique contact kinds, contact proof, invitation sign-up (ADR-117, issuer spec 0.62.0)
+## Unreleased — unique contact kinds, contact proof, invitation sign-up (ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0)
 
 SPEC §3.1, §4, §6.2, §6.5 (SPEC.md text is owned by another builder). The issuer routes are released to `main`, not yet to prod. Additive.
 
@@ -20,7 +20,7 @@ SPEC §3.1, §4, §6.2, §6.5 (SPEC.md text is owned by another builder). The is
 ### Changed — BEHAVIOUR CHANGE
 - The codes above used to arrive as `err.code === "conflict"` / `"bad_request"` / `"not_found"` with `details.server_code` set. They now land on `err.code` and are no longer copied into `details.server_code`. A caller branching on `server_code` must switch to `err.code`.
 
-## Unreleased — send the sign-in code (ADR-116, issuer spec 0.61.0)
+**Send the sign-in code (ADR-116, issuer spec 0.61.0).**
 
 SPEC §X.4a, §3.1, §6.5. The issuer route is not released yet.
 

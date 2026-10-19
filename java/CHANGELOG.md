@@ -4,7 +4,7 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased — unique contact kinds, contact proof, invitation sign-up links (ADR-116 third amendment, ADR-117, issuer spec 0.62.0)
+## Unreleased — unique contact kinds, contact proof, invitation sign-up links (ADR-116 third amendment, ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0)
 
 R7 + R9. The issuer routes are on `main`, not released yet. Version unchanged (the unreleased block below already covers the pending release).
 
@@ -15,7 +15,7 @@ R7 + R9. The issuer routes are on `main`, not released yet. Version unchanged (t
 - `realm.auth().inspectInvitation(token)` → `InvitationInspection`; `realm.auth().acceptInvitation(AcceptInvitationRequest)` → the same `Session` as `passwordLogin` (an MFA challenge arrives as the same `mfa_required` error; never retried); `realm.tenants().invitations().resend(tenantId, inviteId)`.
 - 17 newly REGISTERED `ErrorCode`s (`UNIQUE_KIND_LOCKOUT`, `UNIQUE_KIND_DUPLICATES`, `INVALID_INVITATION_TOKEN`, `CONTACT_NOT_FOUND`, `CONTACT_CHANGED` and the rest of SPEC section 3.2's new set). `invalid_config_value` and `identifier_collision` already ship and stay unregistered (they arrive as `details.server_code`).
 
-## Unreleased — send the sign-in code (ADR-116, issuer spec 0.61.0)
+**Send the sign-in code (ADR-116, issuer spec 0.61.0).**
 
 SPEC §X.4a, §3.1, §6.5. The issuer route is not released yet.
 
