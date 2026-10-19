@@ -6,6 +6,8 @@
 
 **Added.** `admin.me.sendContactProof({ contactId, deliveryMode })` (`POST /me/contacts/{id}/proof`, answers 200 `{delivered}`) and `admin.me.confirmContactProof({ contactId, code })` (`…/proof/confirm`).
 
+**Added.** `admin.me.listContacts(opts?)` (`GET /me/contacts`, issuer spec 0.63.0): a `Paginated<MyContact>` of the caller's own active contacts (`{ id, kind, value, verified, tenant_id }`); every `id` is one the proof calls take. `MyContact` exported.
+
 **Pinned.** `admin.tenants.invitations.resend(tenantId, invitationId)` (inherited from the bundled `@realm-id/sdk`) and the 17 new ADR-117 error codes, which the admin transport claims instead of collapsing to the status fallback (`adr117.test.ts`). Needs the bundled `@realm-id/sdk` to carry spec 0.62.0 (registry and `resend`). Not yet version-bumped.
 
 ## 0.23.0 — `admin.messaging`, the realm's own SMS / WhatsApp credentials (ADR-115) (2026-10-17)

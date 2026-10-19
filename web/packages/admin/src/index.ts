@@ -213,7 +213,7 @@ export { SigningKeysClient } from "./signing-keys.js";
 export { BffClient } from "./bff.js";
 export { SessionsClient } from "./sessions.js";
 export { MeClient } from "./me.js";
-export type { ContactProofSent, ProvenContact } from "./me.js";
+export type { ContactProofSent, ProvenContact, MyContact } from "./me.js";
 export type { UniqueContactKind } from "./types.js";
 export { MfaClient } from "./mfa.js";
 export { AdminTenantsClient } from "./tenants.js";

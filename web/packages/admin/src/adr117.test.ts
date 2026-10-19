@@ -140,3 +140,25 @@ describe("ADR-117 error codes (17)", () => {
     assert.equal(n, 17);
   });
 });
+
+describe("me.listContacts (GET /me/contacts)", () => {
+  it("pages the {items,next_cursor,total} envelope and forwards cursor/limit", async () => {
+    const row = (id: string) => ({ id, kind: "email", value: "a@b.c", verified: true, tenant_id: "t1" });
+    const calls: RequestOptions[] = [];
+    const http: HttpLike = {
+      async request<T>(opts: RequestOptions): Promise<T> {
+        calls.push(opts);
+        return (opts.query?.["cursor"] === "c2"
+          ? { items: [row("b")], next_cursor: null, total: 2 }
+          : { items: [row("a")], next_cursor: "c2", total: 2 }) as T;
+      },
+    };
+    const seen: string[] = [];
+    for await (const c of new MeClient(http).listContacts({ limit: 1 })) seen.push(c.id);
+    assert.deepEqual(seen, ["a", "b"]);
+    assert.equal(calls[0]!.method, "GET");
+    assert.equal(calls[0]!.path, "/me/contacts");
+    assert.equal(calls[0]!.query?.["limit"], 1);
+    assert.equal(calls[1]!.query?.["cursor"], "c2");
+  });
+});

@@ -6,6 +6,18 @@
 
 import type { HttpLike } from "./transport.js";
 import type { ProfileResponse, PublicIdentityProviderResponse } from "./types.js";
+import { paginate, readPage, type PageOpts, type Paginated } from "@realm-id/sdk";
+
+/** One entry of `me.listContacts` (`GET /me/contacts`); wire names verbatim. */
+export interface MyContact {
+  /** The id `sendContactProof` / `confirmContactProof` take. */
+  id: string;
+  kind: "email" | "phone";
+  value: string;
+  verified: boolean;
+  /** The membership the contact belongs to. */
+  tenant_id: string;
+}
 
 /** `me.sendContactProof` result: the channel the provider accepted the code on. */
 export interface ContactProofSent {
@@ -22,6 +34,23 @@ export interface ProvenContact {
 }
 
 export class MeClient {
+  /**
+   * List the caller's own ACTIVE contacts — `GET /me/contacts`. Every `id` is one the proof
+   * routes accept; a released contact is not listed. Returns the PAGER: `for await` walks every
+   * page, `.page({cursor, limit})` gives one. 403 `permission_cap_exceeded` unless the caller is
+   * a signed-in person.
+   */
+  listContacts(opts?: PageOpts): Paginated<MyContact> {
+    return paginate<MyContact>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: "/me/contacts",
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+      });
+      return readPage<MyContact>(raw);
+    });
+  }
+
   /**
    * Send a code to one of the caller's OWN phones — `POST /me/contacts/{contactId}/proof`.
    * The send is inline, so the `200 {delivered}` proves the provider accepted it. Errors:

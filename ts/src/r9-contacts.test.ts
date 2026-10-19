@@ -144,3 +144,23 @@ test("R9 every spec 3.2 new code is registered and lands on err.code with its bo
     return true;
   });
 });
+
+test("R9 me.listContacts: GET /me/contacts, pages by next_cursor, items are {id,kind,value,verified,tenant_id}", async () => {
+  const row = (id: string) => ({ id, kind: "phone", value: "+1555", verified: false, tenant_id: "t1" });
+  const { realm, calls } = setup((r) => {
+    if (r.url.includes("cursor=c2")) return json(200, { items: [row("b")], next_cursor: null, total: 2 });
+    return json(200, { items: [row("a")], next_cursor: "c2", total: 2 });
+  });
+  const seen: string[] = [];
+  for await (const c of realm.me.listContacts({ userBearer: "jwt" })) seen.push(c.id);
+  assert.deepEqual(seen, ["a", "b"]);
+  assert.equal(calls[0]!.method, "GET");
+  assert.match(calls[0]!.url, /\/me\/contacts(\?|$)/);
+  assert.equal(calls[0]!.headers.get("authorization"), "Bearer jwt");
+  assert.match(calls[1]!.url, /cursor=c2/);
+  const one = await realm.me.listContacts({ userToken: "ut" }, { limit: 5 }).page();
+  assert.equal(one.items[0]!.tenant_id, "t1");
+  assert.equal(one.total, 2);
+  assert.match(calls[calls.length - 1]!.url, /limit=5/);
+  assert.equal(calls[calls.length - 1]!.headers.get("x-user-token"), "ut");
+});

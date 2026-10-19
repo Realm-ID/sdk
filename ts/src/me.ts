@@ -17,6 +17,7 @@
 import type { HttpClient } from "./http.js";
 import { unwrapData } from "./envelope.js";
 import { sessionIds } from "./auth.js";
+import { paginate, readPage, type PageOpts, type Paginated } from "./pagination.js";
 
 /** The end-user credential every `realm.me.*` call needs. */
 export interface MeAuth {
@@ -77,6 +78,20 @@ export interface SetPasswordRequest extends MeAuth {
 export interface PasswordSet {
   status: string;
   revokedSids: string[];
+}
+
+/**
+ * One entry of `me.listContacts` (`GET /me/contacts`). Fields mirror the wire
+ * verbatim (snake_case, no mapping): the issuer sends exactly these five.
+ */
+export interface MyContact {
+  /** The id `sendContactProof` / `confirmContactProof` take. */
+  id: string;
+  kind: "email" | "phone";
+  value: string;
+  verified: boolean;
+  /** The membership the contact belongs to. */
+  tenant_id: string;
 }
 
 /** Input to `me.sendContactProof` (`POST /me/contacts/{contact_id}/proof`, ADR-116 third amendment). */
@@ -140,6 +155,25 @@ export class MeClient {
     const revokedSids = sessionIds(d.revoked_sids);
     await this.revoke?.(revokedSids);
     return { status: typeof d.status === "string" ? d.status : "", revokedSids };
+  }
+
+  /**
+   * Lists the caller's own ACTIVE contacts — `GET /me/contacts`. Every `id` is one
+   * the proof routes accept; a released contact is not listed. Returns the PAGER:
+   * `for await` walks every page (following `next_cursor`), `.page({cursor, limit})`
+   * gives exactly one. Refused with 403 `permission_cap_exceeded` for anything but a
+   * signed-in person (an API-key session, a bare platform bearer).
+   */
+  listContacts(auth: MeAuth, opts?: PageOpts): Paginated<MyContact> {
+    return paginate<MyContact>(async (po) => {
+      const raw = await this.http.request<unknown>({
+        method: "GET",
+        path: "/me/contacts",
+        query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
+        ...this.authOf(auth),
+      });
+      return readPage<MyContact>(raw);
+    });
   }
 
   /**
