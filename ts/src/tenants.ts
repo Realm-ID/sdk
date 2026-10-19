@@ -231,6 +231,21 @@ export class InvitationsClient {
       path: `/tenants/${encodeURIComponent(tenantId)}/invitations/${encodeURIComponent(invitationId)}`,
     });
   }
+
+  /**
+   * Re-send an outstanding invitation — `POST /tenants/{id}/invitations/{inviteId}/resend`
+   * (ADR-117 D6). Same gate as `delete` (`invitations:manage`, or having created
+   * it). Bumps the expiry and mails again; on a password-sign-in platform the
+   * mail carries a FRESH sign-up link and the earlier link is dead. Errors:
+   * `not_pending` (409), `no_email_to_resend` (409, unregistered: arrives as
+   * `details.server_code`), 404 `invite_not_found`.
+   */
+  async resend(tenantId: string, invitationId: string): Promise<Invitation> {
+    return this.http.request<Invitation>({
+      method: "POST",
+      path: `/tenants/${encodeURIComponent(tenantId)}/invitations/${encodeURIComponent(invitationId)}/resend`,
+    });
+  }
 }
 
 /** One row for UsersClient.importUsers (ADR-073 Release B). >=1 of email/phone. */

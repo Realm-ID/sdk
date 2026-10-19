@@ -4,6 +4,22 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased — unique contact kinds, contact proof, invitation sign-up (ADR-117, issuer spec 0.62.0)
+
+SPEC §3.1, §4, §6.2, §6.5 (SPEC.md text is owned by another builder). The issuer routes are released to `main`, not yet to prod. Additive.
+
+### Added
+- `contactsConfig(values)` / `ContactsConfig` for the `contacts.unique_kinds` realm config group (resolved list on read; `undefined`, never a defaulted list, when the issuer sent none). Written through the generic patch; `null` resets to the default.
+- `RealmConfigResponse.uniqueKindsReport` (`{ <kind>: { valuesOnMultipleMemberships } }`, counts only; `undefined` when omitted, never zero-filled).
+- `config.update(patch, { confirmLockout })`: sends the QUERY parameter `confirm_lockout=true` (never a header).
+- `me.sendContactProof({ contactId, deliveryMode, ...auth })` → `{ delivered }` and `me.confirmContactProof({ contactId, code, ...auth })` → `{ id, kind, value, verified, verifiedAt? }`.
+- `auth.inspectInvitation(token)` → `{ tenantId, tenantDisplayName, expiresAt }` and `auth.acceptInvitation({ token, username, password })` → the same `LoginResponse` as `passwordLogin` (an MFA challenge surfaces as `mfa_required`, exactly as there).
+- `tenants.invitations.resend(tenantId, inviteId)` → `Invitation`.
+- 17 newly REGISTERED codes: `unique_kinds_requires_password`, `password_login_required`, `unique_kind_lockout`, `unique_kind_lockout_check_failed`, `unique_kind_duplicates`, `email_keyed_signin_enabled`, `require_verified_email_conflict`, `idp_requires_identifying_email`, `idp_requires_identifying_phone`, `domain_sso_requires_unique_email`, `invite_contact_not_identifying`, `recipient_email_not_identifying`, `invalid_invitation_token`, `contact_not_found`, `contact_already_verified`, `contact_changed`, `reset_email_not_identifying`. Body siblings (`kind`, `locked_out`, `conflicting_values`, ...) arrive in `err.details`.
+
+### Changed — BEHAVIOUR CHANGE
+- The codes above used to arrive as `err.code === "conflict"` / `"bad_request"` / `"not_found"` with `details.server_code` set. They now land on `err.code` and are no longer copied into `details.server_code`. A caller branching on `server_code` must switch to `err.code`.
+
 ## Unreleased — send the sign-in code (ADR-116, issuer spec 0.61.0)
 
 SPEC §X.4a, §3.1, §6.5. The issuer route is not released yet.

@@ -79,6 +79,33 @@ export interface PasswordSet {
   revokedSids: string[];
 }
 
+/** Input to `me.sendContactProof` (`POST /me/contacts/{contact_id}/proof`, ADR-116 third amendment). */
+export interface SendContactProofRequest extends MeAuth {
+  contactId: string;
+  /** No fallback between channels. */
+  deliveryMode: "sms" | "whatsapp";
+}
+
+/** `me.sendContactProof` result: the channel the provider accepted the code on. */
+export interface ContactProofSent {
+  delivered: string;
+}
+
+/** Input to `me.confirmContactProof`. */
+export interface ConfirmContactProofRequest extends MeAuth {
+  contactId: string;
+  code: string;
+}
+
+/** The proven contact returned by `me.confirmContactProof`. */
+export interface ProvenContact {
+  id: string;
+  kind: string;
+  value: string;
+  verified: boolean;
+  verifiedAt?: string;
+}
+
 export class MeClient {
   /** `revoke` writes session ids into the realm's session store (ADR-104 R-e); wired by `createRealm`. */
   constructor(
@@ -113,6 +140,50 @@ export class MeClient {
     const revokedSids = sessionIds(d.revoked_sids);
     await this.revoke?.(revokedSids);
     return { status: typeof d.status === "string" ? d.status : "", revokedSids };
+  }
+
+  /**
+   * Sends a code to one of the caller's OWN phones to prove it —
+   * `POST /me/contacts/{contactId}/proof` (R7). The send is inline, so the `200`
+   * proves the provider accepted it. Only the holder may prove: an admin acting
+   * for the person gets `contact_not_found`. Errors: `contact_not_found`,
+   * `contact_already_verified` (nothing sent), `phone_otp_rate_limited`
+   * (see `retryAfterSeconds`), `delivery_unavailable` (503, via
+   * `details.server_code`), 403 `permission_cap_exceeded` (not a signed-in person).
+   */
+  async sendContactProof(req: SendContactProofRequest): Promise<ContactProofSent> {
+    const raw = await this.http.request<unknown>({
+      method: "POST",
+      path: `/me/contacts/${encodeURIComponent(req.contactId)}/proof`,
+      body: { delivery_mode: req.deliveryMode },
+      ...this.authOf(req),
+    });
+    const d = unwrapData<{ delivered?: unknown }>(raw) ?? {};
+    return { delivered: typeof d.delivered === "string" ? d.delivered : "" };
+  }
+
+  /**
+   * Redeems the code — `POST /me/contacts/{contactId}/proof/confirm`. Sets
+   * `verified_at`; a pending `supersedes` swap settles. Errors: `invalid_otp`
+   * (401, incl. a code minted for another contact), `otp_expired` (410),
+   * `otp_locked` (429), `contact_not_found`, `contact_changed` (409: released or
+   * replaced after the send; the code is spent).
+   */
+  async confirmContactProof(req: ConfirmContactProofRequest): Promise<ProvenContact> {
+    const raw = await this.http.request<unknown>({
+      method: "POST",
+      path: `/me/contacts/${encodeURIComponent(req.contactId)}/proof/confirm`,
+      body: { code: req.code },
+      ...this.authOf(req),
+    });
+    const d = unwrapData<{ id?: unknown; kind?: unknown; value?: unknown; verified?: unknown; verified_at?: unknown }>(raw) ?? {};
+    return {
+      id: typeof d.id === "string" ? d.id : req.contactId,
+      kind: typeof d.kind === "string" ? d.kind : "",
+      value: typeof d.value === "string" ? d.value : "",
+      verified: d.verified === true,
+      ...(typeof d.verified_at === "string" ? { verifiedAt: d.verified_at } : {}),
+    };
   }
 
   /** Per-call bearer + headers for the two auth modes; see the module doc. */

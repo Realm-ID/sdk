@@ -64,6 +64,52 @@ export function phoneOtpConfig(values: RealmConfigValues): PhoneOtpConfig | unde
   };
 }
 
+/** A contact kind that can identify a person in a realm (ADR-117). */
+export type UniqueContactKind = "email" | "phone";
+
+/**
+ * Typed view of the realm's `contacts` config group (ADR-117 D1; SPEC §6.5).
+ * `unique_kinds` is the RESOLVED list on read: an unset platform reads
+ * `["email","phone"]`, an explicit `[]` reads `[]` (no identifying kind). On
+ * write it is a nullable list: `null` or absent resets to the default. Written
+ * through the generic patch, e.g. `update({ contacts: { unique_kinds: ["phone"] } })`.
+ */
+export interface ContactsConfig {
+  unique_kinds: UniqueContactKind[];
+}
+
+/**
+ * Read the `contacts` group from `config.get().config`. `undefined` means the
+ * issuer did not send it (an older issuer) or sent something unreadable; it is
+ * never a defaulted list, which would invent a policy.
+ */
+export function contactsConfig(values: RealmConfigValues): ContactsConfig | undefined {
+  const g = values["contacts"];
+  if (typeof g !== "object" || g === null) return undefined;
+  const kinds = Reflect.get(g, "unique_kinds");
+  if (!Array.isArray(kinds)) return undefined;
+  return { unique_kinds: kinds.filter((k): k is UniqueContactKind => k === "email" || k === "phone") };
+}
+
+/** One contact kind's row of `unique_kinds_report`: counts only, never the values. */
+export interface UniqueKindsReportEntry {
+  /** Values proven on more than one membership of this platform. */
+  valuesOnMultipleMemberships: number;
+}
+
+/** Read-only `unique_kinds_report`, keyed by contact kind (`email`, `phone`). */
+export type UniqueKindsReport = Record<string, UniqueKindsReportEntry>;
+
+/** Options for {@link ConfigClient.update}. */
+export interface ConfigUpdateOptions {
+  /**
+   * ADR-117 D8: proceed past `409 unique_kind_lockout` (audited with the exact
+   * counts). Sent as the QUERY parameter `confirm_lockout=true`, never a header.
+   * It never escapes `503 unique_kind_lockout_check_failed` or any other refusal.
+   */
+  confirmLockout?: boolean;
+}
+
 /** GET /platforms/{id}/config body: the realm id plus its config. */
 export interface RealmConfigResponse {
   id: string;
@@ -82,6 +128,14 @@ export interface RealmConfigResponse {
    * how an admin sees that.
    */
   singleTenantPendingReconciliation?: number;
+  /**
+   * ADR-117: per contact kind, how many values are proven on more than one
+   * membership. Counts only. Read-only and DERIVED, so it sits beside `config`
+   * (PATCHing it answers `400 unknown_config_key`). `undefined` means the
+   * issuer omitted it (an older issuer, or the count could not be taken); it is
+   * never zero-filled.
+   */
+  uniqueKindsReport?: UniqueKindsReport;
 }
 
 /** Raw GET /platforms/{id}/config wire body. */
@@ -89,6 +143,19 @@ interface RawRealmConfigResponse {
   id?: string;
   config?: RealmConfigValues;
   single_tenant_pending_reconciliation?: number;
+  unique_kinds_report?: Record<string, { values_on_multiple_memberships?: number }>;
+}
+
+function mapReport(raw: RawRealmConfigResponse["unique_kinds_report"]): UniqueKindsReport | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const out: UniqueKindsReport = {};
+  for (const [k, v] of Object.entries(raw)) {
+    out[k] = {
+      valuesOnMultipleMemberships:
+        typeof v?.values_on_multiple_memberships === "number" ? v.values_on_multiple_memberships : 0,
+    };
+  }
+  return out;
 }
 
 export class ConfigClient {
@@ -107,13 +174,15 @@ export class ConfigClient {
       id: raw?.id ?? this.realmId,
       config: raw?.config ?? {},
       singleTenantPendingReconciliation: raw?.single_tenant_pending_reconciliation,
+      uniqueKindsReport: mapReport(raw?.unique_kinds_report),
     };
   }
 
-  async update(patch: Record<string, unknown>): Promise<RealmInfo> {
+  async update(patch: Record<string, unknown>, opts?: ConfigUpdateOptions): Promise<RealmInfo> {
     return this.http.request<RealmInfo>({
       method: "PATCH",
       path: `/platforms/${encodeURIComponent(this.realmId)}/config`,
+      query: opts?.confirmLockout ? { confirm_lockout: "true" } : undefined,
       body: patch,
     });
   }

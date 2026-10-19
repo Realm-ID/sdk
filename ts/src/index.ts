@@ -148,12 +148,15 @@ export type {
   RoleTemplateDeleted,
 } from "./role-templates.js";
 
-export { ConfigClient, phoneOtpConfig } from "./config.js";
-export type { RealmConfigValues, RealmConfigResponse, PhoneOtpConfig } from "./config.js";
+export { ConfigClient, phoneOtpConfig, contactsConfig } from "./config.js";
+export type {
+  RealmConfigValues, RealmConfigResponse, PhoneOtpConfig, ContactsConfig, UniqueContactKind,
+  UniqueKindsReport, UniqueKindsReportEntry, ConfigUpdateOptions,
+} from "./config.js";
 
 export { MeClient } from "./me.js";
 export type { SetPasswordRequest, PasswordSet } from "./me.js";
-export type { PasswordResetInspection, PasswordResetConsumed } from "./auth.js";
+export type { PasswordResetInspection, PasswordResetConsumed, InvitationInspection } from "./auth.js";
 export type { PasswordResetSent, SetCredentialsRequest } from "./tenants.js";
 export type {
   MeAuth,
@@ -161,6 +164,10 @@ export type {
   TenantChoiceResult,
   MembershipRequest,
   MembershipResult,
+  SendContactProofRequest,
+  ContactProofSent,
+  ConfirmContactProofRequest,
+  ProvenContact,
 } from "./me.js";
 
 export { StatsClient } from "./stats.js";
