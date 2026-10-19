@@ -456,6 +456,28 @@ func (c *InvitationsClient) Create(ctx context.Context, tenantID string, body In
 	return &inv, nil
 }
 
+// Resend issues POST /tenants/{id}/invitations/{inviteId}/resend (ADR-117 D6):
+// bumps the expiry and mails the invitation again. On a platform with password
+// sign-in the mail carries a FRESH sign-up link and the earlier link is dead.
+// Same gate as Delete (`invitations:manage`, or having created the invite).
+// `409 not_pending` — already accepted or revoked; `409 no_email_to_resend` —
+// nothing to send to.
+func (c *InvitationsClient) Resend(ctx context.Context, tenantID, invitationID string) (*Invitation, error) {
+	tok, err := c.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out Invitation
+	if err := c.realm.http.do(ctx, requestOptions{
+		Method: "POST",
+		Path:   "/tenants/" + url.PathEscape(tenantID) + "/invitations/" + url.PathEscape(invitationID) + "/resend",
+		Bearer: tok,
+	}, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *InvitationsClient) Delete(ctx context.Context, tenantID, invitationID string) error {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {

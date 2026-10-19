@@ -63,6 +63,49 @@ func (v ConfigValues) PhoneOTP() *PhoneOTPConfig {
 	return &PhoneOTPConfig{MaxPerWindow: int(max), WindowSeconds: int(win), SignInPerIPPerHour: int(perIP)}
 }
 
+// UniqueKinds reads the `contacts.unique_kinds` group (ADR-117 D1): which
+// contact kinds ("email", "phone") are IDENTIFYING on this platform. The second
+// result is false when the issuer did not send the group (an older issuer) or
+// sent something unreadable; an explicit empty list is (empty, true), a legal
+// and different answer, so test the bool, not len().
+func (v ConfigValues) UniqueKinds() ([]string, bool) {
+	g, ok := v["contacts"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	if typed, ok := g["unique_kinds"].([]string); ok {
+		return append([]string{}, typed...), true
+	}
+	raw, ok := g["unique_kinds"].([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(raw))
+	for _, e := range raw {
+		s, ok := e.(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
+}
+
+// UniqueKindCount is one entry of ConfigResponse.UniqueKindsReport.
+type UniqueKindCount struct {
+	// ValuesOnMultipleMemberships counts the values of this kind that are proven
+	// on more than one membership of the platform. Counts only, never the values.
+	ValuesOnMultipleMemberships int `json:"values_on_multiple_memberships"`
+}
+
+// ConfigUpdateOptions are the per-call options of ConfigClient.UpdateWithOptions.
+type ConfigUpdateOptions struct {
+	// ConfirmLockout sends `?confirm_lockout=true` (ADR-117 D8), proceeding past
+	// `409 unique_kind_lockout`. It is a QUERY parameter, never a header, and it
+	// never escapes `503 unique_kind_lockout_check_failed` or any other refusal.
+	ConfirmLockout bool
+}
+
 // ConfigResponse is the GET /platforms/{id}/config body: the realm id plus
 // its configuration projected onto the PATCH allowlist key set.
 type ConfigResponse struct {
@@ -82,6 +125,11 @@ type ConfigResponse struct {
 	// the D5 picker drains them at each next login, so a user who never logs
 	// in never resolves and this number is how an admin sees that.
 	SingleTenantPendingReconciliation *int `json:"single_tenant_pending_reconciliation,omitempty"`
+	// UniqueKindsReport (ADR-117), per contact kind, counts the values proven
+	// on more than one membership. Derived and read-only, so it sits BESIDE
+	// Config. nil means the issuer omitted it (the count could not be taken, or
+	// an older issuer): never "zero everywhere".
+	UniqueKindsReport map[string]UniqueKindCount `json:"unique_kinds_report,omitempty"`
 }
 
 // ConfigClient is realm.Config.
@@ -113,6 +161,15 @@ func (c *ConfigClient) Get(ctx ctxpkg.Context) (*ConfigResponse, error) {
 
 // Update issues PATCH /platforms/{id}/config.
 func (c *ConfigClient) Update(ctx ctxpkg.Context, patch ConfigPatch) error {
+	return c.UpdateWithOptions(ctx, patch, ConfigUpdateOptions{})
+}
+
+// UpdateWithOptions is Update with the per-call options (ConfirmLockout).
+func (c *ConfigClient) UpdateWithOptions(ctx ctxpkg.Context, patch ConfigPatch, opts ConfigUpdateOptions) error {
+	var query map[string]string
+	if opts.ConfirmLockout {
+		query = map[string]string{"confirm_lockout": "true"}
+	}
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return err
@@ -122,6 +179,7 @@ func (c *ConfigClient) Update(ctx ctxpkg.Context, patch ConfigPatch) error {
 		Path:   "/platforms/" + url.PathEscape(c.realm.realmID) + "/config",
 		Bearer: tok,
 		Body:   patch,
+		Query:  query,
 	}, nil); err != nil {
 		return err
 	}

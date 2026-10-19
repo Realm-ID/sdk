@@ -111,6 +111,16 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeChannelNotConfigured, ErrCodePhoneOTPRateLimited,
 		// ADR-116 (SPEC §3.1 sign-in code send codes).
 		ErrCodeSignInIPRateLimited, ErrCodeMethodNotEnabled, ErrCodeInvalidOnBehalfOfIP,
+		// ADR-117 / ADR-116 A3 (SPEC §3.1 unique-contact-kind and contact-proof codes).
+		ErrCodeUniqueKindsRequiresPassword, ErrCodePasswordLoginRequired,
+		ErrCodeUniqueKindLockout, ErrCodeUniqueKindLockoutCheckFailed,
+		ErrCodeUniqueKindDuplicates, ErrCodeEmailKeyedSigninEnabled,
+		ErrCodeRequireVerifiedEmailConflict, ErrCodeIdPRequiresIdentifyingEmail,
+		ErrCodeIdPRequiresIdentifyingPhone, ErrCodeDomainSSORequiresUniqueEmail,
+		ErrCodeInviteContactNotIdentifying, ErrCodeRecipientEmailNotIdentifying,
+		ErrCodeInvalidInvitationToken, ErrCodeContactNotFound,
+		ErrCodeContactAlreadyVerified, ErrCodeContactChanged,
+		ErrCodeResetEmailNotIdentifying,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

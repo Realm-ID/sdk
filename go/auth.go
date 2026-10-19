@@ -1086,13 +1086,21 @@ func (a *AuthClient) PasswordLogin(ctx ctxpkg.Context, req PasswordLoginRequest)
 	if req.TenantID != "" {
 		body["tenant_id"] = req.TenantID
 	}
+	return a.passwordShapedLogin(ctx, "/auth/login", tok, body, headers)
+}
+
+// passwordShapedLogin POSTs to a route whose success body is EXACTLY the
+// password grant's (PasswordLogin; AcceptInvitation, ADR-117 D6) and finishes it
+// the one way: revoked-sid write-through, tenant-ref and user-summary fill-in,
+// product-roles mint. One completion path so the two lanes cannot drift.
+func (a *AuthClient) passwordShapedLogin(ctx ctxpkg.Context, path, tok string, body map[string]any, headers map[string]string) (*Session, error) {
 	var wire struct {
 		Session
 		RevokedSIDs any `json:"revoked_sids"`
 	}
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method:  "POST",
-		Path:    "/auth/login",
+		Path:    path,
 		Bearer:  tok,
 		Body:    body,
 		Headers: headers,

@@ -474,6 +474,28 @@ UNRELEASED):
 > `details.server_code`, because the code is not registered; it never needs to change if the code
 > is registered later.
 
+**Unique-contact-kind and contact-proof codes** (issuer spec `0.62.0`, ADR-117 and the ADR-116 third
+amendment; UNRELEASED). Seventeen codes, registered in all three languages:
+
+| Group | Codes |
+|---|---|
+| Realm config PATCH (`contacts.unique_kinds`) | `unique_kinds_requires_password` (400), `password_login_required` (409), `unique_kind_lockout` (409), `unique_kind_lockout_check_failed` (503), `unique_kind_duplicates` (409), `email_keyed_signin_enabled` (409), `require_verified_email_conflict` (409) |
+| Identity providers and SSO | `idp_requires_identifying_email`, `idp_requires_identifying_phone`, `domain_sso_requires_unique_email` (all 409) |
+| Invitations and ownership | `invite_contact_not_identifying` (400), `recipient_email_not_identifying` (400), `invalid_invitation_token` (400) |
+| Contact proof (`/me/contacts/{id}/proof[/confirm]`) | `contact_not_found` (404), `contact_already_verified` (409), `contact_changed` (409) |
+| Password reset | `reset_email_not_identifying` (409) |
+
+> The config 409s carry the offender in the envelope siblings, available in `details`:
+> `unique_kind_lockout` `{kind, locked_out, mfa_locked_out}`, `unique_kind_duplicates` `{kind,
+> conflicting_values}`, `email_keyed_signin_enabled` `{identity_providers, sso_domains}`.
+> `unique_kind_lockout` is escaped by the `confirm_lockout` QUERY parameter (never a header);
+> `unique_kind_lockout_check_failed` is NEVER escaped, and a `-1` count means "could not count",
+> never "none". `invalid_invitation_token` is ONE code for an unknown, used, expired, superseded,
+> withdrawn or no-longer-invited link: there is no oracle. `invalid_config_value` and
+> `identifier_collision` already existed on the wire and are NOT newly registered (so a caller
+> reading `details.server_code` for them is unaffected); `invalid_purpose` was already registered.
+> `no_email_to_resend` (409, invitation resend) is a swagger-only code and is not in this list.
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,

@@ -250,7 +250,7 @@ Organization admins reviewing contact changes, delinking a contact and handing a
 
 | Code | When | What to do |
 | --- | --- | --- |
-| `contact_not_found` | [404] The contact does not belong to that user in this organization. | Re-list the user's contacts. |
+| `contact_not_found` | [404] The contact does not belong to that user in this organization. Also (registered with the contact-proof routes, issuer spec 0.62.0): `/me/contacts/{id}/proof[/confirm]` on a contact that is not an active phone of the caller's own membership; an admin acting for the person, a foreign id and an unknown id are indistinguishable. | Re-list the user's contacts. |
 | `user_not_found` | [404] The user does not exist in this organization. | Check the id. |
 | `from_user_not_found` | [404] The `from_user_id` account does not exist in this organization. | Check the id. |
 | `missing_from_user_id` | [400] Hand-back was called without `from_user_id`. | Send it. |
@@ -430,6 +430,33 @@ HTTP status is in brackets.
 | `installation_revoked` | `mintToken` — the target org uninstalled. | Stop minting; the edge is gone. |
 | `key_class_mismatch` | `mintToken` — the api key is not a platform-class key. | Mint with the realm's `platform_api` key, not a service key or user token. |
 | `installation_not_found` | `mintToken` — unknown installation id, **or** a platform key from a realm other than the integration's (no cross-realm existence oracle). | Verify the installation id and that you are minting with the source realm's key. |
+
+## Unique contact kinds, invitation links and contact proof (issuer spec 0.62.0, ADR-117)
+
+A platform declares which contact kinds are identifying (`contacts.unique_kinds`); these codes come
+from changing that list, from the routes that depend on it, and from the invitation-link and
+phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offender in `details`.
+(`contact_not_found` is in the contact review table above; `invalid_config_value` and
+`identifier_collision` already existed and are not newly registered.)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `unique_kinds_requires_password` | [400] Config PATCH would leave `contacts.unique_kinds` empty while `password_login_enabled` is false. | Turn password sign-in on in the same patch, or keep a kind. |
+| `password_login_required` | [409] Config PATCH turns password sign-in off while the list is empty. | Keep a kind identifying first. |
+| `unique_kind_lockout` | [409] The change would lock people out. `details`: `{kind, locked_out, mfa_locked_out}`. | Show both counts; resend with `confirm_lockout` (Go `ConfigUpdateOptions.ConfirmLockout`) only on an explicit human yes. |
+| `unique_kind_lockout_check_failed` | [503] A count could not be taken (`-1` means "could not count", never "none"). Never escaped by `confirm_lockout`. | Retry later. |
+| `unique_kind_duplicates` | [409] Adding a kind over duplicates inside one org. `details`: `{kind, conflicting_values}`. | Resolve the duplicates, then retry. |
+| `email_keyed_signin_enabled` | [409] Removing `email` while email-keyed identity providers or SSO grants are enabled. `details`: `{identity_providers, sso_domains}`. | Disable or migrate those first. |
+| `require_verified_email_conflict` | [409] `require_verified_email` with a non-identifying email, in either order. | Make email identifying, or drop the requirement. |
+| `idp_requires_identifying_email` | [409] `POST/PATCH /identity-providers`: an email-keyed provider on a platform where email is not identifying. | Make email identifying, or do not enable the provider. |
+| `idp_requires_identifying_phone` | [409] `firebase` provider when phone is not identifying either. | Make phone identifying, or do not enable the provider. |
+| `domain_sso_requires_unique_email` | [409] Domain SSO (ADR-094) routes on a platform where email is not identifying. | Make email identifying first. |
+| `invite_contact_not_identifying` | [400] An invitation (also org-create owner seed, bulk-import invite row) to a contact kind that is not identifying. | Invite by an identifying kind. |
+| `recipient_email_not_identifying` | [400] Ownership transfer naming an email recipient while email is not identifying. | Name the recipient by an identifying kind. |
+| `invalid_invitation_token` | [400] Inspect/accept: unknown, malformed, used, expired, superseded by a resend, withdrawn, or the membership is no longer invited. ONE code, no oracle. | Ask the inviter for a new link. |
+| `contact_already_verified` | [409] `/me/contacts/{id}/proof`: the phone is already proven; nothing was sent. | Nothing to do. |
+| `contact_changed` | [409] `/me/contacts/{id}/proof/confirm`: the contact was released or replaced after the send; the code is spent. | Start a fresh proof for the current contact. |
+| `reset_email_not_identifying` | [409] `POST /tenants/{tid}/users/{uid}/password-reset`: no identifying verified email. | Use another recovery path. |
 
 ## Management / generic codes
 

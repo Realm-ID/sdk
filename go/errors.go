@@ -248,6 +248,35 @@ const (
 	ErrCodeOwnerCannotLeave       ErrorCode = "owner_cannot_leave"
 	ErrCodeAlreadyLeft            ErrorCode = "already_left"
 
+	// ADR-117 (platform-declared unique contact kinds) and ADR-116 third
+	// amendment (contact proof), issuer spec 0.62.0; SPEC §3.1. The 409s on the
+	// config PATCH each carry a body naming the offender (unique_kind_lockout:
+	// {kind, locked_out, mfa_locked_out}; unique_kind_duplicates: {kind,
+	// conflicting_values}; email_keyed_signin_enabled: {identity_providers,
+	// sso_domains}), which arrives in RealmError.Details. In
+	// unique_kind_lockout_check_failed a count of -1 means "could not count",
+	// never "none", and ?confirm_lockout=true never escapes it.
+	// invalid_config_value and identifier_collision already existed on the
+	// wire and are deliberately NOT registered here (no behaviour change for
+	// callers reading Details["server_code"]).
+	ErrCodeUniqueKindsRequiresPassword  ErrorCode = "unique_kinds_requires_password"
+	ErrCodePasswordLoginRequired        ErrorCode = "password_login_required"
+	ErrCodeUniqueKindLockout            ErrorCode = "unique_kind_lockout"
+	ErrCodeUniqueKindLockoutCheckFailed ErrorCode = "unique_kind_lockout_check_failed"
+	ErrCodeUniqueKindDuplicates         ErrorCode = "unique_kind_duplicates"
+	ErrCodeEmailKeyedSigninEnabled      ErrorCode = "email_keyed_signin_enabled"
+	ErrCodeRequireVerifiedEmailConflict ErrorCode = "require_verified_email_conflict"
+	ErrCodeIdPRequiresIdentifyingEmail  ErrorCode = "idp_requires_identifying_email"
+	ErrCodeIdPRequiresIdentifyingPhone  ErrorCode = "idp_requires_identifying_phone"
+	ErrCodeDomainSSORequiresUniqueEmail ErrorCode = "domain_sso_requires_unique_email"
+	ErrCodeInviteContactNotIdentifying  ErrorCode = "invite_contact_not_identifying"
+	ErrCodeRecipientEmailNotIdentifying ErrorCode = "recipient_email_not_identifying"
+	ErrCodeInvalidInvitationToken       ErrorCode = "invalid_invitation_token"
+	ErrCodeContactNotFound              ErrorCode = "contact_not_found"
+	ErrCodeContactAlreadyVerified       ErrorCode = "contact_already_verified"
+	ErrCodeContactChanged               ErrorCode = "contact_changed"
+	ErrCodeResetEmailNotIdentifying     ErrorCode = "reset_email_not_identifying"
+
 	// Password-credential codes (SPEC §3.1; ADR-104 amendment + ADR-111, issuer
 	// spec 0.53.0). password_must_change / password_too_short / password_too_long
 	// are deliberately NOT registered: they predate this and arrive as
@@ -543,6 +572,16 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeChannelNotConfigured: {}, ErrCodePhoneOTPRateLimited: {},
 	// SPEC §3.1 sign-in code send codes (ADR-116).
 	ErrCodeSignInIPRateLimited: {}, ErrCodeMethodNotEnabled: {}, ErrCodeInvalidOnBehalfOfIP: {},
+	// SPEC §3.1 unique-contact-kind and contact-proof codes (ADR-117, ADR-116 A3).
+	ErrCodeUniqueKindsRequiresPassword: {}, ErrCodePasswordLoginRequired: {},
+	ErrCodeUniqueKindLockout: {}, ErrCodeUniqueKindLockoutCheckFailed: {},
+	ErrCodeUniqueKindDuplicates: {}, ErrCodeEmailKeyedSigninEnabled: {},
+	ErrCodeRequireVerifiedEmailConflict: {}, ErrCodeIdPRequiresIdentifyingEmail: {},
+	ErrCodeIdPRequiresIdentifyingPhone: {}, ErrCodeDomainSSORequiresUniqueEmail: {},
+	ErrCodeInviteContactNotIdentifying: {}, ErrCodeRecipientEmailNotIdentifying: {},
+	ErrCodeInvalidInvitationToken: {}, ErrCodeContactNotFound: {},
+	ErrCodeContactAlreadyVerified: {}, ErrCodeContactChanged: {},
+	ErrCodeResetEmailNotIdentifying: {},
 }
 
 func isKnownCode(s string) bool {
