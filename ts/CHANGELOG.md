@@ -4,7 +4,7 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased — unique contact kinds, contact proof, invitation sign-up (ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0)
+## 0.57.0 — unique contact kinds, contact proof, invitation sign-up (ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0) (2026-10-19)
 
 SPEC §3.1, §4, §6.2, §6.5 (SPEC.md text is owned by another builder). The issuer routes are released to `main`, not yet to prod. Additive.
 

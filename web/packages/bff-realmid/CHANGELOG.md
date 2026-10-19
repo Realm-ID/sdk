@@ -16,6 +16,10 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.8.1 — peer range accepts @realm-id/web 0.12 (2026-10-19)
+
+Peer range only: `@realm-id/web` gains `|| ^0.12.0`. No code change.
+
 ## 0.8.0 — map `phone_channels` from discovery (ADR-115) (2026-10-17)
 
 Additive. Maps the issuer's `phone_channels` to `phoneChannels`, keeping known names (`whatsapp`, `sms`) in order; an absent field stays absent so a login page can tell "none work" from "did not say". Peer range now also accepts `@realm-id/web` 0.11.x. Issuer ADR-115 (bring-your-own phone-code delivery); the issuer release that serves these routes is spec `0.60.0`. SPEC §3.1, §4.1.4a, §6.5, §6.16, §X.1.

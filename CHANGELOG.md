@@ -13,21 +13,21 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go — unique contact kinds, invitation links and contact proof (ADR-117 / ADR-116 A3, issuer spec 0.62.0) (UNRELEASED)
+## go `0.69.0` — unique contact kinds, invitation links and contact proof (ADR-117 / ADR-116 A3, issuer spec 0.62.0) (2026-10-19)
 
 SPEC §3.1; the issuer is on main, not yet in prod. Go: `ConfigValues.UniqueKinds()` (`([]string, bool)`; an explicit `[]` is `(empty, true)`), `ConfigResponse.UniqueKindsReport` (`map[string]UniqueKindCount`, nil = omitted), `Config.UpdateWithOptions(ctx, patch, ConfigUpdateOptions{ConfirmLockout})` sending `?confirm_lockout=true` as a query parameter (`Update` unchanged). `Auth.InspectInvitation(ctx, token)` and `Auth.AcceptInvitation(ctx, AcceptInvitationRequest{Token, Username, Password, Origin})` (anonymous; accept returns the same `*Session` as `PasswordLogin`, through one shared completion path, MFA challenge included); `Tenants.Invitations.Resend(ctx, tenantID, inviteID)`; `Me.SendContactProof` (answers 200 `{delivered}`) and `Me.ConfirmContactProof`. `Me.ListContacts(ctx, ListContactsRequest{MeAuth, Limit})` (`*Paginated[MeContact]`, `GET /me/contacts`, issuer spec 0.63.0): the caller's own active contacts, each id one `SendContactProof` takes. Seventeen newly registered codes (list in SPEC §3.1): they now land on `.Code`. Additive; `const Version` stays `0.69.0` (above the released `0.68.0`).
 
-## go · ts · java — errors carry the server's `Retry-After` (ADR-116 A8) (UNRELEASED)
+## go · ts · java — errors carry the server's `Retry-After` (ADR-116 A8) (go `0.69.0`, ts `0.57.0`, java `0.53.0`, 2026-10-19)
 
 SPEC §3, §X.4a. Go: `RealmError.RetryAfter time.Duration`; ts: `RealmError.retryAfterSeconds?: number`; java: `RealmException.getRetryAfter()` → `Optional<Duration>`. Set on any non-2xx; delta-seconds or HTTP-date, anything else (absent, garbage, non-positive, past) is "no hint". Additive; nothing is copied into `details`. Lets a BFF relay the wait for the console's resend countdown.
 
-## go · ts · java — send the sign-in code, `sendLoginCode` (ADR-116, issuer spec 0.61.0) (UNRELEASED)
+## go · ts · java — send the sign-in code, `sendLoginCode` (ADR-116, issuer spec 0.61.0) (go `0.69.0`, ts `0.57.0`, java `0.53.0`, 2026-10-19)
 
 SPEC §X.4a, §3.1, §6.5; issuer ADR-116 (the route is not released yet). Go: `Auth.SendLoginCode(ctx, SendLoginCodeRequest{Identifier, DeliveryMode, TenantID, OnBehalfOfIP})` → `*SendLoginCodeResponse{SentIfRegistered}`, `POST /auth/otp/send-login` with the platform token, `OnBehalfOfIP` as `X-On-Behalf-Of-IP`, bare 202 body. New registered codes `sign_in_ip_rate_limited`, `invalid_on_behalf_of_ip`, `method_not_enabled`; Go helpers `IsSignInIPRateLimited`, `IsDeliveryUnavailable` (`.Code` OR `Details["server_code"]`); `PhoneOTPConfig.SignInPerIPPerHour`. ts and java: see their own changelogs.
 
 ⚠️ **BEHAVIOUR CHANGE (owner ruling 2026-10-18): `method_not_enabled` is now REGISTERED** although it already ships as a `400` on the ADR-094 domain-SSO routes. Callers there used to read it from `Details["server_code"]` (Go) / `details.server_code` (ts, java); it now lands on `.Code` and is no longer copied into `Details["server_code"]`. Branch on the code instead.
 
-## ts · java — doc comments: MFA enroll/confirm are self-only (UNRELEASED, doc-only)
+## ts · java — doc comments: MFA enroll/confirm are self-only (ts `0.57.0`, java `0.53.0`, doc-only, 2026-10-19)
 
 Doc comments on `tenants.users.enrollMfa` / `confirmMfa` (ts) and `UsersClient.enrollMfa` / `confirmMfa` (java) now say `userId` must be the caller's own id (`403 forbidden` otherwise, from the issuer release after v0.134.1; owner ruling 2026-10-14) and point at `selfEnrollMfa` / `resetMfa`. SPEC §4.8/§6.2 and the partner guide corrected. No behaviour or signature change. The Go comment waits for the next Go release (`TODO.md` § Go SDK only).
 

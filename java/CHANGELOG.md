@@ -4,7 +4,7 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased — unique contact kinds, contact proof, invitation sign-up links (ADR-116 third amendment, ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0)
+## 0.53.0 — unique contact kinds, contact proof, invitation sign-up links (ADR-116 third amendment, ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0) (2026-10-19)
 
 R7 + R9. The issuer routes are on `main`, not released yet. Version unchanged (the unreleased block below already covers the pending release).
 
