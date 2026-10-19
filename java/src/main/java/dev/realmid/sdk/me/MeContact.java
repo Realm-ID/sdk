@@ -14,4 +14,10 @@ public record MeContact(
         @JsonProperty("kind") String kind,
         @JsonProperty("value") String value,
         @JsonProperty("verified") boolean verified,
-        @JsonProperty("tenant_id") String tenantId) {}
+        @JsonProperty("tenant_id") String tenantId) {
+    /** Omits {@code value}: an address or phone number is personal data and does not belong in a log line. */
+    @Override
+    public String toString() {
+        return "MeContact[id=" + id + ", kind=" + kind + ", verified=" + verified + ", tenantId=" + tenantId + "]";
+    }
+}
