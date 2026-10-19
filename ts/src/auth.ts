@@ -1082,6 +1082,56 @@ export class AuthClient {
   }
 
   /**
+   * ADR-117 D6 — is an invitation sign-up link still usable? Anonymous: the
+   * token is the credential, sent in the POST body only (never a URL) and never
+   * logged. Writes and consumes nothing, so a page can show "invalid" BEFORE
+   * asking for a username. Every dead link (unknown, used, expired, superseded,
+   * withdrawn, membership no longer invited) is ONE code, `invalid_invitation_token`
+   * (400): there is no oracle to tell them apart.
+   */
+  async inspectInvitation(token: string): Promise<InvitationInspection> {
+    const raw = await this.http.request<unknown>({
+      method: "POST",
+      path: "/auth/invitations/inspect",
+      body: { token },
+    });
+    const d = unwrapData<{ tenant_id?: unknown; tenant_display_name?: unknown; expires_at?: unknown }>(raw) ?? {};
+    return {
+      tenantId: String(d.tenant_id ?? ""),
+      tenantDisplayName: String(d.tenant_display_name ?? ""),
+      expiresAt: String(d.expires_at ?? ""),
+    };
+  }
+
+  /**
+   * ADR-117 D6 — accept an invitation from its sign-up link: creates the
+   * username and password, activates the invited membership and SIGNS THE PERSON
+   * IN. The answer is EXACTLY a `passwordLogin` answer from the same completion
+   * code (same {@link LoginResponse}): a session, or an MFA challenge /
+   * first-login enrolment, so handle it as you handle `passwordLogin` (every MFA
+   * floor and session limit applies). Accepting never proves the email.
+   *
+   * Errors: `invalid_invitation_token` (400, as on inspect), `invalid_username`,
+   * `password_too_short` / `password_too_long` (400, checked BEFORE the token is
+   * looked up, so the link is not burned; via `details.server_code`),
+   * `identifier_collision` (409, username taken in that org; via
+   * `details.server_code`). The password is a secret and is never logged.
+   */
+  async acceptInvitation(req: { token: string; username: string; password: string }): Promise<LoginResponse> {
+    const raw = await this.http.request<RawAuthResponse>({
+      method: "POST",
+      path: "/auth/invitations/accept",
+      body: { token: req.token, username: req.username, password: req.password },
+    });
+    const session = mapAuthResp(raw);
+    session.revokedSids = sessionIds(raw.revoked_sids);
+    await this.revokeSessions(session.revokedSids);
+    const settled = settledTenant(session);
+    if (settled) await this.mintOrThrowWithAnchor(session, settled, "password");
+    return session;
+  }
+
+  /**
    * SPEC §4.10 (ADR-111) — is a reset-link token still usable? Writes nothing,
    * so a page can show invalid / expired / used / superseded BEFORE asking for a
    * password. A 200 is not a reservation.
@@ -1547,4 +1597,12 @@ function mapAuthResp(r: RawAuthResponse): LoginResponse {
       isOwner: c.is_owner === true,
     })),
   };
+}
+
+/** Result of `auth.inspectInvitation` (ADR-117 D6): what the sign-up page shows before asking for a username. */
+export interface InvitationInspection {
+  tenantId: string;
+  tenantDisplayName: string;
+  /** RFC 3339, as the wire sends it. */
+  expiresAt: string;
 }

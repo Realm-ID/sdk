@@ -224,6 +224,26 @@ export type ErrorCode =
   | "sign_in_ip_rate_limited"
   | "method_not_enabled"
   | "invalid_on_behalf_of_ip"
+  // ADR-117 (spec 0.62.0): platform-declared unique contact kinds, contact proof,
+  // invitation sign-up. `invalid_config_value` and `identifier_collision` also
+  // ship but stay unregistered (the cross-language set, build spec 3.2).
+  | "unique_kinds_requires_password"
+  | "password_login_required"
+  | "unique_kind_lockout"
+  | "unique_kind_lockout_check_failed"
+  | "unique_kind_duplicates"
+  | "email_keyed_signin_enabled"
+  | "require_verified_email_conflict"
+  | "idp_requires_identifying_email"
+  | "idp_requires_identifying_phone"
+  | "domain_sso_requires_unique_email"
+  | "invite_contact_not_identifying"
+  | "recipient_email_not_identifying"
+  | "invalid_invitation_token"
+  | "contact_not_found"
+  | "contact_already_verified"
+  | "contact_changed"
+  | "reset_email_not_identifying"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -434,6 +454,12 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "invalid_channel_config", "channel_validation_failed", "channel_not_configured",
   "phone_otp_rate_limited",
   "sign_in_ip_rate_limited", "method_not_enabled", "invalid_on_behalf_of_ip",
+  "unique_kinds_requires_password", "password_login_required", "unique_kind_lockout",
+  "unique_kind_lockout_check_failed", "unique_kind_duplicates", "email_keyed_signin_enabled",
+  "require_verified_email_conflict", "idp_requires_identifying_email", "idp_requires_identifying_phone",
+  "domain_sso_requires_unique_email", "invite_contact_not_identifying", "recipient_email_not_identifying",
+  "invalid_invitation_token", "contact_not_found", "contact_already_verified", "contact_changed",
+  "reset_email_not_identifying",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {
