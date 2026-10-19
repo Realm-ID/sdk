@@ -168,6 +168,7 @@ export type {
   ContactProofSent,
   ConfirmContactProofRequest,
   ProvenContact,
+  MyContact,
 } from "./me.js";
 
 export { StatsClient } from "./stats.js";
