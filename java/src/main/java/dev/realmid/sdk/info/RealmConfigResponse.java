@@ -30,6 +30,7 @@ public final class RealmConfigResponse {
     private String id;
     private Map<String, Object> config = new LinkedHashMap<>();
     private Integer singleTenantPendingReconciliation;
+    private Map<String, UniqueKindReport> uniqueKindsReport = new LinkedHashMap<>();
 
     public RealmConfigResponse() {}
 
@@ -74,6 +75,37 @@ public final class RealmConfigResponse {
     }
 
     /**
+     * ADR-117: the contact kinds ({@code "email"}, {@code "phone"}) that identify a person in this
+     * realm, read from {@code config.contacts.unique_kinds}. The issuer always sends the RESOLVED
+     * list (an unset platform reads {@code [email, phone]}); an explicit empty list is legal and is
+     * returned as a present, empty list. {@link java.util.Optional#empty()} means the issuer did not
+     * send the key (an older issuer). Written through the generic config PATCH as
+     * {@code Map.of("contacts", Map.of("unique_kinds", List.of("email")))}; a {@code 409
+     * unique_kind_lockout} is escaped with {@code config().update(patch, true)}.
+     */
+    public java.util.Optional<java.util.List<String>> uniqueKinds() {
+        if (!(config.get("contacts") instanceof Map<?, ?> c)) return java.util.Optional.empty();
+        if (!(c.get("unique_kinds") instanceof java.util.List<?> l)) return java.util.Optional.empty();
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (Object o : l) out.add(String.valueOf(o));
+        return java.util.Optional.of(java.util.List.copyOf(out));
+    }
+
+    /**
+     * ADR-117, read-only: per contact kind, how many values are proven on more than one membership
+     * of this platform. Counts only, never the values. Empty when the issuer omitted it (the count
+     * could not be taken, or an older issuer): an empty map means "unknown", never "zero". It sits
+     * BESIDE {@code config}, so PATCHing it answers {@code 400 unknown_config_key}.
+     */
+    public Map<String, UniqueKindReport> uniqueKindsReport() { return uniqueKindsReport; }
+
+    /** One kind's entry of {@link #uniqueKindsReport()}. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record UniqueKindReport(
+            @com.fasterxml.jackson.annotation.JsonProperty("values_on_multiple_memberships")
+            int valuesOnMultipleMemberships) {}
+
+    /**
      * The {@code phone_otp} config group as read (ADR-115). {@code signInPerIpPerHour} (ADR-116,
      * spec 0.61.0) is how many sign-in codes one end-user IP may request per hour (default 10,
      * range 1-60, cannot be turned off); 0 means the issuer did not send it (an older issuer).
@@ -84,6 +116,11 @@ public final class RealmConfigResponse {
         }
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty("unique_kinds_report")
+    @com.fasterxml.jackson.annotation.JsonAlias("uniqueKindsReport")
+    public void setUniqueKindsReport(Map<String, UniqueKindReport> v) {
+        this.uniqueKindsReport = v == null ? new LinkedHashMap<>() : v;
+    }
     public void setId(String v) { this.id = v; }
     public void setConfig(Map<String, Object> v) {
         this.config = v == null ? new LinkedHashMap<>() : v;

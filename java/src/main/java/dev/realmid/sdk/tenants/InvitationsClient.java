@@ -49,5 +49,19 @@ public final class InvitationsClient {
                 "DELETE", "/tenants/" + enc(tenantId) + "/invitations/" + enc(invitationId)));
     }
 
+    /**
+     * ADR-117 D6: re-sends an outstanding invitation
+     * ({@code POST /tenants/{id}/invitations/{inviteId}/resend}), same gate as revoke. Bumps the
+     * expiry and mails it again; on a platform with password sign-in the mail carries a FRESH 7-day
+     * sign-up link and the earlier link is dead. Errors: {@code not_pending} (409, already accepted
+     * or revoked), {@code no_email_to_resend} (409), {@code invite_not_found} (404). Never retried:
+     * a replay would supersede the link just mailed.
+     */
+    public Invitation resend(String tenantId, String invitationId) {
+        JsonNode raw = http.request(HttpTransport.Request.of(
+                "POST", "/tenants/" + enc(tenantId) + "/invitations/" + enc(invitationId) + "/resend").noRetry());
+        return http.mapper().convertValue(raw, Invitation.class);
+    }
+
     private static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
 }

@@ -879,7 +879,56 @@ public final class AuthClient {
         // Never replayed: with newPassword set a replay presents the now-dead password.
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body).noRetry();
         attachOrigin(r, req.origin());
-        JsonNode raw = issuer(r);
+        return finishPasswordGrant(issuer(r), req.origin());
+    }
+
+    /**
+     * ADR-117 D6: asks whether an invitation sign-up link is still usable, writing and consuming
+     * nothing, so a page can say so BEFORE asking for a username. {@code POST
+     * /auth/invitations/inspect {token}}; the token goes in the body only and is never logged.
+     * One failure code for every bad link (unknown, used, expired, superseded, withdrawn):
+     * {@code invalid_invitation_token}.
+     */
+    public InvitationInspection inspectInvitation(String token) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", token);
+        JsonNode raw = issuer(HttpTransport.Request.of("POST", "/auth/invitations/inspect").body(body));
+        JsonNode d = gofrData(raw);
+        if (d == null) d = raw;
+        if (d == null) return new InvitationInspection("", "", null);
+        String at = d.path("expires_at").isTextual() ? d.get("expires_at").asText() : null;
+        try {
+            return new InvitationInspection(d.path("tenant_id").asText(""),
+                    d.path("tenant_display_name").asText(""), at == null ? null : java.time.Instant.parse(at));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new RealmException(ErrorCode.SERVER_ERROR, "unexpected expires_at in invitation inspect response", e);
+        }
+    }
+
+    /**
+     * ADR-117 D6: accepts an invitation from its sign-up link, creating the username and password,
+     * and SIGNS THE PERSON IN. {@code POST /auth/invitations/accept}. The answer is exactly the
+     * {@code grant_type=password} login's, from the same completion code: this returns the same
+     * {@link Session} as {@link #passwordLogin}, and an MFA challenge or first-login enrolment
+     * arrives as the same {@code mfa_required} / {@code mfa_registration_required} error. Accepting
+     * never proves the invited email. Input errors ({@code invalid_username};
+     * {@code password_too_short}/{@code password_too_long} as {@code details.server_code}) are
+     * checked before the token is touched, so the link is not burned. {@code identifier_collision}
+     * (409, username taken in that org) is the one the person can fix. NEVER retried: a replay after
+     * a lost response answers {@code invalid_invitation_token} though the account WAS created.
+     */
+    public Session acceptInvitation(AcceptInvitationRequest req) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("token", req.token());
+        body.put("username", req.username());
+        body.put("password", req.password());
+        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/invitations/accept").body(body).noRetry();
+        attachOrigin(r, req.origin());
+        return finishPasswordGrant(issuer(r), req.origin());
+    }
+
+    /** The shared completion of a password-grant response (login and invitation accept). */
+    private Session finishPasswordGrant(JsonNode raw, String origin) {
         Session session = http.mapper().convertValue(raw, Session.class);
         // ADR-104 R-e: a change at sign-in ended the holder's other sessions; write them into the
         // session store like logout does so a local verify refuses them. /auth/login is raw(...),
@@ -892,7 +941,7 @@ public final class AuthClient {
         // role-blind token.
         String settled = settledTenant(session);
         if (settled != null && !settled.isEmpty()) {
-            return mintOrThrowWithAnchor(session, settled, null, req.origin(), AuthFlow.PASSWORD);
+            return mintOrThrowWithAnchor(session, settled, null, origin, AuthFlow.PASSWORD);
         }
         return session;
     }

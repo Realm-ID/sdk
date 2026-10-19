@@ -153,6 +153,57 @@ public final class MeClient {
                 : http.mapper().convertValue(raw, MembershipResult.class);
     }
 
+    /**
+     * ADR-116 third amendment: sends a code to one of the signed-in person's OWN phones to prove it
+     * ({@code POST /me/contacts/{contactId}/proof}). {@code deliveryMode} is {@code "sms"} or
+     * {@code "whatsapp"}, with no fallback between them. The answer is {@code 200} because the send
+     * is inline: it proves the provider accepted the code. Only the holder may prove (an admin gets
+     * {@code contact_not_found}). Errors: {@code contact_not_found}, {@code contact_already_verified}
+     * (nothing sent), {@code phone_otp_rate_limited} (see {@code getRetryAfter()}),
+     * {@code permission_cap_exceeded} (an API-key session); {@code delivery_unavailable} arrives as
+     * {@code details.server_code}. Never retried: a replay sends a second code.
+     */
+    public ContactProofSent sendContactProof(String contactId, String deliveryMode, MeAuth auth) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("delivery_mode", deliveryMode);
+        JsonNode raw = http.request(apply(HttpTransport.Request.of(
+                "POST", "/me/contacts/" + enc(contactId) + "/proof").body(body).noRetry(), auth));
+        JsonNode d = unwrap(raw);
+        return new ContactProofSent(d != null && d.path("delivered").isTextual() ? d.get("delivered").asText() : "");
+    }
+
+    /**
+     * Redeems the code {@link #sendContactProof} sent
+     * ({@code POST /me/contacts/{contactId}/proof/confirm}). Sets {@code verified_at}, settles a
+     * pending swap and returns the proven contact. Errors: {@code invalid_otp} (401, also a code
+     * minted for another contact), {@code otp_expired} (410), {@code otp_locked} (429),
+     * {@code contact_not_found}, {@code contact_changed} (409, the code is spent). Never retried.
+     */
+    public ContactProofConfirmed confirmContactProof(String contactId, String code, MeAuth auth) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", code);
+        JsonNode raw = http.request(apply(HttpTransport.Request.of(
+                "POST", "/me/contacts/" + enc(contactId) + "/proof/confirm").body(body).noRetry(), auth));
+        JsonNode d = unwrap(raw);
+        if (d == null) return new ContactProofConfirmed("", "", "", false, null);
+        String at = d.path("verified_at").isTextual() ? d.get("verified_at").asText() : null;
+        try {
+            return new ContactProofConfirmed(d.path("id").asText(""), d.path("kind").asText(""),
+                    d.path("value").asText(""), d.path("verified").asBoolean(false),
+                    at == null ? null : java.time.Instant.parse(at));
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new dev.realmid.sdk.RealmException(dev.realmid.sdk.ErrorCode.SERVER_ERROR,
+                    "unexpected verified_at in contact-proof response", e);
+        }
+    }
+
+    /** The {@code data} of a GoFr-wrapped success body, else the body itself (the route's wrapping is not pinned). */
+    private static JsonNode unwrap(JsonNode raw) {
+        if (raw == null) return null;
+        JsonNode d = raw.get("data");
+        return d != null && d.isObject() ? d : raw;
+    }
+
     /** Applies the end-user credential; see {@link MeAuth}. */
     private static HttpTransport.Request apply(HttpTransport.Request r, MeAuth auth) {
         if (auth == null) return r;
