@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-128 entries total — 73 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+129 entries total — 74 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-20 — Fleet par: todo-hygiene + workflow-preflight vendored and wired](#2026-10-20--fleet-par-todo-hygiene--workflow-preflight-vendored-and-wired)
 - [2026-10-18 — Vendor the CLAUDE.md hygiene checker into CI (CM1-CM3)](#2026-10-18--vendor-the-claudemd-hygiene-checker-into-ci-cm1-cm3)
 - [2026-10-18 — RealmError carries Retry-After (go RetryAfter, ts retryAfterSeconds, java getRetryAfter; ADR-116 A8)](#2026-10-18--realmerror-carries-retry-after-go-retryafter-ts-retryafterseconds-java-getretryafter-adr-116-a8)
 - [2026-10-18 — 2026-10-18 — sendLoginCode in go/ts/java; method_not_enabled registered (ADR-116)](#2026-10-18--2026-10-18--sendlogincode-in-gotsjava-method_not_enabled-registered-adr-116)
@@ -140,6 +141,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-20 — Fleet par: todo-hygiene + workflow-preflight vendored and wired
+
+Brought the repo to fleet par on workflow tooling (owner brief 2026-10-20).
+
+- Vendored todo-hygiene (`.todo-hygiene.json`: checkbox closure, flat TODO, no ranking) and workflow-preflight W1 (`.workflow-preflight.json`, lint + parity). Both are wired into `make check` (`scripts/preflight-check.sh`) and into existing CI jobs only: todo-hygiene in ci.yml `changelogs`, lint + parity in workflow-hygiene.yml `lint`.
+- The `lint` job's raven-actions/actionlint (install-and-run, which workflow-preflight reports as DIVERGED) is replaced by a checksummed actionlint 1.7.12 tarball install plus `make workflow-lint`. The old hand-written canary step is gone: the vendored `lint` carries its own SC2086 canary.
+- Parity proof for ci.yml jobs is marker-based: CI runs inline commands, not `make` targets, so by-construction does not apply. `preflight-check.sh` prints `::preflight-step::<job>` after a job's gates really ran, and its last gate runs `parity --gate-log`. A skipped job prints no marker, so a skip cannot pass parity. `java` is waived opt-in-slow (cold gradle needs network, `make check` allows none).
+- Go pin in ci.yml and verify-go-release.yml went from `'1.27'` to `'1.27.2'`: parity requires the CI pin to equal the laptop's `go env GOVERSION`. The Go module is untouched. verify-go-release is a tag-time path, so that edit is unexercised until the next go/v tag.
+- `toolchain.node` is deliberately unset: CI jobs use Node 20 (matches the laptop), publish-npm and deploy-mcp use Node 22 (wrangler 4.x), and the config can hold one value. Reported to devops as a tool limitation.
+- scripts/preflight-parity.sh (CI command strings vs preflight-check.sh) is kept: it checks command text per step, workflow-preflight checks job coverage and pin drift.
+- Nothing was added under go/.
 
 ## 2026-10-18 — Vendor the CLAUDE.md hygiene checker into CI (CM1-CM3)
 

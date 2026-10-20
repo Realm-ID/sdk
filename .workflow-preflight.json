@@ -1,0 +1,18 @@
+{"tools": {"actionlint": "1.7.12", "shellcheck": "0.11.0"},
+ "toolchain": {"go": "1.27.2"},
+ "local_gate": "make check",
+ "adopted": "2026-10-20",
+ "jobs": {
+  "ci.yml:taxonomy": {"local": "scripts/preflight-check.sh taxonomy gate", "marker": "taxonomy"},
+  "ci.yml:changelogs": {"local": "scripts/preflight-check.sh changelogs gates", "marker": "changelogs"},
+  "ci.yml:go": {"local": "scripts/preflight-check.sh go gates", "marker": "go"},
+  "ci.yml:ts": {"local": "scripts/preflight-check.sh ts gates", "marker": "ts"},
+  "ci.yml:web": {"local": "scripts/preflight-check.sh web gates", "marker": "web"},
+  "ci.yml:java": {"waiver": "opt-in-slow", "reason": "gradle resolves dependencies over the network on a cold cache; make check allows no network (Makefile header); run cd java && ./gradlew test --no-daemon by hand"},
+  "publish-maven.yml:publish": {"waiver": "release-only", "reason": "runs on a java-v* tag push; release-check and the pre-push tag half gate it before the tag exists"},
+  "publish-npm.yml:publish": {"waiver": "release-only", "reason": "runs on a ts-v*/web-v* tag push; release-check and the pre-push tag half gate it before the tag exists"},
+  "verify-go-release.yml:verify": {"waiver": "release-only", "reason": "runs on a go/v* tag push, after the tag exists; the pre-push tag half runs release-check first"},
+  "workflow-hygiene.yml:lint": {"local": "make workflow-lint"},
+  "workflow-hygiene.yml:pinned": {"local": "scripts/workflow-hygiene.sh", "marker": "pinned"},
+  "workflow-hygiene.yml:claude-md-hygiene": {"local": "scripts/claude_md_hygiene.py", "marker": "claude-md-hygiene"}
+ }}

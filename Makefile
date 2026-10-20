@@ -50,6 +50,7 @@ help:
 	@echo "  make install-hooks                point git at the tracked pre-push hook"
 	@echo "  make self-test                    run this repo's own checker-script tests"
 	@echo "  make mcp-test / mcp-dev           docs MCP server tests / local dev, inside node:22 (Docker)"
+	@echo "  make workflow-lint                workflow-preflight lint (pinned actionlint + shellcheck, SHA pins)"
 
 # ── check ──────────────────────────────────────────────────────────────────────
 #
@@ -146,3 +147,13 @@ mcp-test:
 .PHONY: mcp-dev
 mcp-dev:
 	$(MCP_DOCKER) --name realmid-mcp-dev $(MCP_NODE_IMAGE) bash -c 'set -euo pipefail; npm ci; node scripts/build-index.mjs; npx wrangler dev --ip 0.0.0.0 --port 8787'
+
+# ── workflow-lint ──────────────────────────────────────────────────────────────
+#
+# workflow-preflight `lint` (vendored scripts/workflow_preflight.py, config .workflow-preflight.json):
+# pinned actionlint + shellcheck with a canary, plus the SHA-pin check. CI's workflow-hygiene `lint`
+# job runs exactly this target. `parity` (every CI job maps to a local gate) runs from `make check`
+# with the gate log, so its markers are verified.
+.PHONY: workflow-lint
+workflow-lint:
+	@python3 scripts/workflow_preflight.py lint

@@ -46,6 +46,16 @@ skip() {
   fi
 }
 
+# marker <name> — workflow-preflight parity proof. Printed AFTER the gates of the CI job it names
+# have really run (pass or fail), never for a skipped job; also appended to GATE_LOG, which the
+# final `parity --gate-log` step reads. A job-map entry alone proves nothing.
+GATE_LOG="$REPO_ROOT/.scratch/preflight-gate.log"
+mkdir -p "$REPO_ROOT/.scratch"
+: > "$GATE_LOG"
+marker() {
+  echo "::preflight-step::$1" | tee -a "$GATE_LOG"
+}
+
 START=$(date +%s)
 
 # ── parity ──────────────────────────────────────────────────────────────────
@@ -64,10 +74,27 @@ gate "workflow/Makefile command parity" ./scripts/preflight-parity.sh
 # never shown to fire is indistinguishable from a clean tree.
 gate "workflow hygiene: self-test" ./scripts/workflow-hygiene.sh --self-test
 gate "workflow hygiene (third-party actions are SHA-pinned)" ./scripts/workflow-hygiene.sh
+marker pinned
+
+# workflow-hygiene.yml `lint` job: workflow-preflight lint (pinned actionlint + shellcheck, canary,
+# SHA pins) via the same make target CI runs. Its tools are not installable without network, so a
+# missing one is a loud skip, like ts/web below.
+if command -v actionlint >/dev/null 2>&1 && command -v shellcheck >/dev/null 2>&1; then
+  gate "workflow-preflight self-test" python3 scripts/test_workflow_preflight.py
+  gate "workflow-preflight lint" make workflow-lint
+else
+  skip "workflow-preflight lint" "actionlint and/or shellcheck is not on PATH (brew install actionlint shellcheck)"
+fi
+
+# workflow-hygiene.yml `claude-md-hygiene` job.
+gate "claude-md-hygiene: self-test" python3 scripts/claude_md_hygiene.py --self-test
+gate "claude-md-hygiene" python3 scripts/claude_md_hygiene.py
+marker claude-md-hygiene
 
 # ── taxonomy job ────────────────────────────────────────────────────────────
 # ci.yml `taxonomy` job, "The three taxonomies agree" step.
 gate "taxonomy parity" python3 scripts/taxonomy-parity.py
+marker taxonomy
 
 # ── contract parity (SDK vs issuer/docs/swagger.yaml) ───────────────────────
 # NOT a ci.yml step yet — this is a repo-local gate, filed in sdk/TODO.md to
@@ -105,6 +132,10 @@ gate "changelog go-tagged: self-test" ./scripts/changelog-hygiene.sh --self-test
 gate "changelog go-tagged (every go entry names a real release)" ./scripts/changelog-hygiene.sh go-tagged
 # ci.yml `changelogs` job, "Every doc claim has an entry and a resolving anchor".
 gate "doc claims <-> claims.yaml" python3 scripts/check-doc-claims.py
+# ci.yml `changelogs` job, vendored TODO.md hygiene (config .todo-hygiene.json).
+gate "todo-hygiene: self-test" python3 scripts/test_todo_hygiene.py
+gate "todo-hygiene" python3 scripts/todo_hygiene.py
+marker changelogs
 
 # ── go job ──────────────────────────────────────────────────────────────────
 # ci.yml `go` job. Order matches the workflow: unreleased-go check, gofmt,
@@ -127,6 +158,7 @@ gate "go: gofmt" gofmt_check
 gate "go: build" bash -c 'cd go && go build ./...'
 gate "go: vet" bash -c 'cd go && go vet ./...'
 gate "go: unit tests" bash -c 'cd go && go test ./...'
+marker go
 
 # ── ts job ──────────────────────────────────────────────────────────────────
 # ci.yml `ts` job's typecheck + test steps. Deliberately NOT `npm ci` first —
@@ -136,6 +168,7 @@ gate "go: unit tests" bash -c 'cd go && go test ./...'
 if [ -d ts/node_modules ]; then
   gate "ts: typecheck" bash -c 'cd ts && npm run typecheck'
   gate "ts: unit tests" bash -c 'cd ts && npm test'
+  marker ts
 else
   skip "ts: typecheck" "ts/node_modules is missing — run 'cd ts && npm ci' once (needs network), then re-run make check"
   skip "ts: unit tests" "ts/node_modules is missing — run 'cd ts && npm ci' once (needs network), then re-run make check"
@@ -166,10 +199,15 @@ if [ -d web/node_modules ]; then
   fi
   gate "web: typecheck (all packages)" bash -c 'cd web && npm run typecheck'
   gate "web: unit tests (core, admin, bff-realmid, google)" bash -c 'cd web && npm test'
+  marker web
 else
   skip "web: typecheck (all packages)" "web/node_modules is missing — run 'cd web && npm ci' once (needs network), then re-run make check"
   skip "web: unit tests (core, admin, bff-realmid, google)" "web/node_modules is missing — run 'cd web && npm ci' once (needs network), then re-run make check"
 fi
+
+# ── workflow-preflight parity ───────────────────────────────────────────────
+# Every in-scope CI job maps to a gate above (marker proof via GATE_LOG) or carries a waiver.
+gate "workflow-preflight parity (CI jobs <-> local gates)" python3 scripts/workflow_preflight.py parity --gate-log "$GATE_LOG"
 
 # java/'s gradle job is intentionally absent — see Makefile header.
 

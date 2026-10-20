@@ -53,29 +53,28 @@ jobs:
           "$RUNNER_TEMP/shellcheck-${SC_VERSION}/shellcheck" --version | grep -qx "version: ${SC_VERSION#v}"
           echo "$RUNNER_TEMP/shellcheck-${SC_VERSION}" >> "$GITHUB_PATH"
 
-      # Pinned, not `curl … | bash`: installing the linter from a moving branch
-      # is the exact supply-chain shape the `pinned` job below rejects.
-      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
-        with:
-          version: 1.7.12
-          # explicit path: actionlint must not fall back to the runner image's shellcheck
-          flags: -shellcheck=${{ runner.temp }}/shellcheck-v0.11.0/shellcheck
-          fail-on-error: true
-
-      # Positive control. A wrong -shellcheck path makes actionlint print 'Rule "shellcheck" was
-      # disabled' and exit 0, so the step above can be green with no shellcheck at all. The same
-      # actionlint binary and path must find a known SC2086 in a canary workflow.
-      - name: shellcheck is live inside actionlint (canary)
+      # actionlint comes from a checksummed release tarball: an install-and-run action leaves the
+      # laptop nothing to run (workflow-preflight reports DIVERGED). It then runs through the SAME
+      # make target the pre-push gate runs. `lint` pins actionlint 1.7.12 + shellcheck 0.11.0,
+      # passes shellcheck by explicit path, carries its own canary (unquoted `echo $X` must give
+      # SC2086) and the SHA-pin check.
+      - name: Install actionlint
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/canary/.github/workflows"
-          # shellcheck disable=SC2016  # the canary's $(ls) and $f are literal text, on purpose
-          printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          f=$(ls)\n          rm $f\n' \
-            > "$RUNNER_TEMP/canary/.github/workflows/canary.yml"
-          cd "$RUNNER_TEMP/canary"
-          out=$("$RUNNER_TEMP/actionlint-1.7.12/actionlint" -shellcheck="$RUNNER_TEMP/shellcheck-v0.11.0/shellcheck" .github/workflows/canary.yml 2>&1 || true)
-          grep -q SC2086 <<<"$out" || { echo "::error::canary SC2086 not reported; shellcheck is not running inside actionlint"; echo "$out"; exit 1; }
-          echo "canary: SC2086 reported (examined 1 canary workflow)"
+          curl -sSfLo "$RUNNER_TEMP/al.tgz" "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/al.tgz" | sha256sum -c -
+          mkdir -p "$HOME/bin" && tar -xzf "$RUNNER_TEMP/al.tgz" -C "$HOME/bin" actionlint
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: workflow-preflight self-test
+        run: python3 scripts/test_workflow_preflight.py
+      - run: make workflow-lint
+      # parity compares `go env GOVERSION` with the pinned toolchain, so the runner needs the pinned Go.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - name: Every CI job is mapped to a local gate (parity)
+        run: python3 scripts/workflow_preflight.py parity
 
   pinned:
     name: third-party actions are SHA-pinned

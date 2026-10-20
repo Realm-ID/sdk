@@ -1,0 +1,4 @@
+{"todo": "TODO.md", "ranking": null, "closed_marker": "checkbox",
+ "checked_boxes": {"forbid": true, "scope": "any", "remedy": "move to TODO-ARCHIVE.md"},
+ "line_refs_into_todo_from": ["CLAUDE.md", "DECISIONS.md"],
+ "nested_repos": "skip"}
