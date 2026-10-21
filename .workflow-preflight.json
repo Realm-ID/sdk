@@ -1,5 +1,9 @@
 {"tools": {"actionlint": "1.7.12", "shellcheck": "0.11.0"},
- "toolchain": {"go": "1.27.2"},
+ "toolchain": {"go": "1.27.2", "node": "20"},
+ "toolchain_overrides": {
+  "publish-npm.yml:publish": {"node": "22", "reason": "npm trusted publishing (OIDC) needs Node 22; the ts/web test jobs stay on Node 20, the laptop's version"},
+  "deploy-mcp.yml:deploy": {"node": "22", "reason": "wrangler 4.x needs Node 22; the ts/web test jobs stay on Node 20, the laptop's version"}
+ },
  "local_gate": "make check",
  "adopted": "2026-10-20",
  "jobs": {

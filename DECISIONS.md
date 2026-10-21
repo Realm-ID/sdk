@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-129 entries total — 74 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+130 entries total — 75 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-21 — `toolchain.node` is set to 20; the two Node 22 jobs are declared overrides](#2026-10-21--toolchainnode-is-set-to-20-the-two-node-22-jobs-are-declared-overrides)
 - [2026-10-20 — Fleet par: todo-hygiene + workflow-preflight vendored and wired](#2026-10-20--fleet-par-todo-hygiene--workflow-preflight-vendored-and-wired)
 - [2026-10-18 — Vendor the CLAUDE.md hygiene checker into CI (CM1-CM3)](#2026-10-18--vendor-the-claudemd-hygiene-checker-into-ci-cm1-cm3)
 - [2026-10-18 — RealmError carries Retry-After (go RetryAfter, ts retryAfterSeconds, java getRetryAfter; ADR-116 A8)](#2026-10-18--realmerror-carries-retry-after-go-retryafter-ts-retryafterseconds-java-getretryafter-adr-116-a8)
@@ -141,6 +142,21 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-21 — `toolchain.node` is set to 20; the two Node 22 jobs are declared overrides
+
+**Decision.** `.workflow-preflight.json` now pins `toolchain.node: "20"`, with
+`toolchain_overrides` for `publish-npm.yml:publish` and `deploy-mcp.yml:deploy` at `"22"`. This
+supersedes the 2026-10-20 note below that `toolchain.node` was deliberately unset.
+
+- workflow-preflight is re-vendored at the canonical version carrying the owner's 2026-10-21
+  ruling: a per-job override with a reason, and no repo-wide allow-list.
+- 20 is the default because the ts and web test jobs run on it, and so does the laptop (v20.20.1).
+  The 22 jobs are the exceptions. npm trusted publishing needs Node ≥ 22.14.0 (entry above), and
+  wrangler 4.x needs Node 22.
+- With the overrides removed, parity reports `PIN_DRIFT` for exactly those two jobs and nothing
+  else, so the overrides are load-bearing. Node versions are now checked at all; before this,
+  nothing compared them.
 
 ## 2026-10-20 — Fleet par: todo-hygiene + workflow-preflight vendored and wired
 
