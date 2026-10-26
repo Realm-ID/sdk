@@ -452,6 +452,7 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 | `recipient_email_not_identifying` | [400] Ownership transfer naming an email recipient while email is not identifying. | Name the recipient by an identifying kind. |
 | `invalid_invitation_token` | [400] Inspect/accept: unknown, malformed, used, expired, superseded by a resend, withdrawn, or the membership is no longer invited. ONE code, no oracle. | Ask the inviter for a new link. |
 | `contact_already_verified` | [409] `/me/contacts/{id}/proof`: the phone is already proven; nothing was sent. | Nothing to do. |
+| `assertion_replayed` | [409] `POST /auth/login` (token-exchange grant): the workload assertion was already used (two instances fetched the same GCP ID token in the same second). Transient, not a credential rejection. The SDK retries it itself (1 s, then 2 s, re-fetching the credential, 3 attempts in all) and surfaces it only when all three are replayed. | Nothing for a normal start-up; if it surfaces, restart the instance. |
 | `contact_changed` | [409] `/me/contacts/{id}/proof/confirm`: the contact was released or replaced after the send; the code is spent. | Start a fresh proof for the current contact. |
 | `reset_email_not_identifying` | [409] `POST /tenants/{tid}/users/{uid}/password-reset`: no identifying verified email. | Use another recovery path. |
 

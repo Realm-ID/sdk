@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-130 entries total — 75 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+131 entries total — 76 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-26 — 2026-10-26 (workload login) — a replayed assertion (409 assertion_replayed) is retried with a fresh credential, in go/ts/java](#2026-10-26--2026-10-26-workload-login--a-replayed-assertion-409-assertion_replayed-is-retried-with-a-fresh-credential-in-gotsjava)
 - [2026-10-21 — `toolchain.node` is set to 20; the two Node 22 jobs are declared overrides](#2026-10-21--toolchainnode-is-set-to-20-the-two-node-22-jobs-are-declared-overrides)
 - [2026-10-20 — Fleet par: todo-hygiene + workflow-preflight vendored and wired](#2026-10-20--fleet-par-todo-hygiene--workflow-preflight-vendored-and-wired)
 - [2026-10-18 — Vendor the CLAUDE.md hygiene checker into CI (CM1-CM3)](#2026-10-18--vendor-the-claudemd-hygiene-checker-into-ci-cm1-cm3)
@@ -142,6 +143,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-26 — 2026-10-26 (workload login) — a replayed assertion (409 assertion_replayed) is retried with a fresh credential, in go/ts/java
+
+**Problem.** `logs.crash_loop` on the BFF (2026-10-20, 10-21, 10-26): `platform credential rejected at startup: ... 401 assertion already used`. On 10-26 two autoscaled instances exchanged their GCP workload ID token 73 ms apart; the issuer's one-time-use gate (a jti-less Google token is keyed on sha256 of the raw token) refused the second, and the BFF treats any boot-time 401 as definitive and exits.
+
+**Probe evidence (2026-10-26, throwaway Cloud Run job, 2 parallel instances x 155 fetches, 310/310 rows).** The GCP metadata server mints a token whose `iat` is the current second and which is DETERMINISTIC per (service account, audience, iat-second): every fetch in one second, from either instance, was byte-identical; every new second produced a new token (155 distinct over 155 s). So two instances starting in the same second hold the same token, and a re-fetch after >= 1 s is fresh and accepted.
+
+**Owner rulings.** (1) The issuer's one-time-use rule stays (dropping replay protection for jti-less tokens was rejected). (2) A replayed assertion is answered `409 Conflict`, code `assertion_replayed`, in the usual envelope; all other federation rejections stay 401. (3) The SDKs (go, ts, java, parity) retry a WORKLOAD login answered 409 `assertion_replayed`: wait 1 s then 2 s, RE-FETCH the credential each time, 3 attempts in all, honouring the caller's cancellation; never for a static api-key, never for another status or code; exhausted retries return the last error unchanged.
+
+**Decision.** SPEC section 4.0.1 gains the "Replayed-assertion retry" rule and section 3.1 the code; implemented in `go/platform_token.go` (injectable `sessionManager.sleep`), `ts/src/platform-token-manager.ts` (`sleep` option, `getToken({signal})`), `java/.../PlatformTokenManager.java` (`Sleeper`). The retry lives in the session manager's login, the one place that sees both the credential grant and the response, so it covers every caller.
+
+**Trade-offs.** The retry is keyed on status AND code, so an issuer that has not shipped the 409 yet (still 401) behaves exactly as before. ts and java read only this one code from the login error envelope (their login path never parsed codes); widening that is a separate change. ts `getToken` accepts an `AbortSignal` but the SDK's HTTP client does not pass one yet, so ts cancellation is available to direct callers only. Go `const Version` bumped 0.69.0 -> 0.70.0 because `go/v0.69.0` is tagged and `tag-hygiene.sh unreleased-go` refuses a `go/` change under a tagged const; ts and java version files are left for the release.
 
 ## 2026-10-21 — `toolchain.node` is set to 20; the two Node 22 jobs are declared overrides
 
