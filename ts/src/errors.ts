@@ -244,6 +244,9 @@ export type ErrorCode =
   | "contact_already_verified"
   | "contact_changed"
   | "reset_email_not_identifying"
+  // Workload login replay (SPEC §3.1/§4.0.1, 2026-10-26): 409 on a token-exchange login whose
+  // assertion the issuer has already seen. Transient; the platform-token manager retries it.
+  | "assertion_replayed"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -459,7 +462,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "require_verified_email_conflict", "idp_requires_identifying_email", "idp_requires_identifying_phone",
   "domain_sso_requires_unique_email", "invite_contact_not_identifying", "recipient_email_not_identifying",
   "invalid_invitation_token", "contact_not_found", "contact_already_verified", "contact_changed",
-  "reset_email_not_identifying",
+  "reset_email_not_identifying", "assertion_replayed",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

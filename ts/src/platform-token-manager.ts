@@ -22,9 +22,10 @@
  * keeps working.
  */
 import { RealmError } from "./errors.js";
+import type { ErrorCode } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { redactCredential } from "./logger.js";
-import type { CredentialSource } from "./credential.js";
+import type { Credential, CredentialSource } from "./credential.js";
 import {
   GRANT_PLATFORM_API_KEY,
   GRANT_TOKEN_EXCHANGE,
@@ -49,6 +50,29 @@ export interface PlatformTokenManagerOptions {
   now?: () => number;
   /** Refresh-skew in ms. Default 30s. */
   refreshSkewMs?: number;
+  /**
+   * Waits out a replay backoff (SPEC §4.0.1). Injectable so tests do not sleep;
+   * the default is a timer that rejects with the signal's reason on abort.
+   */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+/** SPEC §4.0.1: three attempts in all, waiting 1 s then 2 s between them. */
+const REPLAY_BACKOFF_MS = [1000, 2000] as const;
+
+function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason ?? new DOMException("aborted", "AbortError"));
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException("aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 interface LoginWire {
@@ -86,7 +110,7 @@ export class PlatformTokenManager {
    * cached or the cached access token is within `refreshSkewMs` of its
    * expiry.
    */
-  async getToken(): Promise<string> {
+  async getToken(opts?: { signal?: AbortSignal }): Promise<string> {
     const now = this.now();
     const skew = this.opts.refreshSkewMs ?? DEFAULT_REFRESH_SKEW_MS;
     if (
@@ -100,7 +124,7 @@ export class PlatformTokenManager {
       const t = await this.inflight;
       return t.accessToken;
     }
-    this.inflight = this.acquire();
+    this.inflight = this.acquire(opts?.signal);
     try {
       this.cached = await this.inflight;
       return this.cached.accessToken;
@@ -114,13 +138,42 @@ export class PlatformTokenManager {
   }
 
   /** acquire mints a session from the bootstrap credential. */
-  private async acquire(): Promise<CachedSession> {
-    return this.login();
+  private async acquire(signal?: AbortSignal): Promise<CachedSession> {
+    return this.login(signal);
   }
 
-  private async login(): Promise<CachedSession> {
+  /**
+   * One platform login, retrying a WORKLOAD credential the issuer answers
+   * `409 assertion_replayed` (SPEC §4.0.1): wait 1 s then 2 s, RE-FETCH the
+   * credential each time (a fetch >= 1 s later is a different token), three
+   * attempts in all. A static API key, any other status and any other code are
+   * never retried; exhausted retries throw the last error unchanged.
+   */
+  private async login(signal?: AbortSignal): Promise<CachedSession> {
+    const sleep = this.opts.sleep ?? defaultSleep;
+    for (let attempt = 0; ; attempt++) {
+      const cred = await this.opts.credential.fetch();
+      try {
+        return await this.loginWith(cred);
+      } catch (e) {
+        const backoff = REPLAY_BACKOFF_MS[attempt];
+        const replayed =
+          cred.grantType === GRANT_TOKEN_EXCHANGE &&
+          e instanceof RealmError &&
+          e.httpStatus === 409 &&
+          e.code === "assertion_replayed";
+        if (!replayed || backoff === undefined) throw e;
+        this.opts.logger.warn("realmid: workload assertion replayed; retrying with a fresh credential", {
+          attempt: attempt + 1,
+          backoffMs: backoff,
+        });
+        await sleep(backoff, signal);
+      }
+    }
+  }
+
+  private async loginWith(cred: Credential): Promise<CachedSession> {
     const url = this.opts.baseUrl.replace(/\/+$/, "") + "/auth/login";
-    const cred = await this.opts.credential.fetch();
     const payload: Record<string, string> = { grant_type: cred.grantType };
     let redacted = "";
     if (cred.grantType === GRANT_PLATFORM_API_KEY) {
@@ -199,9 +252,13 @@ export class PlatformTokenManager {
       try { parsed = JSON.parse(text); } catch { parsed = text; }
     }
     if (!resp.ok) {
-      const code = resp.status === 401 || resp.status === 403
+      let code: ErrorCode = resp.status === 401 || resp.status === 403
         ? "unauthorized"
         : (resp.status >= 500 ? "server_error" : "bad_request");
+      // The one stated code this path reads: a replayed workload assertion (SPEC §4.0.1).
+      if (resp.status === 409 && statedCodeOf(parsed) === "assertion_replayed") {
+        code = "assertion_replayed";
+      }
       let message = `auth call to ${url} failed with HTTP ${resp.status}`;
       if (parsed && typeof parsed === "object") {
         const env = (parsed as Record<string, unknown>)["error"];
@@ -244,6 +301,18 @@ export class PlatformTokenManager {
       });
     }
   }
+}
+
+/** The error code an envelope states: nested `{error:{code}}` or flat `{code}`. */
+function statedCodeOf(parsed: unknown): string {
+  if (!parsed || typeof parsed !== "object") return "";
+  const p = parsed as Record<string, unknown>;
+  const env = p["error"];
+  if (env && typeof env === "object") {
+    const c = (env as Record<string, unknown>)["code"];
+    if (typeof c === "string") return c;
+  }
+  return typeof p["code"] === "string" ? p["code"] : "";
 }
 
 /** Decode a JWT payload without signature verification and return its

@@ -4,6 +4,10 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased (0.58.0) — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
+
+`PlatformTokenManager` retries a platform login whose WORKLOAD (token-exchange) credential the issuer answers `409 assertion_replayed`: wait 1 s then 2 s, re-fetch the credential from the source each time, three attempts in all; exhausted retries throw the last error unchanged. A static API key, any other status and any other code are never retried. New registered code `"assertion_replayed"`. Additive. Options: `sleep` (injectable backoff) on `PlatformTokenManagerOptions`; `getToken({ signal })` abandons a backoff on abort (the SDK's HTTP client does not pass one yet). Why: two instances starting in the same second get the byte-identical GCP ID token and the second was rejected, crash-looping a BFF. `package.json` is not bumped here; the release does that.
+
 ## 0.57.0 — unique contact kinds, contact proof, invitation sign-up (ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0) (2026-10-19)
 
 SPEC §3.1, §4, §6.2, §6.5 (SPEC.md text is owned by another builder). The issuer routes are released to `main`, not yet to prod. Additive.
