@@ -4,6 +4,10 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## Unreleased (0.54.0) — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
+
+`PlatformTokenManager` retries a platform login whose WORKLOAD (token-exchange) credential the issuer answers `409 assertion_replayed`: wait 1 s then 2 s, re-fetch the credential from the source each time, three attempts in all; exhausted retries throw the last `RealmException` unchanged. A static API key, any other status and any other code are never retried. Thread interruption during a backoff restores the flag and throws `RealmException(NETWORK)` promptly. New registered `ErrorCode.ASSERTION_REPLAYED`. Additive: a new constructor takes a `PlatformTokenManager.Sleeper` (injectable backoff); the existing constructors are unchanged. Why: two instances starting in the same second get the byte-identical GCP ID token and the second was rejected, crash-looping a BFF. `build.gradle.kts` version is not bumped here; the release does that.
+
 ## 0.53.0 — unique contact kinds, contact proof, invitation sign-up links (ADR-116 third amendment, ADR-117, issuer spec 0.62.0); send the sign-in code (ADR-116, issuer spec 0.61.0) (2026-10-19)
 
 R7 + R9. The issuer routes are on `main`, not released yet. Version unchanged (the unreleased block below already covers the pending release).

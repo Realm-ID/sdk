@@ -327,6 +327,9 @@ public enum ErrorCode {
     CONTACT_ALREADY_VERIFIED("contact_already_verified"),
     CONTACT_CHANGED("contact_changed"),
     RESET_EMAIL_NOT_IDENTIFYING("reset_email_not_identifying"),
+    // Workload login replay (SPEC section 3.1/4.0.1, 2026-10-26): 409 on a token-exchange login whose
+    // assertion the issuer has already seen. Transient; PlatformTokenManager retries it.
+    ASSERTION_REPLAYED("assertion_replayed"),
     NOT_FOUND("not_found"),
     CONFLICT("conflict"),
     RATE_LIMITED("rate_limited"),

@@ -62,6 +62,7 @@ public final class PlatformTokenManager {
     private final Logger logger;
     private final Clock clock;
     private final Duration refreshSkew;
+    private final Sleeper sleeper;
 
     private String cachedToken;
     private long cachedExpiresAtMs;
@@ -81,6 +82,27 @@ public final class PlatformTokenManager {
     public PlatformTokenManager(CredentialSource credential, String baseUrl, HttpClient http,
                                 ObjectMapper mapper, Logger logger, Clock clock,
                                 Duration refreshSkew, String realmId) {
+        this(credential, baseUrl, http, mapper, logger, clock, refreshSkew, realmId, Sleeper.REAL);
+    }
+
+    /**
+     * Waits out a replay backoff (SPEC section 4.0.1). Injectable so tests do not
+     * sleep; {@link #REAL} sleeps the thread and so honours interruption.
+     */
+    @FunctionalInterface
+    public interface Sleeper {
+        Sleeper REAL = d -> Thread.sleep(d.toMillis());
+
+        void sleep(Duration d) throws InterruptedException;
+    }
+
+    /** SPEC section 4.0.1: three attempts in all, waiting 1 s then 2 s between them. */
+    private static final Duration[] REPLAY_BACKOFF = {Duration.ofSeconds(1), Duration.ofSeconds(2)};
+
+    public PlatformTokenManager(CredentialSource credential, String baseUrl, HttpClient http,
+                                ObjectMapper mapper, Logger logger, Clock clock,
+                                Duration refreshSkew, String realmId, Sleeper sleeper) {
+        this.sleeper = sleeper == null ? Sleeper.REAL : sleeper;
         this.realmId = realmId == null || realmId.isEmpty() ? null : realmId;
         this.credential = credential;
         this.baseUrl = stripSlash(baseUrl);
@@ -123,7 +145,34 @@ public final class PlatformTokenManager {
      * workload OIDC token) for an access token.
      */
     private void login() {
-        Credential cred = credential.fetch();
+        for (int attempt = 0; ; attempt++) {
+            Credential cred = credential.fetch();
+            try {
+                loginWith(cred);
+                return;
+            } catch (RealmException e) {
+                // SPEC section 4.0.1: only a WORKLOAD credential answered 409
+                // assertion_replayed is retried, with a RE-FETCHED credential (one taken
+                // >= 1 s later is a different token). Exhausted: the last error, unchanged.
+                boolean replayed = Credential.GRANT_TOKEN_EXCHANGE.equals(cred.grantType())
+                        && e.getHttpStatus() == 409 && e.getCode() == ErrorCode.ASSERTION_REPLAYED;
+                if (!replayed || attempt >= REPLAY_BACKOFF.length) throw e;
+                if (logger.isLoggable(Level.WARNING)) {
+                    logger.log(Level.WARNING,
+                            "realmid: workload assertion replayed; retrying with a fresh credential attempt={0} backoffMs={1}",
+                            attempt + 1, REPLAY_BACKOFF[attempt].toMillis());
+                }
+                try {
+                    sleeper.sleep(REPLAY_BACKOFF[attempt]);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RealmException(ErrorCode.NETWORK, "interrupted during platform login backoff", ie);
+                }
+            }
+        }
+    }
+
+    private void loginWith(Credential cred) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("grant_type", cred.grantType());
         String redacted;
@@ -236,6 +285,14 @@ public final class PlatformTokenManager {
                     ? ErrorCode.UNAUTHORIZED
                     : (status >= 500 ? ErrorCode.SERVER_ERROR : ErrorCode.BAD_REQUEST);
             String msg = what + " failed with HTTP " + status;
+            if (status == 409 && parsed != null && parsed.isObject()) {
+                // The one stated code this path reads (SPEC section 4.0.1): nested or flat.
+                JsonNode env = parsed.get("error");
+                JsonNode c = env != null && env.isObject() ? env.get("code") : parsed.get("code");
+                if (c != null && c.isTextual() && "assertion_replayed".equals(c.asText())) {
+                    code = ErrorCode.ASSERTION_REPLAYED;
+                }
+            }
             if (parsed != null && parsed.isObject()) {
                 JsonNode env = parsed.get("error");
                 JsonNode mNode = env != null && env.isObject() ? env.get("message") : parsed.get("message");
