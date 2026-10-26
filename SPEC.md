@@ -496,6 +496,10 @@ amendment; UNRELEASED). Seventeen codes, registered in all three languages:
 > reading `details.server_code` for them is unaffected); `invalid_purpose` was already registered.
 > `no_email_to_resend` (409, invitation resend) is a swagger-only code and is not in this list.
 
+**`assertion_replayed`** (409; 2026-10-26, UNRELEASED): a workload assertion the issuer has already
+seen. Registered in all three languages (Go `ErrCodeAssertionReplayed`, java
+`ErrorCode.ASSERTION_REPLAYED`); the SDK retries it for the workload grant only (§4.0.1).
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,
@@ -690,6 +694,34 @@ fresh token at exchange time, so freshness never bites a real caller.
 Federation is **additive** — `platform_api_key` is unchanged and not
 deprecated — and **issuer-direct** (the exchange hits `auth.realmid.dev`
 directly; the BFF is not in the path).
+
+**Replayed-assertion retry (2026-10-26; owner rulings 2 and 3).** A GCP
+ID token is deterministic per (service account, audience, `iat`-second):
+two instances that start in the same second fetch the byte-identical
+token, and the issuer's one-time-use rule (above) accepts only the first.
+The issuer therefore answers a replayed assertion with **`409 Conflict`,
+error code `assertion_replayed`** (a transient condition, not a credential
+rejection; every other federation rejection stays 401). A conforming SDK
+MUST, for the platform login of a **workload** credential (the
+token-exchange grant) that fails with HTTP 409 **and** code
+`assertion_replayed`:
+
+1. wait 1 s, **re-fetch the credential from the credential source** (a
+   fetch at least 1 s later yields a different token), and retry the
+   login; if that is also replayed, wait 2 s, re-fetch and retry again;
+2. make at most **3 attempts in total** (waits of 1 s then 2 s);
+3. honour the caller's cancellation/deadline during each wait (Go
+   `ctx`, ts `AbortSignal`, java thread interruption): return promptly
+   with that cancellation, not after the wait;
+4. when the attempts are exhausted, return the LAST `assertion_replayed`
+   error unchanged.
+
+It MUST NOT retry a static API-key credential, any other status, or a 409
+carrying any other code. The backoff is injectable so tests do not sleep.
+The code is registered as Go `ErrCodeAssertionReplayed`, ts
+`"assertion_replayed"`, java `ErrorCode.ASSERTION_REPLAYED` (§3.1). The
+retry exists so a BFF that scales out never dies at boot on a race it
+cannot see; a 401 there is still a definitive rejection.
 
 ### 4.1 `login(req)`
 

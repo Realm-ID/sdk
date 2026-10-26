@@ -120,7 +120,7 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeInviteContactNotIdentifying, ErrCodeRecipientEmailNotIdentifying,
 		ErrCodeInvalidInvitationToken, ErrCodeContactNotFound,
 		ErrCodeContactAlreadyVerified, ErrCodeContactChanged,
-		ErrCodeResetEmailNotIdentifying,
+		ErrCodeResetEmailNotIdentifying, ErrCodeAssertionReplayed,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

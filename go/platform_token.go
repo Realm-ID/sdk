@@ -36,6 +36,9 @@ type sessionManager struct {
 	http    *httpClient
 	logger  *slog.Logger
 	now     func() time.Time
+	// sleep waits out a replay backoff, returning ctx.Err() if ctx ends first.
+	// A field so tests fake it; nil means the real, context-aware wait.
+	sleep func(ctx ctxpkg.Context, d time.Duration) error
 
 	mu              sync.RWMutex
 	accessToken     string
@@ -125,14 +128,69 @@ func (m *sessionManager) acquire(ctx ctxpkg.Context) (string, error) {
 	return tok, err
 }
 
-// login exchanges the bootstrap credential (a static API key or an ambient
-// workload OIDC token) for a refresh + access token via POST /auth/login.
-// The credential never travels on subsequent traffic — only here.
+// replayAttempts and replayBackoff are SPEC §4.0.1's replayed-assertion retry:
+// three attempts in all, waiting 1 s then 2 s between them.
+const replayAttempts = 3
+
+var replayBackoff = [replayAttempts - 1]time.Duration{time.Second, 2 * time.Second}
+
+// login runs one platform login, retrying a workload credential the issuer
+// answers `409 assertion_replayed` (SPEC §4.0.1). Each retry re-fetches the
+// credential after the backoff, since a fetch >= 1 s later is a different
+// token. A static API key, any other status and any other code are never
+// retried; when the attempts run out the last error is returned unchanged.
 func (m *sessionManager) login(ctx ctxpkg.Context) (string, error) {
-	cred, err := m.cred.Fetch(ctx)
-	if err != nil {
-		return "", err
+	for attempt := 0; ; attempt++ {
+		tok, workload, err := m.loginAttempt(ctx)
+		if err == nil || !workload || attempt >= replayAttempts-1 || !isAssertionReplayed(err) {
+			return tok, err
+		}
+		m.logger.Warn("realmid session: workload assertion replayed; retrying with a fresh credential",
+			slog.String("realm_id", m.realmID),
+			slog.Int("attempt", attempt+1),
+			slog.Duration("backoff", replayBackoff[attempt]),
+		)
+		if werr := m.wait(ctx, replayBackoff[attempt]); werr != nil {
+			return "", werr
+		}
 	}
+}
+
+func isAssertionReplayed(err error) bool {
+	re, ok := err.(*RealmError)
+	return ok && re.HTTPStatus == 409 && re.Code == ErrCodeAssertionReplayed
+}
+
+func (m *sessionManager) wait(ctx ctxpkg.Context, d time.Duration) error {
+	if m.sleep != nil {
+		return m.sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// loginAttempt fetches the bootstrap credential (a static API key or an ambient
+// workload OIDC token) and exchanges it for an access token via POST
+// /auth/login. The credential never travels on subsequent traffic — only here.
+// workload reports whether it was a token-exchange credential (the only kind
+// login retries).
+func (m *sessionManager) loginAttempt(ctx ctxpkg.Context) (string, bool, error) {
+	cred, err := m.cred.Fetch(ctx)
+	workload := cred.GrantType == grantTokenExchange
+	if err != nil {
+		return "", false, err
+	}
+	tok, err := m.exchange(ctx, cred)
+	return tok, workload, err
+}
+
+func (m *sessionManager) exchange(ctx ctxpkg.Context, cred Credential) (string, error) {
 	body := map[string]any{"grant_type": cred.GrantType}
 	var redacted string
 	switch cred.GrantType {
@@ -159,7 +217,7 @@ func (m *sessionManager) login(ctx ctxpkg.Context) (string, error) {
 	)
 
 	var resp loginResponse
-	err = m.http.do(ctx, requestOptions{
+	err := m.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/login",
 		Body:   body,

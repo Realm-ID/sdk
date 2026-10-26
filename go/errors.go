@@ -312,6 +312,11 @@ const (
 	ErrCodeMethodNotEnabled    ErrorCode = "method_not_enabled"
 	ErrCodeInvalidOnBehalfOfIP ErrorCode = "invalid_on_behalf_of_ip"
 
+	// Workload-login replay (SPEC §3.1/§4.0.1, 2026-10-26): 409 on a token-exchange
+	// login whose assertion the issuer has already seen. Transient; the session
+	// manager retries it with a freshly fetched credential.
+	ErrCodeAssertionReplayed ErrorCode = "assertion_replayed"
+
 	// Management / generic codes.
 	ErrCodeUnauthorized ErrorCode = "unauthorized"
 	ErrCodeForbidden    ErrorCode = "forbidden"
@@ -581,7 +586,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeInviteContactNotIdentifying: {}, ErrCodeRecipientEmailNotIdentifying: {},
 	ErrCodeInvalidInvitationToken: {}, ErrCodeContactNotFound: {},
 	ErrCodeContactAlreadyVerified: {}, ErrCodeContactChanged: {},
-	ErrCodeResetEmailNotIdentifying: {},
+	ErrCodeResetEmailNotIdentifying: {}, ErrCodeAssertionReplayed: {},
 }
 
 func isKnownCode(s string) bool {
