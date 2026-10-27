@@ -459,6 +459,61 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 | `contact_changed` | [409] `/me/contacts/{id}/proof/confirm`: the contact was released or replaced after the send; the code is spent. | Start a fresh proof for the current contact. |
 | `reset_email_not_identifying` | [409] `POST /tenants/{tid}/users/{uid}/password-reset`: no identifying verified email. | Use another recovery path. |
 
+## Split signing, install pass and idempotency codes (issuer spec 0.65.0, UNRELEASED)
+
+> **Added in spec 0.65.0 (unreleased).** These codes are in `issuer/docs/swagger.yaml` 0.65.0 and
+> reach partners only with release A of the split-signing work; until then no issuer answers them.
+> HTTP status is in brackets. Background: `docs/partner-integration-guide.md` §6.8 and §6.9, and
+> issuer ADR-068 / ADR-120. Rulings are cited by number (`plans/2026-10-27-split-signing-*.md`).
+
+### Which endpoint, and what a realm does (`/auth/token`, `/auth/token/partial`, `/auth/login`)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `split_signing_required` | [409] A mint or login on a SPLIT realm that would need a whole signature: `/auth/token` (and the people and bot grants of `/auth/login`) answer it for every grant except `platform_api_key` (R49) and a platform-token WIF exchange (R53). Added in spec 0.65.0 (unreleased). | Send the call to `POST /auth/token/partial` and finish the half-signed answer with your half. The SDK's `split: true` option does this. |
+| `realm_not_split` | [409] `POST /auth/token/partial` on a realm that uses normal custody. Added in spec 0.65.0 (unreleased). | Use `POST /auth/token`. A configuration mismatch, not a transient fault. |
+| `platform_grant_not_partial` | [400] `POST /auth/token/partial` with `grant_type=platform_api_key` (R49), or a token exchange that yields a PLATFORM token (R53). The platform key is never split (R45). The grant check runs first, so this wins over `realm_not_split` on a normal realm. Added in spec 0.65.0 (unreleased). | Send the platform grant to `POST /auth/token`, which serves it as a finished `Bearer` token on every realm. |
+| `platform_key_not_a_user_key` | [400] `grant_type=user_api_key` presented an `rk_…` platform key (R24), checked before any lookup. Added in spec 0.65.0 (unreleased). | Use a `uk_live_…` user key, or `grant_type=platform_api_key` for a platform key. |
+| `signing_key_unavailable` | [409] `/auth/token/partial`: RealmID cannot use its half of the split key (R39). Added in spec 0.65.0 (unreleased). | The partner SDK runs an emergency rotation (below). Do not retry in a loop. |
+
+### Install pass and integration endpoint (ADR-082/083, R34, R47)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `integration_grant_requires_install_pass` | [400] The removed direct `integration_installation` grant on `POST /auth/login`, authenticated by the source's `rk_live_` key (R34, R48). Added in spec 0.65.0 (unreleased). | Mint an install pass at `POST /integrations/installations/{install_id}/pass` and present it at the TARGET's token endpoint. |
+| `missing_install_pass` | [400] `grant_type=integration_installation` on `/auth/token` or `/auth/token/partial` without `install_pass`. Added in spec 0.65.0 (unreleased). | Send the `ip_…` pass. |
+| `install_pass_invalid` | [401] The `install_pass` is unknown, expired (5 minutes) or already used. A pass is a single exchange (R47). Added in spec 0.65.0 (unreleased). | Mint a fresh pass. Never retry a spent one. |
+| `integration_endpoint_missing` | [409] An integration install into an org whose platform has not registered an `integration_token_endpoint` (R47). Added in spec 0.65.0 (unreleased). | The target platform registers its endpoint first. The base realm registers none, so nothing installs into it. |
+| `missing_source_org_id` | [400] `POST /integrations/installations/{install_id}/pass` without `source_org_id`, the acting org of the source platform. It is the only attribution the target org gets for the acting call (R54b). Added in spec 0.65.0 (unreleased). | Send `source_org_id` in the request body. |
+| `invalid_installation_id` | [400] The `install_id` on the install-pass mint is malformed. Added in spec 0.65.0 (unreleased). | Use the id returned when the integration was installed. |
+| `invalid_integration_endpoint` | [400] The registered `integration_token_endpoint` is not an https URL. Added in spec 0.65.0 (unreleased). | Register an https URL. |
+| `integration_endpoint_unverified` | [422] The registration test-call to the endpoint failed; the message names what the call got back. Added in spec 0.65.0 (unreleased). | Fix the handler (the SDK's ready-made handler answers the canary), then register again. |
+
+### Split-key custody, handshake and rotation (`/platforms/{id}/signing-keys/split/...`)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `split_key_size_unsupported` | [400] Upload of a key that is not RSA-2048. Added in spec 0.65.0 (unreleased). | Generate an RSA-2048 key. |
+| `split_kid_in_use` | [409] Upload with a `kid` the realm already has. The caller chooses the kid. Added in spec 0.65.0 (unreleased). | Choose an unused `kid`. |
+| `rotation_lease_held` | [409] Another holder has the 5-minute rotation lease (one holder at a time). Added in spec 0.65.0 (unreleased). | Wait for the lease to end or the other pod to finish; do not rotate from two pods. |
+| `emergency_rotation_cap_reached` | [429] Emergency rotations are counted per realm per UTC day; this is past the cap (R39). Added in spec 0.65.0 (unreleased). | Stop and alert a human; the cap exists to bound a runaway loop. |
+| `split_key_not_found` | [404] A handshake or challenge for a split key the realm does not have. Added in spec 0.65.0 (unreleased). | Upload the key first. |
+| `handshake_failed` | [401] The completed signature over the challenge did not verify. A failure stops and alerts, it never loops (G16). Added in spec 0.65.0 (unreleased). | Check the share and its version; fix before retrying. The key does not become active. |
+| `not_in_overlap` | [409] Extend or cancel while the key is not in the overlap window (R36). Added in spec 0.65.0 (unreleased). | Read the key's status first. |
+| `downgrade_already_pending` | [409] Start a return to normal custody while one is under way. Added in spec 0.65.0 (unreleased). | Wait for it or cancel it. |
+| `no_pending_downgrade` | [404] Cancel with no downgrade pending. Added in spec 0.65.0 (unreleased). | Nothing to cancel. |
+| `not_available_to_api_keys` | [403] A downgrade call made with an API key. Only a human realm-owner session may start one (R55: API keys are refused the never-via-key operations). Added in spec 0.65.0 (unreleased). | Use an owner session. |
+
+### Idempotency-Key (G11; parameter `IdempotencyKey` on 14 mutating operations)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `idempotency_key_reused` | [422] The same `Idempotency-Key` was sent with a different body. Added in spec 0.65.0 (unreleased). | A key names ONE request. Generate a new key for a different body. |
+| `idempotency_in_progress` | [409] A duplicate arrived while the first request with that key is still running. Added in spec 0.65.0 (unreleased). | Wait and retry with the SAME key and body; you then get the stored response. |
+
+Swagger 0.65.0 lists these two only in the parameter description, not on the operations'
+responses (critic finding #6, unresolved at the issuer). A request without the header behaves as before.
+
 ## Management / generic codes
 
 These fire from any HTTP-backed call.
