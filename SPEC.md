@@ -4879,7 +4879,7 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 > tags. This section ships in the next go/ts/java release (lockstep, §13), whose version is not
 > chosen yet. Cite as `SPEC14_1_login_token`, `SPEC14_2_partial`, `SPEC14_3_cosign`,
 > `SPEC14_4_trust`, `SPEC14_5_shares`, `SPEC14_6_handshake`, `SPEC14_7_metrics`,
-> `SPEC14_8_integration`. Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R52 in
+> `SPEC14_8_integration`. Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R58 in
 > `plans/2026-10-27-split-signing-v2.md`; the HTTP contract is `issuer/docs/swagger.yaml`
 > (authoritative, wins over this text).
 
@@ -4890,11 +4890,19 @@ reads `access_token` from a login response. Every access token comes from `/auth
 `/auth/token/partial` when the realm is split (option `split: true`). People send `refresh_token`
 + `tenant_id`; the SDK calls it automatically when login returns exactly one tenant (today's
 §4.1.1 behaviour) and after tenant choice otherwise. Bots (`api_key`, `user_api_key`, token
-exchange, install pass) send the credential to the token endpoint in ONE call and get no refresh
-token (ADR-089). The platform-token manager sends `platform_api_key` to `/auth/token` for EVERY
-realm and receives a finished `Bearer` token (R49); `/auth/token/partial` refuses it with a coded
-`400`. `/auth/mfa/verify`, `/auth/invitations/accept` and `/auth/mfa/recovery` follow the login
-rule (R51). Cross-calls: `/auth/token` on a split realm answers `409 split_signing_required`;
+exchange, install pass) send the credential to the token endpoint in ONE call and get an access
+token ONLY, no refresh token (ADR-089). R58 extends this to `user_api_key` and supersedes
+ADR-089's carve-out for user keys: when the token expires the caller presents the key again, so a
+revoked key stops working on its next use. CURRENT code: `loginAsUserKey` still returns a refresh
+token until R58 is built. The platform-token manager sends `platform_api_key` to `/auth/token`
+for EVERY realm and receives a finished `Bearer` token (R49). So does a token exchange (WIF) that
+yields a PLATFORM token (R53; today EVERY WIF exchange does, until R12's SA target lands):
+`/auth/token` serves it on every realm, split or not, signed whole with the platform key (R45).
+`/auth/token/partial` refuses both with a coded `400` (`platform_grant_not_partial`). A token
+exchange that yields a USER token on a split realm goes to `/auth/token/partial`.
+`/auth/mfa/verify`, `/auth/invitations/accept` and `/auth/mfa/recovery` follow the login
+rule (R51). Cross-calls: `/auth/token` on a split realm answers `409 split_signing_required` for
+every grant that yields a user token (the platform-token grants above are exempt);
 `/auth/token/partial` on a normal realm answers `409 realm_not_split`. Staging: release A (normal
 realms still receive `access_token` plus a `Deprecation` header), release B removes it (R52).
 
@@ -4902,7 +4910,8 @@ realms still receive `access_token` plus a `Deprecation` header), release B remo
 
 `/auth/token/partial` always answers `token_type: "partial"` and `signing{kid, header, payload,
 partial_ri}`. A rotated `refresh_token` is present iff the grant sent was `refresh_token`; the SDK
-knows which case it is from the grant. There is no `refresh_only` branch. A lost reply retried
+knows which case it is from the grant. There is no `refresh_only` branch. It takes the same claim inputs as
+`/auth/token` (`product_roles`, `scope`, `custom_claims`; R54a). A lost reply retried
 with the spent refresh token is reuse and ends the session (R32). On a non-base realm the people
 call carries the partner's platform JWT in `Authorization` (R29).
 
@@ -4944,7 +4953,8 @@ own monitoring. The SDK sends nothing to RealmID about co-sign failures.
 A ready-made server-side handler a target platform mounts; it takes the install pass, rate-limits,
 and calls the token endpoint for the realm's custody with `grant_type=integration_installation`.
 On a split target it FINISHES the half-signed answer and returns a normal token; on a full target
-it relays the issuer's answer unchanged. It does no authorization of its own and answers the
+it relays the issuer's answer unchanged. The pass carries `source_org_id` (R54b), so the mint request body names the
+acting org of the source platform. It does no authorization of its own and answers the
 issuer's registration canary. The direct integration grant on `/auth/login` is removed (R34).
 
 ### 14.9 Scope

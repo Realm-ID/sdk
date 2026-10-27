@@ -800,6 +800,15 @@ like this:
   "permissions_cap": ["reports:read"] }
 ```
 
+> ⚠️ **PLANNED, UNRELEASED (R58, R55; owner rulings 2026-10-27).** (1) A `user_api_key` sign-in
+> returns an access token ONLY, with no refresh token, like every other bot sign-in (ADR-089's
+> carve-out for user keys is superseded). When the token expires, present the key again; a revoked
+> key then stops working on its next use. TODAY the issuer still returns a refresh token for this
+> grant. (2) Every operation on the never-via-key list (the `x-realmid-human-only` marks in the
+> swagger) refuses EVERY key session: capped keys, uncapped keys and legacy service-class
+> `rk_live_` key sessions alike (ADR-084 amendment; today only capped keys are refused). A key
+> session cannot be used to mint, rotate or revoke credentials.
+
 ### ⚠️ Breaking, ADR-100: you must now STATE the key's authority
 
 `uncapped` is **required** on the mint body, and there is no default:
@@ -1513,6 +1522,10 @@ For a headless/service principal that needs a real user row (a session,
 a role, audit attribution), provision a first-class **service account**
 (`users.kind='service'`) instead of inviting a synthetic address:
 
+- **Who may manage (R56, 2026-10-27)** — a platform token (`platform_api` keeps
+  `service_accounts:manage`, ADR-071 WP3) may create, change and delete service accounts, so your
+  backend can provision them. An API KEY session (a `uk_live_` user key or a legacy `rk_live_`
+  key session) never can (R17, R55). Service accounts have no API keys of their own (R57).
 - **Provisioning** — `POST /tenants/{id}/service-accounts` (tenant
   owner/admin). The account is active-from-birth (no invite expiry, so
   the invite reaper never touches it), holds a unique email-shaped
@@ -2527,7 +2540,7 @@ intact.
 
 > ⚠️ **UNRELEASED, planned (2026-10-27).** Nothing in this section is in a published SDK or the
 > live issuer yet; it is the contract the build follows (plan
-> `plans/2026-10-27-split-signing-v2.md`, owner rulings R19-R52). Symbol names for the SDK
+> `plans/2026-10-27-split-signing-v2.md`, owner rulings R19-R58). Symbol names for the SDK
 > options and the handler are fixed when the SDKs ship and are NOT given here; the HTTP shapes
 > and behaviours are. Where a name below is marked "proposed" it may change. The login → token
 > change that split signing builds on is §6.9.
@@ -2555,7 +2568,11 @@ broken split there locks everyone out of the console.
 `rk_live_` key is exchanged for) is signed by a dedicated whole key that signs nothing else, and
 only the issuer verifies it. It is minted from `POST /auth/token` for every realm, split or not,
 as a finished `Bearer` token. `POST /auth/token/partial` refuses that grant with a coded `400`.
-A split realm therefore adds no co-signer dependency to your platform-token mint.
+The same holds for a workload-identity (WIF) token exchange that yields a PLATFORM token (R53):
+`/auth/token` serves it on every realm, and `/auth/token/partial` refuses it. Today EVERY WIF
+exchange yields a platform token, so WIF traffic is unaffected by split signing until a
+service-account target exists (R12). A WIF exchange that yields a USER token on a split realm goes
+to `/auth/token/partial`. A split realm therefore adds no co-signer dependency to your platform-token mint.
 
 ### 6.8.2 Where your half lives (R39, G6)
 
@@ -2674,9 +2691,10 @@ PERSON and returns the refresh token, the user and the tenant list. Every access
 | | Release A | Release B |
 |---|---|---|
 | `/auth/login`, people grants | normal realm: still returns `access_token` and adds a `Deprecation` header (value form proposed: `@<unix-ts>`); split realm: never an access token | `access_token` removed for every realm |
-| `/auth/login`, bot grants (`api_key`, `user_api_key`, `platform_api_key`, token exchange) | normal realm: served with `Deprecation`; split realm: `409 split_signing_required` | removed for every realm |
+| `/auth/login`, bot grants (`api_key`, `user_api_key`, token exchange) | normal realm: served with `Deprecation`; split realm: `409 split_signing_required` (a token exchange that yields a platform token goes to `/auth/token` on every realm, R53) | removed for every realm |
+| `/auth/login`, `platform_api_key` | deprecated, served as today on every realm; on a split realm it is NOT a `409` (R49): the platform key is never split, and `/auth/token` is the home of this grant | removed for every realm |
 | `/auth/mfa/verify`, `/auth/invitations/accept`, `/auth/mfa/recovery` (R51) | same rule as login: refresh token, then the token endpoint; `access_token` plus `Deprecation` on a normal realm | `access_token` removed |
-| `/auth/token` | all the grants above plus `integration_installation` + pass; a split realm answers `409 split_signing_required` except for the platform grant (R49) | unchanged |
+| `/auth/token` | all the grants above plus `integration_installation` + pass; a split realm answers `409 split_signing_required` except for the platform grant (R49) and a token exchange that yields a platform token (R53) | unchanged |
 | `/auth/token/partial` | same grants; a normal realm answers `409 realm_not_split` | unchanged |
 
 **If you use the SDK, you change nothing but the version.** Today's SDK `login` already follows

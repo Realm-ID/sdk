@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-132 entries total — 77 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+133 entries total — 78 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-27 — Split-signing docs: R53-R58 applied to SPEC 14, partner guide and error reference](#2026-10-27--split-signing-docs-r53-r58-applied-to-spec-14-partner-guide-and-error-reference)
 - [2026-10-27 — Split signing and login to token: spec section 14 and partner guide 6.8/6.9 (R44-R52)](#2026-10-27--split-signing-and-login-to-token-spec-section-14-and-partner-guide-6869-r44-r52)
 - [2026-10-26 — 2026-10-26 (workload login) — a replayed assertion (409 assertion_replayed) is retried with a fresh credential, in go/ts/java](#2026-10-26--2026-10-26-workload-login--a-replayed-assertion-409-assertion_replayed-is-retried-with-a-fresh-credential-in-gotsjava)
 - [2026-10-21 — `toolchain.node` is set to 20; the two Node 22 jobs are declared overrides](#2026-10-21--toolchainnode-is-set-to-20-the-two-node-22-jobs-are-declared-overrides)
@@ -144,6 +145,28 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-27 — Split-signing docs: R53-R58 applied to SPEC 14, partner guide and error reference
+
+**Context.** The W0 critic (findings 1, 2a, 5, 8) found the split-signing docs missing R53, asserting
+an unanswered refresh-token question, contradicting swagger on `platform_api_key` at `/auth/login`,
+and the error reference lacking every code swagger 0.65.0 introduced. The owner then ruled R53-R58.
+
+**Decision.** SPEC §14.1 and guide §6.8/§6.9 now say: a WIF exchange that yields a PLATFORM token
+is served by `/auth/token` on every realm and refused by `/partial` (R53; today every WIF exchange
+yields a platform token); `/partial` takes the same claim inputs as `/auth/token` and the install
+pass mint carries `source_org_id` (R54); a `user_api_key` sign-in returns an access token only
+(R58, supersedes ADR-089's user-key carve-out; current code still returns a refresh token); key
+sessions of every kind are refused the never-via-key operations (R55); a platform token keeps
+service-account management and an API key never has it (R56); SAs have no API keys (R57).
+`platform_api_key` on `/auth/login` is not a 409 on a split realm (R49). `docs/error-reference.md`
+gains one section with 23 codes from swagger 0.65.0, each marked "added in spec 0.65.0
+(unreleased)".
+
+**Consequences.** `cli/cmd/realm-id/ERROR_REFERENCE_CONTRACT` pins a sha256 of the vendored copy:
+after this sdk commit lands, run `cli/scripts/revendor-error-reference.sh <sdk commit sha>`.
+Swagger itself (R53 text, findings 3, 4, 6) is outside this change. `login_grant_removed` is left
+out of the reference because swagger 0.65.0 says it is not in this spec version.
 
 ## 2026-10-27 — Split signing and login to token: spec section 14 and partner guide 6.8/6.9 (R44-R52)
 
