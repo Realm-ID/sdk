@@ -481,6 +481,8 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 | `missing_install_pass` | [400] `grant_type=integration_installation` on `/auth/token` or `/auth/token/partial` without `install_pass`. Added in spec 0.65.0 (unreleased). | Send the `ip_…` pass. |
 | `install_pass_invalid` | [401] The `install_pass` is unknown, expired (5 minutes) or already used. A pass is a single exchange (R47). Added in spec 0.65.0 (unreleased). | Mint a fresh pass. Never retry a spent one. |
 | `integration_endpoint_missing` | [409] An integration install into an org whose platform has not registered an `integration_token_endpoint` (R47). Added in spec 0.65.0 (unreleased). | The target platform registers its endpoint first. The base realm registers none, so nothing installs into it. |
+| `missing_source_org_id` | [400] `POST /integrations/installations/{install_id}/pass` without `source_org_id`, the acting org of the source platform. It is the only attribution the target org gets for the acting call (R54b). Added in spec 0.65.0 (unreleased). | Send `source_org_id` in the request body. |
+| `invalid_installation_id` | [400] The `install_id` on the install-pass mint is malformed. Added in spec 0.65.0 (unreleased). | Use the id returned when the integration was installed. |
 | `invalid_integration_endpoint` | [400] The registered `integration_token_endpoint` is not an https URL. Added in spec 0.65.0 (unreleased). | Register an https URL. |
 | `integration_endpoint_unverified` | [422] The registration test-call to the endpoint failed; the message names what the call got back. Added in spec 0.65.0 (unreleased). | Fix the handler (the SDK's ready-made handler answers the canary), then register again. |
 
