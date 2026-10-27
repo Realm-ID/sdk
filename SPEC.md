@@ -4870,3 +4870,85 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 > `@realm-id/web-bff-realmid@0.6.0`, `@realm-id/web-react@0.5.1`, adapters) are
 > versioned per-package under `web/` — read them off each `package.json`, not
 > off this line, which has drifted before.
+
+## 14. Split signing and login → token (ADDED 2026-10-27, UNRELEASED)
+
+> ⚠️ **UNRELEASED. Additive: no clause above is rewritten.** Where §4.1.1 says `login` returns
+> tokens, read it with §14.1 once the SDK carrying this section ships. This SPEC has no version
+> number of its own; its versioning is the tag matrix in §13 plus the `SPEC<n>_<m>` test-name
+> tags. This section ships in the next go/ts/java release (lockstep, §13), whose version is not
+> chosen yet. Cite as `SPEC14_1_login_token`, `SPEC14_2_partial`, `SPEC14_3_cosign`,
+> `SPEC14_4_trust`, `SPEC14_5_shares`, `SPEC14_6_handshake`, `SPEC14_7_metrics`,
+> `SPEC14_8_integration`. Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R52 in
+> `plans/2026-10-27-split-signing-v2.md`; the HTTP contract is `issuer/docs/swagger.yaml`
+> (authoritative, wins over this text).
+
+### 14.1 Login → token everywhere (R44)
+
+`login` authenticates a person and returns the refresh token, user and tenant list. The SDK never
+reads `access_token` from a login response. Every access token comes from `/auth/token`, or
+`/auth/token/partial` when the realm is split (option `split: true`). People send `refresh_token`
++ `tenant_id`; the SDK calls it automatically when login returns exactly one tenant (today's
+§4.1.1 behaviour) and after tenant choice otherwise. Bots (`api_key`, `user_api_key`, token
+exchange, install pass) send the credential to the token endpoint in ONE call and get no refresh
+token (ADR-089). The platform-token manager sends `platform_api_key` to `/auth/token` for EVERY
+realm and receives a finished `Bearer` token (R49); `/auth/token/partial` refuses it with a coded
+`400`. `/auth/mfa/verify`, `/auth/invitations/accept` and `/auth/mfa/recovery` follow the login
+rule (R51). Cross-calls: `/auth/token` on a split realm answers `409 split_signing_required`;
+`/auth/token/partial` on a normal realm answers `409 realm_not_split`. Staging: release A (normal
+realms still receive `access_token` plus a `Deprecation` header), release B removes it (R52).
+
+### 14.2 One partial shape (R44)
+
+`/auth/token/partial` always answers `token_type: "partial"` and `signing{kid, header, payload,
+partial_ri}`. A rotated `refresh_token` is present iff the grant sent was `refresh_token`; the SDK
+knows which case it is from the grant. There is no `refresh_only` branch. A lost reply retried
+with the spent refresh token is reuse and ends the session (R32). On a non-base realm the people
+call carries the partner's platform JWT in `Authorization` (R29).
+
+### 14.3 Co-signing
+
+The SDK completes RI's EXACT `header.payload` bytes, refuses a foreign `iss`/`typ`, verifies the
+finished signature under the public key from its own store, and only then releases the token
+(verify-before-release). The ladder is constant-time (R27). A share is never logged.
+
+### 14.4 Trust
+
+A `split: true` verifier trusts only the public keys of the partner's bundle (plus a previous key
+until `trust_until`) and NEVER the issuer's JWKS (R39). Construction fails without a trust source.
+A token under an unpinned `kid` is refused with a coded error (`ErrCodeUnpinnedKID`, proposed)
+and a log/metric naming the fingerprint (R23 as amended by R39).
+
+### 14.5 Share sources
+
+`ShareSource.Load(ctx) → (bundle, version)`. Core, stdlib only: environment (read-only) and file
+(atomic rename, mode `0600`, KEK required outside local dev). Add-ons: GSM (R35) and Redis + KEK
+(AES-256-GCM, KEK id per entry, persistence required) (G6, R39). Writable sources implement a
+write method. Pods sync through `realmid:share:<realm>:version` (pub/sub + ~30 s poll) and one
+rate-limited re-read on an unknown `kid`. Rotation and lost-half recovery run on a writable store;
+an environment source emits `rotation_due` and recovers through the CLI.
+
+### 14.6 Handshake and readiness (G16)
+
+The SDK handshakes at startup and after every share reload. A failed handshake on the realm's
+sole active key, or a share that cannot load, makes the BFF not-ready. A handshake failure stops
+and alerts; it never loops. RealmID never half-signs a caller-chosen message.
+
+### 14.7 Metrics (R37)
+
+`realmid_cosign_total{result}` and `realmid_share_load_total{source,result}`, in the partner's
+own monitoring. The SDK sends nothing to RealmID about co-sign failures.
+
+### 14.8 Integration token handler (R47, R50)
+
+A ready-made server-side handler a target platform mounts; it takes the install pass, rate-limits,
+and calls the token endpoint for the realm's custody with `grant_type=integration_installation`.
+On a split target it FINISHES the half-signed answer and returns a normal token; on a full target
+it relays the issuer's answer unchanged. It does no authorization of its own and answers the
+issuer's registration canary. The direct integration grant on `/auth/login` is removed (R34).
+
+### 14.9 Scope
+
+Server-only entry point; browser packages are structurally excluded. Applies to go, ts and java at
+parity. Unverified until built: all symbol names, the `Deprecation` header value, and the metric
+`result` label values.

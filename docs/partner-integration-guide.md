@@ -2523,6 +2523,176 @@ your own code, rather than leaving a dead row that 401s forever. Everything else
 goes through `ProxyStatus` (§6.6) so a `412` gate reaches the SPA with its payload
 intact.
 
+## 6.8 Split signing: your realm's tokens need two signatures (UNRELEASED)
+
+> ⚠️ **UNRELEASED, planned (2026-10-27).** Nothing in this section is in a published SDK or the
+> live issuer yet; it is the contract the build follows (plan
+> `plans/2026-10-27-split-signing-v2.md`, owner rulings R19-R52). Symbol names for the SDK
+> options and the handler are fixed when the SDKs ship and are NOT given here; the HTTP shapes
+> and behaviours are. Where a name below is marked "proposed" it may change. The login → token
+> change that split signing builds on is §6.9.
+
+### 6.8.1 What it is, and what it buys you
+
+By default RealmID signs your realm's access tokens with a whole private key it holds. With
+**split signing** (opt-in per realm) the key is cut into two halves (2-of-2): RealmID holds one
+(`d_ri`), your BFF holds the other (`d_partner`). A token is valid only when both halves have
+signed it. RealmID never holds a finished user token for a split realm: it half-signs the exact
+`header.payload` and returns it, and **your SDK completes the signature**, verifies it under the
+public key in your own store, and only then releases it (R19).
+
+What this protects: someone who gets into RealmID alone (database, KMS, an insider) cannot forge
+a token for your realm. What it does not: someone who gets into your BFF AND RealmID.
+
+**The base realm's protection is small, and that is accepted (R46).** RealmID's own BFF
+(`api.realmid.dev`) holds the second half of the base realm's key, with the same SDK. But the
+issuer itself verifies the RealmID console's tokens, so an attacker already inside the issuer
+does not need to forge one. The value there is one mechanism everywhere and RealmID using its own
+feature, not a strong extra barrier. The base realm is the LAST realm moved to split, because a
+broken split there locks everyone out of the console.
+
+**Platform tokens are never split (R45, R49).** The platform token (the short-lived JWT your
+`rk_live_` key is exchanged for) is signed by a dedicated whole key that signs nothing else, and
+only the issuer verifies it. It is minted from `POST /auth/token` for every realm, split or not,
+as a finished `Bearer` token. `POST /auth/token/partial` refuses that grant with a coded `400`.
+A split realm therefore adds no co-signer dependency to your platform-token mint.
+
+### 6.8.2 Where your half lives (R39, G6)
+
+Your SDK reads a **bundle** `{realm, shares: {kid: {n, e, d_partner}}, previous: [{kid, n, e,
+trust_until}]}` (shape inferred from R39) from a `ShareSource`. A second, **public-only list**
+(`n, e` per key, no `d_partner`) is written beside it for services that only verify tokens, so
+the secret half never reaches them.
+
+| Store | Where it ships | Writable (rotation and recovery on their own) |
+|---|---|---|
+| Environment variable | core SDK (stdlib only, G6) | No: read-only. Rotation emits `rotation_due`; recovery is the CLI's `realm-id signing-keys recover`, which prints the new value for you to deploy |
+| File | core SDK (stdlib only, G6) | Yes: atomic temp-file + rename, mode `0600`, read at startup, written on rotation/recovery. For one EC2 box or a laptop. KEK encryption is REQUIRED outside local dev |
+| Google Secret Manager | add-on package (R35) | Yes |
+| Redis + KEK | add-on package (G6) | Yes: AES-256-GCM, a KEK id per entry, Redis persistence REQUIRED. The CLI writes the first bundle (`--share-to redis:<url>`, KEK from `REALM_ID_SHARE_KEK`, G13) |
+
+Redis + KEK details (R39): the **KEK** is a fixed key-encryption key you supply as an env var. It
+is deliberately NOT derived from your previous signing key: chaining would let one leaked old
+share unlock every later share, and rotation would never heal a leak. The KEK id per entry lets
+you replace the KEK by hand while both are configured. **Losing the KEK itself needs a human**: a
+new KEK and a redeploy. Several pods stay in sync through the Redis key
+`realmid:share:<realm>:version` (pub/sub plus a ~30 s poll); a half-signed token with an unknown
+`kid` triggers one rate-limited re-read. A single pod needs no Redis. AWS Secrets Manager and
+similar are future add-ons.
+
+### 6.8.3 Trust, rotation, recovery
+
+- **Trust comes only from your own bundle (R39).** A split-realm verifier trusts exactly the
+  public keys in your store (plus the previous key until its `trust_until`) and NEVER RealmID's
+  JWKS. A key RealmID publishes cannot become trusted. `New()` fails without a trust source.
+- **Hand-pinned verifiers must be re-pinned at every rotation (R23 as amended by R39).** A
+  verifier that does not read your store and pins a fingerprint by hand refuses new-key tokens
+  after each rotation (30 days by default, R15) with `ErrCodeUnpinnedKID` (name proposed) and a
+  loud log/metric naming the fingerprint to pin. It is never a silent failure.
+- **Going split (R36):** upload your key, RealmID's first successful handshake starts an overlap
+  of D (default 24 h, your choice; D plus extensions are capped at 7 days, G8), then RealmID
+  destroys its whole key. During the overlap `cancel` deletes the split key and the realm stays
+  full. There is no manual `activate`.
+- **RealmID cannot prove a destroyed key is gone from its backups (Q5).** The full key is
+  destroyed in the live database, but copies in database backups cannot be shown to be gone. Your
+  verifiers stop accepting that key at overlap expiry + access TTL, so a leaked backup copy cannot
+  forge tokens your verifiers accept after that moment. If your threat model needs more than that,
+  split signing does not provide it.
+- **Rotation (R15, R39):** every 30 days by default; refused to half-sign at 90 days. The SDK takes
+  RealmID's 5-minute lease (`409` to a second pod), generates an RSA-2048 key, splits it, writes
+  your store, uploads `d_ri`, handshakes, and activates. **Residual (R5):** the rotating process
+  briefly holds the whole new key in memory before splitting it. The dealer split is the accepted
+  design.
+- **Lost-half recovery (R39):** on by default where the store is writable. If your half is lost
+  (or RealmID's, `409 signing_key_unavailable`) the SDK takes the lease, makes a new key, writes it,
+  uploads, handshakes and activates at once with no overlap (the lost key cannot sign). It is
+  audited as `emergency_rotation` and your contacts are emailed. RealmID caps these at 5 per realm
+  per UTC day [day boundary proposed] and then refuses and alerts, which makes a container with no
+  persistent disk visible.
+- **Downgrade to full (R38):** only the realm owner's signed-in human session, via the CLI. RealmID
+  makes a NEW full key (the old split key is never reassembled). Co-signed with your half it takes
+  effect at once; otherwise it waits 24 hours, your contacts are emailed, and any owner can cancel.
+- **Readiness (G16):** the SDK handshakes at startup and after every share reload. If that fails
+  for your realm's only active key, or the share cannot load, your BFF reports not-ready.
+
+### 6.8.4 You must alert on co-signing failures (R37)
+
+Only you learn that co-signing is failing. The SDK exposes, in your own monitoring,
+`realmid_cosign_total{result}` and `realmid_share_load_total{source,result}`. It sends nothing to
+RealmID, and RealmID adds no indirect "issued but never refreshed" alert (it keeps only its own
+`realmid_mint_halfsigned_total{realm}`). **A partner with no alert finds out from its users.**
+
+Example Prometheus alert (the `result` label values are fixed when the SDK ships; `ok` is
+unverified):
+
+```yaml
+groups:
+- name: realmid-split-signing
+  rules:
+  - alert: RealmIDCosignFailing
+    expr: sum(rate(realmid_cosign_total{result!="ok"}[5m])) > 0
+    for: 5m
+    annotations:
+      summary: "RealmID co-signing is failing; users cannot get new tokens"
+  - alert: RealmIDShareLoadFailing
+    expr: sum(rate(realmid_share_load_total{result!="ok"}[5m])) > 0
+    for: 5m
+    annotations:
+      summary: "Cannot load the split-signing share; the BFF is not ready"
+```
+
+### 6.8.5 Mounting the integration handler (R47, R50)
+
+An app that RECEIVES an integration (the target) mounts the SDK's ready-made handler on its BFF,
+for example `POST https://bff.acme.com/realmid/integration-token`, and registers that https URL as
+its realm's `integration_token_endpoint`. RealmID test-calls it at registration, and refuses to
+install an integration into a realm with no endpoint. The handler takes the install pass (`ip_…`,
+opaque, 5 minutes, one exchange) the source platform minted, rate-limits it, and calls your realm's
+token endpoint with `grant_type=integration_installation` and the pass. It does no authorization of
+its own: the issuer checks the pass, the install, revocation and permissions.
+
+- **Split target:** the handler calls `/auth/token/partial`, **finishes the half-signed answer with
+  your half, and returns a normal token** (R50). The pass is a bot grant, so there is no refresh
+  token.
+- **Full target:** the handler calls `/auth/token` and **relays the issuer's answer unchanged**.
+
+The base realm registers no endpoint, so integrations cannot be installed into it.
+
+**Consequence (R34, R48):** the old direct grant, where the source's `rk_live_` key minted an
+integration token on `/auth/login`, is REMOVED in release A for every target realm. Only the pass
+flow remains. A later redesign on a GitHub-Apps-like model is tracked in root `TODO.md`.
+
+## 6.9 Migrating from login-returns-a-token to login → token (R44, R51, R52)
+
+> ⚠️ **UNRELEASED, planned (2026-10-27).** Staged in two releases.
+
+The rule: **authentication and minting are separate calls.** `POST /auth/login` authenticates a
+PERSON and returns the refresh token, the user and the tenant list. Every access token comes from
+`POST /auth/token` (or `POST /auth/token/partial` on a split realm), which takes either
+`refresh_token` + `tenant_id` (people) or a bot credential in ONE call.
+
+| | Release A | Release B |
+|---|---|---|
+| `/auth/login`, people grants | normal realm: still returns `access_token` and adds a `Deprecation` header (value form proposed: `@<unix-ts>`); split realm: never an access token | `access_token` removed for every realm |
+| `/auth/login`, bot grants (`api_key`, `user_api_key`, `platform_api_key`, token exchange) | normal realm: served with `Deprecation`; split realm: `409 split_signing_required` | removed for every realm |
+| `/auth/mfa/verify`, `/auth/invitations/accept`, `/auth/mfa/recovery` (R51) | same rule as login: refresh token, then the token endpoint; `access_token` plus `Deprecation` on a normal realm | `access_token` removed |
+| `/auth/token` | all the grants above plus `integration_installation` + pass; a split realm answers `409 split_signing_required` except for the platform grant (R49) | unchanged |
+| `/auth/token/partial` | same grants; a normal realm answers `409 realm_not_split` | unchanged |
+
+**If you use the SDK, you change nothing but the version.** Today's SDK `login` already follows
+`/auth/login` with a `/auth/token` mint once the tenant is settled (§4.1.1; `sdk/go/auth.go`,
+`Login`), and the new SDKs never read `access_token` from a login response. **If you call
+`/auth/login` yourself** and read `access_token` from it, or log in a bot there, switch to the
+token endpoint before release B or your calls break. Watch for the `Deprecation` header. Bots:
+send the credential straight to `/auth/token` (`/auth/token/partial` on a split realm).
+
+**Order (R52):** release A first, so you can move on a deprecation signal. Release B (no config
+flag) ships after Traide, the only active partner, runs the new SDK, through the `### Breaking`
+gate and the owner's `breaking-approved` label.
+
+**On a split realm,** a refresh token spent on `/auth/token/partial` whose reply was lost is reuse
+and ends the session (R32), as with any refresh.
+
 
 ## 7. Migration checklist
 

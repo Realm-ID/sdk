@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-131 entries total — 76 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+132 entries total — 77 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-27 — Split signing and login to token: spec section 14 and partner guide 6.8/6.9 (R44-R52)](#2026-10-27--split-signing-and-login-to-token-spec-section-14-and-partner-guide-6869-r44-r52)
 - [2026-10-26 — 2026-10-26 (workload login) — a replayed assertion (409 assertion_replayed) is retried with a fresh credential, in go/ts/java](#2026-10-26--2026-10-26-workload-login--a-replayed-assertion-409-assertion_replayed-is-retried-with-a-fresh-credential-in-gotsjava)
 - [2026-10-21 — `toolchain.node` is set to 20; the two Node 22 jobs are declared overrides](#2026-10-21--toolchainnode-is-set-to-20-the-two-node-22-jobs-are-declared-overrides)
 - [2026-10-20 — Fleet par: todo-hygiene + workflow-preflight vendored and wired](#2026-10-20--fleet-par-todo-hygiene--workflow-preflight-vendored-and-wired)
@@ -143,6 +144,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-27 — Split signing and login to token: spec section 14 and partner guide 6.8/6.9 (R44-R52)
+
+Problem: the SDKs have login return a token and no way to hold half a signing key. Owner rulings R44-R52 (2026-10-27) stage a move to login-then-token and an opt-in 2-of-2 split signing for a realm's access tokens.
+
+Decision: SPEC.md gains an additive section 14 and the partner guide gains 6.8 (split signing, the handler mount) and 6.9 (login to token migration). SPEC.md has no version of its own, so the section carries a date, an UNRELEASED mark and SPEC14_* test tags; no existing clause was rewritten. Docs are written to the rulings: the handler finishes the signature on a split target and relays on a full one (R50); the platform-token key is never split (R49); release B has no flag and follows Traide on the new SDK (R52).
+
+Honesty stated in the docs: the base realm's protection is small (R46); RealmID cannot prove a destroyed key is gone from its backups (Q5); a partner with no alert finds out from its users (R37, with an example alert); the rotating process briefly holds the whole new key (R5).
+
+Trade-offs: SDK symbol names, the Deprecation header value and metric label values are not fixed until the SDKs are built, so the docs mark them proposed. There is no sdk/llms.txt: the website generates llms.txt from the vendored guide, so the website's re-vendor step carries these docs.
 
 ## 2026-10-26 — 2026-10-26 (workload login) — a replayed assertion (409 assertion_replayed) is retried with a fresh credential, in go/ts/java
 
