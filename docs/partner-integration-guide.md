@@ -1496,7 +1496,7 @@ Your platform token stays the wire bearer — this is **additive**, not a swap.
 > `v0.66.0`, SECURITY).** It used to be accepted as an on-behalf assertion, which
 > let any holder of a realm's platform API key act as *any user in that realm*.
 > Only the signed, verified `X-User-Token` asserts an identity now; a bare user id
-> gets **`401 x_user_token_required`**, refused before any lookup so it can't be
+> gets **`401 x_user_token_required`** until the release (R78: `403 actor_required` after it), refused before any lookup so it can't be
 > used as an existence oracle. The header survives only as a **domain parameter**
 > on `POST /auth/otp/verify` (naming the OTP subject), never as authentication.
 > If you are still sending the bare header on any other route, that call is
@@ -1535,9 +1535,10 @@ For a headless/service principal that needs a real user row (a session,
 a role, audit attribution), provision a first-class **service account**
 (`users.kind='service'`) instead of inviting a synthetic address:
 
-- **Who may manage (R56, 2026-10-27)** — a platform token (`platform_api` keeps
-  `service_accounts:manage`, ADR-071 WP3) may create, change and delete service accounts, so your
-  backend can provision them. An API KEY session (a `uk_live_` user key or a legacy `rk_live_`
+- **Who may manage (R64, R68)** — a carried actor holding `service_accounts:manage` (a person,
+  sent in `X-User-Token`) may create, change and delete service accounts. A bare platform token
+  cannot: `platform_api` is app-runtime only and loses `service_accounts:manage` (R56 is
+  superseded by R64/R68). An API KEY session (a `uk_live_` user key or a legacy `rk_live_`
   key session) never can (R17, R55). Service accounts have no API keys of their own (R57).
 - **Provisioning** — `POST /tenants/{id}/service-accounts` (tenant
   owner/admin). The account is active-from-birth (no invite expiry, so
@@ -1817,7 +1818,7 @@ Content-Type: application/json
 A platform token with NO actor passes only the front-door list (§6.9.2:
 sign-in, create-org-with-owner, the boot read, logout, split-key rotation,
 the integration pass mint). Anything else is `403 actor_required`, and the
-SDK raises the typed `ErrActorRequired`. A platform token for a *different*
+SDK raises the typed `ErrActorRequired` (Go), `ActorRequiredError` (ts) or `ActorRequiredException` (java). A platform token for a *different*
 realm is still rejected. Administration (identity providers, sources,
 federation bindings, realm settings, integration publishing) is done by
 PEOPLE in the RealmID console or CLI (R65); no machine identity holds those
@@ -2795,12 +2796,17 @@ as the bearer is `401 platform_bearer_required`. Exempt: the platform mints them
 (`platform_api_key`, a WIF exchange that yields a platform token) and the public well-known,
 health and OpenAPI routes. The SDK's user-bearer modes are removed (`### Breaking`).
 
+Also in this release: first-login MFA enrolment is a front-door call (R77, R84) while enrolment
+after login needs `X-User-Token`; `401 x_user_token_required` is retired in favour of
+`403 actor_required` (R78); and, a `### Breaking` change (R79), a refresh on a session started by a
+`user_api_key` sign-in answers `401 m2m_refresh_withdrawn`. The holder signs in again with its key.
+
 With **no actor** (a bare platform token) only these calls pass:
 
 | group | calls |
 |---|---|
-| front door | `/auth/login`; `/auth/token` (refresh, bot grants, the pass exchange); login-time `/auth/mfa/verify` and `/auth/mfa/recovery`; `/auth/logout` by refresh token; `/auth/otp/send-login`; the identity-provider list; password reset; `/auth/invitations/{inspect,accept}`; `GET /domains/resolve` |
-| create org | `POST /platforms/{pid}/tenants` with the first owner INLINE. It creates the org AND seats that owner in one call (R67.1); seating any other role needs an actor. Your own "set role = owner" call after create goes away |
+| front door | `/auth/login`; `/auth/token` (refresh, bot grants, the pass exchange); login-time `/auth/mfa/verify` and `/auth/mfa/recovery`; first-login `/auth/mfa/enroll` (refresh in the body, only before any access token exists, R77/R84); `/auth/logout` by refresh token; `/auth/otp/send-login`; the identity-provider list; password reset; `/auth/invitations/{inspect,accept}`; `GET /domains/resolve` |
+| create org | `POST /platforms/{pid}/tenants` with the first owner INLINE. It creates the org AND seats that owner at role `owner` in one call (R67.1, R83); seating any other role needs an actor. Your own "set role = owner" call after create goes away |
 | boot read | `GET /platforms/mine` (id, audience, domain, display name, origin enforcement) |
 | split rotation | split-key rotate, recover, handshake and lease (`signing_keys:rotate`, R67.3) |
 | pass mint | `POST /integrations/installations/{id}/pass` for an existing, unrevoked install |
@@ -2809,9 +2815,10 @@ Everything else is **`403 actor_required`**: "This action needs a user or servic
 its token in X-User-Token." That includes the org list, audit feed, login history and stats (a
 dashboard carries the person, a report job a service account), `sessions/revoke-all` (an incident
 script carries a service account, R67.7), service-account management (R68), MFA challenges outside
-login, and all administration (R65). The Go, TS and Java SDKs raise the typed **`ErrActorRequired`**
-(`ErrActorRequired` in Go, `ActorRequiredError` in ts/java [inferred: ts/java names are
-proposed]) so a job that forgot the actor fails loudly. A carried actor is judged by its own
+login, and all administration (R65). The Go, TS and Java SDKs raise a typed error:
+`ErrActorRequired` in Go (also `IsActorRequired(err)`), `ActorRequiredError` in ts (also
+`isActorRequired(e)`), `ActorRequiredException` in java (also `RealmException.isActorRequired(t)`). The same
+error covers the SDK's local refusal and the server's `403 actor_required`. So a job that forgot the actor fails loudly. A carried actor is judged by its own
 rights: a person's live role, a key's cap (and the never-via-key list, R55), a service account's
 role.
 

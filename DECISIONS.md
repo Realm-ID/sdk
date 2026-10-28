@@ -169,14 +169,18 @@ platform token always in `Authorization`, person/key/SA/pass in `X-User-Token`; 
 documented as REMOVED (`### Breaking`). (3) Login, MFA verify, recovery and invite-accept return
 refresh + user + tenants, never `access_token`; bot grants on `/auth/login` are `400
 login_grant_removed`. (4) Actor model (R61, R64-R68): the no-actor front-door list, `403
-actor_required` with typed `ErrActorRequired`, `401 platform_bearer_required`; administration is
+actor_required` with typed `ErrActorRequired` (Go; ts/java names fixed by R86, see the 2026-10-28 note below), `401 platform_bearer_required`; administration is
 people-only and a permission check (R65). (5) Create-org seats its first owner with no actor
 (R67.1). (6) Integration handler forwards the pass in `X-User-Token` with the target platform token
 (R67.2); base realm is no target (R68.2). (7) Partner guide 6.4.1: CI key rotation goes through the
 RealmID BFF as a base-realm `platform_mgmt_api` identity (R63, R66, R72; plan 4 I8).
 
-**Tradeoffs / open.** Symbol names for ts/java `ErrActorRequired` and the source-side pass mint are
-unchosen and marked [inferred]. Whether a platform may hold two valid `rk_live_` keys during the
+**Tradeoffs / open.** Symbol names for ts/java `ErrActorRequired` and the source-side pass mint were
+unchosen and marked [inferred]. **RESOLVED for the error names, 2026-10-28 (owner ruling R86):** Go
+`ErrActorRequired` + `ErrCodeActorRequired` + `IsActorRequired`; ts `ActorRequiredError` +
+`isActorRequired`; java `ActorRequiredException` + `RealmException.isActorRequired`; the decoder maps the
+server code to the same typed error as the local refusal; the stem + idiomatic-suffix rule is in SPEC §3.1.
+The source-side pass mint name is still open. Whether a platform may hold two valid `rk_live_` keys during the
 handover is unverified (plan 4 I8). `sdk/llms.txt` named in the brief does not exist in this repo.
 
 ## 2026-10-27 — Split-signing docs: R53-R58 applied to SPEC 14, partner guide and error reference

@@ -232,6 +232,18 @@ SDK failure. It carries:
 `realm_mismatch`, `missing_origin`, `refresh_invalid`, `token_stale`,
 `user_suspended`, `escort_suspended`, `tenant_disabled`.
 
+**Typed-error naming (R86).** A code is REGISTERED in all three taxonomies (Go `ErrCode<Stem>`, ts
+`"<code>"`, java `ErrorCode.<STEM>`), gated by `scripts/taxonomy-parity.py`. A code the SDK also
+raises LOCALLY, or that partners must branch on by type, additionally gets a typed error from the
+same UpperCamelCase stem plus the language's idiomatic suffix: Go sentinel `Err<Stem>` carried in
+`RealmError.Cause` (match with `errors.Is` or `Is<Stem>(err)`); ts `class <Stem>Error extends
+RealmError` (plus `is<Stem>(e)`); java `final class <Stem>Exception extends RealmException` (plus
+`RealmException.is<Stem>(t)`). A local occurrence and the matching server code are the SAME typed
+error: each SDK's response decoder maps the code to it. A failure with no wire code (`ScopesError`,
+`LoginMintError`) extends the language's base `Error`/`RuntimeException`, never the unified error.
+Initialisms follow each language (Go `OTP`, ts/java `Otp`). First instance: `actor_required`
+(§3.1 table, §14.10).
+
 > `tenant_disabled` (403, issuer spec 0.59.0) means the org the token is for is
 > suspended or deactivated. The session is NOT ended. Like `user_suspended`, the
 > Go BFF middleware relays it as **403** with its real code and never tears the
@@ -505,7 +517,7 @@ seen. Registered in all three languages (Go `ErrCodeAssertionReplayed`, java
 | Code | HTTP | Meaning |
 | --- | --- | --- |
 | `platform_bearer_required` | 401 | `Authorization` did not verify as a platform-class token of the path's realm (a user JWT, key session or SA session as the bearer). Send the platform token in `Authorization` and the person's token in `X-User-Token`. |
-| `actor_required` | 403 | The call needs a user or service account and the request carried none. Typed error `ErrActorRequired` (Go; ts/java names proposed [inferred]) with the hint "This action needs a user or service account. Send its token in X-User-Token." |
+| `actor_required` | 403 | The call needs a user or service account and the request carried none. Typed error (R86): Go sentinel `ErrActorRequired` (carried in `RealmError.Cause`; also `ErrCodeActorRequired` and `IsActorRequired(err)`), ts `ActorRequiredError extends RealmError` (also `isActorRequired(e)`), java `ActorRequiredException extends RealmException` (also `RealmException.isActorRequired(t)`), raised for both the SDK's local refusal and this server code, with the hint "This action needs a user or service account. Send its token in X-User-Token." |
 | `login_grant_removed` | 400 | A bot grant (`api_key`, `user_api_key`, token exchange, `platform_api_key`, the old integration grant) was sent to `/auth/login`. Send it to `/auth/token`. |
 
 **Management / generic codes:**
@@ -1648,7 +1660,7 @@ ONLY mode: the legacy mode that put the user's own access JWT in the bearer slot
 (`userBearer`) is REMOVED (R60, UNRELEASED, `### Breaking`). A `userId` may ride
 alongside as `X-On-Behalf-Of-User` for attribution, but **is not an
 identity on its own** — issuer v0.66.0 answers `401
-x_user_token_required` — and the SDKs refuse such a call locally rather
+x_user_token_required` until the release (R78), then `403 actor_required` — and the SDKs refuse such a call locally rather
 than issue one that cannot succeed. A revocation token is rejected
 (`insufficient_scope`). Response `{ status: "ok" }`; the SDK returns
 void.
@@ -1672,11 +1684,13 @@ acts on another user).
 - `selfEnrollMfa(req)` → `POST /auth/mfa/enroll` (ADR-061).
   **Refresh-authed**: the request carries the user's `refreshToken` (the
   handle to their login session) + `tenantId` (+ `method?`, defaults
-  `"totp"`). This is the one enrollment path for both timings — a
-  first-login user who has no access token yet (the MFA gate withheld
-  it) and a post-login user switching into an MFA-required tenant. In
-  BFF mode the platform token is the Authorization bearer and the
-  refresh rides the **body** (as for `token`). Returns `{ secret, qrUrl,
+  `"totp"`). The no-actor front door is **first login only** (R77, R84): while the
+  session is still in the "must enrol MFA" state from login, before any access
+  token was issued (the MFA gate withheld it), the refresh in the body proves
+  who it is and the platform token alone passes. A post-login user (e.g.
+  switching into an MFA-required tenant) needs `X-User-Token` even with the
+  refresh in the body, and the SDK sends it. In BFF mode the platform token is
+  the Authorization bearer and the refresh rides the **body** (as for `token`). Returns `{ secret, qrUrl,
   recoveryCodes, mfaChallengeToken, tenantId }` — render the secret/QR
   and recovery codes, then complete enrollment by passing the
   **enroll-scoped** `mfaChallengeToken` to `mfaVerify` (§4.x): a single
@@ -2083,8 +2097,8 @@ every list endpoint (see §7).
     tenant** — an org is never ownerless (ADR-076; `owner_user_id` is
     `NOT NULL`). Shape: `{ user_id?, email?, phone?, display_name?,
     provider?, provider_uid? }`, at least one of `email`/`phone`. There is
-    deliberately **no** `role`: the owner gets the dormant `member` role
-    (ownership is the pointer, not the name). Server returns
+    deliberately **no** `role`: the owner is stored at role `owner`
+    as well as the owner pointer (R83). Server returns
     `owner_required` if omitted on a genuine create; `owner` may be omitted
     only on a pure **reconcile** of an already-owned tenant.
     UNRELEASED (R67.1, §14.11): `create` with the owner is a front-door call, needing NO
@@ -3247,7 +3261,7 @@ One mode remains:
 
 There is **no user-id mode**. A bare `X-On-Behalf-Of-User` is not an
 identity — the issuer removed that in v0.66.0 and answers
-`401 x_user_token_required`.
+`401 x_user_token_required` until the release, then `403 actor_required` (R78).
 
 **`me.chooseTenant({ tenantId })`** → `{ tenantId, status: "chosen",
 released }`, `POST /me/tenant-choice`. Answers the §4.1 picker:
@@ -5023,15 +5037,19 @@ ts per-call `bearer`; java `applyBearerTrio` [names from plan v3 § 3.7, not re-
 
 **No actor (R61).** A bare platform token passes ONLY: the sign-in front door (`/auth/login`,
 `/auth/token` refresh and bot grants and the pass exchange, login-time MFA verify and recovery,
+first-login MFA enrol (`/auth/mfa/enroll` with the refresh in the body, only before any access token
+exists, R77/R84),
 `/auth/logout` by refresh token, `send-login`, the identity-provider list, password reset,
 invitation inspect and accept, `GET /domains/resolve`); create-org-with-owner (§14.11); the boot
 read `GET /platforms/mine`; split-key rotate, recover, handshake and lease (R67.3, R73); and the
 pass mint. Everything else answers `403 actor_required`. A carried actor is judged by its own
 rights (a person's live role, a key's cap and the never-via-key list R55, an SA's role).
 
-**Typed error.** `403 actor_required` surfaces as `ErrActorRequired` (Go) with the hint "This action
-needs a user or service account. Send its token in X-User-Token." (ts/java names proposed
-[inferred]), so a partner job that forgets the actor fails loudly. Traide's `auth.OnBehalfOf`
+**Typed error.** `403 actor_required` surfaces as the typed error of R86 with the hint "This action
+needs a user or service account. Send its token in X-User-Token." (Go sentinel `ErrActorRequired` (carried in `RealmError.Cause`; also `ErrCodeActorRequired` and `IsActorRequired(err)`), ts `ActorRequiredError extends RealmError` (also `isActorRequired(e)`), java `ActorRequiredException extends RealmException` (also `RealmException.isActorRequired(t)`)). The SAME typed
+error covers the SDK's local refusal and the server's `403 actor_required`: each SDK's response decoder
+special-cases that code (the first code mapped to a subclass), and a cross-SDK parity test pins it. The
+web packages add nothing. A partner job that forgets the actor fails loudly. Traide's `auth.OnBehalfOf`
 fallback to a bare call becomes this error (R67 notice).
 
 **Administration (R64, R65).** `platform_api` is app-runtime only. Administration (identity
@@ -5040,12 +5058,20 @@ carried actor; every such gate is a PERMISSION check, never an "is human" test. 
 management needs a carried actor (R56 superseded). The hard human-only checks are R9(2), R38,
 R40, R55.
 
+**Release notes for partners (R77-R79).** R77/R84: first-login MFA enrolment (refresh in the body,
+before any access token exists) is a front-door call; enrolment after login needs `X-User-Token`.
+R78: `401 x_user_token_required` is retired; the same situation answers `403 actor_required`.
+`### Breaking` (R79): after the release a refresh on a session started by a `user_api_key` sign-in
+is refused with `401 m2m_refresh_withdrawn`, as ADR-089 did for earlier machine refresh tokens; the
+holder signs in again with its key.
+
 ### 14.11 Create org seats its owner (R67.1)
 
 `tenants.create` takes the first owner and returns the org with that owner seated, in ONE no-actor
 call (`POST /platforms/{pid}/tenants`). Seating the first owner is exempt from the seating rule
 inside create only; seating any other role needs an actor. A follow-up "set role = owner" call
-is not made and not needed. (The owner is already required at create today, §6.1; this clause
+is not made and not needed (R83: the owner is stored at role `owner`, so the dropped call
+changed nothing). (The owner is already required at create today, §6.1; this clause
 adds that no actor is needed.)
 
 ### 14.12 Partner CI key rotation via the RealmID BFF (R63, R66, R72)

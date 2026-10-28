@@ -111,7 +111,7 @@ public clients working.
 > JWT as the bearer is `401 platform_bearer_required`. A call with a bare platform token and no
 > actor passes only the front door (sign-in, create-org-with-owner, `GET /platforms/mine`, logout,
 > split-key rotation); everything else is `403 actor_required`, raised by the SDK as the typed
-> `ErrActorRequired`. Full list: `partner-integration-guide.md` §6.9.2.
+> `ErrActorRequired` (Go), `ActorRequiredError` (ts) or `ActorRequiredException` (java). Full list: `partner-integration-guide.md` §6.9.2.
 
 Concretely: your backend is the only caller. The SPA hits *your*
 `/auth/*` routes, which proxy through to RealmID with the platform
@@ -1452,7 +1452,7 @@ present, and the zero value means "unset".
 | `unauthorized`                | API key invalid or revoked                               | Rotate key, redeploy                              |
 | `bff_bearer_required`         | Caller hit `/auth/*` without a platform token (§1.2)     | Use SDK `realm.auth.*` methods, not raw browser HTTP |
 | `platform_bearer_required`    | A user/key/SA token was sent as the bearer (401)         | Platform token in `Authorization`, user token in `X-User-Token` |
-| `actor_required`              | No actor on a call outside the front door (403)          | Carry a person or service account in `X-User-Token`; SDK type `ErrActorRequired` |
+| `actor_required`              | No actor on a call outside the front door (403)          | Carry a person or service account in `X-User-Token`; SDK type `ErrActorRequired` / `ActorRequiredError` / `ActorRequiredException` |
 | `login_grant_removed`         | A bot grant was sent to `/auth/login` (400)              | Send it to `/auth/token`; upgrade the SDK         |
 | `realm_origin_mismatch`       | Body `realm_id` doesn't match Origin's resolved realm    | Drop one or fix the other                         |
 | `mfa_required`                | Realm/tenant requires MFA (HTTP 412)                     | Drive `mfaVerify` flow (§4.4)                     |
