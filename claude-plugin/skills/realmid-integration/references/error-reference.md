@@ -90,7 +90,6 @@ as `code`. HTTP status is in brackets.
 | `bff_bearer_realm_mismatch` | [401] The platform bearer was issued for a different realm. | Use the bearer for the realm you are calling. |
 | `bff_bearer_invalid_tenant` | [401] The bearer's tenant is not this realm's admin tenant. | Use a platform token, not an org user's token. |
 | `bff_bearer_invalid_role` | [401] The bearer is not a platform-API or owner token for this realm. | Use the platform key's token. |
-| `x_user_token_required` | [401] A platform-bearer call needed the user's `X-User-Token` and had none (a bare `X-On-Behalf-Of-User` is refused). | Forward the end user's token in `X-User-Token`. |
 | `x_user_token_invalid` | [401] `X-User-Token` has no subject. | Forward a token the issuer minted. |
 | `x_user_token_realm_mismatch` | [401] `X-User-Token` belongs to a different realm than the bearer. | Pair tokens from the same realm. |
 | `insufficient_scope` | [401] A revocation token was presented where it may not bulk-revoke sessions. | Use the user's access token. |
@@ -462,9 +461,20 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 ## Split signing, install pass and idempotency codes (issuer spec 0.65.0, UNRELEASED)
 
 > **Added in spec 0.65.0 (unreleased).** These codes are in `issuer/docs/swagger.yaml` 0.65.0 and
-> reach partners only with release A of the split-signing work; until then no issuer answers them.
-> HTTP status is in brackets. Background: `docs/partner-integration-guide.md` §6.8 and §6.9, and
-> issuer ADR-068 / ADR-120. Rulings are cited by number (`plans/2026-10-27-split-signing-*.md`).
+> reach partners only with the single split-signing release (R62); until then no issuer answers
+> them. HTTP status is in brackets. Background: `docs/partner-integration-guide.md` §6.8 and §6.9,
+> and issuer ADR-068 / ADR-120. Rulings are cited by number (`plans/2026-10-27-split-signing-*.md`).
+
+### Token and actor codes (R60, R61, R62, R78)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `platform_bearer_required` | [401] The `Authorization` bearer is not a platform token (it is a user, key, service-account or integration token) (R60). The platform token always rides in `Authorization`; a person's token goes in `X-User-Token`. Exempt: `platform_api_key` and the WIF mint on `/auth/token`, and public routes. | Send your platform token in `Authorization`; the user's token goes in `X-User-Token`. The CLI maps it to exit 6. |
+| `actor_required` | [403] The call carried a platform token and no `X-User-Token`, on an operation that is not on the no-actor list (R61). Replaces the retired `x_user_token_required` (R78): one code for "an actor is needed and there is none". | This action needs a user or service account. Send its token in `X-User-Token`. The SDKs raise a typed `ErrActorRequired`; the CLI maps it to exit 7. |
+| `login_grant_removed` | [400] A bot grant (`api_key`, `user_api_key`, `platform_api_key`, token exchange) was sent to `POST /auth/login` (R62). | Bot sign-ins moved to `/auth/token`. Upgrade the RealmID SDK. |
+
+> `401 x_user_token_required` is retired (R78); no issuer answers it after the release. Treat any
+> remaining match on it as `actor_required`.
 
 ### Which endpoint, and what a realm does (`/auth/token`, `/auth/token/partial`, `/auth/login`)
 
