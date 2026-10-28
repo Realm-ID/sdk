@@ -463,9 +463,9 @@ type SessionInfo struct {
 // ListSessionsRequest selects the user whose sessions to list and how
 // to attest the call.
 //
-// Exactly one of UserID or UserBearer must be set:
-//   - UserID:     BFF mode. The SDK uses its cached platform token as
-//     the bearer and sends X-On-Behalf-Of-User: <UserID>.
+// Escort form only (R60): the SDK's platform token is the bearer and the user's
+// token rides as X-User-Token. UserID is optional attribution:
+//   - UserID:     sends X-On-Behalf-Of-User: <UserID>.
 //     Required when realm.config.require_bff_login=true
 //     (ADR-041 §7).
 //     The id ALONE is not an identity — since issuer v0.66.0 a bare
@@ -473,16 +473,12 @@ type SessionInfo struct {
 //     so the call must also carry the user's verified access JWT via
 //     realmid.WithUserToken(ctx, jwt). The SDK refuses locally when it
 //     is missing rather than issuing a request that cannot succeed.
-//   - UserBearer: legacy / public-client mode. The user's access JWT
-//     rides as Authorization: Bearer. Subject is read from
-//     the JWT.
 //
 // OnBehalfOfIP, when set, is forwarded as X-On-Behalf-Of-IP so the
 // issuer's per-IP rate limits see the SPA's IP, not the BFF's egress
 // (ADR-050 plan §8.2).
 type ListSessionsRequest struct {
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 
 	// Limit is the server page size (SPEC §7). Optional; <=0 sends nothing and
@@ -505,16 +501,14 @@ type ListSessionsRequest struct {
 type RevokeSessionRequest struct {
 	SessionID    string
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 }
 
-// MFAChallengeRequest mints a step-up challenge for the user identified
-// by AccessToken. OnBehalfOfIP, when set, is forwarded as
+// MFAChallengeRequest mints a step-up challenge for the user whose verified access token
+// rides in X-User-Token (put it in ctx with WithUserToken, R60). OnBehalfOfIP, when set, is forwarded as
 // X-On-Behalf-Of-IP for per-IP rate-limit attribution on
 // /auth/mfa/challenge (ADR-050 plan §8.2).
 type MFAChallengeRequest struct {
-	AccessToken  string
 	OnBehalfOfIP string
 }
 
@@ -622,17 +616,9 @@ func (a *AuthClient) Login(ctx ctxpkg.Context, req LoginRequest) (*Session, erro
 	// response shape omits a top-level user object today (see
 	// api/internal/httpapi/auth.go loginResp). Email/DisplayName fall
 	// out of the JWT too when present.
-	if resp.User.ID == "" && resp.AccessToken != "" {
-		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
-			resp.User.ID = sub
-			if resp.User.Email == "" {
-				resp.User.Email = email
-			}
-			if resp.User.DisplayName == "" {
-				resp.User.DisplayName = name
-			}
-		}
-	}
+	// R62: login never yields an access token; drop one a stray issuer sends, so the mint below
+	// (always /auth/token) is the only source of the session's access token.
+	resp.AccessToken = ""
 	// ADR-102 D10 — mint once the tenant is settled. See the doc comment.
 	if tenantID := settledTenant(&resp); tenantID != "" {
 		if err := a.mintProductRoles(ctx, &resp, FlowLogin, tenantID, req.RolePermissions); err != nil {
@@ -771,6 +757,13 @@ func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, flow AuthF
 		return err
 	}
 	s.AccessToken = mint.AccessToken
+	// The mint (not login) is the source of the token, so a user the login response did not
+	// carry is read from it, the same local peek the refresh path uses.
+	if s.User.ID == "" {
+		if sub, email, name, perr := peekJWTUserFields(mint.AccessToken); perr == nil {
+			s.User.ID, s.User.Email, s.User.DisplayName = sub, email, name
+		}
+	}
 	s.RefreshToken = mint.RefreshToken
 	s.ExpiresIn = mint.ExpiresIn
 	if mint.RefreshExp != 0 {
@@ -832,6 +825,9 @@ func (a *AuthClient) token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 	}
 	if scopeWire != "" {
 		body["scope"] = scopeWire
+	}
+	if a.realm.split != nil {
+		return a.realm.splitToken(ctx, tok, body)
 	}
 	var resp MintResult
 	if err := a.realm.http.do(ctx, requestOptions{
@@ -972,17 +968,9 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
 		}
 	}
-	if resp.User.ID == "" && resp.AccessToken != "" {
-		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
-			resp.User.ID = sub
-			if resp.User.Email == "" {
-				resp.User.Email = email
-			}
-			if resp.User.DisplayName == "" {
-				resp.User.DisplayName = name
-			}
-		}
-	}
+	// R62: login never yields an access token; drop one a stray issuer sends, so the mint below
+	// (always /auth/token) is the only source of the session's access token.
+	resp.AccessToken = ""
 	// ADR-102 D10 — an OTP login is a login: once the tenant is settled the
 	// derived-claims handlers run and the session is re-minted. Added when the
 	// AST-derived lane guard found this lane uncovered; the defect report that
@@ -1117,17 +1105,9 @@ func (a *AuthClient) passwordShapedLogin(ctx ctxpkg.Context, path, tok string, b
 			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
 		}
 	}
-	if resp.User.ID == "" && resp.AccessToken != "" {
-		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
-			resp.User.ID = sub
-			if resp.User.Email == "" {
-				resp.User.Email = email
-			}
-			if resp.User.DisplayName == "" {
-				resp.User.DisplayName = name
-			}
-		}
-	}
+	// R62: login never yields an access token; drop one a stray issuer sends, so the mint below
+	// (always /auth/token) is the only source of the session's access token.
+	resp.AccessToken = ""
 	// ADR-102 D10 — same mint rule as Login: once the tenant is settled the
 	// product-roles handler runs and the session is re-minted. A password login
 	// is a login, so it must not be the one lane that returns a role-blind token.
@@ -1292,7 +1272,7 @@ func logoutSessionIDs(sid string, revoked any) []string {
 // user either via a user-bearer JWT (legacy / public-client realms) or
 // via UserID + the SDK's platform token (BFF realms; ADR-041 §7).
 func (a *AuthClient) RevokeSession(ctx ctxpkg.Context, req RevokeSessionRequest) error {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, true)
 	if err != nil {
 		return err
 	}
@@ -1304,12 +1284,12 @@ func (a *AuthClient) RevokeSession(ctx ctxpkg.Context, req RevokeSessionRequest)
 	}, nil)
 }
 
-// ListSessions iterates sessions for the user named in req. Public-
-// client realms set UserBearer; BFF realms set UserID and the SDK
-// attaches the platform token + X-On-Behalf-Of-User (ADR-041 §7).
+// ListSessions iterates sessions for the user named in req. The SDK
+// sends the platform token plus X-User-Token (WithUserToken) and, when UserID
+// is set, X-On-Behalf-Of-User (R60).
 func (a *AuthClient) ListSessions(ctx ctxpkg.Context, req ListSessionsRequest) iter.Seq2[*SessionInfo, error] {
 	return func(yield func(*SessionInfo, error) bool) {
-		bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
+		bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, true)
 		if err != nil {
 			yield(nil, err)
 			return
@@ -1451,12 +1431,21 @@ func inferOrigin(info *RealmInfo) string {
 }
 
 // MintMFAChallenge calls POST /auth/mfa/challenge to mint a step-up
-// challenge token for the verified access token. Used by the middleware
-// when an MFA-protected route receives a token that lacks fresh MFA
-// proof. Returns ("", nil, error) when the server hasn't shipped the
-// endpoint yet — the middleware downgrades to a generic 412 envelope
-// without a pre-minted challenge.
+// challenge token for the user whose verified access token rides in X-User-Token
+// (escort form, R60): put it there with WithUserToken(ctx, jwt). The platform
+// token is the bearer. With no user token in ctx the call is refused locally as
+// ErrActorRequired. Used by the middleware when an MFA-protected route receives
+// a token that lacks fresh MFA proof. Returns ("", nil, error) when the server
+// hasn't shipped the endpoint yet — the middleware downgrades to a generic 412
+// envelope without a pre-minted challenge.
 func (a *AuthClient) MintMFAChallenge(ctx ctxpkg.Context, req MFAChallengeRequest) (string, []string, error) {
+	if userTokenFrom(ctx) == "" {
+		return "", nil, newActorRequired()
+	}
+	tok, err := a.realm.platformToken.get(ctx)
+	if err != nil {
+		return "", nil, err
+	}
 	headers := map[string]string{}
 	if req.OnBehalfOfIP != "" {
 		headers["X-On-Behalf-Of-IP"] = req.OnBehalfOfIP
@@ -1468,9 +1457,9 @@ func (a *AuthClient) MintMFAChallenge(ctx ctxpkg.Context, req MFAChallengeReques
 	if err := a.realm.http.do(ctx, requestOptions{
 		Method: "POST",
 		Path:   "/auth/mfa/challenge",
-		// Empty body — the bearer identifies user, session, and realm.
+		// Empty body — the X-User-Token identifies user, session, and realm.
 		Body:    map[string]string{},
-		Bearer:  req.AccessToken,
+		Bearer:  tok,
 		Headers: headers,
 	}, &resp); err != nil {
 		return "", nil, err
@@ -1478,60 +1467,37 @@ func (a *AuthClient) MintMFAChallenge(ctx ctxpkg.Context, req MFAChallengeReques
 	return resp.MFAChallengeToken, resp.Methods, nil
 }
 
-// resolveOnBehalfOf picks the bearer + headers for endpoints that act
-// on a specific user. Exactly one of userID / userBearer must be set:
-// userID → platform token + X-On-Behalf-Of-User (BFF mode, ADR-041 §7);
-// userBearer → that JWT direct (legacy / public-client mode). When set,
-// onBehalfOfIP rides as X-On-Behalf-Of-IP for per-IP rate-limit
-// attribution (ADR-050 plan §8.2).
-// idAssertsIdentity distinguishes the two meanings the id carries on the wire.
-// On the sessions + MFA-self routes it is an IDENTITY pivot, which the issuer
-// resolves through derivePlatformActsOnUser and refuses without X-User-Token.
-// On the OTP routes it is a DOMAIN PARAMETER — the OTP subject, read straight
-// off the header (issuer internal/httpapi/otp.go: "NOT an authz pivot") — and
-// requiring a user token there would break a call the issuer accepts.
-func (a *AuthClient) resolveOnBehalfOf(ctx ctxpkg.Context, userID, userBearer, onBehalfOfIP string, idAssertsIdentity bool) (string, map[string]string, error) {
-	if userID == "" && userBearer == "" {
-		return "", nil, &RealmError{
-			Code:    ErrCodeBadRequest,
-			Message: "set exactly one of UserID (BFF mode) or UserBearer (legacy mode)",
+// resolveOnBehalfOf picks the bearer + headers for endpoints that act on a
+// specific user, in the escort form (R60): the realm's platform token is ALWAYS
+// the bearer, and the actor's token rides as X-User-Token (from
+// WithUserToken(ctx, …); httpClient.do attaches it). There is no mode that puts
+// a user token in the bearer slot. onBehalfOfIP, when set, rides as
+// X-On-Behalf-Of-IP for per-IP rate-limit attribution (ADR-050 plan §8.2).
+//
+// idAssertsIdentity distinguishes the two meanings userID carries on the wire.
+// On the sessions + MFA-self routes the actor IS the identity, so a call with
+// no X-User-Token is refused locally as ErrActorRequired (R61, R86) rather than
+// issuing a request that cannot succeed. On the OTP routes userID is a DOMAIN
+// PARAMETER — the OTP subject, read straight off the header — so either it or
+// an actor token must be present.
+func (a *AuthClient) resolveOnBehalfOf(ctx ctxpkg.Context, userID, onBehalfOfIP string, idAssertsIdentity bool) (string, map[string]string, error) {
+	if idAssertsIdentity {
+		if userTokenFrom(ctx) == "" {
+			return "", nil, newActorRequired()
 		}
+	} else if userID == "" && userTokenFrom(ctx) == "" {
+		return "", nil, newActorRequired()
 	}
-	if userID != "" && userBearer != "" {
-		return "", nil, &RealmError{
-			Code:    ErrCodeBadRequest,
-			Message: "set exactly one of UserID or UserBearer, not both",
-		}
+	tok, err := a.realm.platformToken.get(ctx)
+	if err != nil {
+		return "", nil, err
 	}
 	headers := map[string]string{}
 	if onBehalfOfIP != "" {
 		headers["X-On-Behalf-Of-IP"] = onBehalfOfIP
 	}
 	if userID != "" {
-		// Since issuer v0.66.0 a BARE X-On-Behalf-Of-User is NOT an identity:
-		// it was an unauthenticated user id that any holder of a realm's
-		// platform key could use to act as any user in that realm, so the
-		// issuer now answers 401 x_user_token_required and only the VERIFIED
-		// X-User-Token asserts who the caller is. The id survives as
-		// attribution alongside it.
-		//
-		// Refuse here rather than issuing a request that is certain to 401
-		// (measured against a live issuer, 2026-08-21): the server's error
-		// cannot say which SDK call site forgot the token, and this one can.
-		if idAssertsIdentity && userTokenFrom(ctx) == "" {
-			return "", nil, &RealmError{
-				Code: ErrCodeBadRequest,
-				Message: "BFF mode needs the user's access JWT as well as UserID: " +
-					"call with realmid.WithUserToken(ctx, accessJWT) — the issuer refuses " +
-					"a bare X-On-Behalf-Of-User with 401 x_user_token_required (v0.66.0)",
-			}
-		}
-		tok, err := a.realm.platformToken.get(ctx)
-		if err != nil {
-			return "", nil, err
-		}
 		headers["X-On-Behalf-Of-User"] = userID
-		return tok, headers, nil
 	}
-	return userBearer, headers, nil
+	return tok, headers, nil
 }

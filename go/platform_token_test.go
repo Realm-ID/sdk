@@ -19,13 +19,13 @@ import (
 // the refresh token from every credential-bootstrapped session, so the manager
 // re-mints from the api key / workload assertion instead.
 
-// platformLoginMux serves an ADR-089-shaped /auth/login: an access token and
-// NO refresh_token. /auth/token is wired to fail the test outright — reaching
-// it means the manager still believes in a refresh path.
+// platformLoginMux serves an ADR-089-shaped platform mint at /auth/token (R71): an access token and
+// NO refresh_token. A credential-bootstrapped session has no refresh path, so the one handler
+// is the mint.
 func platformLoginMux(t *testing.T, loginCalls *atomic.Int32, gate <-chan struct{}) *http.ServeMux {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		if gate != nil {
 			<-gate
 		}
@@ -36,11 +36,6 @@ func platformLoginMux(t *testing.T, loginCalls *atomic.Int32, gate <-chan struct
 			"access_token": "atok-" + string(rune('A'+n-1)),
 			"expires_in":   60,
 		})
-	})
-	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("ADR-089: the session manager must not call /auth/token — a " +
-			"credential-bootstrapped session has no refresh token")
-		w.WriteHeader(http.StatusUnauthorized)
 	})
 	return mux
 }
@@ -122,7 +117,7 @@ func TestSession_ConcurrentRemintSingleFlight(t *testing.T) {
 	gated := make(chan struct{})
 	var seeded atomic.Bool
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		if seeded.Load() {
 			<-release
 		}
@@ -137,10 +132,6 @@ func TestSession_ConcurrentRemintSingleFlight(t *testing.T) {
 			"access_token": "atok-" + string(rune('A'+n-1)),
 			"expires_in":   60,
 		})
-	})
-	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
-		t.Error("ADR-089: no /auth/token call expected")
-		w.WriteHeader(http.StatusUnauthorized)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -190,7 +181,7 @@ func TestSession_ConcurrentRemintSingleFlight(t *testing.T) {
 
 func TestSession_UnauthorizedSurfaces(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error": map[string]any{"code": "unauthorized", "message": "bad api key"},

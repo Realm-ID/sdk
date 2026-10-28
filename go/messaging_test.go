@@ -197,7 +197,7 @@ func TestMessaging_PutErrors_LandOnRegisteredCodes(t *testing.T) {
 // and is distinguishable from the generic 429 rate_limited.
 func TestPhoneOTPRateLimited_Registered(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "r", "access_token": "ptok", "expires_in": 300})
 	})
 	mux.HandleFunc("/auth/otp/issue", func(w http.ResponseWriter, _ *http.Request) {

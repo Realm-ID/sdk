@@ -63,7 +63,7 @@ func newV063Env(t *testing.T, cfg func(*Config)) *v063Env {
 		fetches.Add(1)
 		_ = json.NewEncoder(w).Encode(jwksDoc{Keys: []jwk{key}})
 	})
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok_test_" + testRealmID, "expires_in": 300})
 	})
 	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {

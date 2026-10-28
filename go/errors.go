@@ -343,6 +343,32 @@ type RealmError struct {
 	RetryAfter time.Duration
 }
 
+// ErrActorRequired is the R86 sentinel for `403 actor_required`: the call needs a carried user
+// or service account. It rides in RealmError.Cause for BOTH the SDK's own local refusal and the
+// error the response decoder builds for the server's code, so `errors.Is(err, ErrActorRequired)`
+// and IsActorRequired cannot tell them apart (SPEC §3.1 naming, §14.10).
+var ErrActorRequired = errors.New("realmid: this action needs a user or service account")
+
+// ErrCodeActorRequired is the wire code of `403 actor_required` (R60, R61, R86).
+const ErrCodeActorRequired ErrorCode = "actor_required"
+
+// ErrCodeUnpinnedKID refuses a token whose kid the split bundle does not pin (SPEC §14.4).
+const ErrCodeUnpinnedKID ErrorCode = "unpinned_kid"
+
+// actorRequiredHint is the text partners read when a job forgets the actor (SPEC §14.10).
+const actorRequiredHint = "This action needs a user or service account. Send its token in X-User-Token."
+
+// newActorRequired builds the typed error for a local refusal: nothing was sent.
+func newActorRequired() *RealmError {
+	return &RealmError{Code: ErrCodeActorRequired, Message: actorRequiredHint, Cause: ErrActorRequired}
+}
+
+// IsActorRequired reports whether err is, or wraps, the R86 actor-required error: the SDK's
+// local refusal or the server's `403 actor_required`. Safe on nil.
+func IsActorRequired(err error) bool {
+	return err != nil && errors.Is(err, ErrActorRequired)
+}
+
 // Error implements the error interface.
 func (e *RealmError) Error() string {
 	if e.HTTPStatus != 0 {
@@ -587,6 +613,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeInvalidInvitationToken: {}, ErrCodeContactNotFound: {},
 	ErrCodeContactAlreadyVerified: {}, ErrCodeContactChanged: {},
 	ErrCodeResetEmailNotIdentifying: {}, ErrCodeAssertionReplayed: {},
+	// SPEC §14.4, §14.10 (split signing; R60, R86).
+	ErrCodeActorRequired: {}, ErrCodeUnpinnedKID: {},
 }
 
 func isKnownCode(s string) bool {

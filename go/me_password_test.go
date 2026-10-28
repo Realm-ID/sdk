@@ -19,11 +19,11 @@ func TestMe_SetPasswordRequestShapePerLane(t *testing.T) {
 	defer srv.Close()
 	r := newPWRealm(t, srv.URL)
 
-	out, err := r.Me.SetPassword(context.Background(), SetPasswordRequest{MeAuth: MeAuth{UserBearer: "ub"}, CurrentPassword: "old-old-old-1", NewPassword: "new-new-new-12"})
+	out, err := r.Me.SetPassword(context.Background(), SetPasswordRequest{MeAuth: MeAuth{UserToken: "ub"}, CurrentPassword: "old-old-old-1", NewPassword: "new-new-new-12"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != "updated" || gotMethod != "PUT" || gotAuth != "Bearer ub" || gotUT != "" ||
+	if out.Status != "updated" || gotMethod != "PUT" || gotAuth != "Bearer ptok" || gotUT != "ub" ||
 		gotBody["current_password"] != "old-old-old-1" || gotBody["new_password"] != "new-new-new-12" {
 		t.Errorf("direct lane: %s auth=%q ut=%q body=%v", gotMethod, gotAuth, gotUT, gotBody)
 	}

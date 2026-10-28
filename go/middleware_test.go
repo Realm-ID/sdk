@@ -24,6 +24,9 @@ func mwTestServer(t *testing.T, jwks []jwk, audience string, extra map[string]ht
 	mux := http.NewServeMux()
 	userLogin := extra["/auth/login"]
 	delete(extra, "/auth/login")
+	userToken := extra["/auth/token"]
+	delete(extra, "/auth/token")
+	mux.HandleFunc("/auth/token", platformMintThen(userToken))
 	// ADR-051 dispatch: platform_api_key bootstrap and any user-grant
 	// login share /auth/login. Pick by `grant_type`.
 	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
@@ -104,10 +107,11 @@ func TestMiddleware_ExemptPathPasses(t *testing.T) {
 
 func TestMiddleware_LoginRouteHandledBySDK(t *testing.T) {
 	srv := mwTestServer(t, nil, testAud, map[string]http.HandlerFunc{
+		"/auth/token": userMintHandler("atok"),
 		"/auth/login": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"access_token": "atok", "refresh_token": "rtok", "expires_in": 900,
-				"user": map[string]any{"id": "u1"}, "tenants": []any{},
+				"refresh_token": "rtok", "expires_in": 900,
+				"user": map[string]any{"id": "u1"}, "tenants": []any{map[string]any{"tenant_id": "t1", "role": "member"}},
 			})
 		},
 	})

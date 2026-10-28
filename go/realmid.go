@@ -153,6 +153,14 @@ type Config struct {
 	// middleware gets this for free, and a middleware caller gets it through
 	// the same code path rather than a second one that can drift.
 	OnIdentityResolved IdentityResolvedHandler
+
+	// Split marks a split-signing realm (SPEC §14): user tokens come from /auth/token/partial and
+	// are co-signed here, and Verify trusts ONLY the keys in ShareSource's bundle, never the
+	// issuer's JWKS. NewRealm refuses Split without a ShareSource (R4 mandatory pinning).
+	// ShareSource holds the partner's key halves; core sources are NewEnvShareSource and
+	// NewFileShareSource.
+	Split       bool
+	ShareSource ShareSource
 }
 
 // Realm is the SDK handle. Construct with NewRealm; safe for concurrent
@@ -167,6 +175,7 @@ type Realm struct {
 	platformToken *sessionManager
 	info          *infoClient
 	verifier      *verifier
+	split         *splitState // non-nil iff Config.Split
 	revocation    RevocationCache
 	authority     AuthorityCache
 
@@ -259,6 +268,9 @@ func NewRealm(cfg Config) (*Realm, error) {
 	if cfg.SessionStore == nil {
 		return nil, ErrSessionStoreRequired
 	}
+	if cfg.Split && cfg.ShareSource == nil {
+		return nil, errors.New("realmid: Config.Split needs a ShareSource: a split realm trusts only the partner's pinned keys")
+	}
 	// Resolve the bootstrap credential source (ADR-057): explicit Credential
 	// wins; else a static APIKey; else auto-detect an ambient workload
 	// identity (GCP / GitHub Actions).
@@ -290,6 +302,9 @@ func NewRealm(cfg Config) (*Realm, error) {
 	r.authority = cfg.Authority
 	r.info = &infoClient{realm: r}
 	r.verifier = newVerifier(r)
+	if cfg.Split {
+		r.split = newSplitState(r, cfg.ShareSource)
+	}
 
 	r.Auth = &AuthClient{realm: r}
 	r.Tenants = newTenantsClient(r)

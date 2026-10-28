@@ -11,7 +11,7 @@ import (
 
 func TestTenants_ListPaginatesAcrossPages(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	calls := 0
@@ -59,7 +59,7 @@ func TestTenants_ListPaginatesAcrossPages(t *testing.T) {
 
 func TestTenants_RejectsBadShape(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	mux.HandleFunc("/tenants", func(w http.ResponseWriter, _ *http.Request) {
@@ -83,7 +83,7 @@ func TestTenants_RejectsBadShape(t *testing.T) {
 // requireTenantMaintenance's service-JWT branch (SPEC §6.1).
 func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var hitPath string
@@ -116,7 +116,7 @@ func TestTenants_CreateRoutesToPlatform(t *testing.T) {
 // PATCH /tenants/{id}/users/{uid}/role and decodes the response shape.
 func TestTenants_UpdateUserRole(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var gotMethod, gotPath string
@@ -153,7 +153,7 @@ func TestTenants_UpdateUserRole(t *testing.T) {
 // {id, identifier, role, status, expires_at}.
 func TestInvitations_CreateUsesIdentifier(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var gotMethod, gotPath string
@@ -192,7 +192,7 @@ func TestInvitations_CreateUsesIdentifier(t *testing.T) {
 // email/phone body decodes the updated User.
 func TestUpdateUserContact(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var gotMethod, gotPath string
@@ -228,7 +228,7 @@ func TestUpdateUserContact(t *testing.T) {
 // user_id filter) plus the accept action (SPEC §6.8).
 func TestDriftReviews_AcceptAndList(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var listQuery string
@@ -286,7 +286,7 @@ func TestDriftReviews_AcceptAndList(t *testing.T) {
 // the state filter on list (SPEC §6.9).
 func TestContactVerifications_Approve(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var listQuery string
@@ -342,7 +342,7 @@ func TestContactVerifications_Approve(t *testing.T) {
 // leave_entirely knobs only when supplied.
 func TestTenants_TransferOwner(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var gotBody map[string]any
@@ -399,7 +399,7 @@ func TestTenants_TransferOwner(t *testing.T) {
 // report (including the minted user_id returned for a row without one).
 func TestTenants_ImportUsers(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var gotBody map[string]any
@@ -451,7 +451,7 @@ func TestTenants_ImportUsers(t *testing.T) {
 // query and status onto the invitation-list query (SPEC §6.2/§6.3, S-07).
 func TestTenants_ListFilters(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	var userQuery, invQuery string

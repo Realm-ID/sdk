@@ -116,7 +116,7 @@ func TestR9_ContactProofSendAndConfirm(t *testing.T) {
 	if sent.Delivered != "sms" || sendBody["delivery_mode"] != "sms" || sendUT != "ut" {
 		t.Errorf("sent=%+v body=%v ut=%q", sent, sendBody, sendUT)
 	}
-	got, err := realm.Me.ConfirmContactProof(context.Background(), ContactProofConfirmRequest{MeAuth: MeAuth{UserBearer: "jwt"}, ContactID: "c-1", Code: "123456"})
+	got, err := realm.Me.ConfirmContactProof(context.Background(), ContactProofConfirmRequest{MeAuth: MeAuth{UserToken: "jwt"}, ContactID: "c-1", Code: "123456"})
 	if err != nil {
 		t.Fatal(err)
 	}

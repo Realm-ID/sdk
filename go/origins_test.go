@@ -35,9 +35,7 @@ func originsServer(t *testing.T, mintCount, listCount *int32, listHandler http.H
 			"refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300,
 		})
 	}
-	// /auth/login (initial mint) and /auth/token (refresh) share the
-	// same mock; both bump mintCount so existing assertions hold.
-	mux.HandleFunc("/auth/login", mintHandler)
+	// The platform mint is served at /auth/token only (R71); it bumps mintCount.
 	mux.HandleFunc("/auth/token", mintHandler)
 	mux.HandleFunc("/platforms/"+testRealmID+"/origins", func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(listCount, 1)

@@ -88,7 +88,7 @@ var rsidCalls = []rsidCall{
 		return s.RevokedSIDs, nil
 	}},
 	{"me_set_password", func(e *rsidEnv) ([]string, error) {
-		out, err := e.r.Me.SetPassword(context.Background(), SetPasswordRequest{MeAuth: MeAuth{UserBearer: "ub"}, NewPassword: "a-long-new-password"})
+		out, err := e.r.Me.SetPassword(context.Background(), SetPasswordRequest{MeAuth: MeAuth{UserToken: "ub"}, NewPassword: "a-long-new-password"})
 		if err != nil {
 			return nil, err
 		}

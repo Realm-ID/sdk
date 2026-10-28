@@ -21,20 +21,14 @@ func tmServer(t *testing.T, tokenHandler func(w http.ResponseWriter, presentedRe
 	t.Helper()
 	var tokenCalls atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok", "subject_type": "platform",
-			"refresh_token": "rtok-plat", "access_token": "atok-plat", "expires_in": 3600,
-		})
-	})
-	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/auth/token", platformMintThen(func(w http.ResponseWriter, r *http.Request) {
 		n := tokenCalls.Add(1)
 		var body struct {
 			RefreshToken string `json:"refresh_token"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		tokenHandler(w, body.RefreshToken, n)
-	})
+	}))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk_live_test", BaseURL: srv.URL})

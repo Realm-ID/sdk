@@ -121,6 +121,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeInvalidInvitationToken, ErrCodeContactNotFound,
 		ErrCodeContactAlreadyVerified, ErrCodeContactChanged,
 		ErrCodeResetEmailNotIdentifying, ErrCodeAssertionReplayed,
+		// Split-signing (R86, ADR-119/120): actor required, and a kid the realm never pinned.
+		ErrCodeActorRequired, ErrCodeUnpinnedKID,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

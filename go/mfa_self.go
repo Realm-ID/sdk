@@ -32,18 +32,15 @@ type MFAEnrollment struct {
 // Code (required by the server before it removes the factor).
 type DisableMFARequest struct {
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 
 	Code string
 }
 
 // RevokeAllSessionsRequest carries the inputs to
-// AuthClient.RevokeAllSessions. It carries the bearer trio only (UserID /
-// UserBearer / OnBehalfOfIP); there is no request body.
+// AuthClient.RevokeAllSessions. It carries UserID / OnBehalfOfIP only; there is no request body.
 type RevokeAllSessionsRequest struct {
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 }
 
@@ -86,7 +83,7 @@ func (a *AuthClient) SelfEnrollMFA(ctx ctxpkg.Context, req SelfEnrollMFARequest)
 // success. Server error codes (missing_code, not_enrolled (400),
 // unauthorized) surface as the usual RealmError.
 func (a *AuthClient) DisableMFA(ctx ctxpkg.Context, req DisableMFARequest) error {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, true)
 	if err != nil {
 		return err
 	}
@@ -104,7 +101,7 @@ func (a *AuthClient) DisableMFA(ctx ctxpkg.Context, req DisableMFARequest) error
 // success. The server rejects revocation-class tokens with
 // insufficient_scope, which surfaces as the usual RealmError.
 func (a *AuthClient) RevokeAllSessions(ctx ctxpkg.Context, req RevokeAllSessionsRequest) error {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, true)
 	if err != nil {
 		return err
 	}

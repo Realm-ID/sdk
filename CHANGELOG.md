@@ -15,6 +15,10 @@ that affect every SDK at once are recorded under a shared heading.
 
 ## go `0.70.0` — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
 
+### Breaking
+
+Split-signing (plan v3 § 3.7; issuer spec W0b-final). Ships in the same `go/v0.70.0` (untagged, so no further bump): `Auth.UserBearer` and `MFAChallengeRequest.AccessToken` are removed; login, OTP, password and MFA no longer return or send an `access_token` (refresh token only, R62) and the access token is always minted at `POST /auth/token`; the platform-token mint moves from `/auth/login` to `/auth/token` with no fallback (R71); on-behalf-of is escort-only and refuses with `ErrActorRequired` / code `actor_required` (new `IsActorRequired`, plus code `unpinned_kid`). New: `Config.Split` / `Config.ShareSource` (`NewRealm` refuses Split without a source), `CompletePartial`, `CompleteHandshake`, `CoSign`, share-source and trust-pin types, rotation and the integration handler. A split realm never fetches JWKS.
+
 The session manager retries a platform login whose workload (token-exchange) credential the issuer answers `409 assertion_replayed`: wait 1 s then 2 s, RE-FETCH the credential each time, three attempts in all, the caller's `ctx` honoured during each wait; exhausted retries return the last error unchanged. A static API key, any other status and any other code are never retried. New registered code `ErrCodeAssertionReplayed`. Why: two autoscaled BFF instances that start in the same second get the byte-identical GCP ID token (deterministic per service account, audience and `iat`-second) and the second was rejected, crash-looping the service. Additive; the issuer side ships separately. `const Version` bumped `0.69.0` → `0.70.0` because `go/v0.69.0` is tagged and `tag-hygiene.sh unreleased-go` refuses a `go/` change under a tagged const. ts and java: see their own changelogs.
 
 ## go `0.69.0` — unique contact kinds, invitation links and contact proof (ADR-117 / ADR-116 A3, issuer spec 0.62.0) (2026-10-19)

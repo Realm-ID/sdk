@@ -94,9 +94,8 @@ func TestOTP_Verify_Invalid(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	_, err := r.OTP.Verify(context.Background(), VerifyRequest{
+	_, err := r.OTP.Verify(WithUserToken(context.Background(), "user-jwt"), VerifyRequest{
 		SubjectRef: "booking:X", Purpose: "delivery", Presented: "wrong",
-		UserBearer: "user-jwt",
 	})
 	var re *RealmError
 	if !errors.As(err, &re) {

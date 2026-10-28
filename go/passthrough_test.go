@@ -73,11 +73,11 @@ func TestRealm_Do_AttachesPlatformTokenAndOBO(t *testing.T) {
 	}
 }
 
-func TestRealm_Do_UserBearerOverride(t *testing.T) {
+func TestRealm_Do_OneShotTokenRidesInUserTokenNotBearer(t *testing.T) {
 	var gotAuth string
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/auth/sessions/abc": func(w http.ResponseWriter, r *http.Request) {
-			gotAuth = r.Header.Get("Authorization")
+			gotAuth = r.Header.Get("Authorization") + "|" + r.Header.Get("X-User-Token")
 			w.WriteHeader(http.StatusNoContent)
 		},
 	})
@@ -85,20 +85,20 @@ func TestRealm_Do_UserBearerOverride(t *testing.T) {
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	resp, err := r.Do(context.Background(), http.MethodDelete, "/auth/sessions/abc", nil, &PassthroughOptions{
-		UserBearer: "rt-one-shot-revocation",
+		OnBehalfOfUserToken: "rt-one-shot-revocation",
 	})
 	if err != nil {
 		t.Fatalf("Do: %v", err)
 	}
 	resp.Body.Close()
-	if gotAuth != "Bearer rt-one-shot-revocation" {
-		t.Errorf("auth = %q, want UserBearer override", gotAuth)
+	if gotAuth != "Bearer ptok|rt-one-shot-revocation" {
+		t.Errorf("auth|X-User-Token = %q, want platform bearer + token in X-User-Token (R60)", gotAuth)
 	}
 }
 
 func TestRealm_Do_ForwardsUserTokenAdditive(t *testing.T) {
 	// ADR-056: X-User-Token rides ALONGSIDE the platform bearer (additive),
-	// unlike UserBearer which replaces it. Cover both the explicit option and
+	// as the only mode (R60). Cover both the explicit option and
 	// the WithUserToken(ctx) fallback, and assert the bearer stays platform.
 	cases := []struct {
 		name string

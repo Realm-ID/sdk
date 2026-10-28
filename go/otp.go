@@ -2,12 +2,9 @@
 // docs/proposals/partner-otp-primitive.md in the auth repo for design.
 //
 // All three calls require a tenant-scoped user/service identity. The
-// SDK supports both shapes:
-//
-//   - UserBearer: legacy / public-client mode. The user's access JWT
-//     rides as Authorization: Bearer.
-//   - UserID:     BFF mode. The SDK uses its cached platform token as
-//     bearer and forwards X-On-Behalf-Of-User: <UserID>.
+// SDK sends the escort form (R60): the platform token is the bearer and the
+// actor rides in X-User-Token (WithUserToken). UserID is the OTP subject,
+// forwarded as X-On-Behalf-Of-User.
 //
 // Mirrors the dual-token semantics of the existing user-scoped endpoints
 // (sessions list / revoke).
@@ -32,9 +29,8 @@ type IssueRequest struct {
 	// purpose="login" OTP for a service account requires view_bff.
 	DeliveryMode string
 
-	// Auth: exactly one of UserID or UserBearer.
-	UserID     string
-	UserBearer string
+	// UserID is the OTP subject (X-On-Behalf-Of-User).
+	UserID string
 	// OnBehalfOfIP, when set, rides as X-On-Behalf-Of-IP.
 	OnBehalfOfIP string
 }
@@ -73,7 +69,6 @@ type VerifyRequest struct {
 	Presented  string
 
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 }
 
@@ -90,7 +85,7 @@ type VerifyResponse struct {
 // Issue mints a fresh OTP. The plaintext Value is returned exactly once
 // — partners deliver it out-of-band (manager UI display, SMS, email).
 func (c *OTPClient) Issue(ctx ctxpkg.Context, req IssueRequest) (*IssueResponse, error) {
-	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, false)
+	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, false)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +117,7 @@ func (c *OTPClient) Issue(ctx ctxpkg.Context, req IssueRequest) (*IssueResponse,
 // code, not a colleague). Cross-issuer / cross-tenant attempts return
 // 404 with no info leak.
 func (c *OTPClient) View(ctx ctxpkg.Context, otpID string, opts ViewOptions) (*ViewResponse, error) {
-	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, opts.UserID, opts.UserBearer, opts.OnBehalfOfIP, false)
+	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, opts.UserID, opts.OnBehalfOfIP, false)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +139,6 @@ func (c *OTPClient) View(ctx ctxpkg.Context, otpID string, opts ViewOptions) (*V
 // ViewOptions selects the caller identity for OTPClient.View.
 type ViewOptions struct {
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 }
 
@@ -156,7 +150,7 @@ type ViewOptions struct {
 // can attribute the action to the human who minted the code without a
 // follow-up RealmID query.
 func (c *OTPClient) Verify(ctx ctxpkg.Context, req VerifyRequest) (*VerifyResponse, error) {
-	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, false)
+	bearer, headers, err := c.realm.Auth.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, false)
 	if err != nil {
 		return nil, err
 	}

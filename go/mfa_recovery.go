@@ -23,11 +23,9 @@ type AuthenticatorList struct {
 	BackupCodesRemaining int             `json:"backup_codes_remaining"`
 }
 
-// ListAuthenticatorsRequest carries the bearer trio only (UserID / UserBearer
-// / OnBehalfOfIP); there is no request body.
+// ListAuthenticatorsRequest carries UserID / OnBehalfOfIP only; there is no request body.
 type ListAuthenticatorsRequest struct {
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 }
 
@@ -36,7 +34,6 @@ type ListAuthenticatorsRequest struct {
 // RealmError(mfa_required) (412) until the user re-completes TOTP.
 type RegenerateRecoveryCodesRequest struct {
 	UserID       string
-	UserBearer   string
 	OnBehalfOfIP string
 }
 
@@ -52,7 +49,7 @@ type RecoveryCodes struct {
 // and remaining backup-code count via GET /auth/mfa/authenticators. A read —
 // NOT MFA-gated.
 func (a *AuthClient) ListAuthenticators(ctx ctxpkg.Context, req ListAuthenticatorsRequest) (*AuthenticatorList, error) {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, true)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +71,7 @@ func (a *AuthClient) ListAuthenticators(ctx ctxpkg.Context, req ListAuthenticato
 // gated on a FRESH TOTP within the elevated window (RealmError(mfa_required),
 // 412, until re-verified). Codes are shown once and also emailed (ADR-079).
 func (a *AuthClient) RegenerateRecoveryCodes(ctx ctxpkg.Context, req RegenerateRecoveryCodesRequest) (*RecoveryCodes, error) {
-	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.UserBearer, req.OnBehalfOfIP, true)
+	bearer, headers, err := a.resolveOnBehalfOf(ctx, req.UserID, req.OnBehalfOfIP, true)
 	if err != nil {
 		return nil, err
 	}
@@ -103,17 +100,9 @@ func (a *AuthClient) finishMFASession(ctx ctxpkg.Context, resp *Session, flow Au
 			resp.Tenants[i].ID = resp.Tenants[i].IDLegacy
 		}
 	}
-	if resp.User.ID == "" && resp.AccessToken != "" {
-		if sub, email, name, perr := peekJWTUserFields(resp.AccessToken); perr == nil {
-			resp.User.ID = sub
-			if resp.User.Email == "" {
-				resp.User.Email = email
-			}
-			if resp.User.DisplayName == "" {
-				resp.User.DisplayName = name
-			}
-		}
-	}
+	// R62: login never yields an access token; drop one a stray issuer sends, so the mint below
+	// (always /auth/token) is the only source of the session's access token.
+	resp.AccessToken = ""
 	// ADR-102 D10 — a step-up is the point at which the token the user carries
 	// for the rest of the session is issued, so it is the LAST lane that may
 	// hand back a claim-blind one. Without this, a partner who requires MFA has

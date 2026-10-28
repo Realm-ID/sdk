@@ -69,7 +69,7 @@ func fakeServer(t *testing.T, perRealm map[string][]jwk, audience string) *httpt
 			_ = json.NewEncoder(w).Encode(jwksDoc{Keys: keys})
 		})
 	}
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":        "ok",
 			"subject_type":  "platform",

@@ -309,10 +309,19 @@ func errorFromEnvelope(status int, raw []byte, defaultMessage string) *RealmErro
 		}
 	}
 
-	return &RealmError{
+	re := &RealmError{
 		Code:       code,
 		Message:    message,
 		HTTPStatus: status,
 		Details:    details,
 	}
+	// R86: the server's code is the SAME typed error as the SDK's local refusal. The server's
+	// wording is kept and the hint appended, unless the server already names the header.
+	if code == ErrCodeActorRequired {
+		re.Cause = ErrActorRequired
+		if !strings.Contains(message, "X-User-Token") {
+			re.Message = strings.TrimSpace(message + " " + actorRequiredHint)
+		}
+	}
+	return re
 }

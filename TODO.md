@@ -381,6 +381,9 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
+- [ ] `go/integrations.go` — `IntegrationsClient.MintToken` still POSTs `grant_type=integration_installation` to `/auth/login`, which R34 removed; the replacement is `POST /integrations/installations/{id}/pass` (platform token, no actor) then the pass in `X-User-Token` to `POST /auth/token`; no Go method exists for the pass mint (split-signing S5b)
+- [ ] `go/` — split-signing G16 startup handshake, `realmid_cosign_total` / `realmid_share_load_total` metrics (SPEC 14.6/14.7) and the integration-handler registration canary are not built; no red test covers them (split-signing S5b)
+
 
 - [ ] `go/auth.go` `Token()` — a hop that ends in an error drops the newer rotated refresh token; only the 3-hop give-up returns it. Pre-existing, deliberately unchanged in 0.67.0. ts (`ts/src/auth.ts`) and java (`java/src/main/java/dev/realmid/sdk/auth/AuthClient.java`) have the same shape: check and align all three together.
 - [ ] **Go doc comments for `UsersClient.EnrollMFA` / `ConfirmMFA` (`go/tenants.go`) — ship with the NEXT Go release.** Issuer commit 705df35 (next issuer release after v0.134.1) makes both routes SELF-ONLY (`userID` must be the caller, else `403 forbidden`; owner ruling 2026-10-14; an admin uses `ResetMFA`). ts/java/SPEC/guide already say so; the Go comment was left out because editing `go/tenants.go` changes the module hash and `tag-hygiene.sh unreleased-go` demands a `const Version` bump (go/v0.66.0 is tagged). Text: "userID must be the CALLER's own id: from the issuer release after v0.134.1 the route is self-only and answers 403 `forbidden` for any other user; for first-login use AuthClient.SelfEnrollMFA, for another user ResetMFA."

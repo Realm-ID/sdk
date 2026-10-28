@@ -42,7 +42,7 @@ type ContactProof struct {
 // via POST /me/contacts/{contact_id}/proof (ADR-116 third amendment).
 //
 // Only the holder may prove: the caller is the user token's subject (direct
-// mode UserBearer, or BFF mode UserToken). An admin acting for the person gets
+// escort form: UserToken or WithUserToken). An admin acting for the person gets
 // `404 contact_not_found`; any API-key session or a platform bearer with no user
 // token is `403 permission_cap_exceeded`. Errors: `409 contact_already_verified`
 // (nothing sent), `400 no_delivery_address` / `unsupported_delivery_mode`,

@@ -29,18 +29,10 @@ type PassthroughOptions struct {
 	// than the BFF's egress.
 	OnBehalfOfIP string
 
-	// UserBearer, when non-empty, REPLACES the platform-token bearer
-	// with the supplied bearer (typically a user's access JWT or a
-	// scoped one-shot token like a revocation_token). The platform
-	// token is still minted (so the cache stays warm + token-mint
-	// errors propagate), but the wire bearer is the user's. This is
-	// the auth model needed for the session-limit-modal flow where the
-	// auth server validates a one-shot revocation_token bearer.
-	UserBearer string
-
 	// OnBehalfOfUserToken, when non-empty, rides as `X-User-Token`
-	// ALONGSIDE the platform-token bearer (it does NOT replace it — that
-	// is UserBearer's job). It is the user's verified access JWT, so the
+	// ALONGSIDE the platform-token bearer, which is ALWAYS the wire bearer
+	// (R60: no mode puts a user token or a one-shot revocation token in the
+	// bearer slot; those ride here). It is the user's verified access JWT, so the
 	// issuer authorizes a *verified* principal instead of trusting the
 	// bare OnBehalfOfUser id (ADR-056). When set, prefer omitting
 	// OnBehalfOfUser: the issuer prefers the verified token and rejects a
@@ -108,7 +100,7 @@ func (r *Realm) Do(ctx ctxpkg.Context, method, path string, body io.Reader, opts
 	bearer := tok
 	// X-User-Token resolves from the explicit option first, then any token
 	// stashed on the ctx via WithUserToken (ADR-056). The platform token
-	// stays the wire bearer — this is additive, unlike UserBearer.
+	// stays the wire bearer — R60.
 	userToken := userTokenFrom(ctx)
 	if opts != nil {
 		for k, vs := range opts.Header {
@@ -124,9 +116,6 @@ func (r *Realm) Do(ctx ctxpkg.Context, method, path string, body io.Reader, opts
 		}
 		if opts.OnBehalfOfUserToken != "" {
 			userToken = opts.OnBehalfOfUserToken
-		}
-		if opts.UserBearer != "" {
-			bearer = opts.UserBearer
 		}
 	}
 	if userToken != "" {

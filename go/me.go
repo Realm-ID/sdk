@@ -10,24 +10,18 @@ import (
 // credential alone: the subject is whoever the session says it is, so there is
 // no tenant/user id path parameter naming someone else.
 //
-// Two auth modes, mirroring the rest of the SDK:
-//   - DIRECT — set UserBearer to the user's access JWT; it becomes the wire
-//     bearer.
-//   - BFF — leave UserBearer empty and hand the SDK the user's verified access
-//     JWT (UserToken, or WithUserToken(ctx, …)); the realm's platform token
-//     rides as the bearer and the user JWT rides as `X-User-Token`. A BARE user
-//     id is NOT an identity — the issuer removed that in v0.66.0 and answers
-//     `401 x_user_token_required` — which is why there is no UserID mode here.
+// Escort form only (R60): the realm's platform token rides as the bearer and the
+// user's verified access JWT (UserToken, or WithUserToken(ctx, …)) rides as
+// `X-User-Token`. A call with neither is refused locally as ErrActorRequired
+// (R61, R86) and sends nothing. A BARE user id is NOT an identity, which is why
+// there is no UserID mode here.
 type MeClient struct {
 	realm *Realm
 }
 
-// MeAuth is the end-user credential every realm.Me call needs. Exactly one of
-// the two is enough; both empty falls back to a token stashed via
-// WithUserToken(ctx, …).
+// MeAuth is the end-user credential every realm.Me call needs. UserToken is
+// enough; empty falls back to a token stashed via WithUserToken(ctx, …).
 type MeAuth struct {
-	// UserBearer is the user's access JWT, used AS the bearer (direct mode).
-	UserBearer string
 	// UserToken is the user's verified access JWT forwarded as `X-User-Token`
 	// alongside the platform bearer (BFF mode, ADR-056).
 	UserToken string
@@ -65,23 +59,21 @@ type MembershipResult struct {
 	Status   string `json:"status"`
 }
 
-// bearer resolves the wire bearer + headers for a realm.Me call. Direct mode
-// still mints the platform token (keeping the cache warm and surfacing mint
-// errors), matching PassthroughOptions.UserBearer.
+// bearer resolves the wire bearer (always the platform token) + headers for a
+// realm.Me call. With no user token anywhere it refuses as ErrActorRequired
+// before any request is made (R61, R86).
 func (c *MeClient) bearer(ctx ctxpkg.Context, a MeAuth) (string, map[string]string, error) {
+	if a.UserToken == "" && userTokenFrom(ctx) == "" {
+		return "", nil, newActorRequired()
+	}
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	if a.UserBearer != "" {
-		return a.UserBearer, nil, nil
-	}
 	if a.UserToken != "" {
 		return tok, map[string]string{"X-User-Token": a.UserToken}, nil
 	}
-	// Nothing explicit: httpClient.do forwards any WithUserToken(ctx, …) JWT
-	// as X-User-Token on its own, so this is BFF mode with the token threaded
-	// through the context instead of the request.
+	// httpClient.do forwards the WithUserToken(ctx, …) JWT as X-User-Token.
 	return tok, nil, nil
 }
 

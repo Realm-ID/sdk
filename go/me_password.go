@@ -22,7 +22,7 @@ type PasswordSet struct {
 
 // SetPassword sets or changes the signed-in member's own password
 // (`PUT /me/password`, ADR-104 R7e). Both /me lanes apply, as on every
-// realm.Me call: the member's own bearer (UserBearer) or the BFF lane (platform
+// realm.Me call: the escort form (platform
 // token + UserToken / WithUserToken).
 //
 // A success ends every OTHER session of the person in the realm and keeps the

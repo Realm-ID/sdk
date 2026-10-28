@@ -19,7 +19,7 @@ func (f fakeCred) Fetch(_ context.Context) (Credential, error) { return f.c, nil
 func TestSession_TokenExchangeCredential(t *testing.T) {
 	var body map[string]any
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "ok", "subject_type": "platform",

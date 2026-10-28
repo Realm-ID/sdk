@@ -13,7 +13,7 @@ import (
 // joinedViaRealm builds a Realm against mux with a platform login stub.
 func joinedViaRealm(t *testing.T, mux *http.ServeMux) *Realm {
 	t.Helper()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "subject_type": "platform", "refresh_token": "rtok-platform", "access_token": "ptok", "expires_in": 300})
 	})
 	srv := httptest.NewServer(mux)

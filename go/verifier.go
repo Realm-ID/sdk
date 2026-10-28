@@ -277,6 +277,10 @@ func (v *verifier) expectedAudience(ctx context.Context, opts *VerifyOptions) (s
 }
 
 func (v *verifier) resolveKey(ctx context.Context, realmID, kid string) (*rsa.PublicKey, *RealmError) {
+	if v.realm.split != nil {
+		// SPEC §14.4 / R39: a split realm never consults RealmID's JWKS.
+		return v.realm.split.publicKey(ctx, kid)
+	}
 	v.mu.RLock()
 	cached, ok := v.cache[realmID]
 	v.mu.RUnlock()

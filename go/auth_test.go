@@ -46,6 +46,30 @@ func authTestServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptes
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		userLogin(w, r)
 	})
+	// R49/R71: the platform mint is served at /auth/token ONLY; every other /auth/token call goes
+	// to the test's own handler.
+	userToken := handlers["/auth/token"]
+	delete(handlers, "/auth/token")
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		var probe struct {
+			GrantType string `json:"grant_type"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if probe.GrantType == "platform_api_key" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok", "subject_type": "platform", "access_token": "ptok", "expires_in": 300,
+			})
+			return
+		}
+		if userToken == nil {
+			http.Error(w, "no token handler", http.StatusNotImplemented)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		userToken(w, r)
+	})
 	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"items": []any{
@@ -62,6 +86,7 @@ func authTestServer(t *testing.T, handlers map[string]http.HandlerFunc) *httptes
 func TestAuth_LoginHappy(t *testing.T) {
 	var gotBody map[string]any
 	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/token": userMintHandler("atok"),
 		"/auth/login": func(w http.ResponseWriter, r *http.Request) {
 			buf, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(buf, &gotBody)
@@ -232,6 +257,7 @@ func TestAuth_DecodesRefreshExp(t *testing.T) {
 
 	// A response with no refresh_exp / idle_ttl must decode as 0 (fallback signal).
 	srv2 := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/token": userMintHandler("a"),
 		"/auth/login": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "a", "refresh_token": "rr", "expires_in": 900,
@@ -337,46 +363,46 @@ func TestAuth_ListSessions_OnBehalfOf(t *testing.T) {
 	}
 }
 
-// TestAuth_ListSessions_LegacyUserBearer covers the public-client path:
-// UserBearer set → that JWT is the Authorization, no OBO header.
-func TestAuth_ListSessions_LegacyUserBearer(t *testing.T) {
-	var gotAuth, gotOBO string
+// TestAuth_ListSessions_EscortWithoutUserID: the user token alone (no UserID) is the escort
+// form (R60): platform bearer, X-User-Token, no OBO header.
+func TestAuth_ListSessions_EscortWithoutUserID(t *testing.T) {
+	var gotAuth, gotOBO, gotUT string
 	srv := authTestServer(t, map[string]http.HandlerFunc{
 		"/auth/sessions": func(w http.ResponseWriter, r *http.Request) {
 			gotAuth = r.Header.Get("Authorization")
 			gotOBO = r.Header.Get("X-On-Behalf-Of-User")
+			gotUT = r.Header.Get("X-User-Token")
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}, "next_cursor": ""})
 		},
 	})
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{UserBearer: "u-jwt"}) {
+	for _, err := range r.Auth.ListSessions(WithUserToken(context.Background(), "u-jwt"), ListSessionsRequest{}) {
 		if err != nil {
 			t.Fatalf("list: %v", err)
 		}
 	}
-	if gotAuth != "Bearer u-jwt" {
-		t.Errorf("auth = %q (want user bearer)", gotAuth)
+	if gotAuth != "Bearer ptok" || gotUT != "u-jwt" {
+		t.Errorf("auth = %q, X-User-Token = %q (want platform bearer + user token)", gotAuth, gotUT)
 	}
 	if gotOBO != "" {
-		t.Errorf("OBO header leaked in legacy path: %q", gotOBO)
+		t.Errorf("OBO header sent without a UserID: %q", gotOBO)
 	}
 }
 
-// TestAuth_ListSessions_RequiresUserSelector enforces that callers pass
-// exactly one of UserID / UserBearer.
+// TestAuth_ListSessions_RequiresUserToken: with no user token the call is refused locally as the
+// typed actor-required error (R61, R86).
 func TestAuth_ListSessions_RequiresUserSelector(t *testing.T) {
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
 	saw := false
 	for _, err := range r.Auth.ListSessions(context.Background(), ListSessionsRequest{}) {
 		saw = true
 		if err == nil {
-			t.Fatal("expected error when neither UserID nor UserBearer set")
+			t.Fatal("expected error when no user token is set")
 		}
-		var re *RealmError
-		if !errors.As(err, &re) || re.Code != ErrCodeBadRequest {
-			t.Errorf("err = %v (want bad_request)", err)
+		if !IsActorRequired(err) {
+			t.Errorf("err = %v (want actor_required)", err)
 		}
 	}
 	if !saw {
@@ -480,8 +506,7 @@ func TestAuth_MintMFAChallenge_OnBehalfOfIP(t *testing.T) {
 	})
 	defer srv.Close()
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	tok, _, err := r.Auth.MintMFAChallenge(context.Background(), MFAChallengeRequest{
-		AccessToken:  "u-jwt",
+	tok, _, err := r.Auth.MintMFAChallenge(WithUserToken(context.Background(), "u-jwt"), MFAChallengeRequest{
 		OnBehalfOfIP: "198.51.100.9",
 	})
 	if err != nil {
@@ -518,14 +543,12 @@ func TestLoginDeviceNameIsHeaderSafe(t *testing.T) {
 			var got string
 			var seen bool
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/auth/token" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"access_token":"pt","expires_in":300,"subject_type":"platform"}`))
+					return
+				}
 				if r.URL.Path == "/auth/login" {
-					var body map[string]any
-					_ = json.NewDecoder(r.Body).Decode(&body)
-					if body["grant_type"] == "platform_api_key" {
-						w.Header().Set("Content-Type", "application/json")
-						_, _ = w.Write([]byte(`{"access_token":"pt","expires_in":300,"subject_type":"platform"}`))
-						return
-					}
 					got = r.Header.Get("X-Device-Name")
 					_, seen = r.Header["X-Device-Name"]
 					w.Header().Set("Content-Type", "application/json")
@@ -567,7 +590,7 @@ func TestLoginDeviceNameIsHeaderSafe(t *testing.T) {
 func TestBFFModeRequiresAUserToken(t *testing.T) {
 	var reached bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/auth/login" {
+		if r.URL.Path == "/auth/token" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"access_token":"pt","expires_in":300,"subject_type":"platform"}`))
 			return
@@ -595,10 +618,10 @@ func TestBFFModeRequiresAUserToken(t *testing.T) {
 		t.Fatal("BFF mode with no user token must fail before the request is issued")
 	}
 	var re *RealmError
-	if !errors.As(listErr, &re) || re.Code != ErrCodeBadRequest {
-		t.Fatalf("want a bad_request RealmError, got %v", listErr)
+	if !errors.As(listErr, &re) || re.Code != ErrCodeActorRequired || !IsActorRequired(listErr) {
+		t.Fatalf("want an actor_required RealmError (R86), got %v", listErr)
 	}
-	if !strings.Contains(re.Message, "WithUserToken") {
+	if !strings.Contains(re.Message, "X-User-Token") {
 		t.Errorf("the error must name the remedy, got %q", re.Message)
 	}
 	if reached {

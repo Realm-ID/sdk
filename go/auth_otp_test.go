@@ -14,6 +14,7 @@ import (
 func TestAuth_OTPLogin_SendsCorrectBody(t *testing.T) {
 	var gotBody map[string]any
 	srv := authTestServer(t, map[string]http.HandlerFunc{
+		"/auth/token": userMintHandler("atok"),
 		"/auth/login": func(w http.ResponseWriter, r *http.Request) {
 			buf, _ := io.ReadAll(r.Body)
 			_ = json.Unmarshal(buf, &gotBody)

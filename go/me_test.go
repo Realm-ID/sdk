@@ -40,7 +40,7 @@ func TestMe_ChooseTenantSendsKeptTenantAndDecodesReleased(t *testing.T) {
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	out, err := r.Me.ChooseTenant(context.Background(), TenantChoiceRequest{
-		MeAuth:   MeAuth{UserBearer: "user-jwt"},
+		MeAuth:   MeAuth{UserToken: "user-jwt"},
 		TenantID: "t-keep",
 	})
 	if err != nil {
@@ -50,8 +50,8 @@ func TestMe_ChooseTenantSendsKeptTenantAndDecodesReleased(t *testing.T) {
 	if gotBody["tenant_id"] != "t-keep" {
 		t.Errorf("body tenant_id=%#v", gotBody["tenant_id"])
 	}
-	if gotAuth != "Bearer user-jwt" {
-		t.Errorf("authorization=%q, want the user bearer in direct mode", gotAuth)
+	if gotAuth != "Bearer ptok" {
+		t.Errorf("authorization=%q, want the platform bearer (R60 escort form)", gotAuth)
 	}
 	if out.Status != "chosen" || out.Released != 2 || out.TenantID != "t-keep" {
 		t.Errorf("result=%+v", out)
@@ -129,7 +129,7 @@ func TestMe_RejectAndLeaveHitTheirOwnRoutes(t *testing.T) {
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	// A tenant id is a path SEGMENT and must be escaped, not interpolated raw.
 	rej, err := r.Me.RejectInvitation(context.Background(), MembershipRequest{
-		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t one",
+		MeAuth: MeAuth{UserToken: "u"}, TenantID: "t one",
 	})
 	if err != nil {
 		t.Fatalf("reject: %v", err)
@@ -138,7 +138,7 @@ func TestMe_RejectAndLeaveHitTheirOwnRoutes(t *testing.T) {
 		t.Errorf("reject status=%q", rej.Status)
 	}
 	left, err := r.Me.LeaveMembership(context.Background(), MembershipRequest{
-		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t1",
+		MeAuth: MeAuth{UserToken: "u"}, TenantID: "t1",
 	})
 	if err != nil {
 		t.Fatalf("leave: %v", err)
@@ -167,7 +167,7 @@ func TestMe_OwnerCannotBeRevokedSurfacesAsRealmError(t *testing.T) {
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Me.ChooseTenant(context.Background(), TenantChoiceRequest{
-		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t1",
+		MeAuth: MeAuth{UserToken: "u"}, TenantID: "t1",
 	})
 	if err == nil {
 		t.Fatal("want an error")
@@ -207,8 +207,10 @@ func TestAuth_LoginDecodesTenantChoicePicker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	if s.AccessToken != "atok" {
-		t.Errorf("access_token=%q — the picker is a prompt, not an auth failure", s.AccessToken)
+	// R62: login carries a refresh token and never an access token; with no tenant picked there is
+	// no mint either. The picker is a prompt, not an auth failure.
+	if s.AccessToken != "" || s.RefreshToken != "rtok" {
+		t.Errorf("access_token=%q refresh_token=%q — want no access token and the refresh token", s.AccessToken, s.RefreshToken)
 	}
 	if !s.TenantChoiceRequired {
 		t.Error("TenantChoiceRequired=false")
@@ -325,7 +327,7 @@ func TestMe_AcceptInvitationHitsItsOwnRoute(t *testing.T) {
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	// A tenant id is a path SEGMENT and must be escaped, not interpolated raw.
 	acc, err := r.Me.AcceptInvitation(context.Background(), MembershipRequest{
-		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t one",
+		MeAuth: MeAuth{UserToken: "u"}, TenantID: "t one",
 	})
 	if err != nil {
 		t.Fatalf("accept: %v", err)
@@ -354,7 +356,7 @@ func TestMe_AcceptInvitationSurfacesNotPending(t *testing.T) {
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
 	_, err := r.Me.AcceptInvitation(context.Background(), MembershipRequest{
-		MeAuth: MeAuth{UserBearer: "u"}, TenantID: "t1",
+		MeAuth: MeAuth{UserToken: "u"}, TenantID: "t1",
 	})
 	re, ok := err.(*RealmError)
 	if !ok {

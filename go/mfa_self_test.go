@@ -122,7 +122,7 @@ func TestAuth_DisableMFA_NotEnrolled(t *testing.T) {
 	defer srv.Close()
 
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
-	err := r.Auth.DisableMFA(context.Background(), DisableMFARequest{UserBearer: "u-jwt", Code: "111111"})
+	err := r.Auth.DisableMFA(WithUserToken(context.Background(), "u-jwt"), DisableMFARequest{Code: "111111"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -160,7 +160,8 @@ func TestAuth_RevokeAllSessions_RequiresSelector(t *testing.T) {
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: "http://unused"})
 	err := r.Auth.RevokeAllSessions(context.Background(), RevokeAllSessionsRequest{})
 	var re *RealmError
-	if !errors.As(err, &re) || re.Code != ErrCodeBadRequest {
-		t.Errorf("want bad_request, got %v", err)
+	// R86: the selector is the escort token; with none in ctx the call is refused locally.
+	if !errors.As(err, &re) || re.Code != ErrCodeActorRequired {
+		t.Errorf("want actor_required, got %v", err)
 	}
 }

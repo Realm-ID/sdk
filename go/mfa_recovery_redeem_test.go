@@ -43,7 +43,7 @@ func TestRedeemRecoveryCode_RequestAndResponse(t *testing.T) {
 	if !strings.HasPrefix(auth, "Bearer ") || ip != "198.51.100.7" {
 		t.Errorf("auth=%q ip=%q", auth, ip)
 	}
-	if !s.ReenrollRequired || s.AccessToken != "atok" || s.RefreshToken != "rtok" {
+	if !s.ReenrollRequired || s.AccessToken != "" || s.RefreshToken != "rtok" {
 		t.Errorf("session = %#v", s)
 	}
 }

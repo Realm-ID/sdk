@@ -16,7 +16,7 @@ import (
 // On every call that needs platform-bearer auth, the manager either
 // returns a cached access token or mints/refreshes one. The lifecycle is:
 //
-//  1. POST /auth/login {grant_type:"platform_api_key", api_key} (or the
+//  1. POST /auth/token {grant_type:"platform_api_key", api_key} (or the
 //     token-exchange grant) → {access_token, expires_in}.
 //  2. When the cached access token is within 30s of expiry (or after a
 //     401 invalidate): do exactly the same thing again.
@@ -45,7 +45,7 @@ type sessionManager struct {
 	accessExpiresAt time.Time
 	// inflight dedups concurrent acquisitions. When set, a login is already
 	// running; other callers wait on it rather than each firing their own,
-	// which would stampede /auth/login on every token expiry.
+	// which would stampede /auth/token on every token expiry.
 	inflight *tokenCall
 }
 
@@ -71,7 +71,7 @@ func newSessionManager(cred CredentialSource, realmID string, http *httpClient, 
 	}
 }
 
-// loginResponse is the wire shape returned by POST /auth/login for the
+// loginResponse is the wire shape returned by POST /auth/token (R49, R71: never /auth/login) for the
 // platform_api_key and token-exchange grants. ADR-089: it carries no
 // refresh_token, and /auth/token is not part of this identity's lifecycle.
 type loginResponse struct {
@@ -97,7 +97,7 @@ func (m *sessionManager) get(ctx ctxpkg.Context) (string, error) {
 }
 
 // acquire mints the access token, deduping concurrent callers so only one
-// /auth/login request is in flight at a time. Without this, every goroutine
+// /auth/token request is in flight at a time. Without this, every goroutine
 // that observed the stale token would mint its own session row.
 func (m *sessionManager) acquire(ctx ctxpkg.Context) (string, error) {
 	m.mu.Lock()
@@ -177,7 +177,7 @@ func (m *sessionManager) wait(ctx ctxpkg.Context, d time.Duration) error {
 
 // loginAttempt fetches the bootstrap credential (a static API key or an ambient
 // workload OIDC token) and exchanges it for an access token via POST
-// /auth/login. The credential never travels on subsequent traffic — only here.
+// /auth/token (no fallback to /auth/login, R71). The credential never travels on subsequent traffic — only here.
 // workload reports whether it was a token-exchange credential (the only kind
 // login retries).
 func (m *sessionManager) loginAttempt(ctx ctxpkg.Context) (string, bool, error) {
@@ -210,7 +210,7 @@ func (m *sessionManager) exchange(ctx ctxpkg.Context, cred Credential) (string, 
 	default:
 		return "", &RealmError{Code: ErrCodeBadRequest, Message: "unsupported credential grant_type: " + cred.GrantType}
 	}
-	m.logger.Info("realmid session: platform login",
+	m.logger.Info("realmid session: platform mint",
 		slog.String("realm_id", m.realmID),
 		slog.String("grant_type", cred.GrantType),
 		slog.String("credential", redacted),
@@ -219,7 +219,7 @@ func (m *sessionManager) exchange(ctx ctxpkg.Context, cred Credential) (string, 
 	var resp loginResponse
 	err := m.http.do(ctx, requestOptions{
 		Method: "POST",
-		Path:   "/auth/login",
+		Path:   "/auth/token",
 		Body:   body,
 	}, &resp)
 	if err != nil {

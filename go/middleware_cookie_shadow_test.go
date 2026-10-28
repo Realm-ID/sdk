@@ -80,20 +80,22 @@ func TestReadRefreshTokens_EmptyWhenNoCookie(t *testing.T) {
 func tokenServer(t *testing.T, liveToken string, calls *int) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "ok", "subject_type": "platform",
-			"access_token": "ptok", "expires_in": 300,
-		})
-	})
 	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
-		*calls++
 		b, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
 		var probe struct {
+			GrantType    string `json:"grant_type"`
 			RefreshToken string `json:"refresh_token"`
 		}
 		_ = json.Unmarshal(b, &probe)
+		if probe.GrantType == "platform_api_key" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"status": "ok", "subject_type": "platform",
+				"access_token": "ptok", "expires_in": 300,
+			})
+			return
+		}
+		*calls++
 		if probe.RefreshToken != liveToken {
 			w.WriteHeader(http.StatusUnauthorized)
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{

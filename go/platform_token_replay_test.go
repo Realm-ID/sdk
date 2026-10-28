@@ -29,7 +29,7 @@ func replayServer(t *testing.T, status int, code string, replays int32, seen *[]
 	t.Helper()
 	var calls atomic.Int32
 	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/auth/token", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if s, ok := body["subject_token"].(string); ok {

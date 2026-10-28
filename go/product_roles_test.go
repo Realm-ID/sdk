@@ -182,7 +182,7 @@ func TestProductRoles_NoHandlerIsNotAnError(t *testing.T) {
 		},
 		"/auth/token": func(w http.ResponseWriter, r *http.Request) {
 			atomic.AddInt32(&calls, 1)
-			w.WriteHeader(http.StatusInternalServerError)
+			userMintHandler("atok")(w, r)
 		},
 	})
 	defer srv.Close()
@@ -192,12 +192,11 @@ func TestProductRoles_NoHandlerIsNotAnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a login with no handler must succeed unchanged: %v", err)
 	}
-	if calls != 0 {
-		t.Errorf("no handler + an access token already in hand must cost NO extra round "+
-			"trip; got %d", calls)
+	if calls != 1 {
+		t.Errorf("no handler: exactly the one /auth/token mint (R62), got %d", calls)
 	}
 	if s.AccessToken != "atok" {
-		t.Errorf("the login's own token must survive, got %q", s.AccessToken)
+		t.Errorf("the minted token must reach the session, got %q", s.AccessToken)
 	}
 }
 

@@ -13,10 +13,12 @@ var _ = ctxpkg.Background
 
 // Tenant is one entry returned from realm.Tenants.* (SPEC §6.1).
 type Tenant struct {
-	ID          string         `json:"id"`
-	DisplayName string         `json:"display_name,omitempty"`
-	OwnerUserID string         `json:"owner_user_id,omitempty"`
-	Config      map[string]any `json:"config,omitempty"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name,omitempty"`
+	OwnerUserID string `json:"owner_user_id,omitempty"`
+	// Owner is a RED STUB (S1, owned by S5): the seated owner, at role `owner` (R83).
+	Owner  *User          `json:"owner,omitempty"`
+	Config map[string]any `json:"config,omitempty"`
 	// CreatedAt / UpdatedAt are unix seconds — the issuer serializes tenant
 	// timestamps as JSON numbers (matching UpdateUserRoleResult.UpdatedAt
 	// below). Mistyped as string through go/v0.21.0; fixed in v0.22.0.

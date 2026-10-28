@@ -32,6 +32,7 @@ func TestMiddleware_TenantIDForwarded_AndBeforeLoginMutates(t *testing.T) {
 	var seen map[string]any
 	srv := mwTestServer(t, nil, testAud, map[string]http.HandlerFunc{
 		"/auth/login": captureLogin(&seen),
+		"/auth/token": userMintHandler("atok"),
 	})
 	defer srv.Close()
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
@@ -67,6 +68,7 @@ func TestMiddleware_OnAuthSuccess_Login(t *testing.T) {
 	var ignore map[string]any
 	srv := mwTestServer(t, nil, testAud, map[string]http.HandlerFunc{
 		"/auth/login": captureLogin(&ignore),
+		"/auth/token": userMintHandler("atok"),
 	})
 	defer srv.Close()
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
@@ -152,6 +154,7 @@ func TestMiddleware_OnAuthSuccess_FailsClosed_NoCookie(t *testing.T) {
 	var failEv *AuthFailureEvent
 	srv := mwTestServer(t, nil, testAud, map[string]http.HandlerFunc{
 		"/auth/login": captureLogin(&ignore),
+		"/auth/token": userMintHandler("atok"),
 	})
 	defer srv.Close()
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
@@ -185,6 +188,7 @@ func TestMiddleware_OriginEnforcement_On_RejectsMissingOrigin(t *testing.T) {
 	var ignore map[string]any
 	srv := mwTestServer(t, nil, testAud, map[string]http.HandlerFunc{
 		"/auth/login": captureLogin(&ignore),
+		"/auth/token": userMintHandler("atok"),
 	})
 	defer srv.Close()
 	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL})
@@ -215,6 +219,7 @@ func TestMiddleware_OriginEnforcement_On_AllowsListedOrigin(t *testing.T) {
 	var ignore map[string]any
 	srv := mwTestServer(t, nil, testAud, map[string]http.HandlerFunc{
 		"/auth/login": captureLogin(&ignore),
+		"/auth/token": userMintHandler("atok"),
 		"/platforms/" + testRealmID + "/origins": func(w http.ResponseWriter, _ *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"items": []any{map[string]any{"domain": "https://app.example.com"}},
@@ -264,6 +269,7 @@ func TestMiddleware_OriginEnforcement_Auto_FollowsRealmPolicy(t *testing.T) {
 func mineServerWithOrigin(t *testing.T, audience, originEnforcement string, login http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/token", platformMintThen(userMintHandler("atok")))
 	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
