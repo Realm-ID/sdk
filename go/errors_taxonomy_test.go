@@ -123,6 +123,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeResetEmailNotIdentifying, ErrCodeAssertionReplayed,
 		// Split-signing (R86, ADR-119/120): actor required, and a kid the realm never pinned.
 		ErrCodeActorRequired, ErrCodeUnpinnedKID,
+		// R91-R95: local codes of the split share path.
+		ErrCodeShareLoadFailed, ErrCodeShareSourceReadOnly,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

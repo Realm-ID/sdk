@@ -2,8 +2,8 @@ package realmid
 
 // Partner-side split-key rotation and lost-half recovery (SPEC §14.5, §14.12; R63, R67.3, R72).
 // Every call here carries the platform token and NO actor: rotation routes are no-actor (R67.3).
-// The wire shape of the handshake challenge ({nonce, partial_ri}) and answer ({sig}) is
-// [inferred]: swagger says only "returns a challenge" and "Body {sig}".
+// The handshake challenge is {nonce, partial_ri}; the answer is {sig} in base64url over
+// sha256("realmid-split-handshake/v1|realm|kid|nonce") (R93, SPEC §14.6).
 
 import (
 	ctxpkg "context"
@@ -21,16 +21,29 @@ import (
 type RotateSplitOptions struct {
 	KID      string
 	Recovery bool
-	// PreviousTrust is how long the retired key stays trusted after a normal rotation
-	// (default splitPreviousTrust). Ignored for Recovery.
-	PreviousTrust time.Duration
 }
 
-// splitPreviousTrust is the default trust_until window for the key a normal rotation retires: a
-// day, the overlap default of the custody swagger, which outlives any access token (<= 15 min).
-const splitPreviousTrust = 24 * time.Hour
+// A retired split key stays trusted for the rotation plus one access-token lifetime (ADR-068:908,
+// R91): the longest expires_in this realm has seen on a co-signed mint, never less than
+// splitTTLFloor, plus splitTTLSlack for clock skew. The 24h in the custody swagger is the
+// full-to-split overlap, a different thing.
+const (
+	splitTTLFloor = 15 * time.Minute
+	splitTTLSlack = 5 * time.Minute
+)
 
-var errRotateReadOnly = errors.New("realmid: this share source is read-only; rotate with the CLI, then reload the bundle")
+func (r *Realm) previousTrustWindow() time.Duration {
+	ttl := time.Duration(r.splitTTL.Load()) * time.Second
+	if ttl < splitTTLFloor {
+		ttl = splitTTLFloor
+	}
+	return ttl + splitTTLSlack
+}
+
+func errRotateReadOnly() error {
+	return &RealmError{Code: ErrCodeShareSourceReadOnly,
+		Message: "this share source is read-only; rotate with the CLI, then reload the bundle"}
+}
 
 // RotateSplit runs lease → keygen → store → upload d_ri → handshake → complete on a WRITABLE
 // share source. The new share is stored BEFORE the upload so a crash never strands a key whose
@@ -42,7 +55,7 @@ var errRotateReadOnly = errors.New("realmid: this share source is read-only; rot
 func (c *SigningKeysClient) RotateSplit(ctx ctxpkg.Context, store ShareSource, opts RotateSplitOptions) error {
 	w, ok := store.(WritableShareSource)
 	if !ok {
-		return errRotateReadOnly
+		return errRotateReadOnly()
 	}
 	if opts.KID == "" {
 		return &RealmError{Code: ErrCodeBadRequest, Message: "RotateSplit needs a KID"}
@@ -58,7 +71,12 @@ func (c *SigningKeysClient) RotateSplit(ctx ctxpkg.Context, store ShareSource, o
 		return err
 	}
 	base := "/platforms/" + url.PathEscape(r.realmID) + "/signing-keys/split"
-	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: base + "/rotation-lease", Bearer: tok}, nil); err != nil {
+	reason := "rotation" // R92: the issuer applies the recovery cap, audit and contact email
+	if opts.Recovery {
+		reason = "recovery"
+	}
+	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: base + "/rotation-lease", Bearer: tok,
+		Body: map[string]any{"reason": reason}}, nil); err != nil {
 		return err
 	}
 
@@ -109,11 +127,7 @@ func (c *SigningKeysClient) RotateSplit(ctx ctxpkg.Context, store ShareSource, o
 	// Handshake done: the new key is the one current share.
 	final := &ShareBundle{Realm: next.Realm, Shares: map[string]ShareEntry{opts.KID: entry}}
 	if !opts.Recovery {
-		trust := opts.PreviousTrust
-		if trust <= 0 {
-			trust = splitPreviousTrust
-		}
-		until := r.clock().Add(trust).Unix()
+		until := r.clock().Add(r.previousTrustWindow()).Unix()
 		final.Previous = append(final.Previous, cur.Previous...)
 		for kid, e := range cur.Shares {
 			if kid != opts.KID {

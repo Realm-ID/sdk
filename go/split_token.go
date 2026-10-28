@@ -60,5 +60,10 @@ func (r *Realm) finishPartial(ctx ctxpkg.Context, raw []byte) (*MintResult, erro
 	}
 	out := w.MintResult
 	out.AccessToken = jwt
+	for old := r.splitTTL.Load(); int64(out.ExpiresIn) > old; old = r.splitTTL.Load() {
+		if r.splitTTL.CompareAndSwap(old, int64(out.ExpiresIn)) {
+			break
+		}
+	}
 	return &out, nil
 }

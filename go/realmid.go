@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -176,8 +177,11 @@ type Realm struct {
 	info          *infoClient
 	verifier      *verifier
 	split         *splitState // non-nil iff Config.Split
-	revocation    RevocationCache
-	authority     AuthorityCache
+	// splitTTL is the longest access-token lifetime (seconds) seen on a co-signed mint; RotateSplit
+	// keeps a retired key trusted for it (R91).
+	splitTTL   atomic.Int64
+	revocation RevocationCache
+	authority  AuthorityCache
 
 	Auth    *AuthClient
 	Tenants *TenantsClient
@@ -267,6 +271,9 @@ func NewRealm(cfg Config) (*Realm, error) {
 	}
 	if cfg.SessionStore == nil {
 		return nil, ErrSessionStoreRequired
+	}
+	if !cfg.Split && cfg.ShareSource != nil {
+		return nil, errors.New("realmid: Config.ShareSource needs Config.Split: set both for a split-signing realm, or neither")
 	}
 	if cfg.Split && cfg.ShareSource == nil {
 		return nil, errors.New("realmid: Config.Split needs a ShareSource: a split realm trusts only the partner's pinned keys")

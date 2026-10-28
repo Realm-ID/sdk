@@ -355,6 +355,14 @@ const ErrCodeActorRequired ErrorCode = "actor_required"
 // ErrCodeUnpinnedKID refuses a token whose kid the split bundle does not pin (SPEC §14.4).
 const ErrCodeUnpinnedKID ErrorCode = "unpinned_kid"
 
+// ErrCodeShareLoadFailed is a split realm whose share source could not be read, so no key can be
+// pinned (SPEC §14.4, §14.9). Local: never a server code.
+const ErrCodeShareLoadFailed ErrorCode = "share_load_failed"
+
+// ErrCodeShareSourceReadOnly refuses a rotation on a share source with no Store (the environment
+// source): rotate with the CLI, then reload the bundle (SPEC §14.5, §14.9). Local.
+const ErrCodeShareSourceReadOnly ErrorCode = "share_source_read_only"
+
 // actorRequiredHint is the text partners read when a job forgets the actor (SPEC §14.10).
 const actorRequiredHint = "This action needs a user or service account. Send its token in X-User-Token."
 
@@ -615,6 +623,8 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeResetEmailNotIdentifying: {}, ErrCodeAssertionReplayed: {},
 	// SPEC §14.4, §14.10 (split signing; R60, R86).
 	ErrCodeActorRequired: {}, ErrCodeUnpinnedKID: {},
+	// SPEC §14.9 (R91-R95): local split-signing codes.
+	ErrCodeShareLoadFailed: {}, ErrCodeShareSourceReadOnly: {},
 }
 
 func isKnownCode(s string) bool {

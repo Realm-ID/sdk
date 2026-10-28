@@ -5,8 +5,8 @@ package realmid
 // then calls the TARGET realm's token endpoint with grant_type=integration_installation, the
 // target's platform token in Authorization and the pass in X-User-Token (never in a body). On a
 // split target it finishes the half-signed answer and returns a normal token; otherwise it relays
-// the issuer's answer verbatim. It does no authorization of its own. The registration canary the
-// SPEC mentions is not served: its protocol is not specified yet.
+// the issuer's answer verbatim. It does no authorization of its own. There is no registration
+// canary in v1 (R94).
 
 import (
 	"bytes"
@@ -23,6 +23,8 @@ import (
 // SDK default [inferred].
 type IntegrationHandlerOptions struct {
 	RatePerMinute int
+	// ClientKey names the rate-limit bucket of a request. Nil = the host of RemoteAddr.
+	ClientKey func(*http.Request) string
 }
 
 // defaultIntegrationRate is requests per minute per client address when no rate is set.
@@ -76,11 +78,15 @@ func NewIntegrationTokenHandler(target *Realm, opts IntegrationHandlerOptions) h
 			writeHandlerError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 			return
 		}
-		host, _, err := net.SplitHostPort(req.RemoteAddr)
-		if err != nil {
-			host = req.RemoteAddr
+		var key string
+		if opts.ClientKey != nil {
+			key = opts.ClientKey(req)
+		} else if host, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+			key = host
+		} else {
+			key = req.RemoteAddr
 		}
-		if !lim.allow(host) {
+		if !lim.allow(key) {
 			w.Header().Set("Retry-After", "60")
 			writeHandlerError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
 			return

@@ -518,6 +518,9 @@ seen. Registered in all three languages (Go `ErrCodeAssertionReplayed`, java
 | --- | --- | --- |
 | `platform_bearer_required` | 401 | `Authorization` did not verify as a platform-class token of the path's realm (a user JWT, key session or SA session as the bearer). Send the platform token in `Authorization` and the person's token in `X-User-Token`. |
 | `actor_required` | 403 | The call needs a user or service account and the request carried none. Typed error (R86): Go sentinel `ErrActorRequired` (carried in `RealmError.Cause`; also `ErrCodeActorRequired` and `IsActorRequired(err)`), ts `ActorRequiredError extends RealmError` (also `isActorRequired(e)`), java `ActorRequiredException extends RealmException` (also `RealmException.isActorRequired(t)`), raised for both the SDK's local refusal and this server code, with the hint "This action needs a user or service account. Send its token in X-User-Token." |
+| `unpinned_kid` | 401 (local) | A split verifier met a token whose `kid` the partner's share bundle does not pin (§14.4). Raised by the verifier; no typed subclass. |
+| `share_load_failed` | local | A split realm's share source could not be read, so no key can be pinned (§14.4, §14.9). Replaces `jwks_fetch_failed` on the split path, which never fetches JWKS. No typed subclass. |
+| `share_source_read_only` | local | A rotation was asked of a share source with no write method (the environment source); nothing was sent. Rotate with the CLI, then reload the bundle (§14.5). No typed subclass. |
 | `login_grant_removed` | 400 | A bot grant (`api_key`, `user_api_key`, token exchange, `platform_api_key`, the old integration grant) was sent to `/auth/login`. Send it to `/auth/token`. |
 
 **Management / generic codes:**
@@ -4980,16 +4983,41 @@ finished signature under the public key from its own store, and only then releas
 ### 14.4 Trust
 
 A `split: true` verifier trusts only the public keys of the partner's bundle (plus a previous key
-until `trust_until`) and NEVER the issuer's JWKS (R39). Construction fails without a trust source.
-A token under an unpinned `kid` is refused with a coded error (`ErrCodeUnpinnedKID`, proposed)
-and a log/metric naming the fingerprint (R23 as amended by R39).
+until `trust_until`) and NEVER the issuer's JWKS (R39). Construction fails without a trust source,
+and a share source given WITHOUT the split switch is equally a construction error (set both or
+neither). A token under an unpinned `kid` is refused with the coded error `unpinned_kid`
+(`ErrCodeUnpinnedKID`). A share source that cannot be read is `share_load_failed`, never
+`jwks_fetch_failed`. The expected `iss` of a co-signed token is `baseURL + "/" + realmID` (the
+issuer's public base URL, no trailing slash).
+
+**Previous-key window (R91, ADR-068:908).** A rotation retires the old split key but keeps it
+trusted until `trust_until` = rotation time + one access-token lifetime + 5 minutes of clock slack.
+The lifetime is the longest `expires_in` the SDK has seen on a co-signed mint, never less than 15
+minutes. There is no caller-set window and no 24-hour default (the 24 hours in the custody swagger
+is the full-to-split overlap, a different thing). A lost-half recovery keeps no previous key.
 
 ### 14.5 Share sources
 
 `ShareSource.Load(ctx) → (bundle, version)`. Core, stdlib only: environment (read-only) and file
 (atomic rename, mode `0600`, KEK required outside local dev). Add-ons: GSM (R35) and Redis + KEK
 (AES-256-GCM, KEK id per entry, persistence required) (G6, R39). Writable sources implement a
-write method. Pods sync through `realmid:share:<realm>:version` (pub/sub + ~30 s poll) and one
+write method.
+
+**Share envelope v1 (R93)** is the ONE at-rest format for the file store, Redis, GSM-with-KEK and
+the CLI: `{"v":1,"alg":"A256GCM","kek_id":"<16 hex>","nonce":"<b64url 12 bytes>","ct":"<b64url
+ciphertext||16-byte tag>","ver":"<version>"}` (`ver` only where the source carries its own
+version; the file store omits it). AES-256-GCM with a random 96-bit nonce; the AAD is the UTF-8
+string `realmid-share/v1|<realm>|<kek_id>`, so a bundle copied to another realm, or an envelope
+whose `kek_id` is edited, fails to open. The realm is an INPUT of the source (Go
+`FileShareOptions.Realm`, required with a KEK), never read from the envelope. `kek_id` is the first
+16 hex of `sha256("realmid-kek-id/v1" || kek)`, so every language and the CLI derive the same id.
+A load under a KEK whose id differs from the envelope's fails without trying to decrypt. Plaintext
+(no KEK) is the file source's local-dev mode only.
+
+**Rotation** (`RotateSplit`) opens with the lease `POST …/rotation-lease` whose body is
+`{"reason": "rotation" | "recovery"}` (R92: `recovery` when the caller sets the recovery option), so
+the issuer can apply the recovery cap, audit it and email the contacts. A source with no write
+method fails with `share_source_read_only` before anything is sent. Pods sync through `realmid:share:<realm>:version` (pub/sub + ~30 s poll) and one
 rate-limited re-read on an unknown `kid`. Rotation and lost-half recovery run on a writable store;
 an environment source emits `rotation_due` and recovers through the CLI.
 
@@ -4998,6 +5026,12 @@ an environment source emits `rotation_due` and recovers through the CLI.
 The SDK handshakes at startup and after every share reload. A failed handshake on the realm's
 sole active key, or a share that cannot load, makes the BFF not-ready. A handshake failure stops
 and alerts; it never loops. RealmID never half-signs a caller-chosen message.
+
+**Wire (R93).** `POST …/signing-keys/split/{kid}/handshake` answers the challenge `{nonce,
+partial_ri}` (`partial_ri` base64url). The SDK completes the exponentiation over the digest
+`sha256("realmid-split-handshake/v1|<realm>|<kid>|<nonce>")` (that digest IS the message the
+PKCS#1 v1.5 SHA-256 encoding wraps) and answers `POST …/handshake/complete` with `{"sig":
+"<base64url, no padding, k bytes big-endian>"}`.
 
 ### 14.7 Metrics (R37)
 
@@ -5014,14 +5048,75 @@ The handler sends the TARGET realm's platform token in `Authorization` and forwa
 no actor (`POST /integrations/installations/{id}/pass`, existing unrevoked install only).
 On a split target the handler FINISHES the half-signed answer and returns a normal token; on a full
 target it relays the issuer's answer unchanged. The pass carries `source_org_id` (R54b), so the
-mint names the acting org of the source platform. It does no authorization of its own and answers
-the issuer's registration canary. The direct integration grant on `/auth/login` is removed (R34).
+mint names the acting org of the source platform. It does no authorization of its own. There is NO
+registration canary in v1 (R94): registering the endpoint stores the URL only, and a wrong URL shows
+on the first real integration sign-in. The direct integration grant on `/auth/login` is removed (R34).
+
+**Inbound and outbound shape.** The caller POSTs `{"pass": "<install pass>"}` (body at most 8 KiB).
+Answers: `405` + `Allow: POST` for another method; `400 bad_request` for a missing pass; `429
+rate_limited` + `Retry-After: 60` over the limit; `502` for an unreachable or unreadable token
+endpoint or a co-sign that fails; otherwise the token answer, always with `Cache-Control:
+no-store`, and an issuer error relayed with its status, body and `Retry-After`. Errors are
+`{"error": {"code", "message"}}`. The limiter is per client: the option **`clientKey`** names the
+bucket of a request (Go `IntegrationHandlerOptions.ClientKey func(*http.Request) string`, default
+the host of `RemoteAddr`; ts `clientKey: (req) => string`, default ONE global bucket; Java
+`Function<String,String>` over the remote address, default identity). Java's `Response` carries
+headers (`Response(int status, Map<String,String> headers, String body)`).
 The base realm is not an integration target (R68.2): RealmID's BFF mounts no handler.
 
-### 14.9 Scope
+### 14.9 Scope and public names (R86, R91-R95)
 
-Server-only entry point; browser packages are structurally excluded. Applies to go, ts and java at
-parity. Unverified until built: all symbol names and the metric `result` label values.
+Server-only entry point; browser packages are structurally excluded. Go and Java ship it in the
+core artifact; TypeScript ships it ONLY at the subpath `@realm-id/sdk/split`, which `index.ts`
+neither imports nor re-exports (a test walks the import graph). Applies to go, ts and java at
+parity. Names follow §3.1's rule: one stem, each language's idiom.
+
+| concept | Go (`realmid`) | TypeScript (`@realm-id/sdk/split`) | Java (`dev.realmid.sdk.split` unless noted) |
+|---|---|---|---|
+| split realm | `Config{Split: true, ShareSource: s}` | `createSplitRealm({...cfg, shareSource})` | `Realm.builder().split(true).shareSource(s)` |
+| construction rule | a source without `Split`, or `Split` without a source, fails `NewRealm` | type-enforced (the factory requires the source) | as Go, at `build()` |
+| source / writable | `ShareSource`, `WritableShareSource` | same names | same names |
+| load / store | `Load(ctx) (*ShareBundle, string, error)`, `Store(ctx, *ShareBundle) (string, error)` | `load({signal?})` → `{bundle, version}`, `store(bundle, {signal?})` → version | `load()` → `ShareSource.Loaded`, `store(bundle)` → version |
+| core sources | `NewEnvShareSource`, `NewFileShareSource` | `envShareSource`, `fileShareSource` | `ShareSources.env`, `ShareSources.file` |
+| file options | `FileShareOptions{KEK, LocalDev, Realm}` | `{kek?, localDev?, realm?}` | `FileShareOptions(kek, localDev, realm)` |
+| values | `ShareBundle`, `ShareEntry`, `PreviousKey`, `PartialSigning` | same | same (records) |
+| low-level co-sign | `CompletePartial`, `CompleteHandshake`, `CoSign` | `completePartial`, `completeHandshake`, `coSign` | `CoSigner.completePartial/completeHandshake/coSign` |
+| rotation | `(*SigningKeysClient).RotateSplit(ctx, src, RotateSplitOptions{KID, Recovery})` | `rotateSplit(realm, src, {kid, recovery?})` | `SigningKeysClient.rotateSplit(src, opts)` (`dev.realmid.sdk.signingkeys`) |
+| integration handler | `NewIntegrationTokenHandler(r, IntegrationHandlerOptions{RatePerMinute, ClientKey}) http.Handler` | `createIntegrationTokenHandler(r, {ratePerMinute?, clientKey?})` → `(Request) => Promise<Response>` | `new IntegrationTokenHandler(r, opts).handle(method, clientKey, body)` → `Response(status, headers, body)` |
+| codes | `ErrCodeUnpinnedKID`, `ErrCodeShareLoadFailed`, `ErrCodeShareSourceReadOnly` | `"unpinned_kid"`, `"share_load_failed"`, `"share_source_read_only"` | `ErrorCode.UNPINNED_KID`, `SHARE_LOAD_FAILED`, `SHARE_SOURCE_READ_ONLY` |
+
+There is no previous-trust option on the rotation call in any language (§14.4). Every listed code is
+registered in all three taxonomies (`scripts/taxonomy-parity.py`) and none gets a typed subclass:
+they are not raised for partners to branch on by type (§3.1). The env source's rotation refusal is
+`share_source_read_only` in all three. A share is never printed: Go `ShareEntry.Format`, ts
+non-enumerable `d_partner`, Java `ShareEntry.toString` override. ts `load`/`store` take an optional
+`{signal: AbortSignal}`; Java stays synchronous and add-ons take a timeout in their options.
+
+**Specified here, NOT yet built in Go** (tracked in `sdk/TODO.md` § Go SDK only): the startup
+handshake and readiness entry point (`(*Realm).SplitReady(ctx) error`, ts `splitReady(realm)`, Java
+`Realm.splitReady()`), the metrics hooks and their label values (`realmid_cosign_total{result=ok|
+refused|bad_signature|unpinned_kid}`, `realmid_share_load_total{source=env|file|gsm|redis,
+result=ok|error}`) [proposed], `rotation_due`, the public-only key list (`PublicKeyList`,
+`NewPublicKeySource` / `publicKeySource` / `ShareSources.publicKeys`), the `ShareWatcher` hook, and
+logging the fingerprint (not the kid) of an unpinned key.
+
+### 14.13 Add-on share sources (R35, R39, R95)
+
+GSM and Redis sources are add-ons: the core stays stdlib-only. Names [proposed, add-ons unbuilt]:
+
+| | Go module (own `go.mod`) | npm | Maven artifact |
+|---|---|---|---|
+| GSM | `github.com/Realm-ID/sdk/go/secrets/gsm`, tag `go/secrets/gsm/vX` | `@realm-id/sdk-secrets-gsm` | `realm-id-sdk-secrets-gsm` |
+| Redis | `github.com/Realm-ID/sdk/go/secrets/redis`, tag `go/secrets/redis/vX` | `@realm-id/sdk-secrets-redis` | `realm-id-sdk-secrets-redis` |
+
+**Versions (R95).** The ts and java add-ons have their OWN tags and versions, not lockstep with the
+core `ts-v*` / `java-v*` tags; the Go add-ons have their own module tags as Go requires (R35). A
+`TODO.md` never goes under `sdk/go/`.
+
+Every add-on implements `ShareSource` / `WritableShareSource` over an injectable client interface
+(so tests use a fake), seals with envelope v1 (§14.5), and Redis lays keys out as
+`realmid:share:<realm>:bundle|public|version` with persistence required (R39(2)). The KEK env var
+is `REALM_ID_SHARE_KEK`: `<b64url 32 bytes>[,<b64url 32 bytes>…]`, the FIRST the write key.
 
 ### 14.10 Platform token always, and the actor model (R60, R61, R64-R68)
 

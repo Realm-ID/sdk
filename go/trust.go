@@ -95,7 +95,7 @@ func (s *splitState) current(ctx context.Context) (*ShareBundle, error) {
 func (s *splitState) entry(ctx context.Context, kid string) (ShareEntry, error) {
 	b, err := s.current(ctx)
 	if err != nil {
-		return ShareEntry{}, err
+		return ShareEntry{}, &RealmError{Code: ErrCodeShareLoadFailed, Message: err.Error(), Cause: err}
 	}
 	if e, ok := b.Shares[kid]; ok {
 		return e, nil
@@ -116,7 +116,7 @@ func (s *splitState) entry(ctx context.Context, kid string) (ShareEntry, error) 
 // publicKey resolves kid for the verifier from the bundle only.
 func (s *splitState) publicKey(ctx context.Context, kid string) (*rsa.PublicKey, *RealmError) {
 	if _, err := s.current(ctx); err != nil {
-		return nil, &RealmError{Code: ErrCodeJWKSFetchFailed, Message: err.Error(), Cause: err}
+		return nil, &RealmError{Code: ErrCodeShareLoadFailed, Message: err.Error(), Cause: err}
 	}
 	lookup := func() (*splitKeyInfo, bool) {
 		s.mu.Lock()

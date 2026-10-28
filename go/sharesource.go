@@ -101,19 +101,34 @@ func (s *envShareSource) Load(ctxpkg.Context) (*ShareBundle, string, error) {
 type FileShareOptions struct {
 	KEK      []byte
 	LocalDev bool
+	// Realm is the realm id the envelope is bound to (AAD, SPEC §14.5). Required with a KEK.
+	Realm string
 }
 
 type fileShareSource struct {
 	path string
 	gcm  cipher.AEAD // nil = plaintext (local dev)
+	kid  string      // KEK id
+	aad  []byte      // realmid-share/v1|<realm>|<kek id>
 	mu   sync.Mutex
 }
 
-// fileEnvelope is the at-rest shape when a KEK is set.
+// fileEnvelope is envelope v1 (SPEC §14.5): the at-rest shape when a KEK is set. Ver is set only
+// by sources that carry their own version (Redis); this file store leaves it out.
 type fileEnvelope struct {
 	V     int    `json:"v"`
+	Alg   string `json:"alg"`
+	KEKID string `json:"kek_id"`
 	Nonce string `json:"nonce"`
 	CT    string `json:"ct"`
+	Ver   string `json:"ver,omitempty"`
+}
+
+// kekID is the first 16 hex of sha256("realmid-kek-id/v1" || kek): derived, so every SDK and the
+// CLI compute the same id with no naming step.
+func kekID(kek []byte) string {
+	sum := sha256.Sum256(append([]byte("realmid-kek-id/v1"), kek...))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // NewFileShareSource is the atomic-rename, mode-0600 file store. A KEK (32 bytes) encrypts the
@@ -132,6 +147,11 @@ func NewFileShareSource(path string, opts FileShareOptions) (WritableShareSource
 		if s.gcm, err = cipher.NewGCM(blk); err != nil {
 			return nil, err
 		}
+		if opts.Realm == "" {
+			return nil, errors.New("realmid: a share file with a KEK needs FileShareOptions.Realm (the envelope is bound to the realm)")
+		}
+		s.kid = kekID(opts.KEK)
+		s.aad = []byte("realmid-share/v1|" + opts.Realm + "|" + s.kid)
 	case opts.LocalDev:
 	default:
 		return nil, errors.New("realmid: a share file needs a KEK outside local development (FileShareOptions.KEK)")
@@ -149,16 +169,19 @@ func (s *fileShareSource) Load(ctxpkg.Context) (*ShareBundle, string, error) {
 	plain := raw
 	if s.gcm != nil {
 		var env fileEnvelope
-		if json.Unmarshal(raw, &env) != nil || env.V != 1 {
+		if json.Unmarshal(raw, &env) != nil || env.V != 1 || env.Alg != "A256GCM" {
 			return nil, "", errors.New("realmid: share file is not an encrypted bundle")
+		}
+		if env.KEKID != s.kid {
+			return nil, "", fmt.Errorf("realmid: share file is sealed under KEK %q, not the configured %q", env.KEKID, s.kid)
 		}
 		nonce, err1 := base64.RawURLEncoding.DecodeString(env.Nonce)
 		ct, err2 := base64.RawURLEncoding.DecodeString(env.CT)
 		if err1 != nil || err2 != nil || len(nonce) != s.gcm.NonceSize() {
 			return nil, "", errors.New("realmid: share file envelope is malformed")
 		}
-		if plain, err = s.gcm.Open(nil, nonce, ct, nil); err != nil {
-			return nil, "", errors.New("realmid: share file did not decrypt (wrong KEK?)")
+		if plain, err = s.gcm.Open(nil, nonce, ct, s.aad); err != nil {
+			return nil, "", errors.New("realmid: share file did not decrypt (wrong KEK or realm?)")
 		}
 	}
 	b, err := parseBundle(plain)
@@ -181,9 +204,9 @@ func (s *fileShareSource) Store(_ ctxpkg.Context, b *ShareBundle) (string, error
 		if _, err := rand.Read(nonce); err != nil {
 			return "", err
 		}
-		out, _ = json.Marshal(fileEnvelope{V: 1,
+		out, _ = json.Marshal(fileEnvelope{V: 1, Alg: "A256GCM", KEKID: s.kid,
 			Nonce: base64.RawURLEncoding.EncodeToString(nonce),
-			CT:    base64.RawURLEncoding.EncodeToString(s.gcm.Seal(nil, nonce, plain, nil))})
+			CT:    base64.RawURLEncoding.EncodeToString(s.gcm.Seal(nil, nonce, plain, s.aad))})
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".shares-*")
 	if err != nil {

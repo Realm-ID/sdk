@@ -381,6 +381,7 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
+- [ ] `go/trust.go` — SPEC §14.6/§14.7/§14.5/§14.9 items Go lacks (S5c did not build them, SPEC names are proposals): `(*Realm).SplitReady(ctx)` startup handshake + readiness after every reload; metrics hooks `realmid_cosign_total` / `realmid_share_load_total`; `rotation_due` on the env source; `PublicKeyList` + `NewPublicKeySource` (verify-only services); `ShareWatcher` hook for pub/sub add-ons; `KEKRing` (`REALM_ID_SHARE_KEK` parsing, multi-KEK write-back); unpinned-kid log should name the key FINGERPRINT, not the kid (trust.go still logs the kid); a unit that gives ts/java the same pilot before S6/S7 green
 - [ ] `go/integrations.go` — `IntegrationsClient.MintToken` still POSTs `grant_type=integration_installation` to `/auth/login`, which R34 removed; the replacement is `POST /integrations/installations/{id}/pass` (platform token, no actor) then the pass in `X-User-Token` to `POST /auth/token`; no Go method exists for the pass mint (split-signing S5b)
 - [ ] `go/` — split-signing G16 startup handshake, `realmid_cosign_total` / `realmid_share_load_total` metrics (SPEC 14.6/14.7) and the integration-handler registration canary are not built; no red test covers them (split-signing S5b)
 

@@ -86,7 +86,7 @@ func TestShareSource_FileRequiresKEKOutsideLocalDev(t *testing.T) {
 func TestShareSource_FileWithKEKEncryptsAtRestAndWrongKEKFails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "shares.json")
 	kek := bytes.Repeat([]byte{7}, 32)
-	src, err := NewFileShareSource(path, FileShareOptions{KEK: kek})
+	src, err := NewFileShareSource(path, FileShareOptions{KEK: kek, Realm: "r1"})
 	if err != nil {
 		t.Fatalf("NewFileShareSource: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestShareSource_FileWithKEKEncryptsAtRestAndWrongKEKFails(t *testing.T) {
 	if b, _, err := src.Load(context.Background()); err != nil || b.Shares["split-1"].DPartner != k.entry().DPartner {
 		t.Errorf("Load with the right KEK: %v", err)
 	}
-	wrong, err := NewFileShareSource(path, FileShareOptions{KEK: bytes.Repeat([]byte{9}, 32)})
+	wrong, err := NewFileShareSource(path, FileShareOptions{KEK: bytes.Repeat([]byte{9}, 32), Realm: "r1"})
 	if err != nil {
 		t.Fatalf("second source: %v", err)
 	}
