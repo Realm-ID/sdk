@@ -1,5 +1,9 @@
 # @realm-id/web-admin — changelog
 
+## 0.25.0 — transport drops the per-call `bearer` (R60, 2026-10-28)
+
+**Breaking (internal shim).** `realmFetchAsHttpClient` no longer reads a per-call `bearer` (removed from the `@realm-id/sdk` 0.58.0 `RequestOptions`). A person's token is passed as the `x-user-token` header (the core's `withUserToken` form), which the shim already forwarded; `skipPlatformToken` alone now forces `anonymous`.
+
 ## 0.24.0 — contact uniqueness, contact proof, invitation resend (ADR-117, R7 + R9) (2026-10-19)
 
 **Added.** Realm config `contacts.unique_kinds` on `RealmConfigPatch` (nullable list; `null` resets) and on `RealmConfigView`; `PlatformsClient.updateConfig(id, patch, { confirmLockout })` sends `confirm_lockout=true` as a QUERY parameter; `PlatformsClient.getConfigResponse(id)` keeps the envelope so the read-only `unique_kinds_report` (counts per kind) is reachable. `UniqueContactKind` exported.

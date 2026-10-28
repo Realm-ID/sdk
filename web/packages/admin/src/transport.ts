@@ -134,15 +134,11 @@ export function realmFetchAsHttpClient(
           headers[k] = v;
         }
       }
-      if (req.bearer) {
-        headers["authorization"] = `Bearer ${req.bearer}`;
-      }
-
-      // When the caller supplies their own credential (`bearer`) or
-      // explicitly opts out of the platform-token mint (the closest
-      // equivalent here is "I'm bringing my own auth"), bypass the
-      // SDK's session-bearer attach so the explicit bearer wins.
-      const anonymous = !!req.bearer || req.skipPlatformToken === true;
+      // R60: no per-call bearer. The session/platform token rides Authorization
+      // (attached by `realm.fetch`); a person's token rides `X-User-Token`,
+      // passed through above from `req.headers` (the core's `withUserToken`).
+      // `skipPlatformToken` opts out of the SDK's own attach.
+      const anonymous = req.skipPlatformToken === true;
 
       const init: RequestInit & { anonymous?: boolean } = {
         method: req.method ?? "GET",

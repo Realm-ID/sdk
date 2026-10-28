@@ -197,7 +197,7 @@ describe("realmFetchAsHttpClient", () => {
     );
   });
 
-  it("explicit bearer sets Authorization and anonymous=true", async () => {
+  it("a per-call X-User-Token header reaches the wire; the shim sets no Authorization (R60)", async () => {
     const { realm, calls } = makeRealm(() =>
       new Response(JSON.stringify({ data: [] }), {
         status: 200,
@@ -205,11 +205,12 @@ describe("realmFetchAsHttpClient", () => {
       }),
     );
     const http = realmFetchAsHttpClient(realm, { baseUrl: "https://api.partner.com" });
-    await http.request({ method: "GET", path: "/sessions", bearer: "rt_one_shot" });
+    await http.request({ method: "GET", path: "/sessions", headers: { "x-user-token": "user_jwt" } });
     const init = calls[0]!.init;
-    assert.equal(init.anonymous, true);
+    assert.equal(init.anonymous, undefined);
     const h = new Headers(init.headers);
-    assert.equal(h.get("authorization"), "Bearer rt_one_shot");
+    assert.equal(h.get("x-user-token"), "user_jwt");
+    assert.equal(h.get("authorization"), null);
   });
 
   it("skipPlatformToken=true also forces anonymous", async () => {
