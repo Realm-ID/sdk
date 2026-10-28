@@ -89,6 +89,7 @@ public final class Realm {
     private final SourcesClient sources;
     private final FederationBindingsClient federationBindings;
     private final SigningKeysClient signingKeys;
+    private final dev.realmid.sdk.split.SplitState splitState;
     private final IdentityProviderConfigClient identityProviderConfig;
     private final IdentityProvidersClient identityProviders;
     private final OriginsClient origins;
@@ -161,12 +162,16 @@ public final class Realm {
                 }),
                 httpClient, mapper,
                 b.cacheTtl, b.leeway, clock, this.logger, b.authority, b.revocation);
+        this.splitState = new dev.realmid.sdk.split.SplitState(b.shareSource, clock, this.logger,
+                this.baseUrl + "/" + this.realmId);
+        if (this.splitState.isSplit()) this.verifier.setKeyResolver(this.splitState::publicKey);
         this.authority = b.authority;
         this.revocation = b.revocation;
         this.orgSessionModes = new dev.realmid.sdk.session.OrgSessionModes(
                 this.baseUrl, this.realmId, httpClient, mapper, clock, this.logger);
         this.tokens = new TokensClient(this.sessionStore, clock, this.logger, this.orgSessionModes::mode);
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
+        this.auth.setSplitState(this.splitState);
         this.auth.setRevocationCache(this.revocation);
         this.auth.setLogoutSupport(this.tokens, this.verifier, clock);
         this.auth.setSessionStore(this.sessionStore);
@@ -181,7 +186,7 @@ public final class Realm {
         this.sources = new SourcesClient(this.http, this.realmId);
         this.integrations = new IntegrationsClient(this.http, this.realmId);
         this.federationBindings = new FederationBindingsClient(this.http, this.realmId);
-        this.signingKeys = new SigningKeysClient(this.http, this.realmId);
+        this.signingKeys = new SigningKeysClient(this.http, this.realmId, this.splitState, clock);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, clock);
@@ -224,7 +229,9 @@ public final class Realm {
         this.verifier = parent.verifier;
         this.http = parent.http.withUserToken(userToken);
 
+        this.splitState = parent.splitState;
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
+        this.auth.setSplitState(this.splitState);
         this.auth.setRevocationCache(this.revocation);
         this.auth.setLogoutSupport(this.tokens, this.verifier, this.clock);
         this.auth.setSessionStore(this.sessionStore);
@@ -239,7 +246,7 @@ public final class Realm {
         this.sources = new SourcesClient(this.http, this.realmId);
         this.integrations = new IntegrationsClient(this.http, this.realmId);
         this.federationBindings = new FederationBindingsClient(this.http, this.realmId);
-        this.signingKeys = new SigningKeysClient(this.http, this.realmId);
+        this.signingKeys = new SigningKeysClient(this.http, this.realmId, this.splitState, this.clock);
         this.identityProviderConfig = new IdentityProviderConfigClient(this.http, this.realmId);
         this.identityProviders = new IdentityProvidersClient(this.http, this.realmId);
         this.origins = new OriginsClient(this.http, this.platformTokens, this.clock);
@@ -420,6 +427,10 @@ public final class Realm {
 
     /** Internal accessor for the middleware. */
     public HttpTransport http() { return http; }
+    /** INTERNAL: the clock this realm was built with. */
+    public Clock clock() { return clock; }
+    /** INTERNAL: the split-signing state; {@code isSplit()} is false on a full-signing realm. */
+    public dev.realmid.sdk.split.SplitState splitState() { return splitState; }
     public PlatformTokenManager platformTokens() { return platformTokens; }
 
     /** SPEC §10 — middleware config builder. */
@@ -609,6 +620,23 @@ public final class Realm {
             return this;
         }
 
-        public Realm build() { return new Realm(this); }
+        /**
+         * SPEC 14.4: the realm is split. Must be paired with {@link #shareSource}; {@link #build()} throws
+         * when exactly one of the two is set (R4).
+         */
+        public Builder split(boolean v) { this.split = v; return this; }
+        /** SPEC 14.5: the partner's share bundle source; the verifier then trusts its keys only. */
+        public Builder shareSource(dev.realmid.sdk.split.ShareSource v) { this.shareSource = v; return this; }
+        private boolean split;
+        private dev.realmid.sdk.split.ShareSource shareSource;
+
+        public Realm build() {
+            if (split != (shareSource != null)) {
+                throw new RealmException(ErrorCode.BAD_REQUEST, split
+                        ? "realmid: split(true) needs a shareSource (R4)"
+                        : "realmid: a shareSource needs split(true) (R4)");
+            }
+            return new Realm(this);
+        }
     }
 }

@@ -49,11 +49,11 @@ class MeClientTest {
         fs.on("POST /me/tenant-choice", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("tenant_id", "t-keep", "status", "chosen", "released", 2)));
 
-        TenantChoiceResult out = realm.me().chooseTenant("t-keep", MeAuth.bearer("user-jwt"));
+        TenantChoiceResult out = realm.me().chooseTenant("t-keep", MeAuth.onBehalfOf("user-jwt"));
         // The body names the membership to KEEP, not the ones released.
         assertEquals("t-keep", fs.last().bodyAsMap().get("tenant_id"));
         // Direct mode: the user's own JWT is the wire bearer.
-        assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+        assertEquals("user-jwt", fs.last().header("x-user-token"));
         assertEquals("t-keep", out.tenantId());
         assertEquals("chosen", out.status());
         assertEquals(2, out.released());
@@ -79,11 +79,11 @@ class MeClientTest {
         fs.on("POST /me/memberships/t1/leave", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("tenant_id", "t1", "status", "left")));
 
-        MembershipResult rej = realm.me().rejectInvitation("t1", MeAuth.bearer("u"));
+        MembershipResult rej = realm.me().rejectInvitation("t1", MeAuth.onBehalfOf("u"));
         assertEquals("rejected", rej.status());
         assertTrue(fs.last().bodyAsMap().isEmpty(), "reject takes no body");
 
-        MembershipResult left = realm.me().leave("t1", MeAuth.bearer("u"));
+        MembershipResult left = realm.me().leave("t1", MeAuth.onBehalfOf("u"));
         assertEquals("left", left.status());
         assertEquals("t1", left.tenantId());
     }
@@ -94,7 +94,7 @@ class MeClientTest {
                 Map.of("error", "transfer ownership first", "code", "owner_cannot_be_revoked")));
 
         RealmException e = assertThrows(RealmException.class,
-                () -> realm.me().chooseTenant("t1", MeAuth.bearer("u")));
+                () -> realm.me().chooseTenant("t1", MeAuth.onBehalfOf("u")));
         // Must NOT collapse into the generic 409 CONFLICT — the remedy
         // (transfer ownership) is specific to this code.
         assertEquals(ErrorCode.OWNER_CANNOT_BE_REVOKED, e.getCode());
@@ -121,7 +121,7 @@ class MeClientTest {
         });
 
         Session s = realm.auth().login(dev.realmid.sdk.auth.LoginRequest.of("google", "tok"));
-        assertEquals("atok", s.accessToken());
+        assertNull(s.accessToken(), "R44: login-shaped answers never surface an access token");
         assertTrue(s.tenantChoiceRequired());
         assertEquals(2, s.tenantChoices().size());
         assertEquals("t1", s.tenantChoices().get(0).tenantId());
@@ -164,7 +164,7 @@ class MeClientTest {
         fs.on("POST /me/invitations/t1/accept", (ex, body) -> FakeServer.Reply.json(200,
                 Map.of("tenant_id", "t1", "status", "accepted")));
 
-        MembershipResult acc = realm.me().acceptInvitation("t1", MeAuth.bearer("u"));
+        MembershipResult acc = realm.me().acceptInvitation("t1", MeAuth.onBehalfOf("u"));
         assertEquals("accepted", acc.status());
         assertEquals("t1", acc.tenantId());
         assertTrue(fs.last().bodyAsMap().isEmpty(), "accept takes no body");
@@ -176,7 +176,7 @@ class MeClientTest {
                 Map.of("error", "invitation already answered", "code", "not_pending")));
 
         RealmException e = assertThrows(RealmException.class,
-                () -> realm.me().acceptInvitation("t1", MeAuth.bearer("u")));
+                () -> realm.me().acceptInvitation("t1", MeAuth.onBehalfOf("u")));
         // Must NOT collapse into the generic 409 CONFLICT: NOT_PENDING (already
         // answered) and NOT_INVITED (already a member) have different remedies,
         // and only the code tells them apart.

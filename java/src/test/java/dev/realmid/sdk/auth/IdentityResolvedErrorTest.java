@@ -68,7 +68,8 @@ class IdentityResolvedErrorTest {
                 () -> realm.auth().login(new LoginRequest("google", "provider-token", null, null, null)));
 
         assertNotNull(ex.session(), "the session /auth/login created must ride the exception");
-        assertEquals("at-err", ex.session().accessToken(),
+        org.junit.jupiter.api.Assertions.assertNull(ex.session().accessToken(), "R44: login never surfaces an access token");
+        assertNotNull(ex.session().refreshToken(),
                 "the pre-derived-claims session must be recoverable, not discarded");
         assertTrue(ex.getCause() instanceof IdentityResolvedException);
         assertEquals(0, mintCalls.get(),

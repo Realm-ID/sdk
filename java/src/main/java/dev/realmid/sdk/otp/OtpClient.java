@@ -16,10 +16,9 @@ import java.util.Map;
  * (sdk/ts/src/otp.ts).
  *
  * <p>All three calls require a tenant-scoped user/service identity. The SDK
- * supports both shapes via the dual-mode bearer trio (see
- * {@link OtpIssueRequest}): {@code userBearer} (the user's access JWT rides as
- * {@code Authorization: Bearer}) or {@code userId} (BFF mode — the SDK uses its
- * cached platform token as bearer and forwards {@code X-On-Behalf-Of-User}).
+ * carries an actor (R60): {@code userToken} (X-User-Token, per call) or one the realm carries via
+ * {@code withUserToken}. With neither the call is an {@code ActorRequiredException} (see
+ * {@link OtpIssueRequest}); {@code userId} is attribution beside the token.
  */
 public final class OtpClient {
 
@@ -42,7 +41,7 @@ public final class OtpClient {
             body.put("delivery_mode", req.deliveryMode());
         }
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/otp/issue").body(body);
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.applyActor(r, "OtpClient", req.userId(), req.userToken(), req.onBehalfOfIp());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, OtpIssueResponse.class);
     }
@@ -56,7 +55,7 @@ public final class OtpClient {
         if (opts == null) opts = OtpViewOptions.empty();
         HttpTransport.Request r = HttpTransport.Request.of(
                 "GET", "/auth/otp/" + URLEncoder.encode(otpId, StandardCharsets.UTF_8));
-        applyBearerTrio(r, opts.userId(), opts.userBearer(), opts.onBehalfOfIp());
+        http.applyActor(r, "OtpClient.view", opts.userId(), opts.userToken(), opts.onBehalfOfIp());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, OtpViewResponse.class);
     }
@@ -74,33 +73,8 @@ public final class OtpClient {
         body.put("purpose", req.purpose());
         body.put("presented", req.presented());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/otp/verify").body(body);
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.applyActor(r, "OtpClient", req.userId(), req.userToken(), req.onBehalfOfIp());
         JsonNode raw = http.request(r);
         return http.mapper().convertValue(raw, OtpVerifyResponse.class);
-    }
-
-    /**
-     * Resolve the dual-mode bearer trio onto a request (mirrors
-     * {@code AuthClient.applyBearerTrio} and Go's {@code resolveOnBehalfOf}):
-     * exactly one of {@code userBearer} (legacy mode, sent as the Authorization
-     * bearer) or {@code userId} (BFF mode, sent as {@code X-On-Behalf-Of-User}
-     * while the transport auto-attaches the platform token).
-     * {@code onBehalfOfIp} is optional and only meaningful in BFF mode.
-     */
-    private static void applyBearerTrio(HttpTransport.Request r, String userId, String userBearer, String onBehalfOfIp) {
-        boolean hasBearer = userBearer != null && !userBearer.isEmpty();
-        boolean hasUserId = userId != null && !userId.isEmpty();
-        if (hasBearer == hasUserId) {
-            throw new RealmException(ErrorCode.BAD_REQUEST,
-                    "realmid: exactly one of userBearer or userId is required");
-        }
-        if (hasBearer) {
-            r.bearer(userBearer);
-        } else {
-            r.header("x-on-behalf-of-user", userId);
-            if (onBehalfOfIp != null && !onBehalfOfIp.isEmpty()) {
-                r.header("x-on-behalf-of-ip", onBehalfOfIp);
-            }
-        }
     }
 }

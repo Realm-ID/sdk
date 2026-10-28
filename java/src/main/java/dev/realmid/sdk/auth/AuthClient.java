@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import dev.realmid.sdk.ErrorCode;
 import dev.realmid.sdk.RealmException;
 import dev.realmid.sdk.scope.Scopes;
+import dev.realmid.sdk.split.CoSigner;
+import dev.realmid.sdk.split.PartialSigning;
+import dev.realmid.sdk.split.SplitState;
 import dev.realmid.sdk.http.HttpTransport;
 import dev.realmid.sdk.pagination.Page;
 import dev.realmid.sdk.pagination.PageReader;
@@ -212,13 +215,22 @@ public final class AuthClient {
             r.header("x-device-name", deviceLabel);
         }
         JsonNode raw = issuer(r);
-        Session session = http.mapper().convertValue(raw, Session.class);
+        Session session = loginSession(raw);
         // ADR-102 D10 — mint once the tenant is settled. See the doc comment.
         String settled = settledTenant(session);
         if (settled != null && !settled.isEmpty()) {
             return mintOrThrowWithAnchor(session, settled, req.rolePermissions(), req.origin(), AuthFlow.LOGIN);
         }
         return session;
+    }
+
+    /**
+     * R44 (SPEC 14.1): a login-shaped answer decodes WITHOUT its {@code access_token}. Every access token
+     * comes from {@code /auth/token} (or {@code /auth/token/partial}), so a stray one on a login, MFA,
+     * recovery or invitation answer is never surfaced.
+     */
+    private Session loginSession(JsonNode raw) {
+        return http.mapper().convertValue(raw, Session.class).withoutAccessToken();
     }
 
     /**
@@ -331,10 +343,8 @@ public final class AuthClient {
         // BOTH handlers gate the short-circuit. Consulting productRoles alone
         // would leave a scopes-only consumer silently never minting at all —
         // the mirror of the refresh bug, pointed at the other lane.
-        if (productRoles == null && scopes == null
-                && session.accessToken() != null && !session.accessToken().isEmpty()) {
-            return session;
-        }
+        // R44: login never carries the access token the SDK uses, so there is no "token already in hand"
+        // short-circuit: every settled login mints at /auth/token (or /auth/token/partial).
         // The handler's failure surfaces as a ProductRolesException / a
         // ScopesException and is NOT mapped into a RealmException. The session
         // stays intact so the caller can recover — see login's doc comment.
@@ -711,10 +721,40 @@ public final class AuthClient {
         // rotates away) the refresh token.
         String scopeWire = Scopes.wireValue(req.scope());
         if (scopeWire != null) body.put("scope", scopeWire);
-        HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/token").body(body);
+        boolean split = splitState != null && splitState.isSplit();
+        HttpTransport.Request r = HttpTransport.Request.of("POST", split ? "/auth/token/partial" : "/auth/token").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = issuer(r);
+        if (split) raw = finishPartial(raw);
         return http.mapper().convertValue(raw, TokenResponse.class);
+    }
+
+    /**
+     * SPEC 14.2: finishes a {@code /auth/token/partial} answer with the partner's share. A corrupt partial, a
+     * kid the bundle does not hold, or a signature that does not verify throws and releases NO access token.
+     */
+    private JsonNode finishPartial(JsonNode raw) {
+        JsonNode s = raw == null ? null : raw.get("signing");
+        if (s == null || !s.isObject() || !"partial".equals(raw.path("token_type").asText(null))) {
+            throw new RealmException(ErrorCode.SERVER_ERROR,
+                    "a split realm's token endpoint answered without a partial signature");
+        }
+        String kid = s.path("kid").asText("");
+        String jwt = CoSigner.coSign(splitState.entry(kid), splitState.expectedIssuer(), new PartialSigning(kid,
+                s.path("header").asText(null), s.path("payload").asText(null), s.path("partial_ri").asText(null)));
+        splitState.noteExpiresIn(raw.path("expires_in").asLong(0));
+        com.fasterxml.jackson.databind.node.ObjectNode out = ((com.fasterxml.jackson.databind.node.ObjectNode) raw).deepCopy();
+        out.remove("signing");
+        out.put("access_token", jwt);
+        out.put("token_type", "Bearer");
+        return out;
+    }
+
+    private SplitState splitState;
+
+    /** INTERNAL: called by {@code Realm}; the split-signing state (SPEC 14.2). */
+    public void setSplitState(SplitState s) {
+        this.splitState = s;
     }
 
     /**
@@ -759,7 +799,7 @@ public final class AuthClient {
         body.put("code", req.code());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery").body(body);
         attachOrigin(r, req.origin());
-        Session session = http.mapper().convertValue(issuer(r), Session.class);
+        Session session = loginSession(issuer(r));
         return finishMfaSession(session, req.origin(), AuthFlow.MFA_RECOVERY);
     }
 
@@ -788,7 +828,7 @@ public final class AuthClient {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/verify").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = issuer(r);
-        Session session = http.mapper().convertValue(raw, Session.class);
+        Session session = loginSession(raw);
         return finishMfaSession(session, req.origin(), AuthFlow.MFA_VERIFY);
     }
 
@@ -812,7 +852,7 @@ public final class AuthClient {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/login").body(body);
         attachOrigin(r, req.origin());
         JsonNode raw = issuer(r);
-        Session session = http.mapper().convertValue(raw, Session.class);
+        Session session = loginSession(raw);
         // ADR-102 D10 — an OTP login is a login. This lane was uncovered until
         // the Go SDK's AST-derived lane guard found it; the defect report that
         // prompted the guard named only mfaVerify.
@@ -929,7 +969,7 @@ public final class AuthClient {
 
     /** The shared completion of a password-grant response (login and invitation accept). */
     private Session finishPasswordGrant(JsonNode raw, String origin) {
-        Session session = http.mapper().convertValue(raw, Session.class);
+        Session session = loginSession(raw);
         // ADR-104 R-e: a change at sign-in ended the holder's other sessions; write them into the
         // session store like logout does so a local verify refuses them. /auth/login is raw(...),
         // so revoked_sids is top-level here (unlike the GoFr-wrapped reset/me routes).
@@ -1109,22 +1149,39 @@ public final class AuthClient {
         }
     }
 
-    /** SPEC §4.5. */
-    public void revokeSession(String sessionId, String userBearer) {
+    /** SPEC §4.5, escort form (R60): the actor is the one the realm carries ({@code withUserToken}). */
+    public void revokeSession(String sessionId) {
+        revokeSession(sessionId, null);
+    }
+
+    /**
+     * SPEC §4.5. {@code userToken}, when non-empty, rides in {@code X-User-Token} for this call (the
+     * platform token stays the bearer, R60); null means the realm's own actor. No actor is
+     * {@link dev.realmid.sdk.ActorRequiredException}.
+     */
+    public void revokeSession(String sessionId, String userToken) {
         HttpTransport.Request r = HttpTransport.Request.of(
-                "DELETE", "/auth/sessions/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8))
-                .bearer(userBearer);
+                "DELETE", "/auth/sessions/" + java.net.URLEncoder.encode(sessionId, java.nio.charset.StandardCharsets.UTF_8));
+        http.applyActor(r, "revokeSession", null, userToken, null);
         issuer(r);
     }
 
-    /** SPEC §4.6. Note: paginated wire shape per SPEC §7. */
-    public Paginated<Session> listSessions(String userBearer) {
+    /** SPEC §4.6, escort form (R60): the actor is the one the realm carries ({@code withUserToken}). */
+    public Paginated<Session> listSessions() {
+        return listSessions(null);
+    }
+
+    /**
+     * SPEC §4.6. Note: paginated wire shape per SPEC §7. {@code userToken} as in
+     * {@link #revokeSession(String, String)}.
+     */
+    public Paginated<Session> listSessions(String userToken) {
         return Paginated.of(opts -> {
             Map<String, Object> q = new LinkedHashMap<>();
             if (opts.cursor() != null) q.put("cursor", opts.cursor());
             if (opts.limit() != null) q.put("limit", opts.limit());
-            HttpTransport.Request r = HttpTransport.Request.of("GET", "/auth/sessions")
-                    .query(q).bearer(userBearer);
+            HttpTransport.Request r = HttpTransport.Request.of("GET", "/auth/sessions").query(q);
+            http.applyActor(r, "listSessions", null, userToken, null);
             JsonNode raw = issuer(r);
             return PageReader.read(http.mapper(), raw, Session.class);
         });
@@ -1146,8 +1203,9 @@ public final class AuthClient {
         Map<String, Object> body = new LinkedHashMap<>();
         JsonNode raw;
         try {
+            // R60: the user's access token names the caller in X-User-Token; the platform token is the bearer.
             raw = http.request(HttpTransport.Request.of("POST", "/auth/mfa/challenge")
-                    .bearer(accessToken).body(body));
+                    .header("x-user-token", accessToken).body(body));
         } catch (RealmException e) {
             if (e.getHttpStatus() == 404 || e.getHttpStatus() == 501) {
                 throw new RealmException(ErrorCode.SERVER_ERROR,
@@ -1212,7 +1270,7 @@ public final class AuthClient {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("code", req.code());
         HttpTransport.Request r = HttpTransport.Request.of("DELETE", "/auth/mfa").body(body);
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.applyActor(r, "disableMfa", req.userId(), req.userToken(), req.onBehalfOfIp());
         issuer(r);
     }
 
@@ -1225,7 +1283,7 @@ public final class AuthClient {
      */
     public void revokeAllSessions(RevokeAllSessionsRequest req) {
         HttpTransport.Request r = HttpTransport.Request.of("DELETE", "/auth/sessions");
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.applyActor(r, "revokeAllSessions", req.userId(), req.userToken(), req.onBehalfOfIp());
         issuer(r);
     }
 
@@ -1236,7 +1294,7 @@ public final class AuthClient {
      */
     public AuthenticatorList listAuthenticators(ListAuthenticatorsRequest req) {
         HttpTransport.Request r = HttpTransport.Request.of("GET", "/auth/mfa/authenticators");
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.applyActor(r, "listAuthenticators", req.userId(), req.userToken(), req.onBehalfOfIp());
         JsonNode raw = issuer(r);
         return http.mapper().convertValue(raw, AuthenticatorList.class);
     }
@@ -1252,52 +1310,10 @@ public final class AuthClient {
      */
     public RecoveryCodes regenerateRecoveryCodes(RegenerateRecoveryCodesRequest req) {
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery/regenerate");
-        applyBearerTrio(r, req.userId(), req.userBearer(), req.onBehalfOfIp());
+        http.applyActor(r, "regenerateRecoveryCodes", req.userId(), req.userToken(), req.onBehalfOfIp());
         JsonNode raw = issuer(r);
         return http.mapper().convertValue(raw, RecoveryCodes.class);
     }
-
-    /**
-     * Resolve the dual-mode bearer trio onto a request, mirroring the model
-     * used by {@link #revokeSession} / {@link #listSessions}: exactly one of
-     * {@code userBearer} (legacy mode, sent as the Authorization bearer) or
-     * {@code userId} (BFF mode, sent as {@code X-On-Behalf-Of-User} while the
-     * transport auto-attaches the platform token). {@code onBehalfOfIp} is
-     * optional and only meaningful in BFF mode.
-     */
-    private void applyBearerTrio(HttpTransport.Request r, String userId, String userBearer, String onBehalfOfIp) {
-        boolean hasBearer = userBearer != null && !userBearer.isEmpty();
-        boolean hasUserId = userId != null && !userId.isEmpty();
-        if (hasBearer == hasUserId) {
-            throw new RealmException(ErrorCode.BAD_REQUEST,
-                    "realmid: exactly one of userBearer or userId is required");
-        }
-        if (hasBearer) {
-            r.bearer(userBearer);
-        } else {
-            // Since issuer v0.66.0 a BARE X-On-Behalf-Of-User is NOT an
-            // identity — it was an unauthenticated user id that any holder of a
-            // realm's platform key could use to act as any user in that realm.
-            // The issuer answers 401 x_user_token_required and only the
-            // VERIFIED X-User-Token asserts the caller; the id survives as
-            // attribution beside it.
-            //
-            // Refuse here rather than issuing a request that is certain to 401
-            // (measured against a live issuer, 2026-08-21): the server's error
-            // cannot name the SDK call site that forgot the token, and this can.
-            if (!http.hasUserToken()) {
-                throw new RealmException(ErrorCode.BAD_REQUEST,
-                        "realmid: BFF mode needs the user's access JWT as well as userId — "
-                                + "derive the client with realm.withUserToken(accessJWT); the issuer "
-                                + "refuses a bare X-On-Behalf-Of-User with 401 x_user_token_required");
-            }
-            r.header("x-on-behalf-of-user", userId);
-            if (onBehalfOfIp != null && !onBehalfOfIp.isEmpty()) {
-                r.header("x-on-behalf-of-ip", onBehalfOfIp);
-            }
-        }
-    }
-
 
     /**
      * Removes the characters an HTTP header field value cannot carry (C0

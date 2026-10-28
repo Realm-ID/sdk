@@ -222,18 +222,14 @@ public final class MeClient {
         return d != null && d.isObject() ? d : raw;
     }
 
-    /** Applies the end-user credential; see {@link MeAuth}. */
-    private static HttpTransport.Request apply(HttpTransport.Request r, MeAuth auth) {
-        if (auth == null) return r;
-        if (auth.userBearer() != null && !auth.userBearer().isEmpty()) {
-            return r.bearer(auth.userBearer());
-        }
-        if (auth.userToken() != null && !auth.userToken().isEmpty()) {
-            // Additive: the platform token stays the bearer and the verified
-            // user JWT names the caller.
-            return r.header("X-User-Token", auth.userToken());
-        }
-        return r;
+    /**
+     * Applies the end-user credential (see {@link MeAuth}): the per-call token rides in
+     * {@code X-User-Token}, else the actor the realm carries does; with neither the call is refused
+     * locally as {@code ActorRequiredException} and nothing is sent (R61/R86).
+     */
+    private HttpTransport.Request apply(HttpTransport.Request r, MeAuth auth) {
+        String tok = auth == null ? null : auth.userToken();
+        return http.applyActor(r, "me." + r.method.toLowerCase(java.util.Locale.ROOT) + " " + r.path, null, tok, null);
     }
 
     private static String enc(String s) {

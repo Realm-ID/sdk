@@ -176,6 +176,13 @@ public record Session(
      * NEW session where Go and TS mutate one. The contract is identical; only the
      * idiom differs.
      */
+    public Session withoutAccessToken() {
+        return new Session(
+                null, refreshToken, 0, refreshExp, idleTtl, expiresAt, initiatedByUserId, user, tenants, id,
+                createdAt, lastUsedAt, userAgent, ip, deviceName,
+                tenantChoiceRequired, tenantChoices, tenantId, role, reenrollRequired, revokedSids);
+    }
+
     public Session withMint(TokenResponse mint, String settledTenantId) {
         String r = role;
         if (tenants != null) {

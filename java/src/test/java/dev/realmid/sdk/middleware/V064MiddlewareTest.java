@@ -117,7 +117,7 @@ class V064MiddlewareTest {
         assertEquals(200, r.status, text(r));
         @SuppressWarnings("unchecked") Map<String, Object> body = M.readValue(r.bytes(), Map.class);
         assertEquals(Boolean.TRUE, body.get("reenroll_required"));
-        assertEquals("a", body.get("access_token"));
+        assertNull(body.get("access_token"), "R44: recovery never surfaces an access token");
         assertTrue(recoveryBodies.get(0).contains("\"mfa_challenge_token\":\"c\""), recoveryBodies.get(0));
         // lock taken exactly once (the handler does NOT pass refreshToken: not re-entrant), outcome stored
         assertEquals(1, calls.stream().filter(c -> c.startsWith("lock ")).count(), calls.toString());

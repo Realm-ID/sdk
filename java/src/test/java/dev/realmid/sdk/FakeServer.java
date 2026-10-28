@@ -124,6 +124,18 @@ public final class FakeServer implements AutoCloseable {
         }
     }
 
+    private volatile Reply loginEcho;
+
+    private static String grantOf(byte[] body) {
+        if (body == null || body.length == 0) return null;
+        try {
+            var n = new ObjectMapper().readTree(body);
+            return n != null && n.path("grant_type").isTextual() ? n.get("grant_type").asText() : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     private final class Dispatcher implements HttpHandler {
         @Override
         public void handle(HttpExchange ex) throws IOException {
@@ -157,6 +169,38 @@ public final class FakeServer implements AutoCloseable {
                     }
                 }
             }
+            // R71 shim for legacy tests that stub POST /auth/login as the platform mint: a platform-token
+            // grant sent to POST /auth/token is served by that registered /auth/login handler, and the same
+            // grant sent to POST /auth/login is refused 400 login_grant_removed, so a client that still
+            // posts the mint there fails loudly.
+            String grant = grantOf(body);
+            boolean platformGrant = "platform_api_key".equals(grant)
+                    || "urn:ietf:params:oauth:grant-type:token-exchange".equals(grant);
+            if (platformGrant && key.equals("POST /auth/token") && handlers.containsKey("POST /auth/login")) {
+                h = handlers.get("POST /auth/login");
+            } else if (platformGrant && key.equals("POST /auth/login")) {
+                Reply gone = Reply.json(400, Map.of("error", Map.of("code", "login_grant_removed",
+                        "message", "use /auth/token")));
+                ex.getResponseHeaders().add("content-type", gone.contentType);
+                ex.sendResponseHeaders(gone.status, gone.body.length);
+                try (OutputStream os = ex.getResponseBody()) {
+                    os.write(gone.body);
+                }
+                return;
+            }
+            // R44 shim: legacy login tests stub only the login-shaped route, whose answer carries the
+            // access_token they assert. The SDK now ignores that field and mints at POST /auth/token, so a
+            // user mint with NO /auth/token stub is answered with the most recent login-shaped answer.
+            // A test that registers its own POST /auth/token is never touched by this.
+            if (h == null && key.equals("POST /auth/token") && !platformGrant && loginEcho != null) {
+                Reply echo = loginEcho;
+                ex.getResponseHeaders().add("content-type", echo.contentType);
+                ex.sendResponseHeaders(echo.status, echo.body.length);
+                try (OutputStream os = ex.getResponseBody()) {
+                    os.write(echo.body);
+                }
+                return;
+            }
             if (h == null) {
                 ex.sendResponseHeaders(404, 0);
                 ex.close();
@@ -173,6 +217,12 @@ public final class FakeServer implements AutoCloseable {
                     os.write(err.body);
                 }
                 return;
+            }
+            String p = ex.getRequestURI().getPath();
+            if (r.status == 200 && !platformGrant && new String(r.body).contains("\"access_token\"")
+                    && (p.equals("/auth/login") || p.equals("/auth/mfa/verify") || p.equals("/auth/mfa/recovery")
+                    || p.equals("/auth/invitations/accept"))) {
+                loginEcho = r;
             }
             ex.getResponseHeaders().add("content-type", r.contentType);
             ex.getResponseHeaders().add("Connection", "close");

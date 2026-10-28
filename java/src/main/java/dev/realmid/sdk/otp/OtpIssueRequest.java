@@ -7,8 +7,8 @@ package dev.realmid.sdk.otp;
  * {@code purpose} is the partner-side tag (free string, regex
  * {@code ^[a-z][a-z0-9_]{0,63}$}) — both opaque, tenant-scoped strings.
  *
- * <p>Dual-mode bearer: provide EITHER {@code userBearer} (the user's own access
- * JWT, legacy mode) OR {@code userId} (BFF mode, the SDK sends the platform
+ * <p>Actor (R60): {@code userToken} (the user's own access
+ * JWT, sent in X-User-Token) or one carried by the realm; {@code userId} (the SDK sends the platform
  * token + {@code X-On-Behalf-Of-User}). {@code onBehalfOfIp} is optional and
  * only meaningful in BFF mode.
  *
@@ -31,7 +31,7 @@ package dev.realmid.sdk.otp;
  * subject controls, which is the whole property.
  */
 public record OtpIssueRequest(String subjectRef, String purpose,
-                              String userId, String userBearer, String onBehalfOfIp,
+                              String userId, String userToken, String onBehalfOfIp,
                               String deliveryMode) {
 
     /** Never prints a credential. */
@@ -61,13 +61,13 @@ public record OtpIssueRequest(String subjectRef, String purpose,
 
     /** Back-compat 5-arg constructor (no delivery mode — issuer default). */
     public OtpIssueRequest(String subjectRef, String purpose,
-                           String userId, String userBearer, String onBehalfOfIp) {
-        this(subjectRef, purpose, userId, userBearer, onBehalfOfIp, null);
+                           String userId, String userToken, String onBehalfOfIp) {
+        this(subjectRef, purpose, userId, userToken, onBehalfOfIp, null);
     }
 
-    /** Legacy mode: use the user's own access JWT as the bearer. */
-    public static OtpIssueRequest withBearer(String subjectRef, String purpose, String userBearer) {
-        return new OtpIssueRequest(subjectRef, purpose, null, userBearer, null);
+    /** Per-call actor: the user's access JWT rides in X-User-Token (never as the bearer, R60). */
+    public static OtpIssueRequest withUserToken(String subjectRef, String purpose, String userToken) {
+        return new OtpIssueRequest(subjectRef, purpose, null, userToken, null);
     }
 
     /** BFF mode: act on behalf of {@code userId} via the platform token. */
@@ -77,6 +77,6 @@ public record OtpIssueRequest(String subjectRef, String purpose,
 
     /** Return a copy of this request with {@code deliveryMode} set. */
     public OtpIssueRequest withDeliveryMode(String mode) {
-        return new OtpIssueRequest(subjectRef, purpose, userId, userBearer, onBehalfOfIp, mode);
+        return new OtpIssueRequest(subjectRef, purpose, userId, userToken, onBehalfOfIp, mode);
     }
 }

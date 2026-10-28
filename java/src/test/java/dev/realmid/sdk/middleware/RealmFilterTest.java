@@ -192,7 +192,7 @@ class RealmFilterTest {
         f.doFilter(req, res, (rq, rs) -> { throw new AssertionError(); });
         assertEquals(200, res.status);
         Map<?, ?> resp = M.readValue(res.bytes(), Map.class);
-        assertEquals("at-1", resp.get("access_token"));
+        org.junit.jupiter.api.Assertions.assertNull(resp.get("access_token"), "R44: login never surfaces an access token");
         // Refresh delivered via cookie
         boolean hasCookie = false;
         for (String h : res.headers.getOrDefault("Set-Cookie", List.of())) {

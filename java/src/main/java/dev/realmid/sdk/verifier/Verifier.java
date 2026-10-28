@@ -350,7 +350,18 @@ public final class Verifier {
         return resolved;
     }
 
+    /**
+     * Split trust (SPEC 14.4): a settable key resolver replaces the JWKS fetch entirely. It receives
+     * (realmId, kid) and returns the pinned key or throws a {@link RealmException}; with it set, RI's JWKS is
+     * never fetched. Null restores the JWKS path.
+     */
+    public void setKeyResolver(java.util.function.BiFunction<String, String, PublicKey> r) { this.keyResolver = r; }
+
+    private volatile java.util.function.BiFunction<String, String, PublicKey> keyResolver;
+
     private PublicKey resolveKey(String realmId, String kid) {
+        java.util.function.BiFunction<String, String, PublicKey> hook = keyResolver;
+        if (hook != null) return hook.apply(realmId, kid);
         CachedJwks cached = cache.get(realmId);
         Instant now = Instant.now(clock);
         if (cached != null && cached.keys.containsKey(kid)

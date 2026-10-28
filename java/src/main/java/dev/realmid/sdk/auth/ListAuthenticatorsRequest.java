@@ -3,11 +3,11 @@ package dev.realmid.sdk.auth;
 /**
  * Request for {@link AuthClient#listAuthenticators(ListAuthenticatorsRequest)}.
  *
- * <p>Current-user op (dual-mode bearer — exactly one of {@code userBearer} or
- * {@code userId}). Carries the bearer trio only; there is no request body.
+ * <p>Current-user op (escort form, R60: the actor is {@code userToken} (sent in X-User-Token) or the
+ * realm's {@code withUserToken}; {@code userId} is attribution only). No request body.
  * {@code onBehalfOfIp} is optional and only meaningful in BFF mode.
  */
-public record ListAuthenticatorsRequest(String userId, String userBearer, String onBehalfOfIp) {
+public record ListAuthenticatorsRequest(String userId, String userToken, String onBehalfOfIp) {
 
     /** Never prints a credential. */
     @Override
@@ -21,8 +21,8 @@ public record ListAuthenticatorsRequest(String userId, String userBearer, String
         return new ListAuthenticatorsRequest(userId, null, null);
     }
 
-    /** Legacy mode: list using the user's own access JWT. */
-    public static ListAuthenticatorsRequest withBearer(String userBearer) {
-        return new ListAuthenticatorsRequest(null, userBearer, null);
+    /** Per-call actor: list sending the user's own access JWT in X-User-Token. */
+    public static ListAuthenticatorsRequest withUserToken(String userToken) {
+        return new ListAuthenticatorsRequest(null, userToken, null);
     }
 }

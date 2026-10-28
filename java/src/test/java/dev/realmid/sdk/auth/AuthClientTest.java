@@ -62,7 +62,7 @@ class AuthClientTest {
                     "tenants", java.util.List.of()));
         });
         Session s = realm.auth().login(LoginRequest.of("firebase", "provider-tok"));
-        assertEquals("at-1", s.accessToken());
+        assertNull(s.accessToken(), "R44: login-shaped answers never surface an access token");
         assertEquals("rt-1", s.refreshToken());
         // Must use the platform token, not raw API key.
         assertEquals("Bearer pt-12345", seen.get().header("authorization"));
@@ -173,7 +173,7 @@ class AuthClientTest {
                     "expires_in", 600, "tenants", java.util.List.of()));
         });
         Session s = realm.auth().mfaVerify(new MFAVerifyRequest("ch-token-abc", "123456", "totp", null));
-        assertEquals("at-mfa", s.accessToken());
+        assertNull(s.accessToken(), "R44: login-shaped answers never surface an access token");
         // Issuer requires "mfa_challenge_token" (MFAVerifyRequest required:
         // [mfa_challenge_token, code]); the legacy "challenge_token" must NOT
         // be sent.
@@ -203,7 +203,7 @@ class AuthClientTest {
                     "tenants", java.util.List.of()));
         });
         Session s = realm.auth().otpLogin(OtpLoginRequest.of("+15551234567", "123456"));
-        assertEquals("at-otp", s.accessToken());
+        assertNull(s.accessToken(), "R44: login-shaped answers never surface an access token");
         // ADR-071 §8 provenance decodes onto the session.
         assertEquals("u-owner", s.initiatedByUserId());
         // ADR-071 §4: grant_type=otp on the wire, deprecated `method` dropped.
@@ -223,7 +223,7 @@ class AuthClientTest {
                     "expires_in", 900, "tenants", java.util.List.of()));
         });
         Session s = realm.auth().mfaVerifyOtp(MfaVerifyOtpRequest.of("ch-9", "654321"));
-        assertEquals("at-otp2", s.accessToken());
+        assertNull(s.accessToken(), "R44: login-shaped answers never surface an access token");
         assertEquals("otp", seen.get().get("method"));
         assertEquals("ch-9", seen.get().get("mfa_challenge_token"));
         assertEquals("654321", seen.get().get("code"));
@@ -292,10 +292,10 @@ class AuthClientTest {
     void disableMfaSendsCodeInDeleteBody() {
         fs.on("DELETE /auth/mfa", (ex, body) -> {
             assertEquals("654321", fs.last().bodyAsMap().get("code"));
-            assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+            assertEquals("user-jwt", fs.last().header("x-user-token"));
             return FakeServer.Reply.json(200, Map.of("status", "disabled"));
         });
-        realm.auth().disableMfa(DisableMfaRequest.withBearer("user-jwt", "654321"));
+        realm.auth().disableMfa(DisableMfaRequest.withUserToken("user-jwt", "654321"));
     }
 
     @Test
@@ -305,7 +305,7 @@ class AuthClientTest {
         envelope.put("code", "not_enrolled");
         fs.on("DELETE /auth/mfa", (ex, body) -> FakeServer.Reply.json(400, envelope));
         RealmException ex = assertThrows(RealmException.class,
-                () -> realm.auth().disableMfa(DisableMfaRequest.withBearer("user-jwt", "654321")));
+                () -> realm.auth().disableMfa(DisableMfaRequest.withUserToken("user-jwt", "654321")));
         assertEquals("not_enrolled", ex.getDetails().get("code"));
     }
 
@@ -314,10 +314,10 @@ class AuthClientTest {
     @Test
     void revokeAllSessionsLegacyBearer() {
         fs.on("DELETE /auth/sessions", (ex, body) -> {
-            assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+            assertEquals("user-jwt", fs.last().header("x-user-token"));
             return FakeServer.Reply.json(200, Map.of("status", "ok"));
         });
-        realm.auth().revokeAllSessions(RevokeAllSessionsRequest.withBearer("user-jwt"));
+        realm.auth().revokeAllSessions(RevokeAllSessionsRequest.withUserToken("user-jwt"));
     }
 
     @Test
@@ -327,7 +327,7 @@ class AuthClientTest {
         envelope.put("code", "insufficient_scope");
         fs.on("DELETE /auth/sessions", (ex, body) -> FakeServer.Reply.json(403, envelope));
         RealmException ex = assertThrows(RealmException.class,
-                () -> realm.auth().revokeAllSessions(RevokeAllSessionsRequest.withBearer("user-jwt")));
+                () -> realm.auth().revokeAllSessions(RevokeAllSessionsRequest.withUserToken("user-jwt")));
         assertEquals(403, ex.getHttpStatus());
         assertEquals("insufficient_scope", ex.getDetails().get("code"));
     }
@@ -340,7 +340,7 @@ class AuthClientTest {
         // timestamp field is `last_seen_at`, NOT `last_used_at`. Before the fix
         // Session#lastUsedAt() always deserialized to null.
         fs.on("GET /auth/sessions", (ex, body) -> {
-            assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+            assertEquals("user-jwt", fs.last().header("x-user-token"));
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("id", "sess-1");
             item.put("origin", "https://app.realmid.dev");

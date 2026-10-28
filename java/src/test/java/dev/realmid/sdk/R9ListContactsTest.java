@@ -52,12 +52,12 @@ class R9ListContactsTest {
             body.put("total", 2);
             return FakeServer.Reply.json(200, body);
         });
-        Page<MeContact> first = realm.me().listContacts(MeAuth.bearer("user-jwt")).page(PageOpts.empty());
+        Page<MeContact> first = realm.me().listContacts(MeAuth.onBehalfOf("user-jwt")).page(PageOpts.empty());
         assertEquals(new MeContact("c-1", "phone", "+15550100", false, "t-1"), first.items().get(0));
         assertEquals("n2", first.nextCursor());
-        assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+        assertEquals("user-jwt", fs.last().header("x-user-token"));
 
-        List<MeContact> all = realm.me().listContacts(MeAuth.bearer("user-jwt")).stream().toList();
+        List<MeContact> all = realm.me().listContacts(MeAuth.onBehalfOf("user-jwt")).stream().toList();
         assertEquals(2, all.size());
         assertTrue(all.get(1).verified());
         assertEquals("t-2", all.get(1).tenantId());

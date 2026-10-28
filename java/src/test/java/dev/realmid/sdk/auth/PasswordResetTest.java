@@ -144,7 +144,7 @@ class PasswordResetTest {
         AtomicInteger hits = new AtomicInteger();
         fs.on("PUT /me/password", (ex, b) -> dropOnce(ex, hits));
         RealmException e = assertThrows(RealmException.class, () -> realm.me().setPassword(
-                SetPasswordRequest.change("old-old-old-1", "new-new-new-12"), MeAuth.bearer("ub")));
+                SetPasswordRequest.change("old-old-old-1", "new-new-new-12"), MeAuth.onBehalfOf("ub")));
         assertEquals(ErrorCode.NETWORK, e.getCode());
         assertEquals(1, hits.get(), "a password change must never be replayed");
     }
@@ -249,10 +249,10 @@ class PasswordResetTest {
         fs.on("PUT /me/password", (ex, b) -> FakeServer.Reply.json(200,
                 Map.of("data", Map.of("status", "updated", "revoked_sids", List.of()))));
         PasswordSet out = realm.me().setPassword(
-                SetPasswordRequest.change("old-old-old-1", "new-new-new-12"), MeAuth.bearer("ub"));
+                SetPasswordRequest.change("old-old-old-1", "new-new-new-12"), MeAuth.onBehalfOf("ub"));
         assertEquals("updated", out.status());
         assertEquals("PUT", fs.last().method);
-        assertEquals("Bearer ub", fs.last().header("authorization"));
+        assertEquals("ub", fs.last().header("x-user-token"));
         assertEquals(Map.of("current_password", "old-old-old-1", "new_password", "new-new-new-12"),
                 fs.last().bodyAsMap());
 

@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -152,7 +153,7 @@ class ProductRolesTest {
         assertEquals(0, mints.get(), "nothing may leave for a caller-side mistake");
     }
 
-    /** D11 rule 1 — no handler means no claim, no error, and NO extra round trip. */
+    /** D11 rule 1 — no handler means no claim and no error. R44: login never carries the token, so the one mint stays. */
     @Test
     void noHandlerCostsNothing() {
         serveLogin(Map.of(
@@ -161,8 +162,9 @@ class ProductRolesTest {
                 "tenants", List.of(Map.of("tenant_id", "t1", "role", "owner"))));
         Realm realm = realmWith(null);
         Session s = realm.auth().login(LoginRequest.of("firebase", "pt"));
-        assertEquals(0, mints.get());
-        assertEquals("atok", s.accessToken());
+        assertEquals(1, mints.get());
+        assertNotNull(s.accessToken());
+        assertNotEquals("atok", s.accessToken(), "login's own access_token must never be surfaced (R44)");
     }
 
     /** D11 rule 2 — an empty handler result mints NO claim, not {@code []}. */

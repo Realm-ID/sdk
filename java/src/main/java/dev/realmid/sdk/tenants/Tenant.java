@@ -16,6 +16,7 @@ public final class Tenant {
     private String displayName;
     @JsonProperty("owner_user_id") @JsonAlias("ownerUserId")
     private String ownerUserId;
+    private TenantOwnerSeat owner;
     private Map<String, Object> config;
     @JsonProperty("created_at") @JsonAlias("createdAt")
     private String createdAt;
@@ -28,6 +29,8 @@ public final class Tenant {
     public String id() { return id; }
     public String displayName() { return displayName; }
     public String ownerUserId() { return ownerUserId; }
+    /** R83 (SPEC 14.11): the owner seated by create, with role {@code owner}; null when the issuer sent none. */
+    public TenantOwnerSeat owner() { return owner; }
     public Map<String, Object> config() { return config; }
     public String createdAt() { return createdAt; }
     public String updatedAt() { return updatedAt; }
@@ -37,6 +40,7 @@ public final class Tenant {
     public void setId(String v) { this.id = v; }
     public void setDisplayName(String v) { this.displayName = v; }
     public void setOwnerUserId(String v) { this.ownerUserId = v; }
+    public void setOwner(TenantOwnerSeat v) { this.owner = v; }
     public void setConfig(Map<String, Object> v) { this.config = v; }
     public void setCreatedAt(String v) { this.createdAt = v; }
     public void setUpdatedAt(String v) { this.updatedAt = v; }

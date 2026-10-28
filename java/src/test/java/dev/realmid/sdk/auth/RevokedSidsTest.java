@@ -44,7 +44,7 @@ class RevokedSidsTest {
             new Call("password_login_change_at_sign_in", r -> r.auth().passwordLogin(
                     PasswordLoginRequest.of("a@b.c", "old").withNewPassword("brand-new-pass-1")).revokedSids(), false),
             new Call("me_set_password", r -> r.me().setPassword(SetPasswordRequest.of("a-long-new-password"),
-                    MeAuth.bearer("ub")).revokedSids(), true),
+                    MeAuth.onBehalfOf("ub")).revokedSids(), true),
             new Call("consume_password_reset", r -> r.auth().consumePasswordReset("tok", "a-long-new-password")
                     .revokedSids(), true));
 

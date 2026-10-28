@@ -3,11 +3,11 @@ package dev.realmid.sdk.auth;
 /**
  * Request for {@link AuthClient#disableMfa(DisableMfaRequest)}.
  *
- * <p>Current-user op (dual-mode bearer — exactly one of {@code userBearer} or
+ * <p>Current-user op (escort form, R60: the actor is {@code userToken} (sent in X-User-Token) or the
  * {@code userId}). {@code code} (the TOTP step-up) is required and travels in the body of the
  * {@code DELETE /auth/mfa} request.
  */
-public record DisableMfaRequest(String userId, String userBearer, String onBehalfOfIp, String code) {
+public record DisableMfaRequest(String userId, String userToken, String onBehalfOfIp, String code) {
 
     /** Never prints a credential. */
     @Override
@@ -21,8 +21,8 @@ public record DisableMfaRequest(String userId, String userBearer, String onBehal
         return new DisableMfaRequest(userId, null, null, code);
     }
 
-    /** Legacy mode: disable using the user's own access JWT and TOTP code. */
-    public static DisableMfaRequest withBearer(String userBearer, String code) {
-        return new DisableMfaRequest(null, userBearer, null, code);
+    /** Per-call actor: disable sending the user's own access JWT in X-User-Token and TOTP code. */
+    public static DisableMfaRequest withUserToken(String userToken, String code) {
+        return new DisableMfaRequest(null, userToken, null, code);
     }
 }

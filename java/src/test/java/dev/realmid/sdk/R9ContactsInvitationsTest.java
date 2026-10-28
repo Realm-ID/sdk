@@ -93,17 +93,17 @@ class R9ContactsInvitationsTest {
     @Test
     void sendContactProofPostsDeliveryModeAndDecodesDelivered() {
         fs.on("POST /me/contacts/c-1/proof", (ex, b) -> FakeServer.Reply.json(200, Map.of("delivered", "sms")));
-        ContactProofSent out = realm.me().sendContactProof("c-1", "sms", MeAuth.bearer("user-jwt"));
+        ContactProofSent out = realm.me().sendContactProof("c-1", "sms", MeAuth.onBehalfOf("user-jwt"));
         assertEquals("sms", out.delivered());
         assertEquals("sms", fs.last().bodyAsMap().get("delivery_mode"));
-        assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+        assertEquals("user-jwt", fs.last().header("x-user-token"));
     }
 
     @Test
     void sendContactProofDecodesGoFrWrappedBody() {
         fs.on("POST /me/contacts/c-1/proof", (ex, b) ->
                 FakeServer.Reply.json(200, Map.of("data", Map.of("delivered", "whatsapp"))));
-        assertEquals("whatsapp", realm.me().sendContactProof("c-1", "whatsapp", MeAuth.bearer("u")).delivered());
+        assertEquals("whatsapp", realm.me().sendContactProof("c-1", "whatsapp", MeAuth.onBehalfOf("u")).delivered());
     }
 
     @Test
@@ -111,7 +111,7 @@ class R9ContactsInvitationsTest {
         fs.on("POST /me/contacts/c-1/proof/confirm", (ex, b) -> FakeServer.Reply.json(200, Map.of(
                 "id", "c-1", "kind", "phone", "value", "+919999000011", "verified", true,
                 "verified_at", "2026-10-19T10:00:00Z")));
-        ContactProofConfirmed out = realm.me().confirmContactProof("c-1", "123456", MeAuth.bearer("user-jwt"));
+        ContactProofConfirmed out = realm.me().confirmContactProof("c-1", "123456", MeAuth.onBehalfOf("user-jwt"));
         assertEquals("123456", fs.last().bodyAsMap().get("code"));
         assertEquals("c-1", out.id());
         assertEquals("phone", out.kind());
@@ -125,7 +125,7 @@ class R9ContactsInvitationsTest {
         fs.on("POST /me/contacts/c-1/proof", (ex, b) -> FakeServer.Reply.json(409,
                 Map.of("error", Map.of("code", "contact_already_verified", "message", "m"))));
         RealmException e = assertThrows(RealmException.class,
-                () -> realm.me().sendContactProof("c-1", "sms", MeAuth.bearer("u")));
+                () -> realm.me().sendContactProof("c-1", "sms", MeAuth.onBehalfOf("u")));
         assertEquals(ErrorCode.CONTACT_ALREADY_VERIFIED, e.getCode());
     }
 
@@ -156,11 +156,11 @@ class R9ContactsInvitationsTest {
                 "access_token", "at-user", "refresh_token", "rt-user", "expires_in", 300,
                 "subject_type", "user", "tenant_id", "t-1")));
         Session s = realm.auth().acceptInvitation(new AcceptInvitationRequest("tok", "alice", "a-long-password", null));
-        Map<String, Object> body = fs.last().bodyAsMap();
+        Map<String, Object> body = fs.recorded.stream().filter(x -> x.path.equals("/auth/invitations/accept")).findFirst().orElseThrow().bodyAsMap();
         assertEquals("tok", body.get("token"));
         assertEquals("alice", body.get("username"));
         assertEquals("a-long-password", body.get("password"));
-        assertEquals("at-user", s.accessToken());
+        assertEquals("at-user", s.accessToken()); // the /auth/token mint (shim echo), R44
     }
 
     @Test

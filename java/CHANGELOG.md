@@ -4,7 +4,21 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased (0.54.0) — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
+## Unreleased (0.54.0) — split signing, platform token always, login mints at /auth/token (SPEC §3.1, §14.1-§14.11; R44-R95)
+
+Version bumped to 0.54.0 in `build.gradle.kts`; not tagged.
+
+### Breaking
+- **A user token is never the bearer (R60).** Removed: `applyBearerTrio`, the `userBearer` / `withBearer` request fields and factories (`DisableMfaRequest`, `ListAuthenticatorsRequest`, `RegenerateRecoveryCodesRequest`, `RevokeAllSessionsRequest`, `OtpVerifyRequest`, `OtpIssueRequest`, `OtpViewOptions`), `MeAuth.bearer`, and the bearer form of `listSessions` / `revokeSession`. Use `userToken` / `withUserToken(...)`, `MeAuth.onBehalfOf(jwt)` (`MeAuth` is now `MeAuth(String userToken)`), `listSessions(userToken)` or `realm.withUserToken(jwt)`. The token rides in `X-User-Token`; the platform token is always `Authorization`.
+- **`ActorRequiredException extends RealmException` (R61, R86).** An actor route called with no actor is refused locally before anything is sent, and the issuer's `403 actor_required` decodes to the same type. Test with `RealmException.isActorRequired(t)`. `ErrorCode.ACTOR_REQUIRED`. A call that used to be rejected as `BAD_REQUEST` for a missing token now throws this.
+- **The platform mint is `POST /auth/token` on every realm (R49, R71).** No fallback to `/auth/login`.
+- **Login never surfaces an access token (R44).** `login`, `otpLogin`, `passwordLogin`, `mfaVerify`, `redeemRecoveryCode` and `acceptInvitation` drop the answer's `access_token`; a settled tenant always mints at `/auth/token` (no "token already in hand" shortcut), an unsettled one returns `accessToken() == null` until `completeLogin`.
+- `FileShareOptions(kek, localDev, realm)` takes the realm id the sealed file is bound to (required with a KEK).
+
+### Added
+- Split signing (SPEC §14): `Realm.builder().split(true).shareSource(src)` (both or neither, else `build()` throws); user mints go to `/auth/token/partial` and are finished by `CoSigner` (verify-before-release); `verify` trusts only the bundle's keys, never RI's JWKS (`UNPINNED_KID` 401, `SHARE_LOAD_FAILED`); `Verifier.setKeyResolver` is the hook. `ShareSources.env(...)` (read-only) and `ShareSources.file(...)` (atomic, 0600, AES-256-GCM envelope v1). `SigningKeysClient.rotateSplit(source, RotateSplitOptions)` for rotation and recovery (no actor; read-only source throws `SHARE_SOURCE_READ_ONLY` and sends nothing). `IntegrationTokenHandler` (SPEC §14.8; `Response(status, headers, body)`). `Tenant.owner()`.
+
+### Workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
 
 `PlatformTokenManager` retries a platform login whose WORKLOAD (token-exchange) credential the issuer answers `409 assertion_replayed`: wait 1 s then 2 s, re-fetch the credential from the source each time, three attempts in all; exhausted retries throw the last `RealmException` unchanged. A static API key, any other status and any other code are never retried. Thread interruption during a backoff restores the flag and throws `RealmException(NETWORK)` promptly. New registered `ErrorCode.ASSERTION_REPLAYED`. Additive: a new constructor takes a `PlatformTokenManager.Sleeper` (injectable backoff); the existing constructors are unchanged. Why: two instances starting in the same second get the byte-identical GCP ID token and the second was rejected, crash-looping a BFF. `build.gradle.kts` version is not bumped here; the release does that.
 

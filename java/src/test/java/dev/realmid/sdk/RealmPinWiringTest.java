@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -91,6 +92,6 @@ class RealmPinWiringTest {
         });
 
         var session = realmPinnedTo(CONFIGURED_REALM).auth().login(LoginRequest.of("firebase", "tok"));
-        assertEquals("at-1", session.accessToken());
+        assertNull(session.accessToken(), "R44: login-shaped answers never surface an access token");
     }
 }

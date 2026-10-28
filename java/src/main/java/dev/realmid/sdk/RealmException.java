@@ -83,6 +83,18 @@ public class RealmException extends RuntimeException {
     public Map<String, Object> getDetails() { return details; }
 
     /**
+     * R86: true when {@code t}, or anything in its cause chain, is the typed actor-required error
+     * ({@link ActorRequiredException}), from the server's 403 or the SDK's local refusal.
+     */
+    public static boolean isActorRequired(Throwable t) {
+        int depth = 0;
+        for (Throwable c = t; c != null && depth < 32; c = c.getCause(), depth++) {
+            if (c instanceof ActorRequiredException) return true;
+        }
+        return false;
+    }
+
+    /**
      * True when {@code t} is the issuer's 403 {@code tenant_disabled}: the org
      * the token is for is suspended or deactivated. Do NOT sign the user out;
      * their other orgs are unaffected.

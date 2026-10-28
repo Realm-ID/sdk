@@ -2,6 +2,7 @@ package dev.realmid.sdk.http;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.realmid.sdk.ActorRequiredException;
 import dev.realmid.sdk.ErrorCode;
 import dev.realmid.sdk.Logging;
 import dev.realmid.sdk.RealmException;
@@ -24,8 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Internal HTTP wrapper. Auto-attaches Authorization (api-key, platform-token,
- * or per-call user bearer), Content-Type, Origin (when supplied). Maps
+ * Internal HTTP wrapper. Auto-attaches Authorization (the platform token), Content-Type, Origin (when supplied). Maps
  * non-2xx responses to {@link RealmException} (SPEC §3 + §8).
  */
 public final class HttpTransport {
@@ -76,15 +76,62 @@ public final class HttpTransport {
     public ObjectMapper mapper() { return mapper; }
     public HttpClient client() { return client; }
 
+    /** What came back from one issuer call, undecoded: status, the Retry-After header, the body bytes. */
+    public record Raw(int status, String retryAfter, String contentType, byte[] body) {}
+
+    /**
+     * One call with the platform token, answered as received: no error mapping, so a relay (the
+     * integration handler, SPEC 14.8) can pass the issuer's status, body and Retry-After through.
+     * Transport failures still throw {@link RealmException}.
+     */
+    public Raw requestRaw(Request r) {
+        HttpResponse<byte[]> resp = exchange(r);
+        return new Raw(resp.statusCode(), resp.headers().firstValue("Retry-After").orElse(null),
+                resp.headers().firstValue("Content-Type").orElse(null), resp.body() == null ? new byte[0] : resp.body());
+    }
+
+    /**
+     * The local half of R61/R86: a call that needs an actor and carries none is refused here, with the
+     * same typed error the issuer's {@code 403 actor_required} decodes to, before anything is sent.
+     */
+    public void requireActor(String call) {
+        if (!hasUserToken()) throw ActorRequiredException.local(call);
+    }
+
+    /**
+     * Resolves the ACTOR of an actor route onto {@code r} (R60/R61): a per-call {@code userToken} rides
+     * in {@code X-User-Token}, else the token this transport carries ({@code Realm.withUserToken}) does;
+     * with neither the call is refused locally as {@link ActorRequiredException}. {@code userId} and
+     * {@code onBehalfOfIp} are attribution beside the verified token, never an identity of their own.
+     */
+    public Request applyActor(Request r, String call, String userId, String userToken, String onBehalfOfIp) {
+        boolean perCall = userToken != null && !userToken.isEmpty();
+        if (!perCall) requireActor(call);
+        if (perCall) r.header("x-user-token", userToken);
+        if (userId != null && !userId.isEmpty()) {
+            r.header("x-on-behalf-of-user", userId);
+            if (onBehalfOfIp != null && !onBehalfOfIp.isEmpty()) r.header("x-on-behalf-of-ip", onBehalfOfIp);
+        }
+        return r;
+    }
+
     public JsonNode request(Request r) {
+        long start = System.nanoTime();
+        String method = r.method == null ? "GET" : r.method;
+        HttpResponse<byte[]> resp = exchange(r);
+        long latencyMs = (System.nanoTime() - start) / 1_000_000;
+        return decode(r, method, resp, latencyMs);
+    }
+
+    private HttpResponse<byte[]> exchange(Request r) {
         URI uri = URI.create(baseUrl + (r.path.startsWith("/") ? r.path : "/" + r.path) + buildQuery(r.query));
         HttpRequest.Builder b = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(30));
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("accept", "application/json");
 
-        // Authorization resolution
-        String bearer = r.bearer;
-        if (bearer == null && !r.skipPlatformToken && tokens != null) {
+        // Authorization: the realm's platform token, always (R60). A user's token is never the bearer.
+        String bearer = null;
+        if (!r.skipPlatformToken && tokens != null) {
             bearer = tokens.getToken();
         }
         if (bearer != null) headers.put("authorization", "Bearer " + bearer);
@@ -120,7 +167,6 @@ public final class HttpTransport {
             b.header(e.getKey(), e.getValue());
         }
 
-        long start = System.nanoTime();
         if (logger.isLoggable(Level.DEBUG)) {
             logger.log(Level.DEBUG, "realmid: outbound request method={0} path={1} bearer={2}",
                     method, r.path, bearer == null ? "<none>" : Logging.redact(bearer));
@@ -145,8 +191,10 @@ public final class HttpTransport {
             throw new RealmException(ErrorCode.NETWORK,
                     "interrupted calling " + method + " " + r.path, e);
         }
-        long latencyMs = (System.nanoTime() - start) / 1_000_000;
+        return resp;
+    }
 
+    private JsonNode decode(Request r, String method, HttpResponse<byte[]> resp, long latencyMs) {
         int status = resp.statusCode();
         byte[] respBytes = resp.body();
         JsonNode parsed = null;
@@ -313,6 +361,9 @@ public final class HttpTransport {
             if (!sib.isEmpty()) details = sib;
         }
 
+        if (code == ErrorCode.ACTOR_REQUIRED) {
+            return ActorRequiredException.fromServer(message, status, details);
+        }
         return new RealmException(code, message, status, details, null, retryAfter);
     }
 
@@ -369,7 +420,6 @@ public final class HttpTransport {
         public String path;
         public Map<String, Object> query;
         public Object body;
-        public String bearer;
         public Map<String, String> headers;
         public boolean skipPlatformToken;
         /** Send exactly once: no EOF retry. For a call that is not safe to replay (ADR-111 consume). */
@@ -379,7 +429,6 @@ public final class HttpTransport {
         public Request path(String p) { this.path = p; return this; }
         public Request query(Map<String, Object> q) { this.query = q; return this; }
         public Request body(Object b) { this.body = b; return this; }
-        public Request bearer(String t) { this.bearer = t; return this; }
         public Request header(String k, String v) {
             if (headers == null) headers = new HashMap<>();
             headers.put(k, v);

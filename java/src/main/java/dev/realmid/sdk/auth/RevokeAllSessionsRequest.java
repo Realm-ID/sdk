@@ -3,10 +3,10 @@ package dev.realmid.sdk.auth;
 /**
  * Request for {@link AuthClient#revokeAllSessions(RevokeAllSessionsRequest)}.
  *
- * <p>Current-user op (dual-mode bearer — exactly one of {@code userBearer} or
- * {@code userId}). Carries only the bearer trio; there is no request body.
+ * <p>Current-user op (escort form, R60: the actor is {@code userToken} (sent in X-User-Token) or the
+ * realm's {@code withUserToken}; {@code userId} is attribution only). No request body.
  */
-public record RevokeAllSessionsRequest(String userId, String userBearer, String onBehalfOfIp) {
+public record RevokeAllSessionsRequest(String userId, String userToken, String onBehalfOfIp) {
 
     /** Never prints a credential. */
     @Override
@@ -20,8 +20,8 @@ public record RevokeAllSessionsRequest(String userId, String userBearer, String 
         return new RevokeAllSessionsRequest(userId, null, null);
     }
 
-    /** Legacy mode: revoke all sessions using the user's own access JWT. */
-    public static RevokeAllSessionsRequest withBearer(String userBearer) {
-        return new RevokeAllSessionsRequest(null, userBearer, null);
+    /** Per-call actor: revoke all sessions sending the user's own access JWT in X-User-Token. */
+    public static RevokeAllSessionsRequest withUserToken(String userToken) {
+        return new RevokeAllSessionsRequest(null, userToken, null);
     }
 }

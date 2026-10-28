@@ -49,12 +49,12 @@ class MfaSelfServiceTest {
         auth.put("created_at", 1700000000);
         auth.put("confirmed_at", 1700000100);
         fs.on("GET /auth/mfa/authenticators", (ex, body) -> {
-            assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+            assertEquals("user-jwt", fs.last().header("x-user-token"));
             return FakeServer.Reply.json(200, Map.of(
                     "authenticators", List.of(auth), "backup_codes_remaining", 8));
         });
         AuthenticatorList out = realm.auth().listAuthenticators(
-                ListAuthenticatorsRequest.withBearer("user-jwt"));
+                ListAuthenticatorsRequest.withUserToken("user-jwt"));
         assertEquals(8, out.backupCodesRemaining());
         assertEquals(1, out.authenticators().size());
         Authenticator a = out.authenticators().get(0);
@@ -93,20 +93,20 @@ class MfaSelfServiceTest {
         });
         RealmException ex = assertThrows(RealmException.class,
                 () -> realm.auth().listAuthenticators(ListAuthenticatorsRequest.forUser("u42")));
-        assertEquals(ErrorCode.BAD_REQUEST, ex.getCode());
-        assertTrue(ex.getMessage().contains("withUserToken"),
+        assertEquals(ErrorCode.ACTOR_REQUIRED, ex.getCode());
+        assertTrue(ex.getMessage().contains("X-User-Token"),
                 "the error must name the remedy, got: " + ex.getMessage());
     }
 
     @Test
     void regenerateRecoveryCodesReturnsFreshSet() {
         fs.on("POST /auth/mfa/recovery/regenerate", (ex, body) -> {
-            assertEquals("Bearer user-jwt", fs.last().header("authorization"));
+            assertEquals("user-jwt", fs.last().header("x-user-token"));
             return FakeServer.Reply.json(200, Map.of(
                     "status", "ok", "recovery_codes", List.of("aaaa-bbbb", "cccc-dddd")));
         });
         RecoveryCodes out = realm.auth().regenerateRecoveryCodes(
-                RegenerateRecoveryCodesRequest.withBearer("user-jwt"));
+                RegenerateRecoveryCodesRequest.withUserToken("user-jwt"));
         assertEquals("ok", out.status());
         assertEquals(List.of("aaaa-bbbb", "cccc-dddd"), out.recoveryCodes());
     }
@@ -118,7 +118,7 @@ class MfaSelfServiceTest {
         envelope.put("code", "mfa_required");
         fs.on("POST /auth/mfa/recovery/regenerate", (ex, body) -> FakeServer.Reply.json(412, envelope));
         RealmException ex = assertThrows(RealmException.class, () ->
-                realm.auth().regenerateRecoveryCodes(RegenerateRecoveryCodesRequest.withBearer("user-jwt")));
+                realm.auth().regenerateRecoveryCodes(RegenerateRecoveryCodesRequest.withUserToken("user-jwt")));
         assertEquals(ErrorCode.MFA_REQUIRED, ex.getCode());
         assertEquals(412, ex.getHttpStatus());
     }

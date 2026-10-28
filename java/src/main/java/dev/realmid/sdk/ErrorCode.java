@@ -30,6 +30,14 @@ public enum ErrorCode {
     MFA_REGISTRATION_REQUIRED("mfa_registration_required"),
     SESSION_LIMIT_REACHED("session_limit_reached"),
     TENANT_REQUIRED("tenant_required"),
+    /** R86 (SPEC 14.10): 403 {@code actor_required}, and the SDK's local refusal of an actor-less call. */
+    ACTOR_REQUIRED("actor_required"),
+    /** SPEC 14.4: a token under a kid the partner's share bundle does not pin. */
+    UNPINNED_KID("unpinned_kid"),
+    /** SPEC 14.4: the share source could not be read; never reported as {@code jwks_fetch_failed}. */
+    SHARE_LOAD_FAILED("share_load_failed"),
+    /** SPEC 14.9: the share source is read-only (environment); rotation on it is refused. */
+    SHARE_SOURCE_READ_ONLY("share_source_read_only"),
     TENANT_INVALID("tenant_invalid"),
     ACCOUNT_SUSPENDED("account_suspended"),
     ACCOUNT_DEACTIVATED("account_deactivated"),

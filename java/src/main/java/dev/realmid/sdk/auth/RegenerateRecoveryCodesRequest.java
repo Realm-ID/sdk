@@ -4,13 +4,13 @@ package dev.realmid.sdk.auth;
  * Request for
  * {@link AuthClient#regenerateRecoveryCodes(RegenerateRecoveryCodesRequest)}.
  *
- * <p>Current-user op (dual-mode bearer — exactly one of {@code userBearer} or
- * {@code userId}). Carries the bearer trio only; there is no request body. The
+ * <p>Current-user op (escort form, R60: the actor is {@code userToken} (sent in X-User-Token) or the
+ * realm's {@code withUserToken}; {@code userId} is attribution only). No request body. The
  * endpoint is step-up gated (RequireFresh): a token without a recent TOTP
  * yields {@code RealmException(mfa_required)} (412) until the user re-completes
  * TOTP. {@code onBehalfOfIp} is optional and only meaningful in BFF mode.
  */
-public record RegenerateRecoveryCodesRequest(String userId, String userBearer, String onBehalfOfIp) {
+public record RegenerateRecoveryCodesRequest(String userId, String userToken, String onBehalfOfIp) {
 
     /** Never prints a credential. */
     @Override
@@ -24,8 +24,8 @@ public record RegenerateRecoveryCodesRequest(String userId, String userBearer, S
         return new RegenerateRecoveryCodesRequest(userId, null, null);
     }
 
-    /** Legacy mode: regenerate using the user's own access JWT. */
-    public static RegenerateRecoveryCodesRequest withBearer(String userBearer) {
-        return new RegenerateRecoveryCodesRequest(null, userBearer, null);
+    /** Per-call actor: regenerate sending the user's own access JWT in X-User-Token. */
+    public static RegenerateRecoveryCodesRequest withUserToken(String userToken) {
+        return new RegenerateRecoveryCodesRequest(null, userToken, null);
     }
 }

@@ -375,6 +375,9 @@ in the same repo.
       indentation reader would risk inventing drift rather than finding it.
       *(Filed 2026-09-06, W1-B.)*
 
+- [ ] `java/src/main/java/dev/realmid/sdk/integrations/IntegrationsClient.java` — `mintToken` still POSTs `grant_type=integration_installation` with an `rk_live_` key to `/auth/login`, which R34 removed; the replacement is the pass mint (`POST /integrations/installations/{id}/pass`, platform token, no actor) then the pass in `X-User-Token` to `POST /auth/token`, a two-call two-realm change; Go has the same gap (the `go/integrations.go` line under Go SDK only), so this is the java half (split-signing S7b)
+- [ ] `java/src/test/java/dev/realmid/sdk/FakeServer.java` — R44 login-echo shim answers an unstubbed user mint at /auth/token with the last login 200; replace with explicit /auth/token stubs in the ~20 legacy login tests (test-quality, accepted 2026-10-28)
+
 ## Go SDK only
 
 Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file

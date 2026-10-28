@@ -27,7 +27,7 @@ import java.util.Map;
  *
  * <p>Lifecycle:
  * <ol>
- *   <li>{@code POST /auth/login} with the credential's grant
+ *   <li>{@code POST /auth/token} (R49, never {@code /auth/login}; no fallback, R71) with the credential's grant
  *       ({@code platform_api_key} or {@code token-exchange}) →
  *       {@code {access_token, expires_in}}.</li>
  *   <li>Within the pre-expiry skew window: do exactly the same thing again.</li>
@@ -117,8 +117,7 @@ public final class PlatformTokenManager {
      * Clears the cached access token, forcing a re-mint from the bootstrap
      * credential on the next {@link #getToken()}. That is the only acquisition
      * path — ADR-089 withdrew the refresh token from this session class, so
-     * there is nothing to preserve here and {@code /auth/token} is never
-     * reached from this manager.
+     * there is nothing to refresh: {@code /auth/token} here only ever mints.
      */
     public synchronized void invalidate() {
         cachedToken = null;
@@ -196,7 +195,7 @@ public final class PlatformTokenManager {
             logger.log(Level.INFO, "realmid: platform login grant_type={0} credential={1}",
                     new Object[] {cred.grantType(), redacted});
         }
-        JsonNode resp = send("/auth/login", null, body, "platform login");
+        JsonNode resp = send("/auth/token", null, body, "platform login");
         JsonNode tok = resp.get("access_token");
         if (tok != null && tok.isTextual()) checkIssuer(tok.asText());
         store(resp, "platform login");

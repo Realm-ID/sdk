@@ -41,7 +41,7 @@ class MessagingClientTest {
         realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId("01HREALM").apiKey("rk").baseUrl(fs.baseUrl).audience("acme.test")
                 .httpClient(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build())
-                .build();
+                .build().withUserToken("actor-jwt"); // OTP calls are actor routes (R61)
     }
 
     @AfterEach

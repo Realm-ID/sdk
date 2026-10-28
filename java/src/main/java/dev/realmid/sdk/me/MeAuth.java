@@ -3,23 +3,17 @@ package dev.realmid.sdk.me;
 /**
  * The end-user credential every {@link MeClient} call needs (ADR-092 D5).
  *
- * <p>Two modes, mirroring the rest of the SDK:
- * <ul>
- *   <li>DIRECT — {@link #bearer(String)}: the user's access JWT becomes the
- *       wire bearer.</li>
- *   <li>BFF — {@link #onBehalfOf(String)}: the realm's platform token stays the
- *       bearer and the user's <em>verified</em> access JWT rides as
- *       {@code X-User-Token} (ADR-056).</li>
- * </ul>
+ * <p>Escort form only (R60): the realm's platform token is always the bearer and the user's
+ * <em>verified</em> access JWT rides as {@code X-User-Token} (ADR-056). The user-as-bearer mode is
+ * REMOVED: the issuer answers a user JWT in the bearer slot with {@code 401 platform_bearer_required}.
+ * A call with no {@code MeAuth} token uses the actor the realm carries ({@code Realm.withUserToken});
+ * with neither it is an {@code ActorRequiredException} and nothing is sent.
  *
- * <p>There is no user-id mode: a BARE user id is not an identity — the issuer
- * removed that in v0.66.0 and answers {@code 401 x_user_token_required}.
+ * <p>There is no user-id mode: a BARE user id is not an identity.
  *
- * @param userBearer the user's access JWT used AS the bearer, or null
- * @param userToken the user's verified access JWT forwarded as
- *                  {@code X-User-Token}, or null
+ * @param userToken the user's verified access JWT forwarded as {@code X-User-Token}, or null
  */
-public record MeAuth(String userBearer, String userToken) {
+public record MeAuth(String userToken) {
 
     /** Never prints a credential. */
     @Override
@@ -27,14 +21,8 @@ public record MeAuth(String userBearer, String userToken) {
         return "MeAuth[redacted]";
     }
 
-
-    /** Direct mode — the user's access JWT is the wire bearer. */
-    public static MeAuth bearer(String userAccessJwt) {
-        return new MeAuth(userAccessJwt, null);
-    }
-
-    /** BFF mode — platform bearer plus the verified user JWT as X-User-Token. */
+    /** Platform bearer plus the verified user JWT as X-User-Token. */
     public static MeAuth onBehalfOf(String verifiedUserAccessJwt) {
-        return new MeAuth(null, verifiedUserAccessJwt);
+        return new MeAuth(verifiedUserAccessJwt);
     }
 }

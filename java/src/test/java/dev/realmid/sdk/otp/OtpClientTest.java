@@ -32,7 +32,7 @@ class OtpClientTest {
                 .apiKey("rk_live_test")
                 .baseUrl(fs.baseUrl)
                 .audience("acme.test")
-                .build();
+                .build().withUserToken("actor-jwt"); // OTP calls are actor routes (R61)
     }
 
     @AfterEach
@@ -76,11 +76,11 @@ class OtpClientTest {
                     "purpose", "delivery"));
         });
         OtpVerifyResponse out = realm.otp().verify(
-                OtpVerifyRequest.withBearer("booking:X", "delivery", "123456", "agent-svc-jwt"));
+                OtpVerifyRequest.withUserToken("booking:X", "delivery", "123456", "agent-svc-jwt"));
         assertEquals("otp-1", out.otpId());
         assertEquals("manager-A", out.issuerUserId());
         // Legacy mode: the user's own access JWT is the Authorization bearer.
-        assertEquals("Bearer agent-svc-jwt", seen.get().header("authorization"));
+        assertEquals("agent-svc-jwt", seen.get().header("x-user-token"));
         assertEquals("123456", seen.get().bodyAsMap().get("presented"));
     }
 
@@ -89,7 +89,7 @@ class OtpClientTest {
         fs.on("POST /auth/otp/verify", (ex, body) -> FakeServer.Reply.json(401, Map.of(
                 "error", Map.of("code", "invalid_otp", "message", "invalid OTP"))));
         RealmException ex = assertThrows(RealmException.class, () -> realm.otp().verify(
-                OtpVerifyRequest.withBearer("booking:X", "delivery", "wrong", "agent-svc-jwt")));
+                OtpVerifyRequest.withUserToken("booking:X", "delivery", "wrong", "agent-svc-jwt")));
         assertEquals(ErrorCode.INVALID_OTP, ex.getCode());
     }
 
@@ -98,7 +98,7 @@ class OtpClientTest {
         fs.on("POST /auth/otp/verify", (ex, body) -> FakeServer.Reply.json(401, Map.of(
                 "error", Map.of("code", "otp_expired", "message", "expired"))));
         RealmException ex = assertThrows(RealmException.class, () -> realm.otp().verify(
-                OtpVerifyRequest.withBearer("booking:X", "delivery", "123456", "agent-svc-jwt")));
+                OtpVerifyRequest.withUserToken("booking:X", "delivery", "123456", "agent-svc-jwt")));
         assertEquals(ErrorCode.OTP_EXPIRED, ex.getCode());
     }
 
@@ -107,7 +107,7 @@ class OtpClientTest {
         fs.on("POST /auth/otp/verify", (ex, body) -> FakeServer.Reply.json(429, Map.of(
                 "error", Map.of("code", "otp_locked", "message", "locked"))));
         RealmException ex = assertThrows(RealmException.class, () -> realm.otp().verify(
-                OtpVerifyRequest.withBearer("booking:X", "delivery", "123456", "agent-svc-jwt")));
+                OtpVerifyRequest.withUserToken("booking:X", "delivery", "123456", "agent-svc-jwt")));
         assertEquals(ErrorCode.OTP_LOCKED, ex.getCode());
     }
 
@@ -124,10 +124,10 @@ class OtpClientTest {
                     "subject_ref", "user:bob",
                     "issuer_user_id", "manager-A"));
         });
-        OtpViewResponse out = realm.otp().view("otp-1", OtpViewOptions.withBearer("manager-jwt"));
+        OtpViewResponse out = realm.otp().view("otp-1", OtpViewOptions.withUserToken("manager-jwt"));
         assertEquals("654321", out.value());
         assertEquals("manager-A", out.issuerUserId());
-        assertEquals("Bearer manager-jwt", seen.get().header("authorization"));
+        assertEquals("manager-jwt", seen.get().header("x-user-token"));
     }
 
     @Test
@@ -135,15 +135,23 @@ class OtpClientTest {
         fs.on("GET /auth/otp/otp-1", (ex, body) -> FakeServer.Reply.json(404, Map.of(
                 "error", Map.of("code", "otp_not_found", "message", "not found"))));
         RealmException ex = assertThrows(RealmException.class, () -> realm.otp().view(
-                "otp-1", OtpViewOptions.withBearer("manager-jwt")));
+                "otp-1", OtpViewOptions.withUserToken("manager-jwt")));
         assertEquals(ErrorCode.OTP_NOT_FOUND, ex.getCode());
     }
 
     @Test
-    void issueRejectsBothBearerAndUserId() {
-        RealmException ex = assertThrows(RealmException.class, () -> realm.otp().issue(
-                new OtpIssueRequest("booking:X", "delivery", "u1", "user-jwt", null)));
-        assertEquals(ErrorCode.BAD_REQUEST, ex.getCode());
+    void issueUserIdIsAttributionBesideTheTokenNotAnError() {
+        // R60: the id used to be rejected beside a user-as-bearer token; the token now rides in
+        // X-User-Token and the id is attribution beside it.
+        AtomicReference<FakeServer.Recorded> seen = new AtomicReference<>();
+        fs.on("POST /auth/otp/issue", (ex, body) -> {
+            seen.set(fs.last());
+            return FakeServer.Reply.json(200, Map.of("id", "otp-1", "value", "1", "expires_at", "e",
+                    "purpose", "delivery", "subject_ref", "booking:X"));
+        });
+        realm.otp().issue(new OtpIssueRequest("booking:X", "delivery", "u1", "user-jwt", null));
+        assertEquals("user-jwt", seen.get().header("x-user-token"));
+        assertEquals("u1", seen.get().header("x-on-behalf-of-user"));
     }
 
     @Test
