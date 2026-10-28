@@ -3,13 +3,14 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 // Records the last non-login request's method/url/body so each test can assert
 // the wire. The /auth/login leg always mints the platform token "pt_x".
 function mkFetch(status: number, body: unknown, sink?: { method?: string; url?: string; body?: unknown }): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300 }), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -83,7 +84,7 @@ test("auth.listAuthenticators: GET /auth/mfa/authenticators", async () => {
     authenticators: [{ type: "totp", confirmed: true, created_at: 1000, confirmed_at: 1001 }],
     backup_codes_remaining: 8,
   }, sink) });
-  const out = await realm.auth.listAuthenticators({ userBearer: "u-jwt" });
+  const out = await realm.withUserToken("u-jwt").auth.listAuthenticators({ });
   assert.equal(sink.method, "GET");
   assert.match(sink.url!, /\/auth\/mfa\/authenticators$/);
   assert.equal(out.backup_codes_remaining, 8);
@@ -92,14 +93,14 @@ test("auth.listAuthenticators: GET /auth/mfa/authenticators", async () => {
 
 test("auth.regenerateRecoveryCodes: POST /auth/mfa/recovery/regenerate", async () => {
   const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(200, { status: "ok", recovery_codes: ["aaaa-1111", "bbbb-2222"] }) });
-  const out = await realm.auth.regenerateRecoveryCodes({ userBearer: "u-jwt" });
+  const out = await realm.withUserToken("u-jwt").auth.regenerateRecoveryCodes({ });
   assert.equal(out.status, "ok");
   assert.equal(out.recovery_codes.length, 2);
 });
 
 test("auth.regenerateRecoveryCodes: 412 surfaces mfa_required", async () => {
   const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: mkFetch(412, { error: "fresh TOTP required", code: "mfa_required" }) });
-  await assert.rejects(() => realm.auth.regenerateRecoveryCodes({ userBearer: "u-jwt" }),
+  await assert.rejects(() => realm.withUserToken("u-jwt").auth.regenerateRecoveryCodes({ }),
     (e: Error) => e instanceof RealmError && e.code === "mfa_required");
 });
 
@@ -109,7 +110,7 @@ test("login: contact_admin_required (409, flat envelope) decodes to code", async
   const realm = createRealm({ sessionStore: createMemorySessionStore(), ...cfg, fetch: (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const gt = init?.body ? (JSON.parse(init.body as string) as { grant_type?: string }).grant_type : undefined;
-    if (url.endsWith("/auth/login") && gt === "platform_api_key") {
+    if (isPlatformMint(url, init) && gt === "platform_api_key") {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300 }), {
         status: 200, headers: { "content-type": "application/json" },
       });

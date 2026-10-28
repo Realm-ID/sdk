@@ -113,7 +113,8 @@ test("SPEC10_1_4a #47 winner's error is shared; #48 different tenant gets 503 re
   const [a, b] = await Promise.all([drive(s.mw as never, refreshReq("rt0", "acme")), drive(s.mw as never, refreshReq("rt0", "acme"))]);
   assert.equal(a.res.statusCode, 401);
   assert.equal(b.res.statusCode, 401);
-  assert.equal(s.f.count("/auth/token"), 1);
+  // The platform mint (R49) also lands on /auth/token: count only the refresh.
+  assert.equal(s.f.calls.filter((c) => c.url.endsWith("/auth/token") && typeof c.body["refresh_token"] === "string").length, 1);
 
   const t = await setup();
   const seen = rotatingIssuer(t);
@@ -182,8 +183,13 @@ test("SPEC10_1_5 #98 MFA verify with no refresh cookie takes no lock; with one i
   const inner = createMemorySessionStore({ now: () => NOW * 1000 });
   const locks: string[] = [];
   const s = await setup({ store: { ...inner, acquireRefreshLock: async (k, t) => { locks.push(k); return inner.acquireRefreshLock(k, t); } } });
+  // R51: a settled verify mints at /auth/token; the verify answer itself carries no access token, and the
+  // mint's rotated refresh token is the one the cookie and a racing refresh see.
   s.f.mfaVerify = async () => jsonRes(200, {
-    access_token: await s.sign(claimsFor(NOW)), refresh_token: "rt-mfa", expires_in: 900, user: { id: "u" }, tenants: [], tenant_id: "acme", role: "m",
+    refresh_token: "rt-mfa0", expires_in: 900, user: { id: "u" }, tenants: [], tenant_id: "acme", role: "m",
+  });
+  s.f.token = async () => jsonRes(200, {
+    access_token: await s.sign(claimsFor(NOW)), refresh_token: "rt-mfa", expires_in: 900, tenant_id: "acme", role: "m",
   });
   const first = await drive(s.mw as never, { url: "/mfa/verify", method: "POST", headers: {}, body: { challenge_token: "c", code: "1" } });
   assert.equal(first.res.statusCode, 200);

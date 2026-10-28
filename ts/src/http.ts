@@ -12,6 +12,7 @@
 
 import { RealmError, parseRetryAfterSeconds, statusToCode, isKnownCode, type ErrorCode } from "./errors.js";
 import { parseErrorEnvelope } from "./envelope.js";
+import { ActorRequiredError } from "./actor-required.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER, redactCredential } from "./logger.js";
 import type { PlatformTokenManager } from "./platform-token-manager.js";
@@ -22,7 +23,7 @@ export interface HttpClientOptions {
   /**
    * Source of the platform token used for normal management/auth calls.
    * When omitted, requests go out unauthenticated (e.g. JWKS, public
-   * info routes). Per-call `bearer` always wins.
+   * info routes).
    */
   platformTokens?: PlatformTokenManager;
   logger?: Logger;
@@ -41,8 +42,12 @@ export interface RequestOptions {
   path: string;
   query?: Record<string, string | number | undefined>;
   body?: unknown;
-  /** Per-call bearer override (e.g. user JWT for sessions endpoints). */
-  bearer?: string;
+  /**
+   * The call acts AS a person, key or service account (R60/R61): with no `X-User-Token` (from
+   * `realm.withUserToken` or a per-call header) it is refused locally as `ActorRequiredError` and
+   * nothing is sent. The platform token is ALWAYS the bearer; no mode puts a user token there.
+   */
+  requireActor?: boolean;
   /** Extra headers (e.g. Origin) merged after defaults. */
   headers?: Record<string, string>;
   /**
@@ -85,8 +90,11 @@ export class HttpClient {
       "accept": "application/json",
     };
 
-    let bearer = opts.bearer;
-    if (!bearer && !opts.skipPlatformToken && this.platformTokens) {
+    if (opts.requireActor && !this.userToken && !hasHeader(opts.headers, "x-user-token")) {
+      throw new ActorRequiredError();
+    }
+    let bearer: string | undefined;
+    if (!opts.skipPlatformToken && this.platformTokens) {
       bearer = await this.platformTokens.getToken();
     }
     if (bearer) headers["authorization"] = `Bearer ${bearer}`;
@@ -167,6 +175,30 @@ export class HttpClient {
     return body as T;
   }
 
+  /**
+   * Like {@link request} but returns the raw `Response` without mapping a non-2xx answer to an error:
+   * for a relay (the integration token handler) that must pass an issuer's status, body and
+   * `Retry-After` through unchanged. The platform token is the bearer; a network failure is a
+   * `RealmError{network}`.
+   */
+  async requestRaw(opts: RequestOptions): Promise<Response> {
+    const headers: Record<string, string> = { "content-type": "application/json", "accept": "application/json" };
+    if (!opts.skipPlatformToken && this.platformTokens) headers["authorization"] = `Bearer ${await this.platformTokens.getToken()}`;
+    if (this.userToken) headers["x-user-token"] = this.userToken;
+    for (const [k, v] of Object.entries(opts.headers ?? {})) headers[k.toLowerCase()] = v;
+    const init: RequestInit = { method: opts.method ?? "GET", headers };
+    if (opts.body !== undefined) init.body = JSON.stringify(opts.body);
+    try {
+      return await this.fetch(this.buildUrl(opts.path, opts.query), init);
+    } catch (e) {
+      throw new RealmError({
+        code: "network",
+        message: `network error calling ${opts.method ?? "GET"} ${opts.path}: ${(e as Error).message}`,
+        cause: e,
+      });
+    }
+  }
+
   private buildUrl(path: string, query?: Record<string, string | number | undefined>): string {
     let url = this.baseUrl + (path.startsWith("/") ? path : `/${path}`);
     if (query) {
@@ -204,5 +236,12 @@ function mapErrorResponse(
   if (env.code !== undefined && !isKnownCode(env.code)) {
     details = { ...(details ?? {}), server_code: env.code };
   }
+  // R86: the server's `actor_required` is the SAME typed error as the SDK's local refusal.
+  if (code === "actor_required") return new ActorRequiredError({ message, httpStatus: status, details });
   return new RealmError({ code, message, httpStatus: status, details, retryAfterSeconds });
+}
+
+function hasHeader(h: Record<string, string> | undefined, name: string): boolean {
+  if (!h) return false;
+  return Object.keys(h).some((k) => k.toLowerCase() === name && h[k] !== "");
 }

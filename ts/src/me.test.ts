@@ -3,6 +3,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Captured {
   method: string;
@@ -16,7 +17,7 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({
         status: "ok", subject_type: "platform", refresh_token: "rtok", access_token: "pt_x", expires_in: 300,
       }), { status: 200, headers: { "content-type": "application/json" } });
@@ -49,12 +50,13 @@ test("me.chooseTenant: posts the KEPT tenant and decodes released", async () => 
     seen = req;
     return json({ tenant_id: "t-keep", status: "chosen", released: 2 });
   }));
-  const out = await realm.me.chooseTenant({ tenantId: "t-keep", userBearer: "user-jwt" });
+  const out = await realm.withUserToken("user-jwt").me.chooseTenant({ tenantId: "t-keep" });
   assert.equal(seen?.method, "POST");
   assert.match(seen!.url, /\/me\/tenant-choice$/);
   assert.deepEqual(seen?.body, { tenant_id: "t-keep" });
-  // Direct mode: the user's own JWT is the wire bearer.
-  assert.equal(seen?.headers["authorization"], "Bearer user-jwt");
+  // R60 escort: platform bearer + X-User-Token, never the user JWT as the wire bearer.
+  assert.equal(seen?.headers["authorization"], "Bearer pt_x");
+  assert.equal(seen?.headers["x-user-token"], "user-jwt");
   assert.deepEqual(out, { tenantId: "t-keep", status: "chosen", released: 2 });
 });
 
@@ -79,8 +81,8 @@ test("me.rejectInvitation / me.leave: own routes, no body, escaped tenant id", a
     assert.equal(req.body, undefined, "these routes take no body");
     return json({ tenant_id: "t1", status: req.url.includes("reject") ? "rejected" : "left" });
   }));
-  const rej = await realm.me.rejectInvitation({ tenantId: "t one", userBearer: "u" });
-  const left = await realm.me.leave({ tenantId: "t1", userBearer: "u" });
+  const rej = await realm.withUserToken("u").me.rejectInvitation({ tenantId: "t one" });
+  const left = await realm.withUserToken("u").me.leave({ tenantId: "t1" });
   assert.equal(rej.status, "rejected");
   assert.equal(left.status, "left");
   // A tenant id is a path SEGMENT and must be escaped, not interpolated raw.
@@ -93,7 +95,7 @@ test("me.chooseTenant: owner_cannot_be_revoked keeps its specific code", async (
     error: "transfer ownership first", code: "owner_cannot_be_revoked",
   }, 409)));
   await assert.rejects(
-    () => realm.me.chooseTenant({ tenantId: "t1", userBearer: "u" }),
+    () => realm.withUserToken("u").me.chooseTenant({ tenantId: "t1" }),
     (err: unknown) => {
       assert.ok(err instanceof RealmError);
       // Must NOT collapse into the generic 409 `conflict` — the remedy
@@ -109,7 +111,7 @@ test("auth.login: decodes the ADR-092 picker alongside real tokens", async () =>
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
-    if (url.endsWith("/auth/login") && body.grant_type === "platform_api_key") {
+    if (isPlatformMint(url, init) && body.grant_type === "platform_api_key") {
       return json({ subject_type: "platform", access_token: "pt_x", refresh_token: "rt", expires_in: 300 });
     }
     return json({
@@ -124,8 +126,9 @@ test("auth.login: decodes the ADR-092 picker alongside real tokens", async () =>
   }) as typeof fetch;
   const realm = realmWith(fetch);
   const out = await realm.auth.login({ method: "google", providerToken: "tok" });
-  // The picker is a prompt, not an auth failure: the login still mints.
-  assert.equal(out.accessToken, "atok");
+  // The picker is a prompt, not an auth failure. R51/R62: no tenant is settled, so nothing mints and
+  // the SDK never reads the sign-in answer's access_token: accessToken stays empty.
+  assert.equal(out.accessToken, "");
   assert.equal(out.tenantChoiceRequired, true);
   assert.deepEqual(out.tenantChoices, [
     { tenantId: "t1", displayName: "Acme", isOwner: false },
@@ -138,7 +141,7 @@ test("auth.login: an ordinary login grows no picker fields", async () => {
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const body = typeof init?.body === "string" ? JSON.parse(init.body) : {};
-    if (url.endsWith("/auth/login") && body.grant_type === "platform_api_key") {
+    if (isPlatformMint(url, init) && body.grant_type === "platform_api_key") {
       return json({ subject_type: "platform", access_token: "pt_x", refresh_token: "rt", expires_in: 300 });
     }
     return json({
@@ -180,7 +183,7 @@ test("me.acceptInvitation: own route, no body, escaped tenant id", async () => {
     assert.equal(req.body, undefined, "this route takes no body");
     return json({ tenant_id: "t one", status: "accepted" });
   }));
-  const acc = await realm.me.acceptInvitation({ tenantId: "t one", userBearer: "u" });
+  const acc = await realm.withUserToken("u").me.acceptInvitation({ tenantId: "t one" });
   assert.equal(acc.status, "accepted");
   // The route is /accept, NOT /reject with a flag: the two are separate issuer
   // endpoints (ADR-095 D5), and pointing accept at reject's path would decline
@@ -194,7 +197,7 @@ test("me.acceptInvitation: not_pending keeps its specific code", async () => {
     error: "invitation already answered", code: "not_pending",
   }, 409)));
   await assert.rejects(
-    () => realm.me.acceptInvitation({ tenantId: "t1", userBearer: "u" }),
+    () => realm.withUserToken("u").me.acceptInvitation({ tenantId: "t1" }),
     (err: unknown) => {
       assert.ok(err instanceof RealmError);
       // Must NOT collapse into the generic 409 `conflict`: `not_pending`

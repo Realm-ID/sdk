@@ -3,7 +3,7 @@ import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { createMemorySessionStore, sessionStoreConformance, lockKey, type SessionStateStore } from "./session-store.js";
 import { createScopeMiddleware } from "./scope.js";
-import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner, MockRes } from "./v063-fixture.test.js";
+import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner, MockRes, refreshCount } from "./v063-fixture.test.js";
 
 const NOW = 1_800_000_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -49,7 +49,7 @@ test("SPEC10_1_4a #53 a request that is abandoned mid-mint still completes; a re
   await sleep(200);
   const retry = await drive(s.mw as never, refreshReq(cookie("rt0")));
   assert.equal(retry.res.statusCode, 200);
-  assert.equal(s.f.count("/auth/token"), 1);
+  assert.equal(refreshCount(s.f), 1);
   assert.equal(lastToken(retry.res.setCookie), "rt-1");
 });
 
@@ -93,7 +93,7 @@ test("SPEC10_1_4b #62a tab churn: each switch = one 401 revoked, one /token, one
     }
     assert.equal(r.res.statusCode, 200, `switch ${k}`);
   }
-  assert.equal(s.f.count("/auth/token"), refreshes + 1);
+  assert.equal(refreshCount(s.f), refreshes + 1);
   assert.equal(refreshes, rejections);
   assert.ok(refreshes >= 9, `expected a refresh per switch, got ${refreshes}`);
   assert.equal(s.f.count("/auth/logout"), 0);

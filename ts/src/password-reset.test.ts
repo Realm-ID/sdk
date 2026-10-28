@@ -7,6 +7,7 @@ import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { createMemorySessionStore } from "./session-store.js";
 import { RealmError, isKnownCode } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Seen {
   method: string;
@@ -25,7 +26,7 @@ function mk(handler: (s: Seen) => Response) {
     const url = new URL(typeof input === "string" ? input : input.toString());
     let body: Record<string, unknown> | undefined;
     if (typeof init?.body === "string" && init.body) body = JSON.parse(init.body) as Record<string, unknown>;
-    if (url.pathname.endsWith("/auth/login") && body?.["grant_type"] === "platform_api_key") {
+    if (isPlatformMint(url.pathname, init) && body?.["grant_type"] === "platform_api_key") {
       return json(200, { status: "ok", subject_type: "platform", refresh_token: "rt", access_token: "pt_x", expires_in: 300 });
     }
     const headers: Record<string, string> = {};
@@ -159,12 +160,13 @@ test("SPEC3_1_password: all ten ADR-111 codes are registered", () => {
 
 test("Me SetPasswordRequestShapePerLane: direct lane bearer, BFF lane X-User-Token; current_password only when set", async () => {
   const { realm, calls } = mk(() => json(200, { data: { status: "updated" } }));
-  const out = await realm.me.setPassword({ userBearer: "ub", currentPassword: "old-pass-1234", newPassword: "a-long-new-password" });
+  const out = await realm.withUserToken("ub").me.setPassword({ currentPassword: "old-pass-1234", newPassword: "a-long-new-password" });
   await realm.me.setPassword({ userToken: "ut", newPassword: "a-long-new-password" });
   assert.deepEqual(out, { status: "updated", revokedSids: [] });
   assert.equal(calls[0]!.method, "PUT");
   assert.equal(calls[0]!.path, "/me/password");
-  assert.equal(calls[0]!.headers["authorization"], "Bearer ub");
+  assert.equal(calls[0]!.headers["authorization"], "Bearer pt_x");
+  assert.equal(calls[0]!.headers["x-user-token"], "ub");
   assert.deepEqual(calls[0]!.body, { current_password: "old-pass-1234", new_password: "a-long-new-password" });
   assert.equal(calls[1]!.headers["authorization"], "Bearer pt_x");
   assert.equal(calls[1]!.headers["x-user-token"], "ut");

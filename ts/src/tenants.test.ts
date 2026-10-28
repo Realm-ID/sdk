@@ -3,11 +3,12 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 function mkFetch(handler: (url: string, init?: RequestInit) => Response): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -98,7 +99,7 @@ test("tenants.create: routes to /platforms/{realmId}/tenants (SPEC §6.1)", asyn
   let hitBody: Record<string, unknown> = {};
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -128,7 +129,7 @@ test("tenants.invitations.create: posts identifier (v0.11.0 contact model)", asy
   let hitBody: Record<string, unknown> = {};
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -158,7 +159,7 @@ test("tenants.driftReviews.accept: POSTs /contact-drift-reviews/{id}/accept", as
   let hitMethod = "";
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -182,9 +183,9 @@ test("tenants.driftReviews.accept: POSTs /contact-drift-reviews/{id}/accept", as
 
 test("tenants.contactVerifications.list: filters by state and yields rows", async () => {
   let hitUrl = "";
-  const wrapped: typeof fetch = (async (input: RequestInfo | URL) => {
+  const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -210,7 +211,7 @@ test("tenants.updateUserRole: PATCHes /tenants/{id}/users/{uid}/role", async () 
   let hitBody: Record<string, unknown> = {};
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });
@@ -239,7 +240,7 @@ test("tenants.transferOwner: PUTs owner_user_id and optional ADR-076 knobs", asy
   let hitBody: Record<string, unknown> = {};
   const wrapped: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
         status: 200, headers: { "content-type": "application/json" },
       });

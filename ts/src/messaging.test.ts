@@ -17,6 +17,7 @@ import { DELIVERY_MODE_WHATSAPP } from "./otp.js";
 import { offersPhoneLogin } from "./identity-providers.js";
 import type { IdentityProvidersResponse } from "./identity-providers.js";
 import { phoneOtpConfig } from "./config.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Rec { method: string; url: string; body?: unknown; auth: string | null }
 
@@ -24,7 +25,7 @@ function setup(handler: (r: Rec) => Response): { realm: ReturnType<typeof create
   const calls: Rec[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok", access_token: "pt_x", expires_in: 300 }),
         { status: 200, headers: { "content-type": "application/json" } });
     }
@@ -139,7 +140,7 @@ test("SPEC3_1_channels delivery_unavailable stays unregistered and carries detai
   assert.equal(isKnownCode("channel_unavailable"), false);
   const { realm } = setup(() => json(503, { error: { code: "delivery_unavailable", message: "whatsapp is not available", channel: "whatsapp" } }));
   await assert.rejects(
-    () => realm.otp.issue({ subjectRef: "user:u1", purpose: "login", deliveryMode: DELIVERY_MODE_WHATSAPP, userBearer: "jwt" }),
+    () => realm.withUserToken("jwt").otp.issue({ subjectRef: "user:u1", purpose: "login", deliveryMode: DELIVERY_MODE_WHATSAPP }),
     (e) => e instanceof RealmError && e.httpStatus === 503 && e.details?.["server_code"] === "delivery_unavailable" && e.details?.["channel"] === "whatsapp",
   );
 });
@@ -149,7 +150,7 @@ test("SPECX_1_whatsapp otp.issue sends delivery_mode whatsapp and reports delive
     id: "o1", delivered: "whatsapp", expires_at: "2026-10-17T03:00:00Z", purpose: "login", subject_ref: "user:u1",
   }));
   assert.equal(DELIVERY_MODE_WHATSAPP, "whatsapp");
-  const out = await realm.otp.issue({ subjectRef: "user:u1", purpose: "login", deliveryMode: DELIVERY_MODE_WHATSAPP, userBearer: "jwt" });
+  const out = await realm.withUserToken("jwt").otp.issue({ subjectRef: "user:u1", purpose: "login", deliveryMode: DELIVERY_MODE_WHATSAPP });
   assert.equal((calls[0]!.body as Record<string, unknown>)["delivery_mode"], "whatsapp");
   assert.equal(out.delivered, "whatsapp");
 });

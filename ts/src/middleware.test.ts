@@ -3,6 +3,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { globMatch } from "./middleware.js";
+import { isPlatformMint, userMintResponse } from "./auth-mint-helpers.test.js";
 
 class MockRes {
   statusCode = 200;
@@ -43,7 +44,7 @@ function mkReq(opts: { url: string; method?: string; headers?: Record<string, st
 function autoFetch(handler: (url: string, init: RequestInit | undefined) => Promise<Response> | Response): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       let parsed: { grant_type?: string } = {};
       if (init?.body) {
         try { parsed = JSON.parse(String(init.body)); } catch { /* noop */ }
@@ -98,6 +99,8 @@ test("middleware: exempt path passes through to next", async () => {
 
 test("middleware: login route handles request and sets cookie", async () => {
   const realm = makeRealm((url) => {
+    // R51: the settled login mints its access token at /auth/token (the sign-in answer carries none).
+    if (/\/auth\/token$/.test(url)) return userMintResponse("at", "rt-cookie");
     assert.match(url, /\/auth\/login$/);
     return new Response(JSON.stringify({
       access_token: "at",
@@ -134,13 +137,16 @@ test("middleware: login route handles request and sets cookie", async () => {
 });
 
 test("middleware: tokenDelivery=body returns refresh_token in JSON, no cookie", async () => {
-  const realm = makeRealm(() => new Response(JSON.stringify({
-    access_token: "at",
-    refresh_token: "rt-body",
-    expires_in: 900,
-    user: { id: "u1" },
-    tenants: [],
-  }), { status: 200, headers: { "content-type": "application/json" } }));
+  const realm = makeRealm((url) => {
+    // R51: a settled login (one tenant) mints at /auth/token; that mint's refresh token is the one delivered.
+    if (/\/auth\/token$/.test(url)) return userMintResponse("at", "rt-body");
+    return new Response(JSON.stringify({
+      refresh_token: "rt-first",
+      expires_in: 900,
+      user: { id: "u1" },
+      tenants: [{ id: "t1", role: "owner" }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
   const mw = realm.middleware({ tokenDelivery: "body" });
   const req = mkReq({
     url: "/login", method: "POST",
@@ -213,9 +219,9 @@ test("middleware: valid bearer attaches claims to req.realmid", async () => {
   const aud = "example.com";
   const { token, publicJwk } = await mintSignedToken({ realmId, baseUrl, aud });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
@@ -245,9 +251,9 @@ test("middleware: mfaProtectedPaths returns 412 mfa_required when token lacks MF
   const aud = "example.com";
   const { token, publicJwk } = await mintSignedToken({ realmId, baseUrl, aud });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
@@ -283,9 +289,9 @@ test("middleware: mfaProtectedPaths lets through tokens carrying amr=mfa", async
     realmId, baseUrl, aud, extraClaims: { amr: ["pwd", "mfa"] },
   });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
@@ -316,9 +322,9 @@ test("middleware: mfaProtectedPaths accepts fresh mfa_at", async () => {
     realmId, baseUrl, aud, extraClaims: { mfa_at: nowSec - 60 }, // 1 min ago
   });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
@@ -351,9 +357,9 @@ test("middleware: stale mfa_at returns 412 stale_mfa", async () => {
     realmId, baseUrl, aud, extraClaims: { mfa_at: nowSec - 1800 }, // 30 min ago
   });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
@@ -390,9 +396,9 @@ test("middleware: requireFresh rejects amr-only token (no mfa_at)", async () => 
     realmId, baseUrl, aud, extraClaims: { amr: ["pwd", "mfa"] }, // legacy marker only
   });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
@@ -429,9 +435,9 @@ test("middleware: requireFresh accepts mfa_at within 30s", async () => {
     realmId, baseUrl, aud, extraClaims: { mfa_at: nowSec - 5 }, // 5 sec ago
   });
 
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), { status: 200 });
     }
     if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {

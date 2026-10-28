@@ -5,6 +5,7 @@ import { AuthClient, type LoginResponse } from "./auth.js";
 import { createRealm } from "./realm.js";
 import { LoginMintError, type ProductRolesHandler } from "./product-roles.js";
 import { ScopesError, type ScopesHandler } from "./scopes-handler.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 import {
   IdentityResolvedError,
   type IdentityResolvedEvent,
@@ -243,7 +244,9 @@ test("a hook alone (no productRoles/scopes) still fires, without forcing an extr
   await c.login({ method: "firebase", providerToken: "pt" });
 
   assert.equal(fired, 1, "the hook must fire even when neither sibling resolver is configured");
-  assert.equal(mints(calls).length, 0, "with no claim to add, the short-circuit must still skip the round trip");
+  // R51/R62: the old "login already minted, skip the round trip" short-circuit is gone; a settled login
+  // mints exactly once at /auth/token, and with no claim to add that one mint carries none.
+  assert.equal(mints(calls).length, 1, "exactly one mint per settled login");
 });
 
 // ---------------------------------------------------------------------------
@@ -268,7 +271,7 @@ function refreshRig(cfg: {
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
-      if (url.endsWith("/auth/login")) {
+      if (isPlatformMint(url, init)) {
         return new Response(JSON.stringify({
           status: "ok", subject_type: "platform",
           refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300,

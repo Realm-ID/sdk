@@ -4,7 +4,25 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased (0.58.0) — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
+## Unreleased (0.58.0) — split signing, login → token everywhere, the actor model (SPEC §14, 2026-10-28)
+
+Split-signing (plan v3 § 3.7; issuer spec W0b-final; go `0.70.0` is the reference). One lockstep release with go `0.70.0` and java; `package.json` is bumped to 0.58.0 here, the tag is not cut.
+
+### Breaking
+
+- **The SDK never reads `access_token` from a sign-in answer (R44, R51, R62).** `auth.login`, `otpLogin`, `passwordLogin`, `acceptInvitation`, `mfaVerify` and `redeemRecoveryCode` take the refresh token from the answer and ALWAYS mint the access token at `POST /auth/token` (several tenants: `LoginResponse.accessToken` is `""` until `completeLogin`). The platform-token mint moves from `POST /auth/login` to `POST /auth/token`, with NO fallback to `/auth/login` (R49, R71): this SDK needs the new issuer, and the issuer, the SDKs and RealmID's BFF cut over together.
+- **No mode puts a user token in the bearer slot (R60).** Removed: `HttpClient` per-call `bearer`, `userBearer` on `MeAuth` and on the OTP, MFA-disable, revoke-all, authenticator-list and recovery-regenerate requests, the `userBearer` argument of `auth.revokeSession` and `auth.listSessions` (now `listSessions(opts?)`), and `MfaChallengeMintRequest.accessToken`. The platform token is always the bearer; the actor rides in `X-User-Token`: `realm.withUserToken(jwt).auth.listSessions()`, `MeAuth.userToken`. A call that needs an actor and has none is refused locally as `ActorRequiredError` and sends nothing (R61).
+- After the issuer release a refresh on a session started by a `user_api_key` sign-in answers `401 m2m_refresh_withdrawn` (R79): the holder signs in again with its key.
+
+### Added
+
+- `ActorRequiredError extends RealmError` (code `actor_required`) and `isActorRequired(e)` (follows `cause`), exported from the package entry point. ONE typed error for the server's `403 actor_required` and the SDK's local refusal (R86); the message carries the hint "Send its token in X-User-Token."
+- New registered codes: `actor_required`, `unpinned_kid`, `share_load_failed`, `share_source_read_only` (the last three are local only).
+- **`@realm-id/sdk/split`** (server-only subpath; `index.ts` neither imports nor re-exports it, so no browser bundle reaches `node:` code): `createSplitRealm({...cfg, shareSource})`, `ShareSource` / `WritableShareSource`, `envShareSource`, `fileShareSource({kek?, localDev?, realm?})` (atomic rename, mode 0600, envelope v1 AES-256-GCM, the realm is an input and a KEK needs it), `ShareEntry` (non-enumerable `d_partner`), `completePartial`, `completeHandshake`, `coSign`, `rotateSplit(realm, src, {kid, recovery?})` (lease with the `reason`, then keygen, store, upload, handshake, complete; a previous key stays trusted for the longest `expires_in` seen, floor 15 min, plus 5 min), `createIntegrationTokenHandler(realm, {ratePerMinute?, clientKey?})` (`(Request) => Promise<Response>`).
+- A split verifier trusts only the bundle's keys and never fetches the JWKS (`unpinned_kid`); the verifier takes an optional `keyResolver`.
+- `tenants.create` seats its owner in one no-actor call (SPEC §14.11); nothing changes on the wire.
+
+### Earlier in 0.58.0 — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
 
 `PlatformTokenManager` retries a platform login whose WORKLOAD (token-exchange) credential the issuer answers `409 assertion_replayed`: wait 1 s then 2 s, re-fetch the credential from the source each time, three attempts in all; exhausted retries throw the last error unchanged. A static API key, any other status and any other code are never retried. New registered code `"assertion_replayed"`. Additive. Options: `sleep` (injectable backoff) on `PlatformTokenManagerOptions`; `getToken({ signal })` abandons a backoff on abort (the SDK's HTTP client does not pass one yet). Why: two instances starting in the same second get the byte-identical GCP ID token and the second was rejected, crash-looping a BFF. `package.json` is not bumped here; the release does that.
 

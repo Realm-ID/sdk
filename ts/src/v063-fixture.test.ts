@@ -3,6 +3,8 @@
  * Not a test file: the runner globs `*.test.ts`.
  */
 
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
+
 export const BASE = "https://auth.test";
 export const REALM = "r1";
 export const AUD = "app.test";
@@ -83,12 +85,10 @@ export function fakeIssuer(publicJwk: object): FakeIssuer {
       f.calls.push({ url, body });
       if (url.endsWith("/.well-known/jwks.json")) return jsonRes(200, { keys: [publicJwk] });
       if (url.endsWith("/.well-known/openid-configuration")) return jsonRes(f.discovery.status, f.discovery.body);
-      if (url.endsWith("/auth/login")) {
-        if (body["grant_type"] === "platform_api_key") {
-          return jsonRes(200, { status: "ok", subject_type: "platform", refresh_token: "rt-platform", access_token: "pt_x", expires_in: 300 });
-        }
-        return f.login(body);
+      if (isPlatformMint(url, init)) {
+        return jsonRes(200, { status: "ok", subject_type: "platform", access_token: "pt_x", expires_in: 300 });
       }
+      if (url.endsWith("/auth/login")) return f.login(body);
       if (url.endsWith("/auth/token")) return f.token(body);
       if (url.endsWith("/auth/logout")) return f.logout(body);
       if (url.endsWith("/auth/mfa/verify")) return f.mfaVerify(body);
@@ -128,4 +128,10 @@ export async function drive(
     Promise.resolve(mw(reqObj as never, res as never, next)).then(() => resolve(), reject);
   });
   return { res, nextCalled, reqObj };
+}
+
+/** /auth/token calls that PRESENT a refresh token. The platform mint (R49) lands on the same path with
+ * grant_type=platform_api_key, so `count("/auth/token")` also counts it; use this to count refreshes. */
+export function refreshCount(f: FakeIssuer): number {
+  return f.calls.filter((c) => c.url.endsWith("/auth/token") && typeof c.body["refresh_token"] === "string").length;
 }

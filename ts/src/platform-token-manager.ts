@@ -2,7 +2,7 @@
  * Two-endpoint auth surface — ADR-051, as amended by ADR-089.
  *
  * The SDK's platform identity holds an ACCESS TOKEN ONLY. Every
- * acquisition is a `POST /auth/login` with the bootstrap credential
+ * acquisition is a `POST /auth/token` (R49/R71; never /auth/login) with the bootstrap credential
  * (`grant_type: "platform_api_key"` or the token exchange); when the
  * cached token comes within `refreshSkewMs` of expiry, we simply do it
  * again.
@@ -173,7 +173,9 @@ export class PlatformTokenManager {
   }
 
   private async loginWith(cred: Credential): Promise<CachedSession> {
-    const url = this.opts.baseUrl.replace(/\/+$/, "") + "/auth/login";
+    // R49/R71: the platform mint is `/auth/token` only; `/auth/login` refuses a bot grant with
+    // 400 login_grant_removed and the SDK carries NO fallback to it.
+    const url = this.opts.baseUrl.replace(/\/+$/, "") + "/auth/token";
     const payload: Record<string, string> = { grant_type: cred.grantType };
     let redacted = "";
     if (cred.grantType === GRANT_PLATFORM_API_KEY) {
@@ -210,7 +212,7 @@ export class PlatformTokenManager {
     if (!wire.access_token) {
       throw new RealmError({
         code: "server_error",
-        message: "/auth/login returned an empty access_token",
+        message: "/auth/token returned an empty access_token",
       });
     }
     this.checkIssuer(wire.access_token);

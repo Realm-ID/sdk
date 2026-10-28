@@ -3,6 +3,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Captured {
   method: string;
@@ -28,7 +29,7 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
     const auth = init?.headers
       ? (init.headers as Record<string, string>)["authorization"]
       : undefined;
-    if (url.endsWith("/auth/login") && (body as { grant_type?: string })?.grant_type === "platform_api_key") {
+    if (isPlatformMint(url, init) && (body as { grant_type?: string })?.grant_type === "platform_api_key") {
       return new Response(JSON.stringify({
         status: "ok", subject_type: "platform", refresh_token: "rtok-platform",
         access_token: "pt_x", expires_in: 300,

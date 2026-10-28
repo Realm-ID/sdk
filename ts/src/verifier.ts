@@ -44,6 +44,12 @@ export interface VerifierConfig {
    * as `token_stale`. Undefined → no-op.
    */
   authority?: import("./authority.js").AuthorityCache;
+  /**
+   * Replaces the JWKS fetch entirely: resolves the verifying key for (realm, kid) from a source the
+   * caller owns, and never touches the issuer's JWKS (split signing, SPEC §14.4, R39). It throws
+   * the coded error itself (`unpinned_kid`, `share_load_failed`).
+   */
+  keyResolver?: (realmId: string, kid: string) => Promise<CryptoKey>;
 }
 
 export interface VerifyOptions {
@@ -69,6 +75,7 @@ export class Verifier {
   private readonly logger: Logger;
   private readonly revocation?: import("./revocation.js").RevocationCache;
   private readonly authority?: import("./authority.js").AuthorityCache;
+  private readonly keyResolver?: (realmId: string, kid: string) => Promise<CryptoKey>;
 
   constructor(cfg: VerifierConfig) {
     if (!cfg.baseUrl) throw new Error("realmid: baseUrl required");
@@ -85,6 +92,7 @@ export class Verifier {
     this.logger = cfg.logger ?? NOOP_LOGGER;
     this.revocation = cfg.revocation;
     this.authority = cfg.authority;
+    this.keyResolver = cfg.keyResolver;
   }
 
   async verify(token: string, opts?: VerifyOptions): Promise<Claims> {
@@ -238,6 +246,7 @@ export class Verifier {
   }
 
   private async resolveKey(realmId: string, kid: string): Promise<CryptoKey> {
+    if (this.keyResolver) return this.keyResolver(realmId, kid);
     const cached = this.cache.get(realmId);
     const now = this.now().getTime();
     if (cached && cached.keys.has(kid) && now - cached.fetchedAt < this.cacheTtlMs) {

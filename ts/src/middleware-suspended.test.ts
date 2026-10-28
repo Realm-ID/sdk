@@ -5,6 +5,7 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { createMemorySessionStore } from "./session-store.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 class Res {
   statusCode = 200;
@@ -22,7 +23,7 @@ async function loginRefused(code: string) {
   const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (url.endsWith("/auth/login") && body.grant_type === "platform_api_key") {
+    if (isPlatformMint(url, init) && body.grant_type === "platform_api_key") {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "r", access_token: "pt", expires_in: 300 }),
         { status: 200, headers: { "content-type": "application/json" } });
     }

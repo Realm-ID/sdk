@@ -1,7 +1,7 @@
 {
   "name": "@realm-id/sdk",
-  "version": "0.57.0",
-  "description": "Partner SDK for Realm ID \u2014 login, refresh, MFA, verify, and management",
+  "version": "0.58.0",
+  "description": "Partner SDK for Realm ID — login, refresh, MFA, verify, and management",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,6 +13,10 @@
     "./internal": {
       "import": "./dist/internal.js",
       "types": "./dist/internal.d.ts"
+    },
+    "./split": {
+      "import": "./dist/split.js",
+      "types": "./dist/split.d.ts"
     }
   },
   "files": [
@@ -44,6 +48,7 @@
   },
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   },

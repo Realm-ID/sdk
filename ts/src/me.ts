@@ -4,14 +4,11 @@
  *
  * Every route here is authorized by the END USER, never by the platform
  * credential alone: the subject is whoever the session says it is, so no path
- * parameter names someone else. Two auth modes, mirroring the rest of the SDK:
- *
- * - DIRECT — pass `userBearer` (the user's access JWT); it becomes the wire
- *   bearer.
- * - BFF — pass `userToken` (the user's *verified* access JWT); the realm's
- *   platform token stays the bearer and the user JWT rides as `X-User-Token`.
- *   A BARE user id is NOT an identity — the issuer removed that in v0.66.0 and
- *   answers `401 x_user_token_required` — which is why there is no userId mode.
+ * parameter names someone else. ONE auth form (R60, the escort form): the realm's
+ * platform token is the bearer and the user's *verified* access JWT rides as
+ * `X-User-Token` (`userToken`, or `realm.withUserToken(jwt)`). There is no mode
+ * that puts a user token in the bearer slot. A BARE user id is NOT an identity,
+ * and a call with no actor is refused locally as `ActorRequiredError` (R61).
  */
 
 import type { HttpClient } from "./http.js";
@@ -21,9 +18,11 @@ import { paginate, readPage, type PageOpts, type Paginated } from "./pagination.
 
 /** The end-user credential every `realm.me.*` call needs. */
 export interface MeAuth {
-  /** The user's access JWT, used AS the bearer (direct mode). */
-  userBearer?: string;
-  /** The user's verified access JWT, forwarded as `X-User-Token` (BFF mode). */
+  /**
+   * The user's verified access JWT, forwarded as `X-User-Token` (R60). Omit it when the realm was
+   * derived with `realm.withUserToken(jwt)`; with neither, the call is refused locally as
+   * `ActorRequiredError` and nothing is sent (R61).
+   */
   userToken?: string;
 }
 
@@ -220,11 +219,10 @@ export class MeClient {
     };
   }
 
-  /** Per-call bearer + headers for the two auth modes; see the module doc. */
-  private authOf(a: MeAuth): { bearer?: string; headers?: Record<string, string> } {
-    if (a.userBearer) return { bearer: a.userBearer };
-    if (a.userToken) return { headers: { "X-User-Token": a.userToken } };
-    return {};
+  /** The actor of a call (R60): the per-call `userToken`, else the realm's `withUserToken`; neither is refused locally (R61). */
+  private authOf(a: MeAuth): { requireActor: true; headers?: Record<string, string> } {
+    if (a.userToken) return { requireActor: true, headers: { "X-User-Token": a.userToken } };
+    return { requireActor: true };
   }
 
   /**

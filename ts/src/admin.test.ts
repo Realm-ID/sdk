@@ -3,10 +3,11 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
-function platformTokenStub(input: RequestInfo | URL): Response | null {
+function platformTokenStub(input: RequestInfo | URL, init?: RequestInit): Response | null {
   const url = typeof input === "string" ? input : input.toString();
-  if (url.endsWith("/auth/login")) {
+  if (isPlatformMint(url, init)) {
     return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300}), {
       status: 200, headers: { "content-type": "application/json" },
     });
@@ -16,8 +17,8 @@ function platformTokenStub(input: RequestInfo | URL): Response | null {
 
 test("admin.listPlatforms: forwards filters and decodes envelope", async () => {
   let hitUrl = "";
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     hitUrl = typeof input === "string" ? input : input.toString();
     return new Response(JSON.stringify({
@@ -60,8 +61,8 @@ test("admin.listPlatforms: forwards filters and decodes envelope", async () => {
 });
 
 test("admin.stats: GETs /admin/stats and decodes", async () => {
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     return new Response(JSON.stringify({
       platforms_count: 4, tenants_count: 12, users_count: 88,
@@ -76,8 +77,8 @@ test("admin.stats: GETs /admin/stats and decodes", async () => {
 
 test("admin.listEvents: forwards kind+platform_id filters", async () => {
   let hitUrl = "";
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     hitUrl = typeof input === "string" ? input : input.toString();
     return new Response(JSON.stringify({
@@ -106,8 +107,8 @@ test("admin.listEvents: forwards kind+platform_id filters", async () => {
 
 test("admin.search: q + limit", async () => {
   let hitUrl = "";
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     hitUrl = typeof input === "string" ? input : input.toString();
     return new Response(JSON.stringify({
@@ -127,8 +128,8 @@ test("admin.search: q + limit", async () => {
 });
 
 test("admin.stats: surfaces 403 forbidden envelope as RealmError(forbidden)", async () => {
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     return new Response(JSON.stringify({
       error: { code: "forbidden", message: "base-realm staff required" },
@@ -145,7 +146,7 @@ test("admin.getPlatform: GETs /admin/platforms/{id} and decodes the fleet row", 
   let hitMethod = "";
   let calls = 0;
   const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const stub = platformTokenStub(input);
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     calls++;
     hitUrl = typeof input === "string" ? input : input.toString();
@@ -183,8 +184,8 @@ test("admin.getPlatform: GETs /admin/platforms/{id} and decodes the fleet row", 
 
 test("admin.getPlatform: percent-encodes the id into the path", async () => {
   let hitUrl = "";
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     hitUrl = typeof input === "string" ? input : input.toString();
     return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
@@ -198,8 +199,8 @@ test("admin.getPlatform: percent-encodes the id into the path", async () => {
 });
 
 test("admin.getPlatform: a 404 stays platform_not_found, never a forbidden flavour", async () => {
-  const fetch: typeof fetch = (async (input: RequestInfo | URL) => {
-    const stub = platformTokenStub(input);
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const stub = platformTokenStub(input, init);
     if (stub) return stub;
     return new Response(JSON.stringify({
       error: { code: "platform_not_found", message: "platform not found" },

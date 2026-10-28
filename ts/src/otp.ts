@@ -4,10 +4,9 @@
  * See docs/proposals/partner-otp-primitive.md in the auth repo for design.
  *
  * The three calls all require a tenant-scoped user/service identity.
- * Pass `userBearer` to send the user's access JWT directly, or use the
- * SDK's BFF mode by configuring an upstream platform token + relying
- * on server-side X-On-Behalf-Of-User propagation (out of scope for
- * this client — partner backends typically issue user tokens here).
+ * The actor is `realm.withUserToken(jwt).otp.*` (R60: the platform token is the bearer and the
+ * actor's token rides in X-User-Token). With no actor the call is refused locally as
+ * `ActorRequiredError` and nothing is sent (R61).
  */
 
 import type { HttpClient } from "./http.js";
@@ -58,8 +57,6 @@ export interface OtpIssueRequest {
    * `view_bff`.
    */
   deliveryMode?: OtpDeliveryMode;
-  /** End-user access JWT (Authorization: Bearer). */
-  userBearer?: string;
 }
 
 export interface OtpIssueResponse {
@@ -89,7 +86,6 @@ export interface OtpVerifyRequest {
   subjectRef: string;
   purpose: string;
   presented: string;
-  userBearer?: string;
 }
 
 export interface OtpVerifyResponse {
@@ -139,7 +135,7 @@ export class OtpClient {
     const raw = await this.http.request<RawIssueResp>({
       method: "POST",
       path: "/auth/otp/issue",
-      bearer: req.userBearer,
+      requireActor: true,
       body,
     });
     const delivered = raw.delivered;
@@ -154,11 +150,11 @@ export class OtpClient {
   }
 
   /** GET /auth/otp/{id} — issuer-scoped. Cross-issuer / cross-tenant 404. */
-  async view(otpId: string, opts?: { userBearer?: string }): Promise<OtpViewResponse> {
+  async view(otpId: string): Promise<OtpViewResponse> {
     const raw = await this.http.request<RawViewResp>({
       method: "GET",
       path: "/auth/otp/" + encodeURIComponent(otpId),
-      bearer: opts?.userBearer,
+      requireActor: true,
     });
     return {
       id: raw.id,
@@ -175,7 +171,7 @@ export class OtpClient {
     const raw = await this.http.request<RawVerifyResp>({
       method: "POST",
       path: "/auth/otp/verify",
-      bearer: req.userBearer,
+      requireActor: true,
       body: {
         subject_ref: req.subjectRef,
         purpose: req.purpose,

@@ -6,6 +6,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { createRealm } from "./realm.js";
 import { RealmError, isKnownCode, ERROR_CODES } from "./errors.js";
 import { contactsConfig } from "./config.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Rec { method: string; url: string; body?: unknown; headers: Headers }
 
@@ -13,7 +14,7 @@ function setup(handler: (r: Rec) => Response): { realm: ReturnType<typeof create
   const calls: Rec[] = [];
   const fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.endsWith("/auth/login") && init?.method === "POST" && String(init.body).includes("api_key")) {
+    if (isPlatformMint(url, init) && init?.method === "POST" && String(init.body).includes("api_key")) {
       return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok", access_token: "pt_x", expires_in: 300 }),
         { status: 200, headers: { "content-type": "application/json" } });
     }
@@ -62,13 +63,14 @@ test("R9 config.update: confirmLockout rides as the QUERY parameter, never a hea
 
 test("R9 me.sendContactProof: POST /me/contacts/{id}/proof with delivery_mode, decodes {delivered}", async () => {
   const { realm, calls } = setup(() => json(200, { delivered: "sms" }));
-  const out = await realm.me.sendContactProof({ contactId: "c 1", deliveryMode: "sms", userBearer: "ujwt" });
+  const out = await realm.withUserToken("ujwt").me.sendContactProof({ contactId: "c 1", deliveryMode: "sms" });
   assert.deepEqual(out, { delivered: "sms" });
   const c = calls[0]!;
   assert.equal(c.method, "POST");
   assert.match(c.url, /\/me\/contacts\/c%201\/proof$/);
   assert.deepEqual(c.body, { delivery_mode: "sms" });
-  assert.equal(c.headers.get("authorization"), "Bearer ujwt");
+  assert.equal(c.headers.get("authorization"), "Bearer pt_x");
+  assert.equal(c.headers.get("x-user-token"), "ujwt");
 });
 
 test("R9 me.confirmContactProof: POST .../proof/confirm with the code, decodes the contact", async () => {
@@ -152,11 +154,12 @@ test("R9 me.listContacts: GET /me/contacts, pages by next_cursor, items are {id,
     return json(200, { items: [row("a")], next_cursor: "c2", total: 2 });
   });
   const seen: string[] = [];
-  for await (const c of realm.me.listContacts({ userBearer: "jwt" })) seen.push(c.id);
+  for await (const c of realm.withUserToken("jwt").me.listContacts({ })) seen.push(c.id);
   assert.deepEqual(seen, ["a", "b"]);
   assert.equal(calls[0]!.method, "GET");
   assert.match(calls[0]!.url, /\/me\/contacts(\?|$)/);
-  assert.equal(calls[0]!.headers.get("authorization"), "Bearer jwt");
+  assert.equal(calls[0]!.headers.get("authorization"), "Bearer pt_x");
+  assert.equal(calls[0]!.headers.get("x-user-token"), "jwt");
   assert.match(calls[1]!.url, /cursor=c2/);
   const one = await realm.me.listContacts({ userToken: "ut" }, { limit: 5 }).page();
   assert.equal(one.items[0]!.tenant_id, "t1");

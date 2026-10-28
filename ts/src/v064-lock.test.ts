@@ -11,7 +11,7 @@ import { inspect } from "node:util";
 import { createRealm } from "./realm.js";
 import { createMemorySessionStore, lockKey, outKey, type SessionStateStore } from "./session-store.js";
 import { RefreshSupersededError, RealmError } from "./errors.js";
-import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner } from "./v063-fixture.test.js";
+import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner, refreshCount } from "./v063-fixture.test.js";
 import type { IdentityResolvedEvent } from "./identity-resolved.js";
 
 const NOW = 1_800_000_000;
@@ -92,7 +92,8 @@ test("TestRedeemRecoveryCode_RequestAndResponse: wire body, reenrollRequired, re
   assert.deepEqual(Object.keys(body).sort(), ["code", "mfa_challenge_token", "realm_id"]);
   assert.equal(body["mfa_challenge_token"], "ch");
   assert.equal(body["code"], "abcd-efgh");
-  assert.equal(r.refreshToken, "rt-rec-1");
+  // R51: the verify/recovery answer is minted through /auth/token, which rotates the token again.
+  assert.equal(r.refreshToken, "rt-new-1");
   assert.equal(r.reenrollRequired, true, "a successful redeem tells the caller to re-enroll");
 });
 
@@ -148,16 +149,17 @@ test("TestMiddlewareRecovery_TakesTheRefreshLockAndStoresOutcome + BodyCarriesRe
   assert.equal(r.res.statusCode, 200);
   assert.equal(r.res.json["reenroll_required"], true);
   assert.equal(r.res.json["org_session_mode"], "concurrent");
-  assert.equal(lastCookie(r.res.setCookie), "rt-rec-1");
+  assert.equal(lastCookie(r.res.setCookie), "rt-new-1");
   assert.deepEqual(locks, [await lockKey("rt0")], "exactly one acquire, keyed on the cookie's token");
   const stored = JSON.parse((await inner.getRefreshResult(await outKey("rt0")))!);
   assert.equal(stored.fp, "mfa-verify", "same outcome fingerprint as the verify route");
-  assert.equal(stored.refreshToken, "rt-rec-1");
+  assert.equal(stored.refreshToken, "rt-new-1");
   // a refresh racing it is handed the rotated token, never re-presenting the spent one
   const rr = await drive(s.mw as never, refreshReq("rt0"));
   assert.equal(rr.res.statusCode, 503);
-  assert.equal(lastCookie(rr.res.setCookie), "rt-rec-1");
-  assert.equal(s.issuerMints(), 0);
+  assert.equal(lastCookie(rr.res.setCookie), "rt-new-1");
+  assert.equal(s.issuerMints(), 1, "only the recovery's own /auth/token mint (R51); the racing refresh minted nothing");
+  assert.ok(!s.seen.includes("rt0"), "the spent cookie token was never re-presented");
 });
 
 test("TestMiddlewareRecovery_UnsetPathServesNothing: opt-in, no default", async () => {
@@ -198,13 +200,13 @@ test("TestMiddlewareRecovery_WaitingTooLongIs503AndIssuerNotCalled", { timeout: 
 
 // ------------------------------------------------------------ direct MFA lock
 
-interface Direct { name: string; call: (s: S, rt?: string) => Promise<unknown>; path: string; rotated: string }
+interface Direct { name: string; call: (s: S, rt?: string) => Promise<unknown>; path: string; rotated: string; minted: string }
 const directs: Direct[] = [
-  { name: "mfaVerify", path: "/auth/mfa/verify", rotated: "rt-mfa-1",
+  { name: "mfaVerify", path: "/auth/mfa/verify", rotated: "rt-mfa-1", minted: "rt-new-1",
     call: (s, rt) => s.realm.auth.mfaVerify({ challengeToken: "c", code: "1", refreshToken: rt }) },
-  { name: "mfaVerifyOtp", path: "/auth/mfa/verify", rotated: "rt-mfa-1",
+  { name: "mfaVerifyOtp", path: "/auth/mfa/verify", rotated: "rt-mfa-1", minted: "rt-new-1",
     call: (s, rt) => s.realm.auth.mfaVerifyOtp({ mfaToken: "c", presented: "1", refreshToken: rt }) },
-  { name: "redeemRecoveryCode", path: "/auth/mfa/recovery", rotated: "rt-rec-1",
+  { name: "redeemRecoveryCode", path: "/auth/mfa/recovery", rotated: "rt-rec-1", minted: "rt-new-1",
     call: (s, rt) => s.realm.auth.redeemRecoveryCode({ challengeToken: "c", code: "abcd-efgh", refreshToken: rt }) },
 ];
 
@@ -217,7 +219,7 @@ for (const d of directs) {
     assert.ok(!JSON.stringify(call.body).includes("rt-old"), "the refresh token is never sent on the wire");
     const stored = JSON.parse((await inner.getRefreshResult(await outKey("rt-old")))!);
     assert.equal(stored.fp, "mfa-verify");
-    assert.equal(stored.refreshToken, d.rotated);
+    assert.equal(stored.refreshToken, d.minted);
     assert.equal((await inner.acquireRefreshLock(await lockKey("rt-old"), 1000)).acquired, true, "lock released");
   });
 
@@ -241,8 +243,9 @@ for (const d of directs) {
     await done;
     const r = await refresh;
     assert.equal(r.res.statusCode, 503, "refresh adopts nothing, mints nothing");
-    assert.equal(lastCookie(r.res.setCookie), d.rotated, "handed the rotated token");
-    assert.equal(s.issuerMints(), 0, "the spent token was never re-presented");
+    assert.equal(lastCookie(r.res.setCookie), d.minted, "handed the rotated token");
+    assert.equal(s.issuerMints(), 1, "only the verify's own /auth/token mint (R51) reached the issuer");
+    assert.ok(!s.seen.includes("rt-old"), "the spent token was never re-presented");
   });
 
   test(`TestDirectMFA_StoreErrorOnAcquireIsErrorAndIssuerNotCalled [${d.name}]`, async () => {
@@ -362,8 +365,9 @@ test("TestToken_RacingDirectMFAVerifyUsesTheRotatedToken", async () => {
   s.mfaGate.g.open();
   await m;
   const r = await t;
-  assert.deepEqual(s.seen, ["rt-mfa-1"], "token minted on the MFA verify's rotated token only");
-  assert.equal(r.refreshToken, "rt-new-1");
+  // R51: the verify spends rt-mfa-1 in its own mint; the racing token call then runs on THAT mint's rotated token.
+  assert.deepEqual(s.seen, ["rt-mfa-1", "rt-new-1"], "never the spent rt-old");
+  assert.equal(r.refreshToken, "rt-new-2");
 });
 
 test("TestToken_StoresItsOutcomeBeforeReleasingAndLateRepeatReusesIt", async () => {
@@ -413,17 +417,17 @@ test("TestToken_InternalCallersNeverDoubleLock: login/mfa mints and middleware r
   const s = await setup({
     store: wrapStore(inner, { acquireRefreshLock: async (k, t) => { acquires++; return inner.acquireRefreshLock(k, t); } }),
     hook: () => undefined,
-    // A configured productRoles handler is what FORCES the post-verify mint (auth.ts: without
-    // productRoles/scopes and with an access_token in the verify response it returns early).
+    // R51: the post-verify mint always runs (the old "no handler + access_token: return early" skip is gone); a
+    // configured productRoles handler additionally adds the claim to it.
     productRoles: async () => ["viewer"],
   });
   await s.realm.auth.mfaVerify({ challengeToken: "c", code: "1", refreshToken: "rt-old" });
-  assert.equal(s.f.count("/auth/token"), 1, "the post-verify inner mint really ran");
+  assert.equal(refreshCount(s.f), 1, "the post-verify inner mint really ran");
   assert.equal(acquires, 1, "direct MFA lock only; its inner mint does not re-lock");
   acquires = 0;
   const r = await drive(s.mw as never, refreshReq("rt-m"));
   assert.equal(r.res.statusCode, 200);
-  assert.equal(s.f.count("/auth/token"), 3, "refresh mint plus its derived-claims re-mint both ran");
+  assert.equal(refreshCount(s.f), 3, "refresh mint plus its derived-claims re-mint both ran");
   assert.equal(acquires, 1, "middleware refresh lock only; its mint and enrichment do not re-lock");
 });
 

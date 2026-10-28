@@ -247,6 +247,12 @@ export type ErrorCode =
   // Workload login replay (SPEC §3.1/§4.0.1, 2026-10-26): 409 on a token-exchange login whose
   // assertion the issuer has already seen. Transient; the platform-token manager retries it.
   | "assertion_replayed"
+  // Split signing and the actor model (SPEC §3.1, §14.4, §14.5, §14.10; R86). `actor_required` is the
+  // server's 403 AND the SDK's local refusal (ActorRequiredError); the other three are local-only.
+  | "actor_required"
+  | "unpinned_kid"
+  | "share_load_failed"
+  | "share_source_read_only"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -463,6 +469,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "domain_sso_requires_unique_email", "invite_contact_not_identifying", "recipient_email_not_identifying",
   "invalid_invitation_token", "contact_not_found", "contact_already_verified", "contact_changed",
   "reset_email_not_identifying", "assertion_replayed",
+  "actor_required", "unpinned_kid", "share_load_failed", "share_source_read_only",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

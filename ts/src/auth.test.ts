@@ -3,6 +3,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Recorded {
   url: string;
@@ -36,7 +37,7 @@ function recorder(handlers: Array<(rec: Recorded) => Response | Promise<Response
     // platform session via grant_type=platform_api_key; user-grant
     // logins (provider_token, password, otp_internal) flow to the
     // per-test handler.
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       const gt = (body as { grant_type?: string } | undefined)?.grant_type;
       if (gt === "platform_api_key") {
         return new Response(JSON.stringify({
@@ -73,10 +74,11 @@ test("auth.login: happy path mints platform token first, then logs in", async ()
   assert.equal(out.refreshToken, "rt");
   assert.equal(out.tenants[0]!.id, "t1");
 
-  // Two outbound calls (ADR-051): platform_api_key bootstrap on
-  // /auth/login, then the user-grant /auth/login.
-  assert.equal(calls.length, 2);
-  assert.match(calls[0]!.url, /\/auth\/login$/);
+  // Three outbound calls (R49/R51): platform_api_key bootstrap at /auth/token, the user-grant
+  // /auth/login, then the user mint at /auth/token (login never returns an access token).
+  assert.equal(calls.length, 3);
+  assert.match(calls[0]!.url, /\/auth\/token$/);
+  assert.match(calls[2]!.url, /\/auth\/token$/);
   // Raw API key travels in the body, not as a bearer.
   assert.equal(calls[0]!.headers.get("authorization"), null);
   assert.equal((calls[0]!.body as { grant_type: string }).grant_type, "platform_api_key");
@@ -247,9 +249,9 @@ test("auth.listSessions: decodes issuer sessionDTO fields incl. last_seen_at", a
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
-  const list = (await realm.auth.listSessions("u-jwt").page()).items;
-  // userBearer path uses the JWT directly — no platform-token bootstrap.
-  assert.match(calls[0]!.url, /\/auth\/sessions/);
+  const list = (await realm.withUserToken("u-jwt").auth.listSessions().page()).items;
+  // R60 escort: the platform mint precedes the call, so look the sessions call up, not by index.
+  assert.ok(calls.some((c) => /\/auth\/sessions/.test(c.url)));
   assert.equal(list.length, 1);
   assert.equal(list[0]!.id, "sess-1");
   assert.equal(list[0]!.created_at, 1_751_241_600);
@@ -310,7 +312,7 @@ test("auth.listSessions: still decodes the legacy flat {sessions: [...]} shape",
   // cursor, so this also pins that a pre-envelope server cannot spin the
   // iterator forever — it must stop after exactly one round trip.
   const list: string[] = [];
-  for await (const s of realm.auth.listSessions("u-jwt")) list.push(s.id);
+  for await (const s of realm.withUserToken("u-jwt").auth.listSessions()) list.push(s.id);
   assert.deepEqual(list, ["legacy-1"]);
 });
 
@@ -336,15 +338,16 @@ test("auth.listSessions: follows next_cursor across pages", async () => {
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
 
   const ids: string[] = [];
-  for await (const s of realm.auth.listSessions("u-jwt")) ids.push(s.id);
+  for await (const s of realm.withUserToken("u-jwt").auth.listSessions()) ids.push(s.id);
 
   assert.deepEqual(ids, ["sess-1", "sess-2", "sess-3"]);
   // PRECONDITION, not decoration: a single-page fixture would satisfy the
   // assertion above under the truncating implementation too. Two round trips
   // is what says the cursor was actually followed.
-  assert.equal(calls.length, 2, "expected two GETs — one per page");
-  assert.doesNotMatch(calls[0]!.url, /cursor=/, "the first page must not send a cursor");
-  assert.match(calls[1]!.url, /cursor=cur-2/, "the second page must send the server's next_cursor");
+  const gets = calls.filter((c) => /\/auth\/sessions/.test(c.url));
+  assert.equal(gets.length, 2, "expected two GETs — one per page");
+  assert.doesNotMatch(gets[0]!.url, /cursor=/, "the first page must not send a cursor");
+  assert.match(gets[1]!.url, /cursor=cur-2/, "the second page must send the server's next_cursor");
 });
 
 test("auth.listSessions: page() returns one page and surfaces the cursor", async () => {
@@ -358,14 +361,15 @@ test("auth.listSessions: page() returns one page and surfaces the cursor", async
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch, origin: "https://app.example" });
-  const page = await realm.auth.listSessions("u-jwt").page({ limit: 1 });
+  const page = await realm.withUserToken("u-jwt").auth.listSessions().page({ limit: 1 });
 
   assert.equal(page.items.length, 1);
   assert.equal(page.items[0]!.id, "sess-1");
   assert.equal(page.nextCursor, "cur-2");
   assert.equal(page.total, 9);
-  assert.equal(calls.length, 1, "page() must not drain the rest");
-  assert.match(calls[0]!.url, /limit=1/);
+  const gets = calls.filter((c) => /\/auth\/sessions/.test(c.url));
+  assert.equal(gets.length, 1, "page() must not drain the rest");
+  assert.match(gets[0]!.url, /limit=1/);
 });
 
 test("auth.login: a device label the transport cannot carry is stripped, not fatal", async () => {

@@ -46,7 +46,7 @@ const calls: { name: string; do: (e: E) => Promise<string[] | undefined> }[] = [
   { name: "password_login_change_at_sign_in", do: async (e) =>
     (await e.realm.auth.passwordLogin({ identifier: "a@b.c", presented: "old", newPassword: "brand-new-pass-1" })).revokedSids },
   { name: "me_set_password", do: async (e) =>
-    (await e.realm.me.setPassword({ userBearer: "ub", newPassword: "a-long-new-password" })).revokedSids },
+    (await e.realm.withUserToken("ub").me.setPassword({ newPassword: "a-long-new-password" })).revokedSids },
   { name: "consume_password_reset", do: async (e) =>
     (await e.realm.auth.consumePasswordReset("tok", "a-long-new-password")).revokedSids },
 ];

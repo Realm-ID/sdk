@@ -55,7 +55,7 @@ interface CatalogEntry {
   action: string;
 }
 
-/** `realmrole.Catalog`, as of issuer @ 2026-08-30. 31 entries (ADR-074). */
+/** `realmrole.Catalog`, as of issuer @ 2026-10-28 (issuer working tree, R10). 32 entries (ADR-074). */
 const ISSUER_CATALOG: CatalogEntry[] = [
   { key: "users:read", resource: "users", action: "read" },
   { key: "users:manage", resource: "users", action: "manage" },
@@ -64,6 +64,7 @@ const ISSUER_CATALOG: CatalogEntry[] = [
   { key: "roles:read", resource: "roles", action: "read" },
   { key: "tenants:read", resource: "tenants", action: "read" },
   { key: "tenants:manage", resource: "tenants", action: "manage" },
+  { key: "tenants:maintain", resource: "tenants", action: "maintain" },
   { key: "service_accounts:read", resource: "service_accounts", action: "read" },
   { key: "service_accounts:manage", resource: "service_accounts", action: "manage" },
   { key: "platform_api_keys:read", resource: "platform_api_keys", action: "read" },
@@ -156,10 +157,11 @@ test("drift: the SDK's colon-derived action equals the issuer's catalog Action",
   }
 });
 
-test("drift: the catalog has the 31 entries ADR-074 pins", () => {
+test("drift: the catalog has the 32 entries ADR-074 pins", () => {
   // The issuer pins the count AND the key set (TestCatalogSize + catalogKeys).
   // A swap that keeps the count is caught by half 2's set comparison.
-  assert.equal(ISSUER_CATALOG.length, 31);
+  // 32 since R10 added `tenants:maintain` (owner only, seeded to no template).
+  assert.equal(ISSUER_CATALOG.length, 32);
 });
 
 test("drift: HUMAN_ONLY_PERMISSIONS matches the pinned issuer set", () => {

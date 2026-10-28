@@ -5,6 +5,7 @@ import { AuthClient, type LoginResponse } from "./auth.js";
 import { createRealm } from "./realm.js";
 import { LoginMintError, type ProductRolesHandler } from "./product-roles.js";
 import { ScopesError, type ScopesHandler } from "./scopes-handler.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 // derived-claims-refresh.test.ts — the REFRESH lane must resolve the derived
 // claims, exactly as the login lanes do.
@@ -73,7 +74,7 @@ function refreshRig(cfg: { productRoles?: ProductRolesHandler; scopes?: ScopesHa
     fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
-      if (url.endsWith("/auth/login")) {
+      if (isPlatformMint(url, init)) {
         // The platform-key bootstrap the transport performs before any call.
         return new Response(JSON.stringify({
           status: "ok", subject_type: "platform",

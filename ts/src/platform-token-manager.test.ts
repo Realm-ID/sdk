@@ -4,6 +4,7 @@ import { PlatformTokenManager } from "./platform-token-manager.js";
 import { staticApiKey } from "./credential.js";
 import { NOOP_LOGGER } from "./logger.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Call {
   url: string;
@@ -40,10 +41,10 @@ function loginResponse(access: string, expires = 300): Response {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
-test("session: first call hits /auth/login, subsequent calls within TTL reuse cache", async () => {
+test("session: first call hits /auth/token, subsequent calls within TTL reuse cache", async () => {
   let logins = 0, refreshes = 0;
   const { fetch, calls } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`); }
+    if (isPlatformMint(c.url, { body: JSON.stringify(c.body) })) { logins++; return loginResponse(`at_${logins}`); }
     if (c.url.endsWith("/auth/token")) { refreshes++; return loginResponse(`at_r_${refreshes}`); }
     return new Response("nope", { status: 404 });
   });
@@ -62,16 +63,16 @@ test("session: first call hits /auth/login, subsequent calls within TTL reuse ca
   assert.equal(logins, 1);
   assert.equal(refreshes, 0);
   assert.equal(calls[0]!.method, "POST");
-  assert.equal(calls[0]!.url.endsWith("/auth/login"), true);
+  assert.equal(calls[0]!.url.endsWith("/auth/token"), true);
   // raw api-key only travels in the body, never as a bearer
   assert.equal(calls[0]!.authorization, null);
   assert.equal((calls[0]!.body as { grant_type: string }).grant_type, "platform_api_key");
 });
 
-test("session: re-mints via /auth/login when within 30s of expiry (ADR-089)", async () => {
+test("session: re-mints via /auth/token when within 30s of expiry (ADR-089)", async () => {
   let logins = 0, refreshes = 0;
   const { fetch } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`, 60); }
+    if (isPlatformMint(c.url, { body: JSON.stringify(c.body) })) { logins++; return loginResponse(`at_${logins}`, 60); }
     if (c.url.endsWith("/auth/token")) { refreshes++; return loginResponse(`at_r_${refreshes}`, 60); }
     return new Response("nope", { status: 404 });
   });
@@ -94,14 +95,14 @@ test("session: re-mints via /auth/login when within 30s of expiry (ADR-089)", as
   assert.equal(refreshes, 0);
 });
 
-test("session: a login response with no refresh_token is accepted (ADR-089)", async () => {
+test("session: a mint response with no refresh_token is accepted (ADR-089)", async () => {
   // The regression that matters: the manager used to throw
   // "/auth/login returned empty access_token or refresh_token", so a client
   // predating ADR-089 fails HARD against a v0.68.0 issuer on the first call
   // rather than degrading.
   let logins = 0;
   const { fetch } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`); }
+    if (isPlatformMint(c.url, { body: JSON.stringify(c.body) })) { logins++; return loginResponse(`at_${logins}`); }
     return new Response("nope", { status: 404 });
   });
   const mgr = new PlatformTokenManager({
@@ -114,7 +115,7 @@ test("session: a login response with no refresh_token is accepted (ADR-089)", as
 test("session: invalidate() forces a re-mint from the credential", async () => {
   let logins = 0;
   const { fetch } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) { logins++; return loginResponse(`at_${logins}`); }
+    if (isPlatformMint(c.url, { body: JSON.stringify(c.body) })) { logins++; return loginResponse(`at_${logins}`); }
     return new Response("nope", { status: 404 });
   });
   const mgr = new PlatformTokenManager({
@@ -126,7 +127,7 @@ test("session: invalidate() forces a re-mint from the credential", async () => {
   assert.equal(logins, 2);
 });
 
-test("session: 401 from /auth/login surfaces RealmError unauthorized", async () => {
+test("session: 401 from /auth/token surfaces RealmError unauthorized", async () => {
   const { fetch } = mkFetch(() => new Response(JSON.stringify({
     error: { code: "unauthorized", message: "bad api key" },
   }), { status: 401, headers: { "content-type": "application/json" } }));
@@ -172,7 +173,7 @@ test("session: never logs the raw api key (redaction smoke test)", async () => {
 
 test("session: token-exchange credential posts grant_type + subject_token (ADR-057)", async () => {
   const { fetch, calls } = mkFetch((c) => {
-    if (c.url.endsWith("/auth/login")) return loginResponse("at_fed");
+    if (isPlatformMint(c.url, { body: JSON.stringify(c.body) })) return loginResponse("at_fed");
     return new Response("nope", { status: 404 });
   });
   const cred = {

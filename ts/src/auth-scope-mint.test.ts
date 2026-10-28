@@ -3,6 +3,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 // ---- ADR-097 mint half: TokenRequest.scope ----
 //
@@ -20,7 +21,7 @@ function recorder(handler: () => Response): { fetch: typeof fetch; calls: Record
     const url = typeof input === "string" ? input : input.toString();
     let body: unknown;
     if (init?.body) { try { body = JSON.parse(String(init.body)); } catch { body = init.body; } }
-    if (url.endsWith("/auth/login") && (body as { grant_type?: string })?.grant_type === "platform_api_key") {
+    if (isPlatformMint(url, init) && (body as { grant_type?: string })?.grant_type === "platform_api_key") {
       return new Response(JSON.stringify({
         status: "ok", subject_type: "platform", refresh_token: "rtok-platform",
         access_token: "pt_test_abc", expires_in: 300,

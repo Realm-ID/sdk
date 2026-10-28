@@ -3,7 +3,7 @@ import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { createMemorySessionStore, lockKey, type SessionStateStore } from "./session-store.js";
 import { MemRevocationCache } from "./revocation.js";
-import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner } from "./v063-fixture.test.js";
+import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner, refreshCount } from "./v063-fixture.test.js";
 
 const NOW = 1_800_000_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -119,7 +119,7 @@ test("SPEC10_1_4a #M1 a late rotation after the bound is not lost: the stored 50
   const retry = await drive(s.mw as never, { url: "/token", method: "POST", headers: cookie("rt0"), body: { tenant_id: "acme" } });
   assert.equal(retry.res.statusCode, 200, "the rotation the issuer performed is handed to the retry");
   assert.match(retry.res.setCookie.join(";"), /realmid_refresh=rt-late/);
-  assert.equal(s.f.count("/auth/token"), 1, "the spent token is never re-presented");
+  assert.equal(refreshCount(s.f), 1, "the spent token is never re-presented");
 });
 
 test("SPEC10_2 L1: when every candidate fails the FIRST failure is reported (Go/Java parity)", async () => {
@@ -149,7 +149,7 @@ test("SPEC10_1_4a #M2 reload-path fingerprint check: a stored outcome for anothe
   assert.equal(a.res.statusCode, 200);
   // Same cookie, other tenant, inside the 5 s window: the outcome is for "acme".
   const b = await drive(s.mw as never, { url: "/token", method: "POST", headers: cookie("rt0"), body: { tenant_id: "globex" } });
-  assert.equal(s.f.count("/auth/token"), 1, "the spent token is not re-presented to the issuer");
+  assert.equal(refreshCount(s.f), 1, "the spent token is not re-presented to the issuer");
   assert.equal(b.res.statusCode, 503, "a different fingerprint gets the retry hand-over, never the other tenant's mint");
   assert.equal(b.res.json["retry"], true);
   assert.equal(b.res.json["access_token"], undefined);

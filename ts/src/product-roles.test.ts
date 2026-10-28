@@ -125,15 +125,16 @@ test("completeLogin refuses a tenant the session does not hold, locally", async 
 
 // D11 rule 1 — no handler means no claim, no error, and NO extra round trip
 // when login already minted.
-test("no handler configured costs nothing", async () => {
+test("no handler configured: one mint per settled login, no claim", async () => {
   const calls: Call[] = [];
   const c = client(undefined, calls, {
     access_token: "atok", refresh_token: "rtok", expires_in: 900,
     user: { id: "u1" }, tenants: [{ tenant_id: "t1", role: "owner" }],
   });
   const s = await c.login({ method: "firebase", providerToken: "pt" });
-  assert.deepEqual(calls.map((x) => x.path), ["/auth/login"]);
-  assert.equal(s.accessToken, "atok");
+  // R51/R62: one mint per settled login (the "login already minted" skip is gone).
+  assert.deepEqual(calls.map((x) => x.path), ["/auth/login", "/auth/token"]);
+  assert.equal(s.accessToken, "minted");
 });
 
 // D11 rule 2 — empty mints NO claim, not [].

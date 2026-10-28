@@ -9,6 +9,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 const REALM_ID = "01HREALM";
 const API_KEY = "rk_live_supersecret";
@@ -42,7 +43,7 @@ test("createRealm: missing apiKey is allowed (auto-detect workload identity, ADR
 
 test("Origin auto-attach: derived from realm.info() audience when no override", async () => {
   const { fetch, calls } = mkFetch((url, init) => {
-    if (url.endsWith("/auth/login")) {
+    if (url.endsWith("/auth/login") || isPlatformMint(url, init)) {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       if (body.grant_type === "platform_api_key") {
         return new Response(JSON.stringify({
@@ -74,7 +75,7 @@ test("Origin auto-attach: derived from realm.info() audience when no override", 
 
 test("Origin auto-attach: per-call origin overrides handle config and discovery", async () => {
   const { fetch, calls } = mkFetch((url, init) => {
-    if (url.endsWith("/auth/login")) {
+    if (url.endsWith("/auth/login") || isPlatformMint(url, init)) {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       if (body.grant_type === "platform_api_key") {
         return new Response(JSON.stringify({
@@ -109,7 +110,7 @@ test("Logger: never logs raw apiKey, platform_token, refresh, or access tokens",
   const logger = { debug: stash, info: stash, warn: stash, error: stash };
 
   const { fetch } = mkFetch((url, init) => {
-    if (url.endsWith("/auth/login")) {
+    if (url.endsWith("/auth/login") || isPlatformMint(url, init)) {
       const body = init?.body ? JSON.parse(String(init.body)) : {};
       if (body.grant_type === "platform_api_key") {
         return new Response(JSON.stringify({

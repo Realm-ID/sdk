@@ -389,10 +389,12 @@ export interface LogoutRequest {
   origin?: string;
 }
 
-export interface MfaChallengeMintRequest {
-  /** The user's current access token. */
-  accessToken: string;
-}
+/**
+ * `mintMfaChallenge` takes no credential field (R60): the user whose access token needs a step-up
+ * rides in `X-User-Token` (`realm.withUserToken(jwt).auth.mintMfaChallenge()`), the platform token
+ * is the bearer. A bare platform call is refused locally as `ActorRequiredError`.
+ */
+export type MfaChallengeMintRequest = Record<string, never>;
 
 export interface MfaChallengeMintResponse {
   mfaChallengeToken: string;
@@ -507,22 +509,15 @@ export interface MfaEnrollment {
 
 /** Self-service MFA disable request — requires a step-up `code`. */
 export interface DisableMfaRequest {
-  /** The user's own access JWT, sent as the bearer for this call. */
-  userBearer?: string;
   /** Required step-up code. */
   code: string;
 }
 
-/** Revoke-all-sessions request — current-user, dual-mode bearer. */
-export interface RevokeAllSessionsRequest {
-  /** The user's own access JWT, sent as the bearer for this call. */
-  userBearer?: string;
-}
+/** Revoke-all-sessions request: no fields; the actor is `realm.withUserToken(jwt)` (R60). */
+export type RevokeAllSessionsRequest = Record<string, never>;
 
-export interface ListAuthenticatorsRequest {
-  /** The user's own access JWT, sent as the bearer for this call. */
-  userBearer?: string;
-}
+/** No fields; the actor is `realm.withUserToken(jwt)` (R60). */
+export type ListAuthenticatorsRequest = Record<string, never>;
 
 /** One enrolled MFA factor (ADR-080). Today only TOTP; the list has 0 or 1
  *  entries. created_at/confirmed_at are unix seconds (confirmed_at 0 until confirmed). */
@@ -539,10 +534,8 @@ export interface AuthenticatorList {
   backup_codes_remaining: number;
 }
 
-export interface RegenerateRecoveryCodesRequest {
-  /** The user's own access JWT, sent as the bearer for this call. */
-  userBearer?: string;
-}
+/** No fields; the actor is `realm.withUserToken(jwt)` (R60). */
+export type RegenerateRecoveryCodesRequest = Record<string, never>;
 
 export interface RecoveryCodesResult {
   status: string;
@@ -642,6 +635,8 @@ export class AuthClient {
       /** The realm's session store + logger: what the per-session refresh lock (SPEC §4.2/§4.3) runs on. Absent = no lock. */
       store?: import("./session-store.js").SessionStateStore;
       logger?: import("./logger.js").Logger;
+      /** Set by `createSplitRealm` only: user mints go to /auth/token/partial and are finished locally. */
+      split?: import("./realm-internals.js").SplitHooks;
     },
   ) {}
 
@@ -908,9 +903,12 @@ export class AuthClient {
     // have spent (and rotated away) the refresh token, logging the caller out.
     const scopeWire = scopeWireValue(req.scope);
     const headers = await this.originHeaders(req.origin);
-    const raw = await this.http.request<RawTokenResponse>({
+    const split = this.session?.split;
+    const wire = await this.http.request<RawTokenResponse>({
       method: "POST",
-      path: "/auth/token",
+      // SPEC §14.2: a split realm's people call goes to the partial endpoint (it answers 409
+      // `split_signing_required` at /auth/token), and the answer is finished here before release.
+      path: split ? "/auth/token/partial" : "/auth/token",
       headers,
       body: {
         realm_id: this.realmId,
@@ -932,6 +930,7 @@ export class AuthClient {
         ...(scopeWire !== "" ? { scope: scopeWire } : {}),
       },
     });
+    const raw = split ? ((await split.finish(wire)) as unknown as RawTokenResponse) : wire;
     return {
       accessToken: raw.access_token,
       refreshToken: raw.refresh_token,
@@ -1347,11 +1346,11 @@ export class AuthClient {
   }
 
   /** SPEC §4.5 — server-side revoke of a specific session id. */
-  async revokeSession(sessionId: string, userBearer?: string): Promise<void> {
+  async revokeSession(sessionId: string): Promise<void> {
     await this.http.request({
       method: "DELETE",
       path: `/auth/sessions/${encodeURIComponent(sessionId)}`,
-      bearer: userBearer,
+      requireActor: true,
     });
   }
 
@@ -1377,12 +1376,12 @@ export class AuthClient {
    * loud — a compile error with an obvious fix — rather than the same call
    * quietly returning a different number of rows.
    */
-  listSessions(userBearer?: string, opts?: PageOpts): Paginated<SessionInfo> {
+  listSessions(opts?: PageOpts): Paginated<SessionInfo> {
     return paginate<SessionInfo>(async (po) => {
       const raw = await this.http.request<unknown>({
         method: "GET",
         path: "/auth/sessions",
-        bearer: userBearer,
+        requireActor: true,
         query: { cursor: po.cursor, limit: po.limit ?? opts?.limit },
       });
       return readSessionPage(raw);
@@ -1432,23 +1431,22 @@ export class AuthClient {
     await this.http.request({
       method: "DELETE",
       path: "/auth/mfa",
-      bearer: req.userBearer,
+      requireActor: true,
       body: { code: req.code },
     });
   }
 
   /**
    * Revoke all sessions for the current user — `DELETE /auth/sessions`.
-   * Dual-mode bearer like `revokeSession`. No request body. Returns void;
-   * the server's `{ status: "ok" }` ack is ignored. The server rejects
-   * revocation-class tokens with `insufficient_scope`, surfaced as a
-   * RealmError.
+   * Escort form like `revokeSession` (R60): the actor rides in X-User-Token. No request body.
+   * Returns void; the server's `{ status: "ok" }` ack is ignored. The server rejects
+   * revocation-class tokens with `insufficient_scope`, surfaced as a RealmError.
    */
-  async revokeAllSessions(req?: RevokeAllSessionsRequest): Promise<void> {
+  async revokeAllSessions(_req?: RevokeAllSessionsRequest): Promise<void> {
     await this.http.request({
       method: "DELETE",
       path: "/auth/sessions",
-      bearer: req?.userBearer,
+      requireActor: true,
     });
   }
 
@@ -1463,15 +1461,15 @@ export class AuthClient {
    * RealmError({ code: "server_error" }) on any non-2xx response and
    * surfaces network errors normally.
    */
-  async mintMfaChallenge(req: MfaChallengeMintRequest): Promise<MfaChallengeMintResponse> {
+  async mintMfaChallenge(_req?: MfaChallengeMintRequest): Promise<MfaChallengeMintResponse> {
     interface Wire { mfa_challenge_token?: string; methods?: string[] }
     let raw: Wire;
     try {
       raw = await this.http.request<Wire>({
         method: "POST",
         path: "/auth/mfa/challenge",
-        bearer: req.accessToken,
-        // Empty body — the bearer identifies user, session, and realm.
+        requireActor: true,
+        // Empty body — X-User-Token identifies user, session, and realm.
         body: {},
       });
     } catch (e) {
@@ -1515,11 +1513,11 @@ export class AuthClient {
    * List the current user's enrolled MFA authenticator(s) and remaining
    * backup-code count — `GET /auth/mfa/authenticators`. A read, NOT MFA-gated.
    */
-  async listAuthenticators(req?: ListAuthenticatorsRequest): Promise<AuthenticatorList> {
+  async listAuthenticators(_req?: ListAuthenticatorsRequest): Promise<AuthenticatorList> {
     return this.http.request<AuthenticatorList>({
       method: "GET",
       path: "/auth/mfa/authenticators",
-      bearer: req?.userBearer,
+      requireActor: true,
     });
   }
 
@@ -1530,11 +1528,11 @@ export class AuthClient {
    * within the elevated window (RealmError mfa_required, 412, until re-verified).
    * Codes are shown once and also emailed (ADR-079).
    */
-  async regenerateRecoveryCodes(req?: RegenerateRecoveryCodesRequest): Promise<RecoveryCodesResult> {
+  async regenerateRecoveryCodes(_req?: RegenerateRecoveryCodesRequest): Promise<RecoveryCodesResult> {
     return this.http.request<RecoveryCodesResult>({
       method: "POST",
       path: "/auth/mfa/recovery/regenerate",
-      bearer: req?.userBearer,
+      requireActor: true,
     });
   }
 
@@ -1569,7 +1567,9 @@ export function sessionIds(v: unknown): string[] {
 
 function mapAuthResp(r: RawAuthResponse): LoginResponse {
   return {
-    accessToken: r.access_token,
+    // R44/R51: a sign-in answer authenticates and hands back the refresh token; the SDK NEVER reads
+    // an `access_token` from it. Every access token comes from /auth/token (or /auth/token/partial).
+    accessToken: "",
     refreshToken: r.refresh_token,
     expiresIn: r.expires_in,
     refreshExp: r.refresh_exp,

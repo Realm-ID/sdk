@@ -4,6 +4,7 @@ import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError } from "./errors.js";
 import { DELIVERY_MODE_VIEW_BFF } from "./otp.js";
+import { isPlatformMint, platformMintResponse } from "./auth-mint-helpers.test.js";
 
 interface Recorded {
   url: string;
@@ -28,12 +29,8 @@ function recorder(handlers: Array<(rec: Recorded) => Response | Promise<Response
     const rec: Recorded = { url, method: init?.method ?? "GET", headers, body };
     calls.push(rec);
 
-    if (url.endsWith("/auth/login")) {
-      return new Response(JSON.stringify({
-        platform_token: "pt_test",
-        expires_in: 300,
-        realm_id: "01HREALM",
-      }), { status: 200, headers: { "content-type": "application/json" } });
+    if (isPlatformMint(url, init)) {
+      return platformMintResponse("pt_test");
     }
     const h = handlers[i++] ?? handlers[handlers.length - 1]!;
     return h(rec);
@@ -55,10 +52,9 @@ test("otp.issue: posts subject_ref + purpose, returns response", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
-  const out = await realm.otp.issue({
+  const out = await realm.withUserToken("user-jwt").otp.issue({
     subjectRef: "booking:X",
-    purpose: "delivery",
-    userBearer: "user-jwt",
+    purpose: "delivery"
   });
   assert.equal(out.id, "otp-1");
   assert.equal(out.value, "123456");
@@ -66,7 +62,8 @@ test("otp.issue: posts subject_ref + purpose, returns response", async () => {
 
   const issueCall = calls.find((c) => c.url.endsWith("/auth/otp/issue"))!;
   assert.equal((issueCall.body as Record<string, unknown>).subject_ref, "booking:X");
-  assert.equal(issueCall.headers.get("authorization"), "Bearer user-jwt");
+  assert.equal(issueCall.headers.get("authorization"), "Bearer pt_test");
+  assert.equal(issueCall.headers.get("x-user-token"), "user-jwt");
 });
 
 test("otp.verify: success returns issuer attribution", async () => {
@@ -80,11 +77,10 @@ test("otp.verify: success returns issuer attribution", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
-  const out = await realm.otp.verify({
+  const out = await realm.withUserToken("agent-svc-jwt").otp.verify({
     subjectRef: "booking:X",
     purpose: "delivery",
-    presented: "123456",
-    userBearer: "agent-svc-jwt",
+    presented: "123456"
   });
   assert.equal(out.otpId, "otp-1");
   assert.equal(out.issuerUserId, "manager-A");
@@ -98,9 +94,8 @@ test("otp.verify: invalid surfaces invalid_otp", async () => {
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
   await assert.rejects(
-    () => realm.otp.verify({
-      subjectRef: "booking:X", purpose: "delivery", presented: "wrong",
-      userBearer: "agent-svc-jwt",
+    () => realm.withUserToken("agent-svc-jwt").otp.verify({
+      subjectRef: "booking:X", purpose: "delivery", presented: "wrong"
     }),
     (err) => err instanceof RealmError && err.code === "invalid_otp",
   );
@@ -118,7 +113,7 @@ test("otp.view: returns issuerUserId", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
-  const out = await realm.otp.view("otp-1", { userBearer: "manager-jwt" });
+  const out = await realm.withUserToken("manager-jwt").otp.view("otp-1");
   assert.equal(out.value, "654321");
   assert.equal(out.issuerUserId, "manager-A");
 });
@@ -134,13 +129,12 @@ test("otp.issue: threads delivery_mode=view_bff onto the issue body (ADR-071 §4
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
-  await realm.otp.issue({
+  await realm.withUserToken("owner-jwt").otp.issue({
     subjectRef: "user:sa-1",
     purpose: "login",
-    deliveryMode: DELIVERY_MODE_VIEW_BFF,
-    userBearer: "owner-jwt",
+    deliveryMode: DELIVERY_MODE_VIEW_BFF
   });
-  const body = calls[0]!.body as Record<string, unknown>;
+  const body = calls.find((c) => c.url.endsWith("/auth/otp/issue"))!.body as Record<string, unknown>;
   assert.equal(body["delivery_mode"], "view_bff");
 });
 
@@ -152,7 +146,7 @@ test("otp.issue: omits delivery_mode when unset", async () => {
     }), { status: 200, headers: { "content-type": "application/json" } }),
   ]);
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId: REALM_ID, apiKey: API_KEY, baseUrl: "https://auth.test", fetch });
-  await realm.otp.issue({ subjectRef: "booking:X", purpose: "delivery", userBearer: "u" });
-  const body = calls[0]!.body as Record<string, unknown>;
+  await realm.withUserToken("u").otp.issue({ subjectRef: "booking:X", purpose: "delivery" });
+  const body = calls.find((c) => c.url.endsWith("/auth/otp/issue"))!.body as Record<string, unknown>;
   assert.equal("delivery_mode" in body, false);
 });

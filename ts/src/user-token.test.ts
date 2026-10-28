@@ -10,6 +10,7 @@ import { test } from "node:test";
 import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 interface Captured {
   method: string;
@@ -24,7 +25,7 @@ function mkFetch(handler: (req: Captured) => Response): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input.toString();
     const method = init?.method ?? "GET";
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({
         status: "ok", subject_type: "platform", refresh_token: "rtok", access_token: "pt_x", expires_in: 300,
       }), { status: 200, headers: { "content-type": "application/json" } });

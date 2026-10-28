@@ -661,7 +661,8 @@ async function respondMfaRequired(
 ): Promise<void> {
   let challenge: { mfaChallengeToken: string; methods: string[] } | undefined;
   try {
-    challenge = await realm.auth.mintMfaChallenge({ accessToken });
+    // Escort form (R60): the platform token is the bearer, the user's token rides in X-User-Token.
+    challenge = await realm.withUserToken(accessToken).auth.mintMfaChallenge();
   } catch (e) {
     logger.warn("realmid: mfa challenge mint unavailable", {
       message: (e as Error).message,

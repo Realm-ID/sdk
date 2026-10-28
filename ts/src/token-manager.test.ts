@@ -3,6 +3,7 @@ import { createMemorySessionStore } from "./session-store.js";
 import { strict as assert } from "node:assert";
 import { createRealm } from "./realm.js";
 import { RealmError, isTokenStale } from "./errors.js";
+import { isPlatformMint } from "./auth-mint-helpers.test.js";
 
 const REALM_ID = "01HREALM";
 const API_KEY = "rk_live_test123";
@@ -24,7 +25,7 @@ function tmFetch(
     if (init?.body) {
       try { body = JSON.parse(String(init.body)); } catch { body = undefined; }
     }
-    if (url.endsWith("/auth/login")) {
+    if (isPlatformMint(url, init)) {
       return new Response(JSON.stringify({
         status: "ok", subject_type: "platform",
         refresh_token: "rtok-plat", access_token: "atok-plat", expires_in: 3600,

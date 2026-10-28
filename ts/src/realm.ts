@@ -37,6 +37,7 @@ import { IntegrationsClient } from "./integrations.js";
 import { createMiddleware, type ConnectMiddleware, type MiddlewareConfig } from "./middleware.js";
 import { RealmError } from "./errors.js";
 import { PlatformTokenManager } from "./platform-token-manager.js";
+import { registerRealm, type RealmInternals } from "./realm-internals.js";
 import type { CredentialSource } from "./credential.js";
 import { staticApiKey, autoDetectCredential, DEFAULT_FEDERATION_AUDIENCE } from "./credential.js";
 import type { Logger } from "./logger.js";
@@ -308,9 +309,13 @@ export interface Realm {
   withUserToken(accessJWT: string): Realm;
 }
 
-const DEFAULT_BASE_URL = "https://auth.realmid.dev";
+/** The issuer base URL a realm uses when `baseUrl` is not set. */
+export const DEFAULT_BASE_URL = "https://auth.realmid.dev";
 
-export function createRealm(cfg: RealmConfig): Realm {
+/**
+ * @param internals  Passed ONLY by `createSplitRealm` (`@realm-id/sdk/split`); not a partner API.
+ */
+export function createRealm(cfg: RealmConfig, internals?: RealmInternals): Realm {
   if (!cfg.realmId) {
     throw new RealmError({ code: "bad_request", message: "realmid: realmId required" });
   }
@@ -319,6 +324,13 @@ export function createRealm(cfg: RealmConfig): Realm {
       code: "invalid_config",
       message:
         "realmid: createRealm({ sessionStore }) is required (use createMemorySessionStore() for a single replica)",
+    });
+  }
+  // SPEC §14.4: a share source given WITHOUT the split switch is a construction error (set both or neither).
+  if ((cfg as { shareSource?: unknown }).shareSource !== undefined && !internals?.split) {
+    throw new RealmError({
+      code: "invalid_config",
+      message: "realmid: a share source needs the split realm: use createSplitRealm from @realm-id/sdk/split",
     });
   }
   const baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -384,6 +396,7 @@ export function createRealm(cfg: RealmConfig): Realm {
           }
           return i.audience;
         },
+    keyResolver: internals?.keyResolver,
     fetch: fetchImpl,
     cacheTtlMs: cfg.cacheTtlMs,
     leewaySeconds: cfg.leewaySeconds,
@@ -415,7 +428,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       cfg.productRoles,
       cfg.scopes,
       cfg.onIdentityResolved,
-      { tokens, verify: (t) => verifier.verify(t), now: nowMs, store: cfg.sessionStore, logger },
+      { tokens, verify: (t) => verifier.verify(t), now: nowMs, store: cfg.sessionStore, logger, split: internals?.split },
     );
     const handle: Realm = {
       realmId: cfg.realmId,
@@ -458,6 +471,7 @@ export function createRealm(cfg: RealmConfig): Realm {
       middleware: (mwCfg) => createMiddleware(handle, mwCfg),
       withUserToken: (accessJWT: string) => build(client.withUserToken(accessJWT)),
     };
+    registerRealm(handle, { http: client, realmId: cfg.realmId, baseUrl, logger, now: nowMs, split: internals?.split });
     return handle;
   };
 
