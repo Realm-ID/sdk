@@ -21,6 +21,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Callable so the three publishers run THESE jobs as a hard `needs:` before
+  # anything publishes (fleet CI trigger policy 2026-10-28, P3): the tests are
+  # defined once, here. `scope` is a comma list of job names; empty = all jobs.
+  workflow_call:
+    inputs:
+      scope:
+        description: 'Comma-separated jobs to run (taxonomy,changelogs,go,ts,web,java); empty = all'
+        type: string
+        default: ''
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -41,6 +50,7 @@ jobs:
   # taxonomy came to be eight codes out of sync while `sdk/TODO.md` recorded it
   # as "consistent across the three SDKs" and reasoned from that consistency.
   taxonomy:
+    if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',taxonomy,') }}
     name: Error-code taxonomy parity
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -73,6 +83,7 @@ jobs:
           exit $rc
 
   changelogs:
+    if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',changelogs,') }}
     name: Changelogs read in descending order
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -120,6 +131,7 @@ jobs:
         run: python3 scripts/check-doc-claims.py
 
   go:
+    if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',go,') }}
     name: Go (fmt, vet, test)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -177,6 +189,7 @@ jobs:
         run: go test ./...
 
   ts:
+    if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',ts,') }}
     name: TypeScript (tsc + node --test)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -211,6 +224,7 @@ jobs:
   # quietly skips those two rather than failing, which is why they are called
   # out below instead of relied on to fail loudly like the ts/go gates do.
   web:
+    if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',web,') }}
     name: Web (tsc + node --test, per package)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -260,6 +274,7 @@ jobs:
         run: npm test
 
   java:
+    if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',java,') }}
     name: Java (gradle test)
     runs-on: ubuntu-latest
     timeout-minutes: 15

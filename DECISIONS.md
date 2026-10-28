@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-134 entries total — 79 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+135 entries total — 80 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-28 — CI policy P3/P6: tests before publish, no lint skip](#2026-10-28--ci-policy-p3p6-tests-before-publish-no-lint-skip)
 - [2026-10-27 — W0b D7: SDK docs aligned to R60-R76 (escort form, one release, actor model, CI rotation via RI BFF)](#2026-10-27--w0b-d7-sdk-docs-aligned-to-r60-r76-escort-form-one-release-actor-model-ci-rotation-via-ri-bff)
 - [2026-10-27 — Split-signing docs: R53-R58 applied to SPEC 14, partner guide and error reference](#2026-10-27--split-signing-docs-r53-r58-applied-to-spec-14-partner-guide-and-error-reference)
 - [2026-10-27 — Split signing and login to token: spec section 14 and partner guide 6.8/6.9 (R44-R52)](#2026-10-27--split-signing-and-login-to-token-spec-section-14-and-partner-guide-6869-r44-r52)
@@ -146,6 +147,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-28 — CI policy P3/P6: tests before publish, no lint skip
+
+Fleet CI trigger policy (`~/.claude/docs/plans/2026-10-28-ci-trigger-policy.md`, owner-approved 2026-10-28), preconditions P3 and P6. No trigger was removed or narrowed.
+
+P3: `ci.yml` gained `workflow_call` with a `scope` input (comma list of job names; empty = all, so push/PR behaviour is unchanged). `publish-npm.yml` (taxonomy,go,ts,web), `publish-maven.yml` (java) and `verify-go-release.yml` (taxonomy,go) each gained a `tests` job calling ci.yml, and their publish/verify job `needs: tests`. Why: a red suite was first noticed by an immutable publish. Tests stay defined once, as in cli's release.yml/tests.yml. `changelogs` is excluded from the publisher scopes. Caveat: a `go/v*` tag is already served by the proxy when verify-go-release runs, so there the tests report rather than prevent.
+
+P6: `scripts/preflight-check.sh` now FAILS (even under PREFLIGHT_ALLOW_SKIP=1) when actionlint or shellcheck is absent, instead of a skip; the skip let 5 reds through. The ts/web/mcp node_modules skips are unchanged (outside this item).
 
 ## 2026-10-27 — W0b D7: SDK docs aligned to R60-R76 (escort form, one release, actor model, CI rotation via RI BFF)
 

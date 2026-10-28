@@ -40,7 +40,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Tests BEFORE publish (fleet CI trigger policy 2026-10-28, P3): a red suite
+  # must stop here, not at an immutable registry. Defined once in ci.yml.
+  tests:
+    uses: ./.github/workflows/ci.yml
+    with:
+      scope: 'java'
+
   publish:
+    needs: tests
     runs-on: ubuntu-latest
     # Runaway guard, not an SLA (GitHub's default is 360m).
     timeout-minutes: 60

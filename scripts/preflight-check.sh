@@ -78,12 +78,17 @@ marker pinned
 
 # workflow-hygiene.yml `lint` job: workflow-preflight lint (pinned actionlint + shellcheck, canary,
 # SHA pins) via the same make target CI runs. Its tools are not installable without network, so a
-# missing one is a loud skip, like ts/web below.
+# missing one is a hard FAIL (P6), unlike the ts/web loud skips below.
 if command -v actionlint >/dev/null 2>&1 && command -v shellcheck >/dev/null 2>&1; then
   gate "workflow-preflight self-test" python3 scripts/test_workflow_preflight.py
   gate "workflow-preflight lint" make workflow-lint
 else
-  skip "workflow-preflight lint" "actionlint and/or shellcheck is not on PATH (brew install actionlint shellcheck)"
+  # Fleet CI trigger policy 2026-10-28, P6: a gate that cannot run FAILS, even under
+  # PREFLIGHT_ALLOW_SKIP=1 (this skip let 5 reds through). Not routed via skip().
+  echo ""
+  echo "── workflow-preflight lint ──"
+  echo "FAIL: actionlint and/or shellcheck is not on PATH (brew install actionlint shellcheck)"
+  FAILURES+=("workflow-preflight lint (tool missing)")
 fi
 
 # workflow-hygiene.yml `claude-md-hygiene` job.

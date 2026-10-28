@@ -68,7 +68,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Tests alongside the verdict (fleet CI trigger policy 2026-10-28, P3). A go/v*
+  # tag is already served by the proxy, so this cannot PREVENT; it makes a red
+  # suite on the tagged tree visible. Defined once in ci.yml.
+  tests:
+    uses: ./.github/workflows/ci.yml
+    with:
+      scope: 'taxonomy,go'
+
   verify:
+    needs: tests
     name: tag hygiene + const Version == tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
