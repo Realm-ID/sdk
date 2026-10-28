@@ -1383,15 +1383,19 @@ otherwise                -> allow
 
 **The step-up sequence.**
 
-1. `POST /auth/mfa/challenge` — bearer is the user's *current* access token.
-   Returns `{ mfa_challenge_token, tenant_id }`. Hand it to your client along
-   with your own `412`.
+1. `POST /auth/mfa/challenge` — `Authorization` carries YOUR platform token and
+   `X-User-Token` carries the user's *current* access token (R60: the user's
+   token is never the bearer). Returns `{ mfa_challenge_token, tenant_id }`.
+   Hand it to your client along with your own `412`.
 2. Your client collects the TOTP code and calls
-   `POST /auth/mfa/verify` with `{ mfa_challenge_token, code }`.
-3. Verify returns a **fresh access + refresh pair** carrying the new `mfa_at`
-   (plus `tenant_id`, `expires_in`, `refresh_exp`). **Adopt them before you
-   retry** — the old pair is not upgraded in place, and on some paths the old
-   session bearer is rotated away.
+   `POST /auth/mfa/verify` with `{ mfa_challenge_token, code }` (platform token
+   in `Authorization`; the challenge token in the body is the credential).
+3. Verify returns **no access token** (R51, R62). It returns the rotated
+   `refresh_token` plus the user and tenant list. Call `POST /auth/token` with
+   that `refresh_token` and the `tenant_id` to mint the access token that
+   carries the new `mfa_at` (the SDK does this for you). **Adopt the new
+   refresh and access tokens before you retry** — the old pair is not
+   upgraded in place, and the old refresh token is rotated away.
 4. Retry the original operation **once**. Bound it: a retry loop against a gate
    the user cannot satisfy is an infinite prompt, not a security control.
 
@@ -1478,6 +1482,15 @@ Your platform token stays the wire bearer — this is **additive**, not a swap.
 | Go — typed methods (`Tenants.*`, `Origins.*`, `Auth.*`) | **Yes**, since `go/v0.37.0` |
 | Go — `Realm.Do` (raw escape hatch) | Yes |
 | TypeScript, Java | **Yes**, since ts `0.33.0` / java `0.32.0` — `const asUser = realm.withUserToken(accessJWT)` returns a derived handle, the original is untouched. (This row said "not yet" until 2026-08-31; the surface shipped 2026-08-02.) |
+
+> **Escort form only (R60, UNRELEASED).** A user's token is never the
+> `Authorization` bearer. Every call sends your platform token in
+> `Authorization` and the user's token in `X-User-Token`; a user JWT as the
+> bearer is `401 platform_bearer_required`. The SDK modes that put a user token
+> in the bearer slot (go `MeAuth.UserBearer`, `PassthroughOptions.UserBearer`,
+> `MintMFAChallenge{AccessToken}`; ts per-call `bearer` / `userBearer`; java
+> `applyBearerTrio`) are removed in the same SDK release (`### Breaking`).
+> [inferred: names from plan v3 § 3.7, not re-read in source]
 
 > **The bare `X-On-Behalf-Of-User` header is no longer an identity (issuer
 > `v0.66.0`, SECURITY).** It used to be accepted as an on-behalf assertion, which
@@ -1747,8 +1760,11 @@ not `delete`). After revoke, both `grant_type=api_key` and
 > **ADR-089 (issuer `v0.68.0`): the exchange returns NO `refresh_token`.**
 > A platform / service / WIF login yields `{access_token, expires_in}` and
 > nothing else — the credential you already hold *is* the way to get
-> another token, so cache the access token and call `/auth/login` again
-> shortly before it expires (default 5 min). Do **not** call
+> another token, so cache the access token and present the credential again
+> shortly before it expires (default 5 min). After the login → token release
+> (R62, §6.9) that call goes to `/auth/token`, not `/auth/login` (a bot grant
+> on `/auth/login` is `400 login_grant_removed`). Do **not** send a refresh
+> token to
 > `/auth/token` for this identity; it answers `401
 > m2m_refresh_withdrawn`. If your client code requires `refresh_token` to
 > be present in the response it will fail on the first call — the
@@ -1779,46 +1795,55 @@ user", an idempotent repair job). If you hit `no_default_bot_user`,
 ask RI to run it for your realm; once it exists you mint the platform
 key yourself.
 
-### Two guards: platform token vs owner user JWT
+### Two guards: platform token vs a carried person (R60, R61, R64, R65)
 
 The **entire** `/platforms/{id}/...` admin surface — `roles`,
 `identity-providers`, `federation-bindings`, `api-keys`, realm config,
-**and `origins`/`domains`** — is guarded by `requireRealmAdmin`, which
-accepts **either** credential for the target realm (ADR-047 amendment,
-2026-06-29):
+**and `origins`/`domains`** — is guarded by `requireRealmAdmin`. After the
+actor-model release (R60, R61, R65, UNRELEASED) it takes ONE presentation:
 
-| Credential | How you present it |
+| Part | How you present it |
 | --- | --- |
-| the realm's **owner user JWT** | directly, or through the BFF on-behalf passthrough (also the RI-staff cross-realm path) |
-| a **realm-scoped platform token** (`scope=platform`, realm-matched) | exchange your realm's platform api-key / WIF, then bear it directly against `auth.realmid.dev` |
+| the realm's **platform token** (`scope=platform`, realm-matched) | ALWAYS in `Authorization: Bearer`. Exchange your `rk_live_…` key or WIF identity for it. |
+| the **actor**: the realm's owner or admin, as a person | in `X-User-Token`, next to the platform token (the "escort form"). Never as the bearer: a user JWT in `Authorization` is `401 platform_bearer_required`. |
 
-So one credential goes a long way: an owner session (e.g. the CLI/BFF)
-provisions everything, and your realm's platform token driven directly
-against the issuer covers most of it — see the caveat below for what the
-platform token deliberately cannot do. A platform token for a *different*
-realm is still rejected.
+```http
+POST /platforms/{id}/federation-bindings
+Authorization: Bearer <platform token>
+X-User-Token: <owner access token>
+Content-Type: application/json
+```
+
+A platform token with NO actor passes only the front-door list (§6.9.2:
+sign-in, create-org-with-owner, the boot read, logout, split-key rotation,
+the integration pass mint). Anything else is `403 actor_required`, and the
+SDK raises the typed `ErrActorRequired`. A platform token for a *different*
+realm is still rejected. Administration (identity providers, sources,
+federation bindings, realm settings, integration publishing) is done by
+PEOPLE in the RealmID console or CLI (R65); no machine identity holds those
+permissions in v1, and every one of those gates is a permission check on the
+carried actor, so a later CI admin is a grant and not a code change.
 
 > ⚠️ **Since ADR-091 D1 (and ADR-101), `scope=platform` is no longer
-> implicit-all.** A platform token administers the realm through the ROLE its
-> bot user holds — the RI-managed `platform_api` set — which grants the
-> day-to-day surface (users, invitations, service accounts, IdPs, sources,
-> federation, realm config, tenants, integrations) and deliberately withholds
-> the credential-issuing and irreversible knobs: `platform_api_keys:manage`
-> (a bot must not mint its own successor), `domains:manage`,
-> `signing_keys:rotate`, `user_api_keys:manage`. For those, use an owner
-> session — or, for key rotation specifically, the `platform_mgmt_api` WIF
-> channel (§6.4.1). "One credential provisions the whole realm" is therefore
-> true only of the OWNER session.
+> implicit-all, and since R64 `platform_api` is app-runtime only.** A platform
+> token administers nothing by itself; the actor's role decides. The
+> `platform_api` set shrinks to what the front door, create-org, the boot read
+> and split-key rotation need (it gains `signing_keys:rotate`), and it loses
+> `service_accounts:manage` (R56 is superseded by R64/R68). The credential-issuing
+> and irreversible knobs stay human-only or role-gated:
+> `platform_api_keys:manage` (a bot must not mint its own successor; see §6.4.1
+> for the CI path), `domains:manage`, `user_api_keys:manage`. "One credential
+> provisions the whole realm" is true only of an OWNER carried as the actor.
+> A role-vocabulary change owes affected partners a notice (ADR-101).
 
 > **History (why older runbooks split this).** Before the amendment,
 > `origins`/`domains` required a realm-scoped platform token while the
-> rest required the owner JWT — so an owner session got `realm_mismatch`
-> on origins, and a platform token got `not a realm admin` on
-> roles/IdP/federation. If you see that in an older runbook, it's stale;
-> both now accept either credential. Partner-mediation still applies to
-> **login + IdP discovery** (`/auth/login`, the public discovery GET),
-> which remain platform-token-only. See `write-surface.md` for the
-> authoritative per-endpoint guard map.
+> rest required the owner JWT. Older runbooks that say "bear the owner
+> JWT directly" or "bear the platform token alone" are stale: both halves
+> are now required, in the two headers above. Partner-mediation still
+> applies to **login + IdP discovery** (`/auth/login`, the public
+> discovery GET), which stay platform-token-only. See `write-surface.md`
+> for the authoritative per-endpoint guard map.
 
 ### 6.4.1 API key lifecycle: your key EXPIRES — plan the rotation
 
@@ -1862,11 +1887,16 @@ mid-rotation.
 principals hold:
 
 1. **A WIF session whose binding maps `platform_mgmt_api`** (ADR-057 +
-   ADR-091 D3) — ambient workload identity, no stored secret. This is the
-   recommended automated path; see below. The role exists for precisely this
-   one job (mint/revoke `platform_api`'s key), holds nothing else, and is
-   WIF-only by construction — the identity that mints keys must be the one
-   identity that has no key of its own.
+   ADR-091 D3, moved to the BASE realm by R66, UNRELEASED) — ambient workload
+   identity, no stored secret, carried by the RealmID BFF
+   (`api.realmid.dev`) as the actor. This is the recommended automated path;
+   see below. The role exists for precisely this one job (mint, list and
+   revoke `platform_api`'s key), holds nothing else, is refused at every
+   `/auth/*` sign-in (it can never log a user in), and is WIF-only by
+   construction — the identity that mints keys must be the one identity that
+   has no key of its own. The BFF's own platform token can never mint a key
+   (R9(2)); the mint passes only because the CARRIED actor holds the
+   permission.
 2. **An owner user JWT** — a human. (Not "admin": the `admin` set deliberately
    excludes every credential-issuing grant, and since ADR-101 you cannot edit
    a role to add one.)
@@ -1942,28 +1972,57 @@ is survivable instead of an outage. A 90-day key rotated every 60 days leaves a
 expiry gives you zero margin, and rotating "when we remember" is how the
 three-month drift above happened.
 
-#### Recommended: use WIF as the *rotation channel* for your static key
+#### Recommended: rotate from CI through the RealmID BFF (R63, R66; UNRELEASED)
 
 If your workload can't use WIF everywhere — some runtimes can't, and some
 partner systems need a literal string to inject — you can still use WIF for the
-**one** call that mints the replacement. This is the answer to "then what
-rotates the key, if not the key itself", and it is available today with no
-extra setup beyond registering a binding:
+**one** workflow that mints the replacement. This is the answer to "then what
+rotates the key, if not the key itself".
+
+**Every API call goes through a BFF (R63).** Your CI does not call
+`auth.realmid.dev` itself. It signs in by workload identity at RealmID's own
+BFF, `api.realmid.dev`, and the RealmID BFF carries the resulting identity as
+the actor:
 
 ```
-WIF binding  ──(ambient OIDC, never expires, nothing stored)──►  platform token
-                                                                      │
-                                                    POST /platforms/{id}/api-keys
-                                                                      ▼
-                                                        fresh rk_live_… (expiring)
-                                                                      │
-                                              your secret store / config system
+partner CI (GitHub OIDC, ambient, nothing stored)
+      │  realm-id auth workload        → api.realmid.dev /auth/workload-session
+      ▼
+base-realm `platform_mgmt_api` token   (carried by the RealmID BFF in X-User-Token,
+      │                                  behind the BFF's own base platform token)
+      │  realm-id platform-keys create --out …
+      ▼
+fresh rk_live_… (expiring)  ──►  your secret store  ──►  your BFF picks it up
+      │  realm-id platform-keys revoke <old>
+      ▼
+old key dead
 ```
 
-Register the binding with `mapped_role: "platform_mgmt_api"` — the role whose
-whole job is minting and revoking `platform_api`'s key (§ above). A federated
-login then mints a `class=platform` session holding exactly that authority and
-nothing else. The practical effect:
+The binding is a **base-realm** binding (R66): the `platform_mgmt_api` identity
+lives in your admin tenant in RealmID's base realm, not in your own realm. A
+platform OWNER, as a person, creates it (R65: bindings are administration), once
+per partner. The sequence a CI workflow runs (the plan's I8 template, shipped as
+`Realm-ID/cli/setup` plus an example workflow once built [inferred: not yet
+built]):
+
+1. `uses: Realm-ID/cli/setup@vX`, then `realm-id auth workload` (GitHub OIDC
+   token in, workload session out).
+2. `realm-id platform-keys create --out <file>` mints the replacement. The
+   value is shown once; write it to your secret store.
+3. Wait until YOUR BFF reports the new key's fingerprint on its readiness
+   endpoint (the overlap rule above: never revoke first).
+4. `realm-id platform-keys revoke <old>`.
+
+The workflow is idempotent: if the store's key is active and the old one is
+already revoked, it exits 0. **Unverified:** whether a platform may hold two
+valid `rk_live_` keys during the handover (ADR-085 §2 caps are in the section
+above); the delivery confirms or adds that change before release.
+
+Step-up: `platform-keys create|revoke` are dangerous verbs (R40). A key or
+workload session gets `needs_human` (exit 8) on them, with ONE exemption: the
+RealmID BFF skips step-up only when the carried actor is `platform_mgmt_api`
+and the call is a platform-key mint or revoke (R72). No SDK fallback exists for
+any of this (R71); the CLI is BFF-only.
 
 - **The rotating identity is not a stealable secret.** Nothing in your secret
   store can be lifted to impersonate it, so the leak-mints-successor problem
@@ -1975,20 +2034,19 @@ nothing else. The practical effect:
 - **Distributing the new key inside your own systems is entirely your call** —
   RealmID's involvement ends when it returns the value.
 
-> **The blast radius is now the mapped role — the gap this box used to
-> describe is CLOSED.** Until ADR-091 D1, every federated login was
-> implicit-all on its own realm: `authorizeRealmPermission` short-circuited on
-> `scope == "platform"` before reading the role, so `mapped_role` restricted
-> nothing. That branch is deleted. A WIF session now holds exactly what its
-> `mapped_role` grants, and because the value is load-bearing it is validated
-> at binding-create against the governing catalog — `invalid_mapped_role` on a
-> typo, a disabled role, or a role a service principal may not hold.
->
-> So a rotation binding mapped to `platform_mgmt_api` can mint and revoke
-> platform keys and do nothing else. Still constrain the **claim** side too —
-> pin `repository`, and additionally `workflow_ref`, `environment` or `ref` so
-> only one workflow on one branch can present it: a narrower session is not a
-> reason to let more workflows hold it.
+> **The blast radius is the mapped role.** A WIF session holds exactly what its
+> `mapped_role` grants, validated at binding-create against the governing
+> catalog (`invalid_mapped_role` on a typo, a disabled role, or a role a service
+> principal may not hold). `platform_mgmt_api` holds only
+> `platform_api_keys:read|manage`. Still constrain the **claim** side too — pin
+> `repository`, and additionally `workflow_ref`, `environment` or `ref` so only
+> one workflow on one branch can present it.
+
+> **Migration.** Before R66 the binding was registered in YOUR realm with
+> `mapped_role: "platform_mgmt_api"` and bore the platform token directly
+> against `auth.realmid.dev`. That path ends with the release (R71, simultaneous
+> cutover); re-register the binding in the base realm and move the workflow to
+> the CLI steps above.
 
 #### Or: don't have a key at all
 
@@ -2079,6 +2137,17 @@ the other `/platforms/{id}/...` routes):
 - `POST   /platforms/{id}/federation-bindings` — create → `201`.
 - `DELETE /platforms/{id}/federation-bindings/{bid}` — revoke → `200`.
 
+Every call below sends your platform token in `Authorization` and the owner
+as the actor in `X-User-Token` (R60, R65): bindings are administration, done
+by a person. After the actor-model release there are three binding kinds
+[derived from plan v3 § 3.10]:
+
+| binding | realm | yields | carried? |
+| --- | --- | --- | --- |
+| your BFF boot (GCP or GitHub OIDC) — this section | your realm | a platform token (`platform_api`) | no: it IS the platform token (exempt from R60) |
+| `platform_mgmt_api` for CI key rotation (R66, §6.4.1) | base realm | an ordinary base-realm workload token | yes, by the RealmID BFF |
+| service-account target (R12; RealmID ops, your CLI CI) | base realm | a service-account token, `amr=["federated"]` | yes, by the RealmID BFF |
+
 ### GCP (Cloud Run / GKE / GCE)
 
 The mandatory match claim for GCP is **`sub`**, and on a Google-minted
@@ -2095,7 +2164,8 @@ Then register a binding keyed on that `sub`:
 
 ```http
 POST /platforms/{id}/federation-bindings
-Authorization: Bearer <owner access token>
+Authorization: Bearer <platform token>
+X-User-Token: <owner access token>
 Content-Type: application/json
 
 {
@@ -2134,7 +2204,8 @@ The mandatory match claim for GitHub is **`repository`** (the
 
 ```http
 POST /platforms/{id}/federation-bindings
-Authorization: Bearer <owner access token>
+Authorization: Bearer <platform token>
+X-User-Token: <owner access token>
 Content-Type: application/json
 
 {
@@ -2658,59 +2729,95 @@ groups:
       summary: "Cannot load the split-signing share; the BFF is not ready"
 ```
 
-### 6.8.5 Mounting the integration handler (R47, R50)
+### 6.8.5 Mounting the integration handler (R47, R50, R67.2)
 
 An app that RECEIVES an integration (the target) mounts the SDK's ready-made handler on its BFF,
 for example `POST https://bff.acme.com/realmid/integration-token`, and registers that https URL as
 its realm's `integration_token_endpoint`. RealmID test-calls it at registration, and refuses to
-install an integration into a realm with no endpoint. The handler takes the install pass (`ip_…`,
-opaque, 5 minutes, one exchange) the source platform minted, rate-limits it, and calls your realm's
-token endpoint with `grant_type=integration_installation` and the pass. It does no authorization of
-its own: the issuer checks the pass, the install, revocation and permissions.
+install an integration into a realm with no endpoint. The source platform's BFF mints the install
+pass (`ip_…`, opaque, 5 minutes, one exchange) with its own platform token and NO actor
+(`POST /integrations/installations/{id}/pass`, valid only for an existing, unrevoked install). The
+handler takes that pass, rate-limits it, and calls your realm's token endpoint with
+`grant_type=integration_installation`, **your (the target's) platform token in `Authorization` and
+the pass in `X-User-Token`** (R67.2: the pass is the carried ACTOR, not a body field). It does no
+authorization of its own: the issuer checks the pass, the install, revocation and permissions. A
+pass sent anywhere else is `401 install_pass_invalid`.
 
 - **Split target:** the handler calls `/auth/token/partial`, **finishes the half-signed answer with
   your half, and returns a normal token** (R50). The pass is a bot grant, so there is no refresh
   token.
 - **Full target:** the handler calls `/auth/token` and **relays the issuer's answer unchanged**.
 
-The base realm registers no endpoint, so integrations cannot be installed into it.
+The base realm registers no endpoint (R68.2: RealmID's BFF mounts no handler), so integrations
+cannot be installed into it.
 
 **Consequence (R34, R48):** the old direct grant, where the source's `rk_live_` key minted an
-integration token on `/auth/login`, is REMOVED in release A for every target realm. Only the pass
-flow remains. A later redesign on a GitHub-Apps-like model is tracked in root `TODO.md`.
+integration token on `/auth/login`, is REMOVED in this release for every target realm. Only the
+pass flow remains. A later redesign on a GitHub-Apps-like model is tracked in root `TODO.md`.
 
-## 6.9 Migrating from login-returns-a-token to login → token (R44, R51, R52)
+## 6.9 Platform token always, and login → token (R44, R51, R60-R62, R71)
 
-> ⚠️ **UNRELEASED, planned (2026-10-27).** Staged in two releases.
+> ⚠️ **UNRELEASED, planned (2026-10-27).** ONE release (R62): there is no release A or B and no
+> `Deprecation` header. The SDKs, the issuer and RealmID's BFF cut over together and the SDKs carry
+> NO fallback to the old behaviour (R71): a new SDK needs the new issuer. Expect downtime for a
+> partner that upgrades one side only.
 
-The rule: **authentication and minting are separate calls.** `POST /auth/login` authenticates a
-PERSON and returns the refresh token, the user and the tenant list. Every access token comes from
-`POST /auth/token` (or `POST /auth/token/partial` on a split realm), which takes either
-`refresh_token` + `tenant_id` (people) or a bot credential in ONE call.
+### 6.9.1 Login → token
 
-| | Release A | Release B |
-|---|---|---|
-| `/auth/login`, people grants | normal realm: still returns `access_token` and adds a `Deprecation` header (value form proposed: `@<unix-ts>`); split realm: never an access token | `access_token` removed for every realm |
-| `/auth/login`, bot grants (`api_key`, `user_api_key`, token exchange) | normal realm: served with `Deprecation`; split realm: `409 split_signing_required` (a token exchange that yields a platform token goes to `/auth/token` on every realm, R53) | removed for every realm |
-| `/auth/login`, `platform_api_key` | deprecated, served as today on every realm; on a split realm it is NOT a `409` (R49): the platform key is never split, and `/auth/token` is the home of this grant | removed for every realm |
-| `/auth/mfa/verify`, `/auth/invitations/accept`, `/auth/mfa/recovery` (R51) | same rule as login: refresh token, then the token endpoint; `access_token` plus `Deprecation` on a normal realm | `access_token` removed |
-| `/auth/token` | all the grants above plus `integration_installation` + pass; a split realm answers `409 split_signing_required` except for the platform grant (R49) and a token exchange that yields a platform token (R53) | unchanged |
-| `/auth/token/partial` | same grants; a normal realm answers `409 realm_not_split` | unchanged |
+**Authentication and minting are separate calls.** `POST /auth/login` authenticates a PERSON and
+returns the refresh token, the user and the tenant list. It NEVER returns an `access_token`. Every
+access token comes from `POST /auth/token` (or `POST /auth/token/partial` on a split realm), which
+takes either `refresh_token` + `tenant_id` (people) or a bot credential in ONE call.
 
-**If you use the SDK, you change nothing but the version.** Today's SDK `login` already follows
-`/auth/login` with a `/auth/token` mint once the tenant is settled (§4.1.1; `sdk/go/auth.go`,
-`Login`), and the new SDKs never read `access_token` from a login response. **If you call
+| call | after this release |
+|---|---|
+| `/auth/login`, people grants | refresh token + user + tenants; never `access_token` on any realm |
+| `/auth/login`, bot grants (`api_key`, `user_api_key`, token exchange, `platform_api_key`) | refused with `400 login_grant_removed` ("Bot sign-ins moved to /auth/token. Upgrade the RealmID SDK."). Send the credential to `/auth/token` instead |
+| `/auth/mfa/verify`, `/auth/invitations/accept`, `/auth/mfa/recovery` (R51) | same rule as login: refresh token + user + tenants, then the token endpoint |
+| `/auth/token` | people (`refresh_token` + `tenant_id`), bots in one call, `integration_installation` + pass; a split realm answers `409 split_signing_required` for every grant that yields a user token; `platform_api_key` and a WIF exchange that yields a platform token are served on every realm (R49, R53) |
+| `/auth/token/partial` | same user grants on a split realm; a full realm answers `409 realm_not_split`; platform grants get `400` |
+
+**If you use the SDK, you change nothing but the version.** The SDK `login` follows `/auth/login`
+with a `/auth/token` mint once the tenant is settled (§4.1.1), and the new SDKs never read
+`access_token` from a login, MFA verify, recovery or invite-accept response. **If you call
 `/auth/login` yourself** and read `access_token` from it, or log in a bot there, switch to the
-token endpoint before release B or your calls break. Watch for the `Deprecation` header. Bots:
-send the credential straight to `/auth/token` (`/auth/token/partial` on a split realm).
-
-**Order (R52):** release A first, so you can move on a deprecation signal. Release B (no config
-flag) ships after Traide, the only active partner, runs the new SDK, through the `### Breaking`
-gate and the owner's `breaking-approved` label.
+token endpoint before you upgrade the issuer side, or your calls break (`login_grant_removed`).
+Bots: send the credential straight to `/auth/token` (`/auth/token/partial` on a split realm).
 
 **On a split realm,** a refresh token spent on `/auth/token/partial` whose reply was lost is reuse
 and ends the session (R32), as with any refresh.
 
+### 6.9.2 Platform token always; which calls need an actor (R60, R61, R64-R68)
+
+Every issuer call carries your realm's PLATFORM token in `Authorization`. A person's, key's,
+service account's or revocation-link token rides in `X-User-Token` (the "escort form"); a user JWT
+as the bearer is `401 platform_bearer_required`. Exempt: the platform mints themselves
+(`platform_api_key`, a WIF exchange that yields a platform token) and the public well-known,
+health and OpenAPI routes. The SDK's user-bearer modes are removed (`### Breaking`).
+
+With **no actor** (a bare platform token) only these calls pass:
+
+| group | calls |
+|---|---|
+| front door | `/auth/login`; `/auth/token` (refresh, bot grants, the pass exchange); login-time `/auth/mfa/verify` and `/auth/mfa/recovery`; `/auth/logout` by refresh token; `/auth/otp/send-login`; the identity-provider list; password reset; `/auth/invitations/{inspect,accept}`; `GET /domains/resolve` |
+| create org | `POST /platforms/{pid}/tenants` with the first owner INLINE. It creates the org AND seats that owner in one call (R67.1); seating any other role needs an actor. Your own "set role = owner" call after create goes away |
+| boot read | `GET /platforms/mine` (id, audience, domain, display name, origin enforcement) |
+| split rotation | split-key rotate, recover, handshake and lease (`signing_keys:rotate`, R67.3) |
+| pass mint | `POST /integrations/installations/{id}/pass` for an existing, unrevoked install |
+
+Everything else is **`403 actor_required`**: "This action needs a user or service account. Send
+its token in X-User-Token." That includes the org list, audit feed, login history and stats (a
+dashboard carries the person, a report job a service account), `sessions/revoke-all` (an incident
+script carries a service account, R67.7), service-account management (R68), MFA challenges outside
+login, and all administration (R65). The Go, TS and Java SDKs raise the typed **`ErrActorRequired`**
+(`ErrActorRequired` in Go, `ActorRequiredError` in ts/java [inferred: ts/java names are
+proposed]) so a job that forgot the actor fails loudly. A carried actor is judged by its own
+rights: a person's live role, a key's cap (and the never-via-key list, R55), a service account's
+role.
+
+Two things to check in your code: a webhook or background path that used to call the SDK bare
+(for example a helper that falls back to a bare call when no user token is stashed) now gets
+`403`; give it a service account. And a bare startup probe such as `realm.Info` stays allowed.
 
 ## 7. Migration checklist
 

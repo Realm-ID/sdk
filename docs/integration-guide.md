@@ -105,6 +105,14 @@ reasoning is structural — an `rk_live_…` shipped in a browser bundle
 is a leaked secret, so there is no narrower enforcement that keeps
 public clients working.
 
+> **UNRELEASED (R60, R61, R62): the platform token is ALWAYS the bearer, and some calls need an
+> actor.** Every issuer call, not only `/auth/*`, carries your platform token in
+> `Authorization`. A person's, key's or service account's token rides in `X-User-Token`; a user
+> JWT as the bearer is `401 platform_bearer_required`. A call with a bare platform token and no
+> actor passes only the front door (sign-in, create-org-with-owner, `GET /platforms/mine`, logout,
+> split-key rotation); everything else is `403 actor_required`, raised by the SDK as the typed
+> `ErrActorRequired`. Full list: `partner-integration-guide.md` §6.9.2.
+
 Concretely: your backend is the only caller. The SPA hits *your*
 `/auth/*` routes, which proxy through to RealmID with the platform
 token attached. Refresh tokens become HttpOnly cookies; access tokens
@@ -819,6 +827,10 @@ async function pickTenant(tenantId: string) {
 
 ### 4.3 Multi-tenant flow
 
+UNRELEASED (R62): `login` (and MFA verify, recovery, invite-accept) never returns an access token
+on the wire; it returns the refresh token, user and tenants. The server SDK mints the access token
+from `/auth/token` for you when exactly one tenant matches, and after the pick otherwise.
+
 When the user belongs to more than one tenant in the realm, `login`
 returns a `tenants` array but no `accessToken`. Your UI shows a
 picker; settle it with `realm.resolveTenant(tenantId)`. The user can
@@ -883,7 +895,9 @@ await realm.tenants.users.confirmMfa(tenantId, userId, userCode);
 
 ```ts
 // Server SDK, in your BFF, on behalf of the signed-in user: pass the
-// user's access JWT so the issuer resolves THAT user's sessions.
+// user's access JWT so the issuer resolves THAT user's sessions. The SDK
+// sends it in X-User-Token beside your platform bearer (escort form, R60);
+// it is never the Authorization bearer.
 // listSessions returns Paginated<SessionInfo> and follows next_cursor
 // for you (ts 0.37.0; it was a bare first-page array through 0.36.0).
 for await (const s of realm.auth.listSessions(userJwt)) {
@@ -895,7 +909,8 @@ const page = await realm.auth.listSessions(userJwt).page({ limit: 25 });
 // page.items, page.next_cursor, page.total
 
 await realm.auth.revokeSession(sessionId, userJwt);
-await realm.auth.revokeAllSessions({ userBearer: userJwt });
+await realm.withUserToken(userJwt).auth.revokeAllSessions();
+// (the `userBearer` option is removed in the login → token release, R60)
 ```
 
 > Field names on `SessionInfo` are the issuer's **wire** names, not camelCase —
@@ -1131,6 +1146,11 @@ tnt, err := realm.Tenants.Create(ctx, realmid.TenantCreate{
     Owner:       &realmid.TenantOwner{Email: "founder@acme.com"},
 })
 ```
+
+Create needs NO actor (R67.1, UNRELEASED): it is a front-door call that creates the org AND
+seats the named first owner in the same call, so a backend job with only the platform token can
+do it, and the old follow-up "set role = owner" call goes away. Seating any other role needs a
+carried actor.
 
 The realm is implicit (the API key's realm). The SDK routes this to
 `POST /platforms/{realmId}/tenants`; partners have one platform per
@@ -1431,6 +1451,9 @@ present, and the zero value means "unset".
 |-------------------------------|----------------------------------------------------------|---------------------------------------------------|
 | `unauthorized`                | API key invalid or revoked                               | Rotate key, redeploy                              |
 | `bff_bearer_required`         | Caller hit `/auth/*` without a platform token (§1.2)     | Use SDK `realm.auth.*` methods, not raw browser HTTP |
+| `platform_bearer_required`    | A user/key/SA token was sent as the bearer (401)         | Platform token in `Authorization`, user token in `X-User-Token` |
+| `actor_required`              | No actor on a call outside the front door (403)          | Carry a person or service account in `X-User-Token`; SDK type `ErrActorRequired` |
+| `login_grant_removed`         | A bot grant was sent to `/auth/login` (400)              | Send it to `/auth/token`; upgrade the SDK         |
 | `realm_origin_mismatch`       | Body `realm_id` doesn't match Origin's resolved realm    | Drop one or fix the other                         |
 | `mfa_required`                | Realm/tenant requires MFA (HTTP 412)                     | Drive `mfaVerify` flow (§4.4)                     |
 | `unknown_role`                | Role name not in realm catalog                           | Read the catalog (`realm.roles.list`) — authoring is retired, §2.3 |
@@ -1526,7 +1549,8 @@ share credentials or invent a cross-tenant superuser role. Instead:
    permissions** the integration may exercise. This admits a
    `kind=service` principal into their org.
 3. The source platform *mints* short-lived access tokens against the
-   installation to call the target's APIs.
+   installation to call the target's APIs. UNRELEASED (R47, R67.2): it does this through an
+   install pass the target's BFF exchanges (§9.1), not with its own key on `/auth/login`.
 
 It is GitHub-App-shaped: register once, install per org, mint on demand.
 RealmID hosts no consent screen — **your console is the consent surface**, so
@@ -1540,6 +1564,23 @@ call (source).
 > (`realm.integrations()`).
 
 ### 9.1 Source side — publish, then mint
+
+> ⚠️ **UNRELEASED (R34, R47, R67.2): the direct `mintToken({ apiKey })` shown below is REMOVED
+> in the login → token release** (the grant it used on `/auth/login` answers
+> `400 login_grant_removed`). The replacement flow, in order:
+>
+> 1. The SOURCE platform's BFF mints a 5-minute, single-use install pass (`ip_…`) with its own
+>    platform token and NO actor: `POST /integrations/installations/{id}/pass`. It works only for
+>    an existing, unrevoked install.
+> 2. It sends the pass to the TARGET's registered `integration_token_endpoint`.
+> 3. The target's integration handler (SDK, `partner-integration-guide.md` §6.8.5) calls the
+>    token endpoint with the TARGET realm's platform token in `Authorization` and the pass in
+>    `X-User-Token`, finishes the signature if the target is a split realm, and returns the
+>    10-minute token.
+>
+> The target must have registered an endpoint, or the install is refused. The base realm is not
+> a target. SDK method names for step 1 are not chosen yet [inferred]. The register/install
+> half of this guide is unchanged, and the rest of this section describes the pre-release mint.
 
 ```ts
 // One-time: publish the integration in YOUR realm.

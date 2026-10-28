@@ -500,6 +500,14 @@ amendment; UNRELEASED). Seventeen codes, registered in all three languages:
 seen. Registered in all three languages (Go `ErrCodeAssertionReplayed`, java
 `ErrorCode.ASSERTION_REPLAYED`); the SDK retries it for the workload grant only (§4.0.1).
 
+**Actor-model codes (R60, R61, R62; UNRELEASED, §14.10):**
+
+| Code | HTTP | Meaning |
+| --- | --- | --- |
+| `platform_bearer_required` | 401 | `Authorization` did not verify as a platform-class token of the path's realm (a user JWT, key session or SA session as the bearer). Send the platform token in `Authorization` and the person's token in `X-User-Token`. |
+| `actor_required` | 403 | The call needs a user or service account and the request carried none. Typed error `ErrActorRequired` (Go; ts/java names proposed [inferred]) with the hint "This action needs a user or service account. Send its token in X-User-Token." |
+| `login_grant_removed` | 400 | A bot grant (`api_key`, `user_api_key`, token exchange, `platform_api_key`, the old integration grant) was sent to `/auth/login`. Send it to `/auth/token`. |
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,
@@ -574,6 +582,17 @@ POST /auth/token   refresh token → rotated refresh + access pair
 | `platform_api_key` | none (raw key in body) | `platform`    | the SDK's platform-session bootstrap |
 | `urn:ietf:params:oauth:grant-type:token-exchange` | none (workload OIDC JWT in body) | `platform` | the SDK's zero-config workload bootstrap (§4.0.1) |
 | `integration_installation` | none (source platform's `platform_api` key in body) | `service` | the brokered cross-realm mint, `realm.integrations.mintToken(...)` (§6.14, ADR-082/083) |
+
+> ⚠️ **UNRELEASED, supersedes this table and steps 1-3 below (one release, R62; see §14).**
+> `/auth/login` authenticates PEOPLE only (`provider_token`, `otp`, `password`) and returns the
+> refresh token, user and tenants, never `access_token`. Every bot or platform grant in the table
+> (`api_key`, `platform_api_key`, token exchange, `user_api_key`) moves to `POST /auth/token`; sent
+> to `/auth/login` it is `400 login_grant_removed`. `integration_installation` is on
+> `/auth/token` only and carries the install pass in `X-User-Token` with the TARGET realm's
+> platform token (R67.2), not the source's key in the body. There is NO SDK fallback to the old
+> `/auth/login` behaviour (R71): where steps 1 and 3 say `POST /auth/login`, read `POST /auth/token`.
+> Step 2's "platform access token in `Authorization`" stands, and is now the rule for every call
+> (§14.10).
 
 Login is a **two-step exchange** internal to the SDK; partners see one
 call. The raw API key is **never** sent on user-login traffic. The SDK
@@ -1448,7 +1467,9 @@ the wire the request body uses `mfa_challenge_token` (not
 `challenge_token`) — the SDK serialises it correctly; partners
 hitting HTTP directly should match.
 
-Response: same shape as `login()` (refresh + access).
+Response: same shape as `login()`. UNRELEASED (R51, R62, §14.1): refresh + user + tenants, never
+`access_token`; the SDK then mints the access token on `/auth/token`. The same holds for
+`redeemRecoveryCode` (§4.3a) and `/auth/invitations/accept`.
 
 **Optional per-session lock for direct callers (go `0.64.2`, owner ruling
 2026-10-03, OQ-7 option (a); ts and java implement it from `0.55.0` / `0.51.0`).**
@@ -1579,7 +1600,8 @@ Server-side revoke of a specific session id.
 ### 4.6 `listSessions()`
 
 Returns sessions for the current user (the user identified by the
-caller's bearer token; this is a user-token operation, not API-key).
+`X-User-Token` the caller carries beside the platform bearer, R60; this is a user-token
+operation, not API-key, and a user token as the bearer is `401 platform_bearer_required`).
 
 The response is the issuer's locked paged envelope
 `{ items, next_cursor, total }` (`httpapi.pagedSlice`) — **not** a bare
@@ -1621,8 +1643,9 @@ Revokes **every** session for the current user in one call —
 `DELETE /auth/sessions`. Current-user operation: identify the user the
 same way `revokeSession` / `listSessions` do — **BFF mode: the platform
 token as bearer plus the user's verified access JWT as `X-User-Token`**
-(`realm.withUserToken(jwt)`; in Go `WithUserToken(ctx, jwt)`); legacy
-mode: the user's own access JWT as `userBearer`. A `userId` may ride
+(`realm.withUserToken(jwt)`; in Go `WithUserToken(ctx, jwt)`). This is the
+ONLY mode: the legacy mode that put the user's own access JWT in the bearer slot
+(`userBearer`) is REMOVED (R60, UNRELEASED, `### Breaking`). A `userId` may ride
 alongside as `X-On-Behalf-Of-User` for attribution, but **is not an
 identity on its own** — issuer v0.66.0 answers `401
 x_user_token_required` — and the SDKs refuse such a call locally rather
@@ -1667,8 +1690,8 @@ acts on another user).
   Returns `already_enrolled` (409) if a
   confirmed factor already exists (reset/disable first),
   `not_a_member` (403), or `refresh_invalid` (401).
-- `disableMfa(req)` → `DELETE /auth/mfa`. Request: bearer + `code`
-  (step-up). Returns void. `not_enrolled` (400) if MFA isn't active.
+- `disableMfa(req)` → `DELETE /auth/mfa`. Request: platform bearer, the user's
+  token in `X-User-Token` (R60) + `code` (step-up). Returns void. `not_enrolled` (400) if MFA isn't active.
 
 > **History:** the JWT-authed self `enrollMfa` + the separate
 > `confirmMfa` (`POST /auth/mfa/confirm`) were removed in favour of the
@@ -2064,6 +2087,10 @@ every list endpoint (see §7).
     (ownership is the pointer, not the name). Server returns
     `owner_required` if omitted on a genuine create; `owner` may be omitted
     only on a pure **reconcile** of an already-owned tenant.
+    UNRELEASED (R67.1, §14.11): `create` with the owner is a front-door call, needing NO
+    actor; it seats that owner in the same call, and the follow-up "set role = owner"
+    call some integrations made is dropped. Seating any other role needs an actor
+    (`403 actor_required`).
   - `id` (ADR-073 Amendment C.1) is an optional caller-supplied tenant
     UUID (bring-your-own, for verbatim migration). Absent ⇒ the server
     mints a UUIDv7. Present + already in this realm ⇒ the call **reconciles
@@ -3174,8 +3201,18 @@ over `/tenants/{id}/integration-installations`:
   fail. Live access tokens are NOT revoked (signature-verified) — the
   exposure is bounded by the fixed 600 s token TTL (ADR-083 §4.4).
 
+> ⚠️ **UNRELEASED (R34, R47, R67.2; see §14.8): the direct mint below is REMOVED.** The source's
+> `rk_live_` key no longer mints a token on `/auth/login` (`login_grant_removed`). The flow is: the
+> source platform's BFF mints a 5-minute single-use install pass (`ip_…`) with its own platform
+> token and NO actor (`POST /integrations/installations/{id}/pass`, valid only for an existing,
+> unrevoked install); it POSTs the pass to the TARGET's `integration_token_endpoint`; the target's
+> handler calls the token endpoint with the TARGET's platform token in `Authorization` and the pass
+> in `X-User-Token` (the pass is the carried actor). The base realm is not an integration target
+> (R68.2). SDK symbol names for the pass mint are not chosen yet [inferred]. The text below
+> describes the shipped (pre-release) behaviour, including the error codes, most of which carry over.
+
 **Mint** (the source platform's server, authenticated by its own
-`platform_api` key — NOT a user/session token):
+`platform_api` key — NOT a user/session token; REMOVED, see the box above):
 
 - `mintToken({ apiKey, installationId, sourceOrgId })` →
   `{ accessToken, expiresIn }`. Sends
@@ -3198,12 +3235,12 @@ existing call changed.
 
 **Who authorizes.** Every route here is authorized by the END USER, never
 by the platform credential alone; there is no path parameter naming
-someone else and no admin override. Two modes, matching the rest of the
-SDK:
+someone else and no admin override. UNRELEASED (R60, `### Breaking`): the
+former **direct** mode, where the user's access JWT was the wire bearer
+(`userBearer` / `MeAuth{UserBearer}` / `MeAuth.bearer(...)`), is REMOVED.
+One mode remains:
 
-- **direct** — the user's access JWT is the wire bearer
-  (`userBearer` / `MeAuth{UserBearer}` / `MeAuth.bearer(...)`).
-- **BFF** — the realm's platform token stays the bearer and the user's
+- **BFF (escort form)** — the realm's platform token is ALWAYS the bearer and the user's
   **verified** access JWT rides as `X-User-Token`
   (`userToken` / `MeAuth{UserToken}` / `MeAuth.onBehalfOf(...)`; in Go,
   `WithUserToken(ctx, jwt)` also supplies it).
@@ -3511,9 +3548,10 @@ roadmap.
 ## 8. HTTP wire conventions
 
 - **Auth header:** `Authorization: Bearer <token>`. The token is a
-  short-lived platform access token (§4.0, ADR-051) for management
-  calls, or the user's bearer JWT for user-context calls
-  (e.g. `listSessions`). It is never a platform refresh token — ADR-089
+  short-lived platform access token (§4.0, ADR-051) on EVERY call (R60,
+  UNRELEASED). A user-context call (e.g. `listSessions`) sends the user's JWT
+  in `X-User-Token` beside it; a user JWT as the bearer is
+  `401 platform_bearer_required` (§14.10). It is never a platform refresh token — ADR-089
   withdrew it, and `POST /auth/token` refuses such a session with
   `401 m2m_refresh_withdrawn`. The raw API key never travels in
   `Authorization`; on
@@ -4879,9 +4917,10 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 > tags. This section ships in the next go/ts/java release (lockstep, §13), whose version is not
 > chosen yet. Cite as `SPEC14_1_login_token`, `SPEC14_2_partial`, `SPEC14_3_cosign`,
 > `SPEC14_4_trust`, `SPEC14_5_shares`, `SPEC14_6_handshake`, `SPEC14_7_metrics`,
-> `SPEC14_8_integration`. Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R58 in
-> `plans/2026-10-27-split-signing-v2.md`; the HTTP contract is `issuer/docs/swagger.yaml`
-> (authoritative, wins over this text).
+> `SPEC14_8_integration`, `SPEC14_10_actor`, `SPEC14_11_create_org`, `SPEC14_12_ci_rotation`.
+> Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R58 in `plans/2026-10-27-split-signing-v2.md`
+> and R59-R76 in `plans/2026-10-27-split-signing-rulings-r19-r48.md` (latest wins; ONE release,
+> R62); the HTTP contract is `issuer/docs/swagger.yaml` (authoritative, wins over this text).
 
 ### 14.1 Login → token everywhere (R44)
 
@@ -4903,8 +4942,11 @@ exchange that yields a USER token on a split realm goes to `/auth/token/partial`
 `/auth/mfa/verify`, `/auth/invitations/accept` and `/auth/mfa/recovery` follow the login
 rule (R51). Cross-calls: `/auth/token` on a split realm answers `409 split_signing_required` for
 every grant that yields a user token (the platform-token grants above are exempt);
-`/auth/token/partial` on a normal realm answers `409 realm_not_split`. Staging: release A (normal
-realms still receive `access_token` plus a `Deprecation` header), release B removes it (R52).
+`/auth/token/partial` on a normal realm answers `409 realm_not_split`. There is ONE release
+(R62): no release A or B and no `Deprecation` header (this supersedes R52). A bot grant sent to
+`/auth/login` is refused with `400 login_grant_removed`. The SDK carries NO fallback to
+`/auth/login` (R71): it needs the new issuer, and the issuer, the SDKs and RealmID's BFF cut over
+together.
 
 ### 14.2 One partial shape (R44)
 
@@ -4948,17 +4990,72 @@ and alerts; it never loops. RealmID never half-signs a caller-chosen message.
 `realmid_cosign_total{result}` and `realmid_share_load_total{source,result}`, in the partner's
 own monitoring. The SDK sends nothing to RealmID about co-sign failures.
 
-### 14.8 Integration token handler (R47, R50)
+### 14.8 Integration token handler (R47, R50, R67.2)
 
 A ready-made server-side handler a target platform mounts; it takes the install pass, rate-limits,
 and calls the token endpoint for the realm's custody with `grant_type=integration_installation`.
-On a split target it FINISHES the half-signed answer and returns a normal token; on a full target
-it relays the issuer's answer unchanged. The pass carries `source_org_id` (R54b), so the mint request body names the
-acting org of the source platform. It does no authorization of its own and answers the
-issuer's registration canary. The direct integration grant on `/auth/login` is removed (R34).
+The handler sends the TARGET realm's platform token in `Authorization` and forwards the pass in
+`X-User-Token` (R67.2: the pass is the carried actor, not a body field; a pass anywhere else is
+`401 install_pass_invalid`). The source platform's BFF mints the pass with its own platform token and
+no actor (`POST /integrations/installations/{id}/pass`, existing unrevoked install only).
+On a split target the handler FINISHES the half-signed answer and returns a normal token; on a full
+target it relays the issuer's answer unchanged. The pass carries `source_org_id` (R54b), so the
+mint names the acting org of the source platform. It does no authorization of its own and answers
+the issuer's registration canary. The direct integration grant on `/auth/login` is removed (R34).
+The base realm is not an integration target (R68.2): RealmID's BFF mounts no handler.
 
 ### 14.9 Scope
 
 Server-only entry point; browser packages are structurally excluded. Applies to go, ts and java at
-parity. Unverified until built: all symbol names, the `Deprecation` header value, and the metric
-`result` label values.
+parity. Unverified until built: all symbol names and the metric `result` label values.
+
+### 14.10 Platform token always, and the actor model (R60, R61, R64-R68)
+
+**Presentation (R60).** Every issuer call carries the realm's platform token in `Authorization`.
+A person's, key's, service account's or revocation-link token rides in `X-User-Token` (the
+"escort form"). Exempt: the platform mints (`platform_api_key`, a WIF exchange yielding a platform
+token) and the public well-known, health and OpenAPI routes. A user JWT, key session or SA session
+as the bearer is `401 platform_bearer_required`. Opaque body credentials (refresh token, MFA
+challenge, reset and invite tokens) stay in the body. The SDK modes that put a user token in the
+bearer slot are REMOVED, with a `### Breaking` entry in each SDK changelog: go `resolveOnBehalfOf`
+UserBearer, `MintMFAChallenge{AccessToken}`, `MeAuth.UserBearer`, `PassthroughOptions.UserBearer`;
+ts per-call `bearer`; java `applyBearerTrio` [names from plan v3 § 3.7, not re-read in source].
+
+**No actor (R61).** A bare platform token passes ONLY: the sign-in front door (`/auth/login`,
+`/auth/token` refresh and bot grants and the pass exchange, login-time MFA verify and recovery,
+`/auth/logout` by refresh token, `send-login`, the identity-provider list, password reset,
+invitation inspect and accept, `GET /domains/resolve`); create-org-with-owner (§14.11); the boot
+read `GET /platforms/mine`; split-key rotate, recover, handshake and lease (R67.3, R73); and the
+pass mint. Everything else answers `403 actor_required`. A carried actor is judged by its own
+rights (a person's live role, a key's cap and the never-via-key list R55, an SA's role).
+
+**Typed error.** `403 actor_required` surfaces as `ErrActorRequired` (Go) with the hint "This action
+needs a user or service account. Send its token in X-User-Token." (ts/java names proposed
+[inferred]), so a partner job that forgets the actor fails loudly. Traide's `auth.OnBehalfOf`
+fallback to a bare call becomes this error (R67 notice).
+
+**Administration (R64, R65).** `platform_api` is app-runtime only. Administration (identity
+providers, sources, WIF bindings, realm settings, integration publishing) is done by PEOPLE as the
+carried actor; every such gate is a PERMISSION check, never an "is human" test. Service-account
+management needs a carried actor (R56 superseded). The hard human-only checks are R9(2), R38,
+R40, R55.
+
+### 14.11 Create org seats its owner (R67.1)
+
+`tenants.create` takes the first owner and returns the org with that owner seated, in ONE no-actor
+call (`POST /platforms/{pid}/tenants`). Seating the first owner is exempt from the seating rule
+inside create only; seating any other role needs an actor. A follow-up "set role = owner" call
+is not made and not needed. (The owner is already required at create today, §6.1; this clause
+adds that no actor is needed.)
+
+### 14.12 Partner CI key rotation via the RealmID BFF (R63, R66, R72)
+
+A partner's CI never calls `auth.realmid.dev` itself. It signs in by workload identity at the
+RealmID BFF (`api.realmid.dev`, `/auth/workload-session`) as the BASE-REALM `platform_mgmt_api`
+identity (R66), which the RealmID BFF carries in `X-User-Token` behind its own base platform token.
+`platform_mgmt_api` holds only `platform_api_keys:read|manage` and is refused at every `/auth/*`
+sign-in; the BFF's own platform token can never mint a key (R9(2)). The BFF skips step-up only for
+a carried `platform_mgmt_api` on a platform-key mint or revoke (R72). The sequence (mint, write to
+the partner's secret store, wait for the partner BFF to report the new fingerprint, revoke the
+old key) is in `docs/partner-integration-guide.md` §6.4.1. The SDKs have no part in it beyond
+the platform token mint, and carry NO fallback to the old path (R71).
