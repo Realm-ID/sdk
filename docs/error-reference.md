@@ -383,6 +383,7 @@ Signing in with a workload's OIDC token, and managing trust bindings
 | `missing_subject_token` | [400] A federated sign-in had no `subject_token`. | Send the workload's token. |
 | `bad_subject_token_type` | [400] `subject_token_type` is set and is not the JWT token type. | Omit it, or send the JWT type. |
 | `unknown_issuer` | [400] A binding's `issuer` is not a supported federation provider. | Use a supported provider. |
+| `invalid_target` | [400] A federation binding's `target` has no `kind` (but sets `tenant_id` or `user_id`), an unknown `kind`, or `service_account` without `tenant_id` / `user_id`. | Send `target.kind` (`service_account`) with its `tenant_id` and `user_id`, or omit `target`. |
 | `unconstrained_binding` | [400] `match_claims` is empty; it must constrain the issuer's mandatory claim. | Add the claim. |
 | `missing_mandatory_claim` | [400] `match_claims` does not constrain the issuer's mandatory claim. | Add it, with a non-empty value. |
 | `invalid_mapped_role` | [400] The role a binding maps to does not exist, is disabled, or cannot be held by a service principal (or the realm's role catalog cannot be resolved). | Map to an enabled role that service accounts may hold. |
@@ -495,12 +496,13 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 | `missing_source_org_id` | [400] `POST /integrations/installations/{install_id}/pass` without `source_org_id`, the acting org of the source platform. It is the only attribution the target org gets for the acting call (R54b). Added in spec 0.65.0 (unreleased). | Send `source_org_id` in the request body. |
 | `invalid_installation_id` | [400] The `install_id` on the install-pass mint is malformed. Added in spec 0.65.0 (unreleased). | Use the id returned when the integration was installed. |
 | `invalid_integration_endpoint` | [400] The registered `integration_token_endpoint` is not an https URL. Added in spec 0.65.0 (unreleased). | Register an https URL. |
-| `integration_endpoint_unverified` | [422] The registration test-call to the endpoint failed; the message names what the call got back. Added in spec 0.65.0 (unreleased). | Fix the handler (the SDK's ready-made handler answers the canary), then register again. |
+| `integration_endpoint_unsupported` | [501] `PATCH /platforms/{id}` with an `integration_token_endpoint` on a deployment whose realm store cannot hold one. Checked before any write, so the rename is not applied either. Added in spec 0.65.0 (unreleased). | A server configuration fault, not a transient one; do not retry. Contact the operator. |
 
 ### Split-key custody, handshake and rotation (`/platforms/{id}/signing-keys/split/...`)
 
 | Code | When | What to do |
 | --- | --- | --- |
+| `split_custody_unavailable` | [501] Any `/platforms/{id}/signing-keys/split/...` route on a server with no split-custody service wired. Added in spec 0.65.0 (unreleased). | A server configuration fault, not a transient one; do not retry. Contact the operator. |
 | `split_key_size_unsupported` | [400] Upload of a key that is not RSA-2048. Added in spec 0.65.0 (unreleased). | Generate an RSA-2048 key. |
 | `split_kid_in_use` | [409] Upload with a `kid` the realm already has. The caller chooses the kid. Added in spec 0.65.0 (unreleased). | Choose an unused `kid`. |
 | `rotation_lease_held` | [409] Another holder has the 5-minute rotation lease (one holder at a time). Added in spec 0.65.0 (unreleased). | Wait for the lease to end or the other pod to finish; do not rotate from two pods. |
