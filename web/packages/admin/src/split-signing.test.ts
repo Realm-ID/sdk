@@ -2,7 +2,7 @@
  * Split-signing v3 console surface: `admin.signingKeys.splitStatus` / `.cancelDowngrade`,
  * `admin.platforms.setIntegrationTokenEndpoint`, and the typed `user_api_keys` config view.
  * Wire authority: issuer `signing_split.go` (status handler is raw(), no `data` envelope;
- * `last_handshake` is an RFC 3339 STRING there, swagger's "object" is wrong — ui-reconcile F1).
+ * `last_handshake` is an RFC 3339 STRING there, and swagger now says a nullable date-time string too).
  */
 
 import { describe, it } from "node:test";

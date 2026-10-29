@@ -40,7 +40,7 @@ export class SigningKeysClient {
 
   /**
    * GET /platforms/{id}/signing-keys/split (`signing_keys:read`). The body is un-enveloped
-   * (`raw()`); `last_handshake` is an RFC 3339 string (or null), unlike swagger's "object".
+   * (`raw()`); `last_handshake` is an RFC 3339 string (or null), as swagger's nullable date-time says.
    * An unknown `state` passes through: the console treats it as an error.
    */
   async splitStatus(platformId: string): Promise<SplitSigningStatus> {
