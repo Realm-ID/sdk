@@ -210,6 +210,8 @@ export type {
 } from "./platforms.js";
 export { OriginsClient } from "./origins.js";
 export { SigningKeysClient } from "./signing-keys.js";
+export { dealSplitKey, isSplitKeygenUnsupported } from "./split-dealer.js";
+export type { DealtSplitKey, SplitKeyUpload, SplitShareBundle } from "./split-dealer.js";
 export { BffClient } from "./bff.js";
 export { SessionsClient } from "./sessions.js";
 export { MeClient } from "./me.js";

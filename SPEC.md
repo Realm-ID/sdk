@@ -5385,7 +5385,7 @@ export interface DealtSplitKey {
 }
 export function dealSplitKey(opts: {
   realm: string;        // the platform (realm) id: ShareBundle.realm and the upload path
-  kid?: string;         // default "k-" + UTC "YYYYMMDD-HHMMSS", the CLI's newKID form
+  kid?: string;         // default "split-<yyyymmdd>-<8 hex>" (UTC date + 4 random bytes; two deals in one second never collide)
   crypto?: Crypto;      // default globalThis.crypto; injectable for tests
 }): Promise<DealtSplitKey>;
 export function isSplitKeygenUnsupported(err: unknown): boolean;

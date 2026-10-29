@@ -9,6 +9,7 @@
  * the passthrough's `X-On-Behalf-Of-User`.
  */
 
+import type { SplitKeyUpload } from "./split-dealer.js";
 import type { HttpLike } from "./transport.js";
 import type { RotateSigningKeyResponse, SplitSigningStatus, SuspendPlatformResponse } from "./types.js";
 
@@ -47,6 +48,24 @@ export class SigningKeysClient {
     return this.http.request<SplitSigningStatus>({
       method: "GET",
       path: `/platforms/${encodeURIComponent(platformId)}/signing-keys/split`,
+    });
+  }
+
+  /**
+   * POST /platforms/{id}/signing-keys/split — upload RealmID's half of a dealt key
+   * (`dealSplitKey().upload`). Realm owner; the MFA step-up is the caller's `realm.fetch` wrapper's
+   * job. Never retries and never re-deals: after a failure, upload the SAME dealt key again.
+   * Refusals (`400 split_key_size_unsupported` | `split_key_invalid`, `409 split_kid_in_use`, ...) are
+   * `RealmError` (server code in `.code` or `.details.server_code`).
+   */
+  async uploadSplitKey(
+    platformId: string,
+    body: SplitKeyUpload & { overlap_d?: string },
+  ): Promise<{ status: "uploaded"; kid: string }> {
+    return this.http.request<{ status: "uploaded"; kid: string }>({
+      method: "POST",
+      path: `/platforms/${encodeURIComponent(platformId)}/signing-keys/split`,
+      body,
     });
   }
 

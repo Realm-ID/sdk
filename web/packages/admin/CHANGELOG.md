@@ -4,6 +4,10 @@
 
 No source change in this package. The tarball bundles `@realm-id/sdk`, so the version is bumped to ship the sdk's two new 410 codes (`realm_suspended`, `tenant_suspended`) and their predicates. A `ts-v*` tag publishes this package too; republishing 0.25.0 would be skipped as already published.
 
+## 0.26.0 — browser split dealer (SPEC 14.15) (unreleased)
+
+**Added.** `dealSplitKey({ realm, kid?, crypto? })`: generates an RSA-2048 key with WebCrypto, splits the private exponent modulo lambda(n) in BigInt (SPEC 14.14), and returns `{ kid, share, shareJson, filename, upload }`. `shareJson` is the plain ShareBundle to download (`{realm, shares:{<kid>:{n,e,d_partner}}}`, filename `realmid-share-<realm>-<kid>.json`); `upload` is RealmID's half. Default kid `split-<yyyymmdd>-<8hex>`. `isSplitKeygenUnsupported(err)` is true for the `invalid_config` / `details.reason: "split_keygen_unsupported"` refusal (no WebCrypto RSA, or a JWK without d/p/q). `admin.signingKeys.uploadSplitKey(platformId, body)` POSTs `{kid,n,e,d_ri}` to `/platforms/{id}/signing-keys/split`. No `node:` import and no `Buffer` in `src/` or `dist/`; the dealer does not use `@realm-id/sdk/split`. Pinned by `split-dealer.test.ts`.
+
 ## 0.25.0 — split-signing console surface + transport drops the per-call `bearer` (R60) (2026-10-29)
 
 **Added (split signing v3).** `admin.signingKeys.splitStatus(platformId)` (`GET /platforms/{id}/signing-keys/split`; un-enveloped body `{state, kid?, public_key?, overlap_until, last_handshake}`, `last_handshake` an RFC 3339 string per the issuer code, not swagger's "object"), `admin.signingKeys.cancelDowngrade(platformId)` (`DELETE …/split/downgrade`, human realm owner), `admin.platforms.setIntegrationTokenEndpoint(platformId, url | null)` (`PATCH /platforms/{id}`, `null` clears), and `RealmConfigView.user_api_keys` (`UserApiKeysConfigView`, incl. `allow_uncapped`; optional for an older issuer). Types `SplitSigningStatus`, `SplitCustodyState`, `UserApiKeysConfigView`. Pinned by `split-signing.test.ts`. On web-admin's own `SigningKeysClient`, not the ts core `admin.keys`.
