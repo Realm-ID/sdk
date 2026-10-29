@@ -4961,7 +4961,8 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 > tags. This section ships in the next go/ts/java release (lockstep, §13), whose version is not
 > chosen yet. Cite as `SPEC14_1_login_token`, `SPEC14_2_partial`, `SPEC14_3_cosign`,
 > `SPEC14_4_trust`, `SPEC14_5_shares`, `SPEC14_6_handshake`, `SPEC14_7_metrics`,
-> `SPEC14_8_integration`, `SPEC14_10_actor`, `SPEC14_11_create_org`, `SPEC14_12_ci_rotation`.
+> `SPEC14_8_integration`, `SPEC14_10_actor`, `SPEC14_11_create_org`, `SPEC14_12_ci_rotation`,
+> `SPEC14_14_dealer`, `SPEC14_15_browser_dealer`.
 > Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R58 in `plans/2026-10-27-split-signing-v2.md`
 > and R59-R76 in `plans/2026-10-27-split-signing-rulings-r19-r48.md` (latest wins; ONE release,
 > R62); the HTTP contract is `issuer/docs/swagger.yaml` (authoritative, wins over this text).
@@ -5023,20 +5024,15 @@ The lifetime is the longest `expires_in` the SDK has seen on a co-signed mint, n
 minutes. There is no caller-set window and no 24-hour default (the 24 hours in the custody swagger
 is the full-to-split overlap, a different thing). A lost-half recovery keeps no previous key.
 
-**Base-trust secret (owner ruling C5#6, 2026-10-29).** Where a verifier is given the base realm's
-trusted public keys as a secret (the `PublicKeyList` form), the secret is a standard JWKS object
-(`{"keys":[...]}`) ONLY; a bare JSON array is refused at parse. Each key may carry an optional
-`trust_until`, an RFC 3339 timestamp; a key whose `trust_until` is in the past is not trusted, and an
-absent `trust_until` means the key does not expire. A `trust_until` that is present but malformed
-(not a string, or not RFC 3339) makes the parser refuse the WHOLE secret and trust nothing: it fails
-closed. This SPEC sets no other rule for malformed key entries, so none is borrowed. Dormant until the
-base realm splits.
-
-**Two `trust_until` encodings; never mix them.** The base-trust JWKS secret above carries `trust_until`
-as an RFC 3339 STRING. The partner's `ShareBundle` `previous[]` entries (and the Redis `…:public` doc)
-carry `trust_until` as an int64 of unix SECONDS (R91). They are distinct documents. A writer of the
-base-trust secret must never reuse the `ShareBundle` / `PreviousKey` structs: a numeric `trust_until`
-(or `null`) makes the issuer refuse the whole secret.
+**The base realm is verified like any realm (owner D3/D4, 2026-10-29).** There is NO base-trust
+secret, no `realmid-base-public-keys` secret and no base-only trust rule. The issuer verifies a
+base-realm token from its own database (`realm_keys`) exactly as it verifies a partner realm's; a
+`split: true` SDK verifier for the base realm (RealmID's own BFF) trusts its own bundle exactly as a
+partner's does (above). The only base-realm difference in split signing is WHO holds the second
+share (RealmID's BFF). `trust_until` has ONE encoding: an int64 of unix SECONDS (R91), in the
+`ShareBundle` `previous[]` entries and the Redis `…:public` document. (This replaces the C5#6
+base-trust JWKS paragraph and its RFC 3339 `trust_until` string, both withdrawn by D3/D4; the
+history is in `DECISIONS.md` 2026-10-29.)
 
 ### 14.5 Share sources
 
@@ -5122,7 +5118,9 @@ The base realm is not an integration target (R68.2): RealmID's BFF mounts no han
 
 ### 14.9 Scope and public names (R86, R91-R95)
 
-Server-only entry point; browser packages are structurally excluded. Go and Java ship it in the
+Server-only entry point; browser packages are structurally excluded. The ONE browser exception is
+the dealer of §14.15 (`@realm-id/web-admin`): it generates, splits and uploads a key, and never
+co-signs, loads a share source or holds a share after it returns. Go and Java ship it in the
 core artifact; TypeScript ships it ONLY at the subpath `@realm-id/sdk/split`, which `index.ts`
 neither imports nor re-exports (a test walks the import graph). Applies to go, ts and java at
 parity. Names follow §3.1's rule: one stem, each language's idiom.
@@ -5153,7 +5151,8 @@ handshake and readiness entry point (`(*Realm).SplitReady(ctx) error`, ts `split
 `Realm.splitReady()`), the metrics hooks and their label values (`realmid_cosign_total{result=ok|
 refused|bad_signature|unpinned_kid}`, `realmid_share_load_total{source=env|file|gsm|redis,
 result=ok|error}`) [proposed], `rotation_due`, the public-only key list (`PublicKeyList`,
-`NewPublicKeySource` / `publicKeySource` / `ShareSources.publicKeys`), the `ShareWatcher` hook, and
+`NewPublicKeySource` / `publicKeySource` / `ShareSources.publicKeys`; if built it carries
+`trust_until` as int64 unix seconds, the only encoding, §14.4), the `ShareWatcher` hook, and
 logging the fingerprint (not the kid) of an unpinned key.
 
 ### 14.13 Add-on share sources (R35, R39, R95)
@@ -5243,3 +5242,186 @@ a carried `platform_mgmt_api` on a platform-key mint or revoke (R72). The sequen
 the partner's secret store, wait for the partner BFF to report the new fingerprint, revoke the
 old key) is in `docs/partner-integration-guide.md` §6.4.1. The SDKs have no part in it beyond
 the platform token mint, and carry NO fallback to the old path (R71).
+
+### 14.14 Dealing a split key (R5, R22, owner Q3 2026-10-29)
+
+Every DEALER makes the same thing: the SDK rotation and recovery (go `rotation.go`, ts
+`rotation.ts`, java `SigningKeysClient.rotateSplit`), the CLI (`realm-id signing-keys init`,
+`rotate`, `recover`) and the browser dealer (§14.15). A dealer generates one RSA key, splits its
+private exponent into RealmID's half `d_ri` and the partner's half `d_partner`, stores the partner
+half, and uploads `d_ri`. The whole key exists only inside the dealer, only until the split (the
+accepted R5 residual).
+
+**Key.** RSA with `n` of exactly 2048 bits and `e = 65537` (R22). The issuer refuses anything else
+at upload: `400 split_key_size_unsupported` for the size, `400 split_key_invalid` for another `e`,
+an even `n`, or `d_ri` that is not in `[1, n)` (issuer `splitcustody/service.go` `validKey`).
+
+**The split modulus is λ(n), and this is canonical (Q3).** With `p`, `q` the key's primes:
+
+- `λ(n) = lcm(p−1, q−1) = (p−1)(q−1) / gcd(p−1, q−1)`;
+- `d = e⁻¹ mod λ(n)` (a generator that returns `d` modulo φ(n) is reduced modulo λ(n) first);
+- `d_ri` is drawn UNIFORMLY from `[1, λ(n))` with a cryptographic RNG (rejection sampling, never a
+  bit-length shortcut);
+- `d_partner = (d − d_ri) mod λ(n)`; if `d_partner = 0`, draw `d_ri` again (neither half alone may
+  sign, R5);
+- so both halves lie in `[1, λ(n))` and **`d_ri + d_partner ≡ d (mod λ(n))`**.
+
+A split modulo φ(n) = (p−1)(q−1) also signs correctly, because λ(n) divides φ(n); the choice of λ
+changes nothing on the wire or for a partner. It is canonical so that every dealer passes the same
+range and vector checks (below) and matches `testdata/split-vectors/vectors.json`, which is
+generated under λ.
+
+**As built, 2026-10-29** (every row is a builder item, W11 checklist 4):
+
+| dealer | modulus | `d_ri` range | conforms? |
+|---|---|---|---|
+| go `go/rotation.go:161-175` | λ (`:168`) | `rand.Int(lam)` = `[0, λ)` (`:170`); a zero `d_ri` or `d_partner` is not redrawn | λ yes; range no (0 allowed) |
+| ts `ts/src/rotation.ts:38-46` | λ (`:42`) | `randomBelow(lam)` = `[0, λ)` (`:44`); no zero redraw | λ yes; range no (0 allowed) |
+| java `SigningKeysClient.java:115-120` | λ (`:117`) | `new BigInteger(bitLength(λ)−1, rnd)` = `[0, 2^(bitLength(λ)−1))` (`:119`): NOT uniform over `[1, λ)`, and 0 allowed | λ yes; range no |
+| cli `cli/cmd/realm-id/signing_keys.go:311-328` (`dealKey`) | **φ** (`:316`), on the unreduced `key.D` | `[0, φ)`, redrawn until both halves are `> 0` (`:324`) | **no**: replaced by the sdk/go dealer (owner ruling 9) |
+
+A zero half is reachable only with probability about 2⁻²⁰⁴⁷, and the issuer refuses a zero `d_ri`
+anyway, so the go/ts gap is a conformance fix, not a live fault. Java's range leaks at most about
+one bit of `d_ri`'s position to the partner; it is fixed with the rest.
+
+**Encodings.** Every integer on the wire and in a share (`n`, `e`, `d_ri`, `d_partner`) is the
+unsigned big-endian byte string of MINIMAL length (no leading zero byte; Java strips the sign byte
+of `toByteArray`), in base64url WITHOUT padding (RFC 4648 §5). `e = 65537` is `"AQAB"`. As built:
+go `bigB64` (`go/rotation.go:177`), ts `wire` (`ts/src/rotation.ts:48`), java `b64`
+(`SigningKeysClient.java:174-178`), cli `bigB64`. The issuer tolerates trailing `=`
+(`httpapi/signing_split.go` `b64uDecode`); a dealer never writes it. No decimal or hex form exists
+anywhere on this path (the vectors file's lowercase hex is a test encoding only).
+
+**The partner half is a `ShareBundle`** (§14.9 values, `go/sharesource.go:47-51`):
+
+```json
+{"realm": "<realm id>", "shares": {"<kid>": {"n": "<b64url>", "e": "AQAB", "d_partner": "<b64url>"}}}
+```
+
+plus `previous: [{kid, n, e, trust_until}]` (int64 unix seconds) only when a rotation retired a key;
+a FIRST split has no `previous`. `realm` is the realm (platform) id that is also the `{realm}` of
+the upload path. This is the document every core source reads (env: raw JSON; file without a KEK:
+raw JSON, local dev only; file/GSM/Redis with a KEK: inside envelope v1, §14.5). It never carries
+`d_ri`. **Equivalence with the CLI is JSON equality, not bytes:** `realm-id signing-keys init
+--share-to stdout` prints a result OBJECT `{fingerprint, kid, n_bits, share, written_to}` preceded by
+an `::add-mask::` line, and the ShareBundle is its `share` member (`cli/cmd/realm-id/signing_keys.go`
+`skInit`, `writeJSON` in `helpers.go`). A reader parses JSON (`parseBundle`, `go/sharesource.go:69`),
+so key order and whitespace are not part of the contract.
+
+**Store before upload.** A dealer makes the partner half durable BEFORE it uploads `d_ri` (a crash
+must never leave RealmID holding a half whose partner is gone). The SDK writes its store first; the
+CLI writes the share target first; the browser dealer makes the owner download and confirm first
+(§14.15).
+
+**Upload.** `POST /platforms/{realm}/signing-keys/split`, body `{"kid", "n", "e", "d_ri"}` plus
+optional `overlap_d` and `lease_id`. `overlap_d` is a DURATION STRING (`"24h"`, `"7d"`), not a key
+value; absent means 24 hours, and the overlap plus all extensions is capped at 7 days (`400
+overlap_cap_exceeded`). `lease_id` belongs to a rotation or recovery and is ignored on the first
+upload. The FIRST upload (custody `normal`) is made by the realm OWNER as the carried actor, with
+MFA step-up at the RealmID BFF (R73); later uploads are no-actor (§14.10). The caller chooses the
+kid (`409 split_kid_in_use` if taken). The answer is bare: `{"status": "uploaded", "kid": "<kid>"}`.
+Other refusals: `400 bad_request` (a missing field, a field that is not base64url, a bad
+`overlap_d`), `403 actor_required` | `owner_required` | `forbidden`, `404 platform_not_found`, `409
+split_upload_not_allowed` | `rotation_lease_held`, `501 split_custody_unavailable`. The key signs
+nothing until the partner's SDK completes the handshake (§14.6): after the console's upload the
+realm sits at `overlap_pending` until the partner's backend starts with the share.
+
+**Testing a dealer (`SPEC14_14_dealer`).** A dealer is random, so no vector pins its output; it is
+pinned by four checks, which go, ts, java, the CLI's replacement and web-admin all carry:
+
+1. **Vector split.** Given the key of `testdata/split-vectors/vectors.json` (`p`, `q`, `d`) and its
+   `d_ri` injected in place of the RNG, the dealer's pure split returns exactly that file's
+   `d_partner`. ⚠️ The current key does not tell λ from φ: its `d > d_ri`, so `(d − d_ri) mod φ`
+   equals its `d_partner` (checked 2026-10-29). The file therefore needs a `dealer` case whose
+   `d_ri > d` (so the subtraction wraps and λ and φ give different answers), added in
+   `scripts/gen-split-vectors.py` and regenerated, never hand-edited.
+2. **Range, over at least 20 fresh deals.** `1 ≤ d_ri < λ(n)` and `1 ≤ d_partner < λ(n)`, with λ
+   computed from the dealt key's own `p`, `q`. A φ dealer puts `d_partner` in `[λ, φ)` with
+   probability at least 1/2 per deal (φ/λ = gcd(p−1, q−1) ≥ 2), so 20 deals miss it with
+   probability at most 2⁻²⁰.
+3. **Round trip.** For `m` = the EMSA-PKCS1-v1_5 encoding of a SHA-256 digest:
+   `(m^d_ri mod n) · (m^d_partner mod n) mod n = m^d mod n`, and that `s` satisfies `s^e mod n = m`.
+   Equivalently: half-sign with `d_ri`, half-sign with `d_partner`, combine, and the result equals the
+   whole-key signature and verifies under `(n, e)`.
+4. **Shape.** The ShareBundle has exactly `realm`, `shares` (and `previous` only when non-empty), each
+   entry exactly `n`, `e`, `d_partner`, all minimal base64url; no `d_ri` appears in it; the upload
+   body carries no `d_partner`.
+
+The vector file is ONE shared file, `sdk/testdata/split-vectors/vectors.json` (generator
+`scripts/gen-split-vectors.py`, README beside it). Today it is read by the combiner tests only (go
+`go/cosign_test.go`, ts `ts/src/cosign.test.ts`, java `CosignTest.java`); no dealer test reads it
+yet. Never copy it under `go/` (the module hash). The ts dealer's split is the unexported
+`splitExponent` (`ts/src/rotation.ts:38`), so check 1 for ts needs that function reachable from a
+test.
+
+### 14.15 Browser dealer (`@realm-id/web-admin`, owner decision 6, 2026-10-29)
+
+The console moves a realm from a whole key to a split key with no CLI: the BROWSER generates and
+splits the key, the owner downloads the partner half as a plain ShareBundle file, and the browser
+uploads RealmID's half. RealmID's servers never see `d_partner`. No passphrase and no KEK: the
+download is plaintext, and the partner guide (§6.8.6) tells the owner to load it through the env or
+secret-store source and delete the file. First split only (custody `normal`); rotation, recovery and
+downgrade stay with the server SDKs and the CLI.
+
+**Surface** [names proposed, fixed when web-admin ships]:
+
+```ts
+// @realm-id/web-admin (root entry point)
+export interface SplitKeyUpload { kid: string; n: string; e: string; d_ri: string }
+export interface SplitShareBundle {
+  realm: string;
+  shares: Record<string, { n: string; e: string; d_partner: string }>;
+}
+export interface DealtSplitKey {
+  kid: string;
+  /** The partner half (§14.14 ShareBundle). Plain JSON object; holds d_partner. */
+  share: SplitShareBundle;
+  /** JSON.stringify(share), the exact bytes to download. */
+  shareJson: string;
+  /** "realmid-share-<realm>-<kid>.json" */
+  filename: string;
+  /** RealmID's half, the body for uploadSplitKey. */
+  upload: SplitKeyUpload;
+}
+export function dealSplitKey(opts: {
+  realm: string;        // the platform (realm) id: ShareBundle.realm and the upload path
+  kid?: string;         // default "k-" + UTC "YYYYMMDD-HHMMSS", the CLI's newKID form
+  crypto?: Crypto;      // default globalThis.crypto; injectable for tests
+}): Promise<DealtSplitKey>;
+export function isSplitKeygenUnsupported(err: unknown): boolean;
+
+// on the existing admin.signingKeys (SigningKeysClient)
+uploadSplitKey(platformId: string, body: SplitKeyUpload & { overlap_d?: string })
+  : Promise<{ status: "uploaded"; kid: string }>;
+```
+
+**`dealSplitKey`.** `crypto.subtle.generateKey({name: "RSASSA-PKCS1-v1_5", modulusLength: 2048,
+publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256"}, true, ["sign", "verify"])` (the private
+key MUST be extractable), then `exportKey("jwk", privateKey)`, whose `n`, `e`, `d`, `p`, `q` are
+already minimal base64url. The split is §14.14 exactly, in `BigInt`, with `d_ri` drawn by rejection
+sampling over `crypto.getRandomValues`. `n` and `e` are carried over from the JWK unchanged. The
+function keeps nothing: no module state, no storage, no logging, and the CryptoKey and the BigInts
+of `d`, `p`, `q`, `d_ri` are dropped when it returns. Refusals: an empty `realm` or a kid that is
+empty after trimming is `RealmError` `bad_request`; `crypto.subtle` absent, `generateKey` or
+`exportKey` rejecting, or a JWK lacking `d`, `p` or `q` is `RealmError` `invalid_config` with
+`details.reason: "split_keygen_unsupported"`, which `isSplitKeygenUnsupported` tests (the console
+then shows the CLI commands instead). Generation is not retried inside the function.
+
+**`uploadSplitKey`.** One `POST /platforms/{id}/signing-keys/split` through the package transport
+(the BFF `/api` passthrough, like `splitStatus`), body exactly as given (`overlap_d` omitted when
+absent), answer returned as is. It never retries and never re-deals. MFA step-up is the caller's
+`realm.fetch` wrapper's job (the console's `withStepUpRetry`), not this package's. The issuer's
+refusals (§14.14 Upload) reach the caller as `RealmError`, the server code in `.code` or, where the
+bundled union lacks it, in `.details.server_code` (the package's existing pattern, `errors.ts`).
+After any failure the caller keeps the SAME `DealtSplitKey` and uploads it again: a second
+`dealSplitKey` would orphan the share the owner already downloaded.
+
+**Package rules (machine-checked).** No `node:` import and no `Buffer` in any non-test file of
+`web/packages/admin/src`, and none in its built `dist/` (a test greps both; tests themselves may use
+`node:test`, `node:assert`, `node:fs`). The dealer must NOT import `@realm-id/sdk/split` (server-only,
+`node:crypto`), must NOT reuse ts `ShareEntry` (its `toJSON` drops `d_partner` by design,
+`ts/src/share-source.ts:38`, so a download built with it would carry no partner half), and must NOT
+reuse ts `bigToBytes` (`Buffer`). The pure split lives in its own module with an injectable RNG and
+is not re-exported from the entry point, so the §14.14 checks can drive it. Check 3 additionally
+verifies the combined signature with `crypto.subtle.verify("RSASSA-PKCS1-v1_5", …)` under the dealt
+public key.

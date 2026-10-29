@@ -33,8 +33,11 @@ signature is `base64url(s as 256 big-endian bytes)`.
   construction, regenerate.
 - `downgrade` (SPEC 14.6, owner ruling C5 #4): the same construction as `handshake` with the preimage
   `realmid-split-downgrade/v1|<realm>|<kid>|<nonce>` (fields as `handshake`, plus the `preimage` shown).
-- Not covered here: `trust_until`. The bundle `previous[]` uses int64 unix seconds; the base-trust JWKS
-  secret uses an RFC 3339 string (SPEC 14.4). They are different documents.
+- Not covered here: `trust_until`. Its one encoding is int64 unix seconds (bundle `previous[]`,
+  SPEC 14.4; the RFC 3339 base-trust form was withdrawn 2026-10-29, owner D3/D4).
+- Not yet covered: a DEALER case. The key's `d > d_ri`, so a φ(N) split gives the same `d_partner`
+  as the λ(N) one and check 1 of SPEC 14.14 cannot tell them apart; a `dealer` case with `d_ri > d`
+  is to be added here by the generator (W11 item 4).
 - `negative_cases[]`: `corrupted-partner-partial` (one bit of `s_p` flipped) and
   `wrong-key-partner-partial` (`s_p` computed from an unrelated key, `wrong_key_n` given). Each carries
   `m`, `s_ri`, `s_p`, `combined_s`, `rejected_jwt` and `expect: "combiner_refuses"`: `combined_s^e mod N != m`.

@@ -13,6 +13,7 @@ Newest first.
 143 entries total — 88 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
 - [2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java](#2026-11-01--realm_suspended-and-tenant_suspended-410-registered-in-gotsjava)
+- [2026-10-29 — Split modulus is λ(n), canonical (Q3); browser dealer in web-admin; base-trust withdrawn from SPEC (D3/D4)](#2026-10-29--split-modulus-is-λn-canonical-q3-browser-dealer-in-web-admin-base-trust-withdrawn-from-spec-d3d4)
 - [2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)](#2026-10-29--rca-split-self-rotation-misread-the-gofr-wrapped-handshake-answer-gotsjava)
 - [2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)](#2026-10-29--r27-constant-time-half-signing-in-sdkts-ctexp-uint32array-limbs)
 - [2026-10-29 — R27 constant-time half-signing in sdk/java (CtExp)](#2026-10-29--r27-constant-time-half-signing-in-sdkjava-ctexp)
@@ -159,6 +160,16 @@ Newest first.
 ## 2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java
 
 Partner Traide (2026-10-30) could not branch on the issuer's 410 `realm_suspended` / `tenant_suspended`: the SDKs surfaced them under the status fallback. Registered both in go/ts/java, mirroring `tenant_disabled` (const + predicate + known-code list; java enum + static predicate). Issuer evidence: `issuer/internal/httpapi/auth.go:369,817` (realm_suspended, 410), `integration_mint_handler.go:68` and `integration_installations.go:87` (tenant_suspended, 410); both in swagger. Versions go 0.71.0, ts 0.59.0, java 0.55.0, web-admin 0.26.0 (it bundles the ts sdk and the publisher skips an already-published version, so without a bump partners would not get the codes through web-admin). No new typed-error class: neither code is raised locally. The sdk/TODO.md item this answers was not present in TODO.md at build time, so nothing was ticked.
+
+## 2026-10-29 — Split modulus is λ(n), canonical (Q3); browser dealer in web-admin; base-trust withdrawn from SPEC (D3/D4)
+
+- **Decision (owner Q3, W11 rulings 9):** the split modulus is λ(n) = lcm(p−1, q−1), canonical in SPEC §14.14: `d = e⁻¹ mod λ`, `d_ri` uniform in `[1, λ)`, `d_partner = (d − d_ri) mod λ`, redraw on a zero half, so `d_ri + d_partner ≡ d (mod λ)`. Why λ and not φ: both sign correctly (λ divides φ), so there is no wire or partner effect; λ is what go/ts/java and the shared vectors already use, and one canonical relation lets every dealer carry the same range and vector checks. The cli's φ dealer (`cli/cmd/realm-id/signing_keys.go:316`) is replaced by the sdk/go dealer, not patched.
+- **Found while specifying (as built):** go (`go/rotation.go:170`) and ts (`ts/src/rotation.ts:44`) draw `d_ri` from `[0, λ)` with no zero redraw; java (`SigningKeysClient.java:119`) draws from `[0, 2^(bitLength(λ)−1))`, not uniform over `[1, λ)`. Conformance fixes, not live faults (a zero half has probability ~2⁻²⁰⁴⁷ and the issuer refuses a zero `d_ri`).
+- **Found: the vector file cannot tell λ from φ for a dealer.** Its key has `d > d_ri`, so `(d − d_ri) mod φ` equals its `d_partner`. SPEC §14.14 check 1 therefore needs a new generated `dealer` case with `d_ri > d`; check 2 (range over ≥20 fresh deals) catches a φ dealer with probability ≥ 1 − 2⁻²⁰ meanwhile.
+- **Decision (owner decision 6, W11 rulings 6): a browser dealer in `@realm-id/web-admin`** (SPEC §14.15): WebCrypto RSA-2048, extractable, exported as JWK for `p`, `q`, `d`; split per §14.14 in BigInt; the partner half returned as a PLAIN ShareBundle for download, and `admin.signingKeys.uploadSplitKey` for RealmID's half. It is the one browser exception to §14.9's server-only rule, and it never co-signs or holds a share after it returns. No `node:` import or `Buffer` in the package; it must not reuse ts `ShareEntry` (its `toJSON` drops `d_partner`, so a download built with it would hold no partner half) or `bigToBytes` (`Buffer`).
+- **Clarified, not changed:** "byte-compatible with `realm-id signing-keys init --share-to stdout`" is JSON equality with the `share` MEMBER of that command's result object; its stdout is `{fingerprint, kid, n_bits, share, written_to}` after an `::add-mask::` line. `overlap_d` in the upload body is a duration string (`"24h"`, `"7d"`), not a key value.
+- **Base-trust withdrawn (owner D3/D4):** SPEC §14.4's base-trust JWKS paragraph and its RFC 3339 `trust_until` are replaced by "the base realm is verified like any realm"; `trust_until` keeps its one int64 encoding. This supersedes the 2026-10-29 "Base-trust secret is JWKS-only" entry below, which stays as written.
+- **Partner guide §6.8.6** added: console migration, then env or secret-store source, then delete the file; the FILE source needs a KEK outside local dev.
 
 ## 2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)
 

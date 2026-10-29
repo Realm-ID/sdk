@@ -2756,6 +2756,35 @@ cannot be installed into it.
 integration token on `/auth/login`, is REMOVED in this release for every target realm. Only the
 pass flow remains. A later redesign on a GitHub-Apps-like model is tracked in root `TODO.md`.
 
+### 6.8.6 Moving to split signing from the console (UNRELEASED)
+
+You can move a realm from a whole key to a split key in the RealmID console, with no CLI. Only the
+realm OWNER can do it, and only while the realm is still on a whole key. Your browser generates the
+new key and splits it; RealmID's servers never receive your half (SPEC §14.15).
+
+1. **Generate.** In the realm's signing-key panel choose "Generate split key". The key is made and
+   split in your browser.
+2. **Download your share.** The console downloads `realmid-share-<realm>-<kid>.json`. It is a PLAIN
+   (unencrypted) share bundle, `{"realm": …, "shares": {"<kid>": {"n", "e", "d_partner"}}}`: the
+   same document `realm-id signing-keys init --share-to stdout` prints as its `share` field. RealmID
+   cannot recover it.
+3. **Put it where your backend reads it**, then **delete the downloaded file**:
+   - the **environment source**: set the whole file's JSON as the value of the variable your SDK's
+     env share source names (read-only; later rotations then go through the CLI, §6.8.3), or
+   - a **secret-store source** (Google Secret Manager add-on): store the JSON as the secret's value.
+   Do NOT point the **file** source at the downloaded file in production: outside local dev the
+   file source requires a KEK and reads only a sealed envelope (SPEC §14.5). To use a file store,
+   seal the share with the CLI (`--share-to file:PATH` under `REALM_ID_SHARE_KEK`) instead.
+4. **Tick "I have stored my share", then Upload.** The console sends RealmID's half; you confirm
+   with MFA.
+5. **Start your backend with the share.** The realm waits at `overlap_pending` until your SDK's first
+   handshake (§6.8.3, "Going split"); then the overlap runs and RealmID destroys its whole key.
+
+If the upload fails or you cancel the MFA prompt, upload again from the same screen: the console
+keeps the key it generated. Never generate a second key after downloading the first share, or the
+downloaded share no longer matches anything. If your browser cannot generate the key, the console
+shows the CLI commands instead.
+
 ## 6.9 Platform token always, and login → token (R44, R51, R60-R62, R71)
 
 > ⚠️ **UNRELEASED, planned (2026-10-27).** ONE release (R62): there is no release A or B and no
