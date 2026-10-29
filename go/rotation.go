@@ -162,16 +162,40 @@ func splitExponent(priv *rsa.PrivateKey) (dRI, dP *big.Int, err error) {
 	if len(priv.Primes) != 2 {
 		return nil, nil, errors.New("realmid: unexpected RSA key shape")
 	}
-	one := big.NewInt(1)
-	p1 := new(big.Int).Sub(priv.Primes[0], one)
-	q1 := new(big.Int).Sub(priv.Primes[1], one)
-	lam := new(big.Int).Div(new(big.Int).Mul(p1, q1), new(big.Int).GCD(nil, nil, p1, q1))
-	d := new(big.Int).Mod(priv.D, lam)
-	if dRI, err = rand.Int(rand.Reader, lam); err != nil {
-		return nil, nil, err
+	lam := lambdaOf(priv.Primes[0], priv.Primes[1])
+	span := new(big.Int).Sub(lam, big.NewInt(1)) // d_ri = 1 + [0, lam-1) = [1, lam)
+	for {
+		if dRI, err = rand.Int(rand.Reader, span); err != nil {
+			return nil, nil, err
+		}
+		dRI.Add(dRI, big.NewInt(1))
+		// A zero d_partner (probability about 2^-2047) is redrawn: neither half alone may sign.
+		if dP, err = splitWithDRI(priv.Primes[0], priv.Primes[1], priv.D, dRI); err == nil {
+			return dRI, dP, nil
+		}
 	}
-	dP = new(big.Int).Mod(new(big.Int).Sub(d, dRI), lam)
-	return dRI, dP, nil
+}
+
+// lambdaOf is lcm(p-1, q-1).
+func lambdaOf(p, q *big.Int) *big.Int {
+	one := big.NewInt(1)
+	p1 := new(big.Int).Sub(p, one)
+	q1 := new(big.Int).Sub(q, one)
+	return new(big.Int).Div(new(big.Int).Mul(p1, q1), new(big.Int).GCD(nil, nil, p1, q1))
+}
+
+// splitWithDRI is the pure split (SPEC 14.14): d_partner = (d - dRI) mod lambda(n), with d reduced
+// modulo lambda(n) first. It refuses dRI outside [1, lambda) and a zero d_partner.
+func splitWithDRI(p, q, d, dRI *big.Int) (*big.Int, error) {
+	lam := lambdaOf(p, q)
+	if dRI.Sign() < 1 || dRI.Cmp(lam) >= 0 {
+		return nil, errors.New("realmid: d_ri outside [1, lambda)")
+	}
+	dP := new(big.Int).Mod(new(big.Int).Sub(new(big.Int).Mod(d, lam), dRI), lam)
+	if dP.Sign() == 0 {
+		return nil, errors.New("realmid: d_partner is zero")
+	}
+	return dP, nil
 }
 
 func bigB64(i *big.Int) string { return base64.RawURLEncoding.EncodeToString(i.Bytes()) }

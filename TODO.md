@@ -422,3 +422,5 @@ module hash and demands a version bump (see the note at the top of this file).
   re-opens the impersonation question. But leaving it UNDOCUMENTED is the one
   choice with no defence — a missed index write is a token that silently
   survives revocation, and it looks fine until the day it does not.
+
+- [ ] `ts/src/rotation.ts` (`splitExponent`, :38-46) — d_ri is drawn from `[0, lambda)` with no zero redraw; SPEC §14.14 wants uniform `[1, lambda)` and a redraw on a zero half. Held back (a constant-time measurement is queued against that file); also expose the pure split so check 1 can run in ts.
