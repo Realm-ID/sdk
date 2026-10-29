@@ -8,6 +8,8 @@ items affecting every SDK at once.
 
 Version bumped to 0.54.0 in `build.gradle.kts`; not tagged.
 
+R27 constant-time half-signing: the partner's `d_partner` exponentiation is a hand-written fixed-window (4-bit) Montgomery ladder over 32-bit limbs (`split/CtExp.java`, ported from `go/ctexp.go`); `BigInteger.modPow` is no longer applied to the secret (only the public `s^e` verify). Guarded by `CtExpTest` (source scan, CtExp vs modPow on 2..2048-bit moduli) and the dudect timing test (`./gradlew dudect`, tag `dudect`, excluded from `test`).
+
 Rotation-lease ticket (issuer owner ruling C5#1, SPEC §14.5): `rotateSplit` sends the `lease_id` from the `rotation-lease` answer on the upload of the same rotation or recovery; a `409 rotation_lease_held` on the upload surfaces as the usual error and is not retried.
 
 ### Breaking

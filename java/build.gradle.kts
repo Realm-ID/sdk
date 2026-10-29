@@ -39,7 +39,8 @@ dependencies {
 }
 
 tasks.test {
-    useJUnitPlatform()
+    // The R27 timing test is statistical and void if anything overlaps it: own task, `./gradlew dudect`.
+    useJUnitPlatform { excludeTags("dudect") }
     // JDK HttpClient + com.sun.net.httpserver keep-alive interop is flaky
     // under test. Disable connection reuse so each test request gets a
     // fresh socket; production configurations should keep the default.
@@ -84,5 +85,19 @@ mavenPublishing {
             connection.set("scm:git:git://github.com/Realm-ID/sdk.git")
             developerConnection.set("scm:git:ssh://github.com:Realm-ID/sdk.git")
         }
+    }
+}
+
+// R27 dudect-style timing test of the constant-time exponentiation (CtExp); never part of `test`.
+tasks.register<Test>("dudect") {
+    description = "Runs the dudect timing tests (tag dudect) for CtExp"
+    group = "verification"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform { includeTags("dudect") }
+    outputs.upToDateWhen { false }
+    testLogging {
+        events("passed", "failed")
+        showStandardStreams = true
     }
 }

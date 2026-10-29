@@ -66,23 +66,6 @@ public final class CoSigner {
         return new BigInteger(1, em);
     }
 
-    /**
-     * base^exp mod n by a Montgomery ladder over a FIXED bit count (the modulus length, not the exponent's), so
-     * the operation sequence does not depend on the exponent's bits. Deliberately NOT base-blinded: blinding is
-     * valid only for the FULL private exponent and corrupts a PARTIAL one. BigInteger is not constant-time.
-     */
-    static BigInteger ladderExp(BigInteger base, BigInteger exp, BigInteger n) {
-        BigInteger[] r = {BigInteger.ONE, base};
-        for (int i = n.bitLength() - 1; i >= 0; i--) {
-            int b = exp.testBit(i) ? 1 : 0;
-            BigInteger prod = r[0].multiply(r[1]).mod(n);
-            BigInteger sq = r[b].multiply(r[b]).mod(n);
-            r[1 - b] = prod;
-            r[b] = sq;
-        }
-        return r[0];
-    }
-
     private static byte[] fixed(BigInteger v, int k) {
         byte[] raw = v.toByteArray();
         byte[] out = new byte[k];
@@ -104,7 +87,7 @@ public final class CoSigner {
         if (partialRi == null || partialRi.length == 0 || sRi.signum() == 0 || sRi.compareTo(n) >= 0) {
             throw refuse(ErrorCode.BAD_SIGNATURE, "RealmID's partial signature is out of range");
         }
-        BigInteger s = sRi.multiply(ladderExp(m, dp, n)).mod(n);
+        BigInteger s = sRi.multiply(CtExp.exp(m, dp, n)).mod(n);
         if (!s.modPow(e, n).equals(m)) {
             throw refuse(ErrorCode.BAD_SIGNATURE,
                     "the finished signature does not verify under the pinned key; refusing to release it");
