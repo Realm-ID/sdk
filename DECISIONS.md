@@ -12,6 +12,7 @@ Newest first.
 
 135 entries total — 80 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-29 — Base-trust secret is JWKS-only with per-key trust_until; error reference gains split_realm_rotation_is_a_ceremony](#2026-10-29--base-trust-secret-is-jwks-only-with-per-key-trust_until-error-reference-gains-split_realm_rotation_is_a_ceremony)
 - [2026-10-28 — CI policy P3/P6: tests before publish, no lint skip](#2026-10-28--ci-policy-p3p6-tests-before-publish-no-lint-skip)
 - [2026-10-27 — W0b D7: SDK docs aligned to R60-R76 (escort form, one release, actor model, CI rotation via RI BFF)](#2026-10-27--w0b-d7-sdk-docs-aligned-to-r60-r76-escort-form-one-release-actor-model-ci-rotation-via-ri-bff)
 - [2026-10-27 — Split-signing docs: R53-R58 applied to SPEC 14, partner guide and error reference](#2026-10-27--split-signing-docs-r53-r58-applied-to-spec-14-partner-guide-and-error-reference)
@@ -147,6 +148,13 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-29 — Base-trust secret is JWKS-only with per-key trust_until; error reference gains split_realm_rotation_is_a_ceremony
+
+- **Decision (owner C5#6, option B):** SPEC §14.4 pins the base-trust secret as a standard JWKS object only; a bare array is refused. Each key may carry an optional RFC 3339 `trust_until`; past it the key is not trusted; absent means no expiry.
+- **Malformed `trust_until`:** the parser refuses the whole secret (fail closed). SPEC has no existing rule for malformed key entries, so this one is new, chosen because skipping one key silently could hide a typo that leaves a retired key trusted.
+- **Why:** one wire form every JWKS library reads, and a retired base key stops counting on a stated date without a second secret write. Dormant until the base realm splits.
+- **Error reference:** added the missing row `split_realm_rotation_is_a_ceremony` (issuer test `TestEveryEmittedErrorCodeIsDocumented` failed on it) and reworded `rotation_lease_held` for the C5#1 ticket rule. Docs only; SPEC has no separate version number to bump (§14 stays "unreleased").
 
 ## 2026-10-28 — CI policy P3/P6: tests before publish, no lint skip
 

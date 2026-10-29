@@ -4996,6 +4996,15 @@ The lifetime is the longest `expires_in` the SDK has seen on a co-signed mint, n
 minutes. There is no caller-set window and no 24-hour default (the 24 hours in the custody swagger
 is the full-to-split overlap, a different thing). A lost-half recovery keeps no previous key.
 
+**Base-trust secret (owner ruling C5#6, 2026-10-29).** Where a verifier is given the base realm's
+trusted public keys as a secret (the `PublicKeyList` form), the secret is a standard JWKS object
+(`{"keys":[...]}`) ONLY; a bare JSON array is refused at parse. Each key may carry an optional
+`trust_until`, an RFC 3339 timestamp; a key whose `trust_until` is in the past is not trusted, and an
+absent `trust_until` means the key does not expire. A `trust_until` that is present but malformed
+(not a string, or not RFC 3339) makes the parser refuse the WHOLE secret and trust nothing: it fails
+closed. This SPEC sets no other rule for malformed key entries, so none is borrowed. Dormant until the
+base realm splits.
+
 ### 14.5 Share sources
 
 `ShareSource.Load(ctx) → (bundle, version)`. Core, stdlib only: environment (read-only) and file
