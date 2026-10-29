@@ -386,6 +386,7 @@ Signing in with a workload's OIDC token, and managing trust bindings
 | `missing_subject_token` | [400] A federated sign-in had no `subject_token`. | Send the workload's token. |
 | `bad_subject_token_type` | [400] `subject_token_type` is set and is not the JWT token type. | Omit it, or send the JWT type. |
 | `unknown_issuer` | [400] A binding's `issuer` is not a supported federation provider. | Use a supported provider. |
+| `invalid_target` | [400] A federation binding's `target` has no `kind` (but sets `tenant_id` or `user_id`), an unknown `kind`, or `service_account` without `tenant_id` / `user_id`. | Send `target.kind` (`service_account`) with its `tenant_id` and `user_id`, or omit `target`. |
 | `unconstrained_binding` | [400] `match_claims` is empty; it must constrain the issuer's mandatory claim. | Add the claim. |
 | `missing_mandatory_claim` | [400] `match_claims` does not constrain the issuer's mandatory claim. | Add it, with a non-empty value. |
 | `invalid_mapped_role` | [400] The role a binding maps to does not exist, is disabled, or cannot be held by a service principal (or the realm's role catalog cannot be resolved). | Map to an enabled role that service accounts may hold. |
@@ -498,21 +499,26 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 | `missing_source_org_id` | [400] `POST /integrations/installations/{install_id}/pass` without `source_org_id`, the acting org of the source platform. It is the only attribution the target org gets for the acting call (R54b). Added in spec 0.65.0 (unreleased). | Send `source_org_id` in the request body. |
 | `invalid_installation_id` | [400] The `install_id` on the install-pass mint is malformed. Added in spec 0.65.0 (unreleased). | Use the id returned when the integration was installed. |
 | `invalid_integration_endpoint` | [400] The registered `integration_token_endpoint` is not an https URL. Added in spec 0.65.0 (unreleased). | Register an https URL. |
-| `integration_endpoint_unverified` | [422] The registration test-call to the endpoint failed; the message names what the call got back. Added in spec 0.65.0 (unreleased). | Fix the handler (the SDK's ready-made handler answers the canary), then register again. |
+| `integration_endpoint_unsupported` | [501] `PATCH /platforms/{id}` with an `integration_token_endpoint` on a deployment whose realm store cannot hold one. Checked before any write, so the rename is not applied either. Added in spec 0.65.0 (unreleased). | A server configuration fault, not a transient one; do not retry. Contact the operator. |
 
 ### Split-key custody, handshake and rotation (`/platforms/{id}/signing-keys/split/...`)
 
 | Code | When | What to do |
 | --- | --- | --- |
+| `split_custody_unavailable` | [501] Any `/platforms/{id}/signing-keys/split/...` route on a server with no split-custody service wired. Added in spec 0.65.0 (unreleased). | A server configuration fault, not a transient one; do not retry. Contact the operator. |
 | `split_key_size_unsupported` | [400] Upload of a key that is not RSA-2048. Added in spec 0.65.0 (unreleased). | Generate an RSA-2048 key. |
 | `split_kid_in_use` | [409] Upload with a `kid` the realm already has. The caller chooses the kid. Added in spec 0.65.0 (unreleased). | Choose an unused `kid`. |
-| `rotation_lease_held` | [409] Another holder has the 5-minute rotation lease (one holder at a time). Added in spec 0.65.0 (unreleased). | Wait for the lease to end or the other pod to finish; do not rotate from two pods. |
+| `split_key_invalid` | [400] Upload of a key that is not a well-formed RSA key: the modulus is even, the public exponent is not 65537, the private half is out of range, or the `kid` is empty. Added in spec 0.65.0 (unreleased). | Generate a standard RSA-2048 key (exponent 65537) and send its `kid`, `n`, `e` and the RealmID half. |
+| `split_upload_not_allowed` | [409] Upload in a custody state that refuses it: `overlap` (the handshaken key is live, replacing it would invalidate every token it signed). `normal` accepts only the first upload and only from a realm-owner person; `overlap_pending` replaces the never-handshaken key; `split` and `downgrade_pending` accept a rotation upload. Added in spec 0.65.0 (unreleased). | In `overlap`, cancel the overlap (audited) and then upload, or wait for it to finish. |
+| `overlap_cap_exceeded` | [400] An upload whose overlap `D` is negative or over 7 days, or an overlap extension that would take the total (`D` plus all extensions) past 7 days. Added in spec 0.65.0 (unreleased). | Choose a smaller overlap, or finish the rotation instead of extending again. |
+| `rotation_lease_held` | [409] A rotation lease is held and the upload carries no `lease_id`, or a different one (the lease is a ticket, C5#1); also answers a second `rotation-lease` request while one is held. The lease lasts 5 minutes with one holder at a time; with no lease held an upload without one is accepted. Added in spec 0.65.0 (unreleased). | Take the lease with `POST .../split/rotation-lease` and send its `lease_id` on the upload, or wait for the lease to end; do not rotate from two pods. |
 | `emergency_rotation_cap_reached` | [429] Emergency rotations are counted per realm per UTC day; this is past the cap (R39). Added in spec 0.65.0 (unreleased). | Stop and alert a human; the cap exists to bound a runaway loop. |
 | `split_key_not_found` | [404] A handshake or challenge for a split key the realm does not have. Added in spec 0.65.0 (unreleased). | Upload the key first. |
 | `handshake_failed` | [401] The completed signature over the challenge did not verify. A failure stops and alerts, it never loops (G16). Added in spec 0.65.0 (unreleased). | Check the share and its version; fix before retrying. The key does not become active. |
 | `not_in_overlap` | [409] Extend or cancel while the key is not in the overlap window (R36). Added in spec 0.65.0 (unreleased). | Read the key's status first. |
 | `downgrade_already_pending` | [409] Start a return to normal custody while one is under way. Added in spec 0.65.0 (unreleased). | Wait for it or cancel it. |
 | `no_pending_downgrade` | [404] Cancel with no downgrade pending. Added in spec 0.65.0 (unreleased). | Nothing to cancel. |
+| `split_realm_rotation_is_a_ceremony` | [409] `POST /platforms/{id}/signing-keys/rotate` (or the staff route `POST /admin/platforms/{id}/signing-keys/rotate`) on a realm that is not in full custody: a split realm rotates by the split-signing ceremony, not by the one-call rotate. Added in spec 0.65.0 (unreleased). | Rotate with the split routes (`.../signing-keys/split/rotation-lease`, then the upload and handshake); the SDK's `RotateSplit` does this. |
 | `not_available_to_api_keys` | [403] A downgrade call made with an API key. Only a human realm-owner session may start one (R55: API keys are refused the never-via-key operations). Added in spec 0.65.0 (unreleased). | Use an owner session. |
 
 ### Idempotency-Key (G11; parameter `IdempotencyKey` on 14 mutating operations)
