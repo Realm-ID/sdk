@@ -18,7 +18,10 @@ import (
 
 // Client is the slice of Secret Manager this source uses.
 type Client interface {
-	// AccessLatest returns the newest enabled version's payload and its version id.
+	// AccessLatest returns the payload of the "latest" version alias and its version id.
+	// Google's docs do not say whether "latest" skips a DISABLED newest version
+	// (unofficial reports say access fails instead), so never roll a share back by
+	// disabling only the newest version: add the good bundle as a new version.
 	AccessLatest(ctx ctxpkg.Context, secret string) (data []byte, version string, err error)
 	// AddVersion writes a new version and returns its version id.
 	AddVersion(ctx ctxpkg.Context, secret string, data []byte) (version string, err error)
