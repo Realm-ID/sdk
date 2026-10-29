@@ -3134,7 +3134,8 @@ Surface — symmetric across go/ts/java, over
 `otp.issue({ ..., deliveryMode: "view_bff" })` (§X.1) — the plaintext
 comes back to the caller (the BFF/console) instead of being delivered
 to the subject — hands it to the workload, which calls
-`auth.otpLogin(...)`. The minted session is `subject_type: "service"`
+`auth.serviceAccountOtpLogin(...)` (X.4b: one call to `/auth/token`, `tenant_id` required; owner
+ruling Q3, 2026-10-29; `auth.otpLogin` is the people path). The minted session is `subject_type: "service"`
 (`class="service"`, own refresh-TTL clamp) and carries
 `initiated_by_user_id` — the owner/admin who minted the login OTP
 (ADR-071 §8 attribution) — decoded on `Session` in all three SDKs.
@@ -4323,6 +4324,22 @@ Request: `{ realmId, identifier, presented }` — `identifier` is an
 E.164 phone or email; the server resolves it to a tenant-scoped user.
 Response: same shape as `login()`.
 
+This is the PEOPLE path and is unchanged. A SERVICE ACCOUNT does not use it (see X.4b).
+
+### X.4b `auth.serviceAccountOtpLogin(req)` / `Auth.ServiceAccountOTPLogin(...)` — pair a bot (owner ruling Q3, 2026-10-29)
+
+A service account pairs by OTP in ONE call: `POST /auth/token` (`POST /auth/token/partial` on a
+split realm, finished locally like any split mint, §14.2) with `grant_type=otp`, `identifier`,
+`presented` and a REQUIRED `tenant_id`. The answer is a mint result: the access token and the
+refresh token (no `user`/`tenants` list, no second call). `/auth/login` is never called, so that
+route stays people-only. A missing `tenant_id` is `400 missing_tenant_id` from the issuer; the SDK
+refuses it BEFORE the request, with a `bad_request` error whose `details.server_code` is
+`missing_tenant_id` (go `RealmError.Details`, ts `details`, java `getDetails()`). Request names: go
+`ServiceAccountOTPLoginRequest{Identifier, Presented, TenantID}` returning `*MintResult`, ts
+`serviceAccountOtpLogin({identifier, presented, tenantId})`, java `ServiceAccountOtpLoginRequest`
+returning `TokenResponse`. Realm precondition: `otp_login_enabled = true`. The people derived-claims
+re-mint does not apply: there is no login walk and the mint already names the tenant.
+
 ### X.4a `auth.sendLoginCode(req)` / `Auth.SendLoginCode(...)` — send the sign-in code (issuer ADR-116, spec `0.61.0`, NOT RELEASED)
 
 The first half of a phone sign-in for a person who is NOT signed in yet: asks RealmID to send a
@@ -5132,6 +5149,13 @@ Every add-on implements `ShareSource` / `WritableShareSource` over an injectable
 (so tests use a fake), seals with envelope v1 (§14.5), and Redis lays keys out as
 `realmid:share:<realm>:bundle|public|version` with persistence required (R39(2)). The KEK env var
 is `REALM_ID_SHARE_KEK`: `<b64url 32 bytes>[,<b64url 32 bytes>…]`, the FIRST the write key.
+
+**Redis `:public` content (as built, `go/secrets/redis/redis.go`).** `realmid:share:<realm>:public`
+is plain JSON (never sealed): `{"realm": "<realm>", "keys": [{"kid","n","e"}, …], "previous":
+[{"kid","n","e","trust_until"}, …]}`. `keys` holds one entry per CURRENT share, `previous` the
+retired keys still trusted (omitted when none), `n`/`e` the base64url RSA public parameters. It
+carries NO `d_partner` and no private material of any kind, so a reader that may only verify can be
+given this key and not `:bundle`. `Store` writes `:bundle`, then `:public`, then `:version` last.
 
 ### 14.10 Platform token always, and the actor model (R60, R61, R64-R68)
 

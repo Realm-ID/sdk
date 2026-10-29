@@ -1011,6 +1011,55 @@ export class AuthClient {
   }
 
   /**
+   * Pair a SERVICE ACCOUNT by OTP in ONE call (owner ruling Q3, 2026-10-29): `POST /auth/token`
+   * (`/auth/token/partial` on a split realm) with `grant_type=otp`, `identifier`, `presented` and a
+   * REQUIRED `tenantId`; the answer carries the access token and the refresh token. A bot never uses
+   * `/auth/login`, which stays people-only. A missing `tenantId` is refused here with
+   * `details.server_code === "missing_tenant_id"` (the issuer's 400 says the same). People keep
+   * `otpLogin`.
+   */
+  async serviceAccountOtpLogin(req: {
+    identifier: string;
+    presented: string;
+    tenantId: string;
+    origin?: string;
+  }): Promise<TokenResponse> {
+    if (!req.tenantId) {
+      throw new RealmError({
+        code: "bad_request",
+        httpStatus: 400,
+        message: "tenantId is required for a service-account OTP login",
+        details: { server_code: "missing_tenant_id" },
+      });
+    }
+    const headers = await this.originHeaders(req.origin);
+    const split = this.session?.split;
+    const wire = await this.http.request<RawTokenResponse>({
+      method: "POST",
+      path: split ? "/auth/token/partial" : "/auth/token",
+      headers,
+      body: {
+        realm_id: this.realmId,
+        grant_type: "otp",
+        identifier: req.identifier,
+        presented: req.presented,
+        tenant_id: req.tenantId,
+      },
+    });
+    const raw = split ? ((await split.finish(wire)) as unknown as RawTokenResponse) : wire;
+    return {
+      accessToken: raw.access_token,
+      refreshToken: raw.refresh_token,
+      expiresIn: raw.expires_in,
+      refreshExp: raw.refresh_exp,
+      idleTtl: raw.idle_ttl,
+      subjectType: raw.subject_type,
+      tenantId: raw.tenant_id,
+      role: raw.role,
+    };
+  }
+
+  /**
    * ADR-104 — sign in with a native username/password credential.
    *
    * `identifier` is an email, an E.164 phone, or a USERNAME. The issuer

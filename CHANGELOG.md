@@ -24,6 +24,10 @@ that affect every SDK at once are recorded under a shared heading.
   subcommand); `unreleased-go` no longer counts `go/secrets/` as a change to the core's tree.
 - ts and java add-ons: not yet built (packaging decision pending).
 
+## go `0.70.0` · ts `0.58.0` · java `0.54.0` — service-account OTP pairing in one call (SPEC X.4b, owner ruling Q3, 2026-10-29; unreleased, no further bump)
+
+New: go `Auth.ServiceAccountOTPLogin` (`ServiceAccountOTPLoginRequest`, returns `*MintResult`), ts `auth.serviceAccountOtpLogin`, java `auth().serviceAccountOtpLogin` (`ServiceAccountOtpLoginRequest`, returns `TokenResponse`). One `POST /auth/token` (`/auth/token/partial` on a split realm) with `grant_type=otp`, `identifier`, `presented` and a required `tenant_id`; no `/auth/login` call (the people-only route). An empty tenant id is refused before the request with `bad_request` / `details.server_code = missing_tenant_id`. `OTPLogin` / `otpLogin` (people) are unchanged. SPEC 14.13 pins the Redis `:public` content; `verify-go-release.yml` also triggers on `go/secrets/gsm/v*` and `go/secrets/redis/v*`.
+
 ## go `0.70.0` — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
 
 ### Breaking

@@ -864,6 +864,32 @@ public final class AuthClient {
     }
 
     /**
+     * Pairs a SERVICE ACCOUNT by OTP in ONE call (owner ruling Q3, 2026-10-29): {@code POST /auth/token}
+     * ({@code /auth/token/partial} on a split realm) with {@code grant_type=otp}, {@code identifier},
+     * {@code presented} and a REQUIRED {@code tenant_id}; the answer carries the access and refresh
+     * tokens. A bot never uses {@code /auth/login}, which stays people-only. A missing tenant id is
+     * refused here with {@code details.server_code = missing_tenant_id}. People keep {@link #otpLogin}.
+     */
+    public TokenResponse serviceAccountOtpLogin(ServiceAccountOtpLoginRequest req) {
+        if (req.tenantId() == null || req.tenantId().isEmpty()) {
+            throw new RealmException(ErrorCode.BAD_REQUEST, "tenantId is required for a service-account OTP login",
+                    400, Map.of("server_code", "missing_tenant_id"));
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("realm_id", realmId);
+        body.put("grant_type", "otp");
+        body.put("identifier", req.identifier());
+        body.put("presented", req.presented());
+        body.put("tenant_id", req.tenantId());
+        boolean split = splitState != null && splitState.isSplit();
+        HttpTransport.Request r = HttpTransport.Request.of("POST", split ? "/auth/token/partial" : "/auth/token").body(body);
+        attachOrigin(r, req.origin());
+        JsonNode raw = issuer(r);
+        if (split) raw = finishPartial(raw);
+        return http.mapper().convertValue(raw, TokenResponse.class);
+    }
+
+    /**
      * SPEC X.4a (issuer ADR-116) — send the sign-in code to a person who is NOT signed in, by SMS
      * or WhatsApp: {@code POST /auth/otp/send-login} with the platform token. The answer is
      * enumeration-safe by design ({@code sentIfRegistered} is always true), so show the same text

@@ -49,6 +49,8 @@ on:
   push:
     tags:
       - 'go/v*'
+      - 'go/secrets/gsm/v*'
+      - 'go/secrets/redis/v*'
   # Run against the newest existing tag at any time, to catch drift that has
   # already shipped rather than waiting for the next release to reveal it.
   workflow_dispatch:

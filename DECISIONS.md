@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-136 entries total — 81 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+137 entries total — 82 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-29 — Service-account OTP pairing is one call to /auth/token: dedicated method, required tenant_id (owner ruling Q3)](#2026-10-29--service-account-otp-pairing-is-one-call-to-authtoken-dedicated-method-required-tenant_id-owner-ruling-q3)
 - [2026-10-29 — Go share-source add-ons (GSM, Redis) as separate modules; tag-hygiene add-on forms](#2026-10-29--go-share-source-add-ons-gsm-redis-as-separate-modules-tag-hygiene-add-on-forms)
 - [2026-10-29 — Base-trust secret is JWKS-only with per-key trust_until; error reference gains split_realm_rotation_is_a_ceremony](#2026-10-29--base-trust-secret-is-jwks-only-with-per-key-trust_until-error-reference-gains-split_realm_rotation_is_a_ceremony)
 - [2026-10-28 — CI policy P3/P6: tests before publish, no lint skip](#2026-10-28--ci-policy-p3p6-tests-before-publish-no-lint-skip)
@@ -149,6 +150,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-29 — Service-account OTP pairing is one call to /auth/token: dedicated method, required tenant_id (owner ruling Q3)
+
+**Decision.** A service account pairs by OTP through a DEDICATED method, not an option on the people `OTPLogin`: go `Auth.ServiceAccountOTPLogin(ctx, ServiceAccountOTPLoginRequest{Identifier, Presented, TenantID}) (*MintResult, error)`, ts `auth.serviceAccountOtpLogin`, java `auth().serviceAccountOtpLogin(ServiceAccountOtpLoginRequest)`. It makes ONE call to `/auth/token` (`/auth/token/partial` on a split realm, finished locally) with `grant_type=otp` and a REQUIRED `tenant_id`, and returns the mint result (access + refresh token).
+
+**Why.** Owner ruling Q3 (2026-10-29): bots leave `/auth/login`, which stays people-only. The people path returns a `Session` (user, tenants, derived-claims re-mint), the bot path returns a mint result; two return types and a required-vs-optional tenant make one method with a flag a trap. A dedicated name also lets the type system carry "tenant required". The SDK refuses an empty tenant before the request, as `bad_request` with `details.server_code = missing_tenant_id` (no new error code: the taxonomy is parity-checked in three languages and the issuer's own 400 carries the same server code).
+
+**Dispatcher call, reversible:** the name and shape were chosen by the builder, not the owner.
+
+**Versions.** Not bumped: go `0.70.0`, ts `0.58.0`, java `0.54.0` are all untagged (the add-on modules pin go `v0.70.0`), so the change ships in them. Spec: SPEC X.4b. Also: verify-go-release.yml now triggers on `go/secrets/gsm/v*` and `go/secrets/redis/v*`; SPEC 14.13 pins the Redis `:public` JSON.
 
 ## 2026-10-29 — Go share-source add-ons (GSM, Redis) as separate modules; tag-hygiene add-on forms
 

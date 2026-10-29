@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -980,6 +981,48 @@ func (a *AuthClient) OTPLogin(ctx ctxpkg.Context, req OTPLoginRequest) (*Session
 		if err := a.mintProductRoles(ctx, &resp, FlowOTP, tenantID, nil); err != nil {
 			return nil, &LoginMintError{Session: &resp, TenantID: tenantID, Err: err}
 		}
+	}
+	return &resp, nil
+}
+
+// ServiceAccountOTPLoginRequest is the input to AuthClient.ServiceAccountOTPLogin. TenantID is
+// REQUIRED (owner ruling Q3, 2026-10-29): a bot has no login walk to settle a tenant.
+type ServiceAccountOTPLoginRequest struct {
+	Identifier string
+	Presented  string
+	TenantID   string
+}
+
+// ServiceAccountOTPLogin pairs a SERVICE ACCOUNT by OTP in ONE call to POST /auth/token
+// (/auth/token/partial on a split realm) with grant_type=otp and a required tenant_id, and returns
+// the access and refresh tokens. It never touches /auth/login, which stays people-only. A missing
+// TenantID is refused before the request leaves, as the issuer's 400 missing_tenant_id would be.
+// People keep using OTPLogin.
+func (a *AuthClient) ServiceAccountOTPLogin(ctx ctxpkg.Context, req ServiceAccountOTPLoginRequest) (*MintResult, error) {
+	if req.TenantID == "" {
+		return nil, &RealmError{
+			Code: ErrCodeBadRequest, HTTPStatus: http.StatusBadRequest,
+			Message: "tenant_id is required for a service-account OTP login",
+			Details: map[string]any{"server_code": "missing_tenant_id"},
+		}
+	}
+	tok, err := a.realm.platformToken.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]any{
+		"realm_id":   a.realm.realmID,
+		"grant_type": grantOTP,
+		"identifier": req.Identifier,
+		"presented":  req.Presented,
+		"tenant_id":  req.TenantID,
+	}
+	if a.realm.split != nil {
+		return a.realm.splitToken(ctx, tok, body)
+	}
+	var resp MintResult
+	if err := a.realm.http.do(ctx, requestOptions{Method: "POST", Path: "/auth/token", Bearer: tok, Body: body}, &resp); err != nil {
+		return nil, err
 	}
 	return &resp, nil
 }
