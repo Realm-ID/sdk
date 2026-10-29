@@ -218,6 +218,21 @@ def main():
     negatives[1]["wrong_key_n"] = h(other["n"])
     check(other["n"] != n, "wrong key equals key")
 
+    # Dealer (SPEC 14.14 check 1): a d_ri ABOVE d, so (d - d_ri) wraps and lambda(N) and phi(N) give
+    # different d_partner. Own DRBG label, so every other vector stays byte-identical.
+    drng = Drbg("dealer")
+    while True:
+        dl_ri = 1 + drng.below(key["lam"] - 1)
+        if dl_ri > key["d"]:
+            break
+    dl_p = (key["d"] - dl_ri) % key["lam"]
+    phi = (key["p"] - 1) * (key["q"] - 1)
+    check(dl_p != 0 and 1 <= dl_ri < key["lam"], "dealer split out of range")
+    check((dl_ri + dl_p) % key["lam"] == key["d"], "dealer d_ri + d_p != d")
+    check((key["d"] - dl_ri) % phi != dl_p, "dealer case does not tell lambda from phi")
+    dealer = dict(d_ri=h(dl_ri), d_partner=h(dl_p),
+                  why="d_ri > d so the subtraction wraps: modulo phi(N) gives a different d_partner")
+
     if fails:
         print("SELF-CHECK FAILED:\n  " + "\n  ".join(fails), file=sys.stderr)
         sys.exit(1)
@@ -225,11 +240,11 @@ def main():
     doc = dict(version=1, seed=SEED.decode(), encoding="big integers: lowercase hex, zero-padded to 512 chars",
                key=dict(bits=BITS, n=h(n), e=E, lambda_n=h(key["lam"]), d=h(key["d"]), d_ri=h(key["d_ri"]),
                         d_partner=h(key["d_p"]), p=h(key["p"], K // 2), q=h(key["q"], K // 2)),
-               jwt_cases=cases, handshake=handshake, downgrade=downgrade, negative_cases=negatives)
+               jwt_cases=cases, handshake=handshake, downgrade=downgrade, negative_cases=negatives, dealer=dealer)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print("OK: %d jwt cases, 1 handshake, 1 downgrade, %d negatives, all self-checks passed -> %s"
+    print("OK: %d jwt cases, 1 handshake, 1 downgrade, %d negatives, 1 dealer, all self-checks passed -> %s"
           % (len(cases), len(negatives), out))
 
 
