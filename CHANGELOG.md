@@ -13,6 +13,11 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — error-reference: split-custody rows that had none (docs only)
+
+- `docs/error-reference.md` gains `split_key_invalid`, `split_upload_not_allowed` and `overlap_cap_exceeded`,
+  emitted by the issuer's split-custody service but never documented. No SDK code or version changes.
+
 ## Unreleased — Go share-source add-ons: Google Secret Manager and Redis (SPEC §14.13, R35/R95)
 
 - New modules `github.com/Realm-ID/sdk/go/secrets/gsm` and `.../secrets/redis`, each its own `go.mod`
