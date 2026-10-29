@@ -1,6 +1,10 @@
 # @realm-id/web-admin — changelog
 
-## 0.25.0 — transport drops the per-call `bearer` (R60, 2026-10-28)
+## 0.25.0 — split-signing console surface + transport drops the per-call `bearer` (R60) (2026-10-29)
+
+**Added (split signing v3).** `admin.signingKeys.splitStatus(platformId)` (`GET /platforms/{id}/signing-keys/split`; un-enveloped body `{state, kid?, public_key?, overlap_until, last_handshake}`, `last_handshake` an RFC 3339 string per the issuer code, not swagger's "object"), `admin.signingKeys.cancelDowngrade(platformId)` (`DELETE …/split/downgrade`, human realm owner), `admin.platforms.setIntegrationTokenEndpoint(platformId, url | null)` (`PATCH /platforms/{id}`, `null` clears), and `RealmConfigView.user_api_keys` (`UserApiKeysConfigView`, incl. `allow_uncapped`; optional for an older issuer). Types `SplitSigningStatus`, `SplitCustodyState`, `UserApiKeysConfigView`. Pinned by `split-signing.test.ts`. On web-admin's own `SigningKeysClient`, not the ts core `admin.keys`.
+
+**Changed (R60).**
 
 **Breaking (internal shim).** `realmFetchAsHttpClient` no longer reads a per-call `bearer` (removed from the `@realm-id/sdk` 0.58.0 `RequestOptions`). A person's token is passed as the `x-user-token` header (the core's `withUserToken` form), which the shim already forwarded; `skipPlatformToken` alone now forces `anonymous`.
 

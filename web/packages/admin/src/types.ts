@@ -481,7 +481,35 @@ export type RealmConfigView = Omit<
   phone_otp?: PhoneOtpConfig;
   /** ADR-117: always present on read (the RESOLVED list); optional here for an older issuer. */
   contacts?: { unique_kinds: UniqueContactKind[] };
+  /** Absent from an older issuer. Read side only; the patch has no such field. */
+  user_api_keys?: UserApiKeysConfigView;
 };
+
+/** The realm's user-API-key policy as read (issuer `user_api_key_config.go`). */
+export interface UserApiKeysConfigView {
+  enabled: boolean;
+  max_active: number;
+  max_ttl_seconds: number;
+  default_ttl_seconds: number;
+  allow_non_expiring: boolean;
+  allow_uncapped: boolean;
+  max_permission_strings: number;
+  max_permission_string_len: number;
+  require_mfa_at_mint: boolean | null;
+  org_admin_visible: boolean | null;
+}
+
+export type SplitCustodyState = "normal" | "overlap_pending" | "overlap" | "split" | "downgrade_pending";
+
+/** GET /platforms/{id}/signing-keys/split body (raw, no `data` envelope). */
+export interface SplitSigningStatus {
+  /** Unknown values pass through; the console treats them as an error. */
+  state: SplitCustodyState | (string & {});
+  kid?: string;
+  public_key?: Record<string, unknown>;
+  overlap_until: string | null;
+  last_handshake: string | null;
+}
 
 /** Response envelope of GET/PATCH `/platforms/{id}/config`. */
 export interface RealmConfigResponse {

@@ -107,6 +107,20 @@ export class PlatformsClient {
     });
   }
 
+  /**
+   * PATCH /platforms/{id} `{integration_token_endpoint}`; `null` clears it. Gate
+   * `tenants:maintain` on the carried person. 400 `invalid_integration_endpoint`, 403
+   * `actor_required`, 404 `platform_not_found`, 501 `integration_endpoint_unsupported`.
+   * The returned summary does not carry the endpoint.
+   */
+  async setIntegrationTokenEndpoint(platformId: string, url: string | null): Promise<Platform> {
+    return this.http.request<Platform>({
+      method: "PATCH",
+      path: `/platforms/${encodeURIComponent(platformId)}`,
+      body: { integration_token_endpoint: url },
+    });
+  }
+
   async listTenants(platformId: string): Promise<TenantSummary[]> {
     const d = await this.http.request<{ items: TenantSummary[] }>({
       method: "GET",
