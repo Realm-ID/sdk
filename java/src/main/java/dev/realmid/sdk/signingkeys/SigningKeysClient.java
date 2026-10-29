@@ -135,7 +135,8 @@ public final class SigningKeysClient {
         plat.request(HttpTransport.Request.of("POST", base).body(up));
 
         String kidPath = base + "/" + enc(opts.kid());
-        JsonNode ch = plat.request(HttpTransport.Request.of("POST", kidPath + "/handshake"));
+        // GoFr-wrapped {"data":{nonce,partial_ri}}; upload, lease and complete are raw().
+        JsonNode ch = plat.request(HttpTransport.Request.of("POST", kidPath + "/handshake")).path("data");
         byte[] ri;
         try {
             ri = Base64.getUrlDecoder().decode(ch.path("partial_ri").asText(""));

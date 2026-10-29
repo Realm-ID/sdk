@@ -9,8 +9,8 @@ import {
   SplitKey, FakeIssuer, MemShares, jsonReply, emsaFromDigest, modPow, sha256, fromB64u, fromBig, toBig, b64u, TEST_REALM,
 } from "./split-testutil.test.js";
 
-// SPEC14_12_ci_rotation / 14.5. The handshake wire ({nonce, partial_ri} out, {sig} in) is [inferred]
-// from the vectors README; swagger says only "returns a challenge".
+// SPEC14_12_ci_rotation / 14.5. The handshake wire is {"data":{nonce,partial_ri}} (GoFr envelope, swagger
+// required:[data]); lease/upload/complete are bare (raw()). Fakes answer EXACTLY the issuer shape.
 
 const base = `/platforms/${TEST_REALM}/signing-keys/split`;
 
@@ -24,7 +24,7 @@ function splitRoutes(f: FakeIssuer, handshakeOK: boolean): Record<string, any>[]
     const dRI = toBig(fromB64u(up.d_ri));
     const nonce = "bm9uY2U";
     const msg = await sha256(`realmid-split-handshake/v1|${TEST_REALM}|k2|${nonce}`);
-    return jsonReply(200, { nonce, partial_ri: b64u(fromBig(modPow(emsaFromDigest(msg), dRI, n), 256)) });
+    return jsonReply(200, { data: { nonce, partial_ri: b64u(fromBig(modPow(emsaFromDigest(msg), dRI, n), 256)) } }); // GoFr envelope (gSplitHandshake returns a plain map)
   });
   f.on(`${base}/k2/handshake/complete`, () =>
     handshakeOK ? jsonReply(200, { status: "ok" }) : jsonReply(401, { error: { code: "handshake_failed", message: "no" } }));

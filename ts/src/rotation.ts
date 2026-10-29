@@ -99,9 +99,11 @@ export async function rotateSplit(realm: Realm, store: ShareSource, opts: Rotate
     body: { kid: opts.kid, n: entry.n, e: entry.e, d_ri: wire(dRi), ...(leaseId ? { lease_id: leaseId } : {}) },
   });
   const kidPath = `${base}/${encodeURIComponent(opts.kid)}`;
-  const ch = await http.request<{ nonce?: string; partial_ri?: string }>({ method: "POST", path: `${kidPath}/handshake` });
+  // The handshake answer is GoFr-wrapped {"data":{nonce,partial_ri}}; upload, lease and complete are raw().
+  const env = await http.request<{ data?: { nonce?: string; partial_ri?: string } }>({ method: "POST", path: `${kidPath}/handshake` });
+  const ch = env?.data;
   const ri = typeof ch?.partial_ri === "string" ? b64urlBytes(ch.partial_ri) : undefined;
-  if (!ri || typeof ch.nonce !== "string") {
+  if (!ri || typeof ch?.nonce !== "string") {
     throw new RealmError({ code: "server_error", message: "realmid: handshake challenge is malformed" });
   }
   const sig = await completeHandshake(entry, ih.realmId, opts.kid, ch.nonce, ri);

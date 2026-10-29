@@ -117,13 +117,16 @@ func (c *SigningKeysClient) RotateSplit(ctx ctxpkg.Context, store ShareSource, o
 		return err
 	}
 	kidPath := base + "/" + url.PathEscape(opts.KID)
-	var ch struct {
+	// The handshake answer is GoFr-wrapped {"data":{nonce,partial_ri}} (the handler returns a plain
+	// map); upload, lease and complete are raw(). Decode the wrapped route through gofrData.
+	var env gofrData[struct {
 		Nonce     string `json:"nonce"`
 		PartialRI string `json:"partial_ri"`
-	}
-	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: kidPath + "/handshake", Bearer: tok}, &ch); err != nil {
+	}]
+	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: kidPath + "/handshake", Bearer: tok}, &env); err != nil {
 		return err
 	}
+	ch := env.Data
 	ri, err := base64.RawURLEncoding.DecodeString(ch.PartialRI)
 	if err != nil {
 		return &RealmError{Code: ErrCodeServerError, Message: "handshake partial_ri is not base64url", Cause: err}

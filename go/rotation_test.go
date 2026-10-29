@@ -12,9 +12,8 @@ import (
 	"testing"
 )
 
-// SPEC14_12_ci_rotation / 14.5: self-rotation on a writable store. The handshake wire shape
-// ({nonce, partial_ri} out, {sig} in) is [inferred] from the vectors README; swagger says only
-// "returns a challenge".
+// SPEC14_12_ci_rotation / 14.5: self-rotation on a writable store. The handshake answer is wrapped
+// {"data":{nonce,partial_ri}} (swagger required:[data]); every other split route is bare (raw()).
 
 func splitRoutes(f *fakeIssuer, handshakeOK bool) (uploads *[]map[string]any) {
 	var ups []map[string]any
@@ -35,8 +34,9 @@ func splitRoutes(f *fakeIssuer, handshakeOK bool) (uploads *[]map[string]any) {
 		msg := sha256.Sum256([]byte("realmid-split-handshake/v1|" + testRealmID + "|k2|" + nonce))
 		m := emsaFromDigest(n, up, msg[:])
 		w.Header().Set("Content-Type", "application/json")
-		jsonReply(w, 200, map[string]any{"nonce": nonce,
-			"partial_ri": base64.RawURLEncoding.EncodeToString(new(big.Int).Exp(m, dRI, n).FillBytes(make([]byte, 256)))})
+		// GoFr envelope: the issuer returns a plain map here (gSplitHandshake); lease/upload/complete are raw().
+		jsonReply(w, 200, map[string]any{"data": map[string]any{"nonce": nonce,
+			"partial_ri": base64.RawURLEncoding.EncodeToString(new(big.Int).Exp(m, dRI, n).FillBytes(make([]byte, 256)))}})
 	})
 	f.on(base+"/k2/handshake/complete", func(w http.ResponseWriter, _ *http.Request, body map[string]any) {
 		if !handshakeOK {

@@ -13,6 +13,10 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — split self-rotation reads the wrapped handshake answer (go/ts/java; fix)
+
+`RotateSplit` / `rotateSplit` read the handshake challenge from the top level, but the issuer GoFr-wraps it as `{"data":{"nonce","partial_ri"}}` (swagger `required: [data]`). Every rotation against the real issuer died after the lease, the share store and the `d_ri` upload. All three now unwrap `data` for that one route; lease, upload, complete, status, downgrade and cancel are `raw()` (bare) and unchanged. The test fakes now answer the issuer wire shape. See DECISIONS.md.
+
 ## Unreleased — go: constant-time partner half-signature (R27)
 
 - `go/cosign.go`: the partner's secret-exponent exponentiation (`d_partner`) no longer uses a `math/big`

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-141 entries total — 86 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+142 entries total — 87 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)](#2026-10-29--rca-split-self-rotation-misread-the-gofr-wrapped-handshake-answer-gotsjava)
 - [2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)](#2026-10-29--r27-constant-time-half-signing-in-sdkts-ctexp-uint32array-limbs)
 - [2026-10-29 — R27 constant-time half-signing in sdk/java (CtExp)](#2026-10-29--r27-constant-time-half-signing-in-sdkjava-ctexp)
 - [2026-10-29 — go: constant-time partner half-signature, ported from the issuer ladder (R27)](#2026-10-29--go-constant-time-partner-half-signature-ported-from-the-issuer-ladder-r27)
@@ -153,6 +154,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)
+
+**Symptom.** Every `RotateSplit` (go/ts/java) against the real issuer failed after the lease was taken, the new share stored and `d_ri` uploaded: go "partial signature is out of range", ts "handshake challenge is malformed", java an empty nonce. The key was left un-handshaken with the lease held.
+
+**Root cause.** The issuer's `gSplitHandshake` returns a plain map, which GoFr wraps as `{"data":{"nonce","partial_ri"}}` (swagger `required: [data]`). The SDKs decoded the raw body, so nonce/partial_ri were empty. Verified against `issuer/internal/httpapi/signing_split.go`: only the handshake and the downgrade challenge are wrapped; status, upload, complete, overlap, lease, downgrade and cancel are `raw()`. The SDKs call only the handshake of the two wrapped routes (the downgrade challenge has no SDK caller).
+
+**Why it wasn't caught.** The test fakes answered bare, and a comment called the wire "inferred". A fake that answers what the decoder expects proves nothing about the wire (sdk/CLAUDE.md trap).
+
+**Fix.** Fakes now answer exactly the issuer shape (red first in all three), and the handshake decode unwraps `data` (go via `gofrData[T]`, ts/java via `.data`). The generic transport is unchanged.
+
+**Prevention.** Each split fake cites the handler's wrapped-or-raw choice, and the sdk/CLAUDE.md trap already names the rule. A cross-repo wire-shape check against the issuer integration test remains a follow-up.
 
 ## 2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)
 

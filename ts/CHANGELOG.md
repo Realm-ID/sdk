@@ -4,6 +4,10 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased (0.58.0) — fix: `rotateSplit` unwraps the `{"data":{nonce,partial_ri}}` handshake answer
+
+The handshake route is GoFr-wrapped; lease, upload and complete are bare. Fakes now answer the issuer wire shape. See the root CHANGELOG and DECISIONS.md.
+
 ## Unreleased (0.58.0) — split signing, login → token everywhere, the actor model (SPEC §14, 2026-10-28)
 
 R27 (owner ruling): the partner half-signature no longer uses BigInt on the secret exponent. New `ctexp.ts` is a constant-time fixed-window Montgomery exponentiation over `Uint32Array` limbs (ported from go `ctExp`); `ladderExp` is removed from `cosign.ts` and `d_partner` stays as bytes. Adds a structural guard, a ctExp-vs-native test and `npm run dudect` (a timing test with a leaky positive control, run in CI as its own step; not part of `npm test`).

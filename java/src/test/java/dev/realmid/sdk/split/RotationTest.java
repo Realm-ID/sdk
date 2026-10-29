@@ -14,8 +14,8 @@ import static dev.realmid.sdk.split.SplitKit.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * SPEC14_12 / 14.5 self-rotation on a writable store (mirrors go rotation_test.go). The handshake wire shape
- * ({nonce, partial_ri} out, {sig} in) is [inferred] from the vectors README.
+ * SPEC14_12 / 14.5 self-rotation on a writable store (mirrors go rotation_test.go). The handshake answer is wrapped
+ * {"data":{nonce,partial_ri}} (swagger required:[data]); other split routes are bare.
  */
 class RotationTest {
     static final String BASE = "/platforms/" + REALM + "/signing-keys/split";
@@ -33,8 +33,9 @@ class RotationTest {
             BigInteger dRI = new BigInteger(1, UB64.decode((String) up.get("d_ri")));
             String nonce = "bm9uY2U";
             byte[] msg = sha256("realmid-split-handshake/v1|" + REALM + "|k2|" + nonce);
-            return json(200, Map.of("nonce", nonce,
-                    "partial_ri", B64.encodeToString(fixed256(emsa(msg).modPow(dRI, n)))));
+            // GoFr envelope: the issuer returns a plain map here; lease/upload/complete are raw().
+            return json(200, Map.of("data", Map.of("nonce", nonce,
+                    "partial_ri", B64.encodeToString(fixed256(emsa(msg).modPow(dRI, n))))));
         });
         f.on(BASE + "/k2/handshake/complete", r -> handshakeOk
                 ? json(200, Map.of("status", "ok"))
