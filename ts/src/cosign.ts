@@ -11,6 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { ctExp } from "./ctexp.js";
 import { RealmError } from "./errors.js";
 import type { ShareEntry } from "./share-source.js";
 
@@ -109,40 +110,17 @@ function modPowPublic(base: bigint, exp: bigint, mod: bigint): bigint {
   return r;
 }
 
-/**
- * base^exp mod n by a Montgomery ladder over a FIXED bit count (the modulus length, not the
- * exponent's), so the sequence of operations does not depend on the exponent's bits (R27). It is
- * deliberately NOT base-blinded: the usual blind x = m*r^e, result*r^-1 is valid only for the FULL
- * private exponent (r^(e*d) = r); over a PARTIAL exponent d_partner it corrupts the signature (see
- * the S5b note in sdk/go/cosign.go). bigint arithmetic is not constant-time; same posture as the
- * Go SDK's math/big and the issuer's splitsig.Ladder.
- */
-export function ladderExp(base: bigint, exp: bigint, n: bigint): bigint {
-  const bits = bigBitLength(n);
-  if (exp < 0n || bigBitLength(exp) > bits) fail("exponent out of range");
-  const expBits = exp.toString(2).padStart(bits, "0");
-  const pair: [bigint, bigint] = [1n, base % n];
-  for (let i = 0; i < bits; i++) {
-    const b = expBits.charCodeAt(i) - 48; // 0 or 1
-    const prod = (pair[0] * pair[1]) % n;
-    const sq = (pair[b]! * pair[b]!) % n;
-    // b=0: r1 = r0*r1, r0 = r0^2 ; b=1: r0 = r0*r1, r1 = r1^2
-    pair[1 - b] = prod;
-    pair[b] = sq;
-  }
-  return pair[0];
-}
-
 const sha256 = (data: string | Uint8Array): Uint8Array => new Uint8Array(createHash("sha256").update(data).digest());
 
 /** Multiplies RI's partial by the partner partial over `digest` and checks s^e == m. */
 function completeDigest(entry: ShareEntry, digest: Uint8Array, partialRi: Uint8Array): Uint8Array {
   const pub = decodePublic(entry);
-  const dP = b64Int(entry.d_partner, "share d_partner");
+  const dP = b64urlBytes(entry.d_partner);
+  if (!dP) fail("share d_partner is not base64url");
   const m = emsaInt(digest, pub.k);
   const sRi = bytesToBig(partialRi);
   if (partialRi.length === 0 || sRi === 0n || sRi >= pub.n) fail("RealmID's partial signature is out of range");
-  const s = (sRi * ladderExp(m, dP, pub.n)) % pub.n;
+  const s = (sRi * ctExp(m, dP!, pub.n)) % pub.n;
   if (modPowPublic(s, pub.e, pub.n) !== m) {
     fail("the finished signature does not verify under the pinned key; refusing to release it");
   }

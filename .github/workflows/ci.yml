@@ -224,6 +224,11 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # R27: the partner half-signing ladder must not leak its secret exponent through timing.
+      # Its own step, after the suite, so nothing else runs on the runner while it measures.
+      - name: Constant-time timing test (dudect)
+        run: npm run dudect
+
   # `sdk/web/packages/{core,admin,bff-realmid,google}` each define a `test`
   # script (`node --test --import tsx ...`) and were run NOWHERE — not here,
   # not locally — despite every one of them shipping to npm. `react` and
@@ -303,3 +308,7 @@ jobs:
       # (an --offline gradle run passing against stale outputs).
       - name: Unit tests
         run: ./gradlew test --no-daemon
+
+      # R27: CtExp timing test (JUnit tag `dudect`, excluded from `test`), its own step.
+      - name: Constant-time timing test (dudect)
+        run: ./gradlew dudect --no-daemon

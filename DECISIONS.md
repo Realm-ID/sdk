@@ -10,8 +10,10 @@ Newest first.
 
 ## Index
 
-138 entries total — 83 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+140 entries total — 85 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)](#2026-10-29--r27-constant-time-half-signing-in-sdkts-ctexp-uint32array-limbs)
+- [2026-10-29 — R27 constant-time half-signing in sdk/java (CtExp)](#2026-10-29--r27-constant-time-half-signing-in-sdkjava-ctexp)
 - [2026-10-29 — go: constant-time partner half-signature, ported from the issuer ladder (R27)](#2026-10-29--go-constant-time-partner-half-signature-ported-from-the-issuer-ladder-r27)
 - [2026-10-29 — Service-account OTP pairing is one call to /auth/token: dedicated method, required tenant_id (owner ruling Q3)](#2026-10-29--service-account-otp-pairing-is-one-call-to-authtoken-dedicated-method-required-tenant_id-owner-ruling-q3)
 - [2026-10-29 — Go share-source add-ons (GSM, Redis) as separate modules; tag-hygiene add-on forms](#2026-10-29--go-share-source-add-ons-gsm-redis-as-separate-modules-tag-hygiene-add-on-forms)
@@ -151,6 +153,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)
+
+R27 for sdk/ts: the partner half (`d_partner`) is exponentiated by `ctExp` (`ts/src/ctexp.ts`), a hand-written fixed-window (4-bit) Montgomery exponentiation over `Uint32Array` 32-bit limbs, ported from `sdk/go/ctexp.go`. `cosign.ts` no longer has `ladderExp` (a BigInt square-and-multiply with `pair[b]`); `d_partner` now travels as bytes and never becomes a BigInt. The window table is read by a masked scan of all 16 entries; the exponent is padded to max(bitlen(mod), 8*len(bytes)). The modulus, n0, R and R^2 are public and use BigInt.
+
+Guards: `cosign-ct.test.ts` (TypeScript AST: no `ladderExp`, no `**`, no BigInt/`modPow`/secret-indexed table in `ctMontMul`/`ctExpLimbs`), `ctexp.test.ts` (ctExp vs native, 2..2048 bit, exp 0/>mod, even modulus refused), shared vectors in `cosign.test.ts`. Timing: `npm run dudect` (`src/ctexp.dudect.ts`, not in the test glob; excluded from the tsc build).
+
+Trap found by the timing test, worth keeping: the first port kept the high-word carry of the 32x32 multiply in a module-level `let` and measured max|t| 171 (2048-bit) / 19.7 (1024-bit); V8 boxes a mutable double as a HeapNumber and stores a small integer as a Smi, so the store cost depended on the VALUE. Moving the carry into a `Uint32Array(1)` took it to |t| < 1. Any scalar that holds secret-derived data must live in a typed array, not a closure/module variable. JS gives no constant-time guarantee; the dudect script is the empirical check and its leaky square-and-multiply control must reach |t| >= 10.
+
+## 2026-10-29 — R27 constant-time half-signing in sdk/java (CtExp)
+
+R27 (owner 2026-10-26) for sdk/java: `CoSigner` no longer exponentiates the secret `d_partner` with BigInteger (the old fixed-bit-count ladder still used variable-time BigInteger multiply/mod). `split/CtExp.java` is a fixed-window (4-bit) Montgomery exponentiation over 32-bit limbs in `long[]` (Java has no unsigned 64-bit mul-high, so 32-bit limbs keep every product in one word); window table read by scanning all 16 entries under a mask; exponent padded to max(bitlen(mod), bitlen(exp)). BigInteger is used only for PUBLIC values (modulus, n0, R mod n, R^2 mod n, base reduction), fenced by PUBLIC-BEGIN/END markers which `CtExpTest` uses to scan the rest of the file for modPow/multiply/mod/testBit/etc. The dudect timing test is a JUnit tag (`dudect`) excluded from `test` and run by its own Gradle task `./gradlew dudect`, because a statistical timing result is void if anything overlaps it. Not bumped: 0.54.0 is untagged.
 
 ## 2026-10-29 — go: constant-time partner half-signature, ported from the issuer ladder (R27)
 

@@ -17,5 +17,5 @@
     "isolatedModules": true
   },
   "include": ["src/**/*"],
-  "exclude": ["**/*.test.ts", "dist", "node_modules"]
+  "exclude": ["**/*.test.ts", "**/*.dudect.ts", "dist", "node_modules"]
 }

@@ -27,6 +27,7 @@
     "build": "tsc",
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "dudect": "node --import tsx src/ctexp.dudect.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
