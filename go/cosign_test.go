@@ -37,6 +37,12 @@ type vecFile struct {
 		SRI               string `json:"s_ri"`
 		S                 string `json:"s"`
 	} `json:"handshake"`
+	Downgrade struct {
+		Realm, KID, Nonce, Preimage string
+		Message                     string `json:"message"`
+		SRI                         string `json:"s_ri"`
+		S                           string `json:"s"`
+	} `json:"downgrade"`
 	Negative []struct {
 		Name        string `json:"name"`
 		RejectedJWT string `json:"rejected_jwt"`
@@ -128,6 +134,29 @@ func TestCosign_CompletePartialRefusesCorruptOrWrongPartials(t *testing.T) {
 	other := v.JWTCases[1]
 	if _, err := CompletePartial(entry, c.SigningInput, hexb(t, other.SRI)); err == nil {
 		t.Errorf("partial_ri of another message accepted")
+	}
+}
+
+// The downgrade challenge (SPEC 14.6) is the same exponentiation over its own purpose-bound preimage.
+func TestCosign_DowngradeVector(t *testing.T) {
+	v, entry, pub := loadVectors(t)
+	d := v.Downgrade
+	pre := "realmid-split-downgrade/v1|" + d.Realm + "|" + d.KID + "|" + d.Nonce
+	if d.Preimage != pre {
+		t.Fatalf("preimage = %q, want %q", d.Preimage, pre)
+	}
+	sig, err := CompletePartial(entry, pre, hexb(t, d.SRI))
+	if err != nil {
+		t.Fatalf("CompletePartial: %v", err)
+	}
+	if hex.EncodeToString(sig) != d.S {
+		t.Errorf("downgrade signature differs from vector")
+	}
+	if rsa.VerifyPKCS1v15(pub, crypto.SHA256, hexb(t, d.Message), sig) != nil {
+		t.Errorf("downgrade signature does not verify")
+	}
+	if _, err := CompleteHandshake(entry, d.Realm, d.KID, d.Nonce, hexb(t, d.SRI)); err == nil {
+		t.Errorf("a downgrade partial was accepted as a handshake (purposes must not cross)")
 	}
 }
 

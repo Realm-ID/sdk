@@ -16,6 +16,7 @@ interface Vectors {
   key: { n: string; e: number; d_partner: string };
   jwt_cases: { name: string; signing_input: string; s_ri: string; s: string; jwt: string }[];
   handshake: { realm: string; kid: string; nonce: string; message: string; s_ri: string; s: string };
+  downgrade: { realm: string; kid: string; nonce: string; preimage: string; message: string; s_ri: string; s: string };
   negative_cases: { name: string; rejected_jwt: string }[];
 }
 
@@ -73,6 +74,17 @@ test("cosign: handshake vector (message used directly as the digest) [format inf
   assert.equal(toHex(sig), h.s, "handshake signature differs from vector");
   assert.equal(toHex(await sha256(`realmid-split-handshake/v1|${h.realm}|${h.kid}|${h.nonce}`)), h.message);
   assert.ok(n > 0n);
+});
+
+test("cosign: downgrade vector (SPEC 14.6 preimage, purpose-bound)", async () => {
+  const { v, entry } = loadVectors();
+  const d = v.downgrade;
+  const pre = `realmid-split-downgrade/v1|${d.realm}|${d.kid}|${d.nonce}`;
+  assert.equal(d.preimage, pre);
+  assert.equal(toHex(await sha256(pre)), d.message);
+  const sig = await completePartial(entry, pre, hexBytes(d.s_ri));
+  assert.equal(toHex(sig), d.s, "downgrade signature differs from vector");
+  await assert.rejects(completeHandshake(entry, d.realm, d.kid, d.nonce, hexBytes(d.s_ri)), "purposes must not cross");
 });
 
 test("cosign: coSign releases the basic vector JWT byte for byte", async () => {

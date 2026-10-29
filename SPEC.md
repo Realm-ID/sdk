@@ -5063,7 +5063,15 @@ and alerts; it never loops. RealmID never half-signs a caller-chosen message.
 partial_ri}` (`partial_ri` base64url). The SDK completes the exponentiation over the digest
 `sha256("realmid-split-handshake/v1|<realm>|<kid>|<nonce>")` (that digest IS the message the
 PKCS#1 v1.5 SHA-256 encoding wraps) and answers `POST …/handshake/complete` with `{"sig":
-"<base64url, no padding, k bytes big-endian>"}`.
+"<base64url, no padding, k bytes big-endian>"}`. The handshake answer is GoFr-wrapped:
+`{"data":{"nonce","partial_ri"}}`; every other split route answers bare.
+
+**Downgrade preimage.** A downgrade is co-signed over its own purpose-bound challenge,
+`POST …/signing-keys/split/downgrade/challenge` (answer wrapped like the handshake). The digest is
+`sha256("realmid-split-downgrade/v1|<realm>|<kid>|<nonce>")`, used exactly as the handshake digest
+(that digest IS the message the PKCS#1 v1.5 SHA-256 encoding wraps), and the result is sent as the
+`cosig` of `POST …/split/downgrade`. A handshake partial is never valid for a downgrade or the
+reverse. Pinned by the `downgrade` case in `testdata/split-vectors/vectors.json`.
 
 ### 14.7 Metrics (R37)
 

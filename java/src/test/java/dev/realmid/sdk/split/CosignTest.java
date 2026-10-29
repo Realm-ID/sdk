@@ -107,6 +107,19 @@ class CosignTest {
     }
 
     @Test
+    void downgradeVector() throws Exception {
+        Vectors v = new Vectors();
+        JsonNode d = v.root.get("downgrade");
+        String pre = "realmid-split-downgrade/v1|" + d.get("realm").asText() + "|" + d.get("kid").asText() + "|"
+                + d.get("nonce").asText();
+        assertEquals(pre, d.get("preimage").asText());
+        byte[] sig = CoSigner.completePartial(v.entry, pre, hexb(d.get("s_ri").asText()));
+        assertEquals(d.get("s").asText(), HexFormat.of().formatHex(sig), "downgrade signature differs from vector");
+        assertThrows(RuntimeException.class, () -> CoSigner.completeHandshake(v.entry, d.get("realm").asText(),
+                d.get("kid").asText(), d.get("nonce").asText(), hexb(d.get("s_ri").asText())), "purposes must not cross");
+    }
+
+    @Test
     void coSignReleasesBasicVectorJwt() throws Exception {
         Vectors v = new Vectors();
         JsonNode c = v.root.get("jwt_cases").get(0);

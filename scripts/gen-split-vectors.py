@@ -190,6 +190,16 @@ def main():
     handshake = dict(realm=realm, kid=kid, nonce=nonce, preimage=pre, message=msg.hex(), m=h(m), s_ri=h(s_ri),
                      s_p=h(s_p), s=h(s))
 
+    # Downgrade challenge (owner ruling C5 #4, SPEC 14.6): same construction as the handshake, its own
+    # purpose-bound preimage "realmid-split-downgrade/v1|"+realm+"|"+kid+"|"+nonce (issuer splitcustody).
+    dnonce = b64u(Drbg("downgrade-nonce").bytes(32))
+    dpre = "realmid-split-downgrade/v1|%s|%s|%s" % (realm, kid, dnonce)
+    dmsg = hashlib.sha256(dpre.encode()).digest()
+    check(dmsg != msg, "downgrade digest equals handshake digest")
+    m, s_ri, s_p, s = sign(emsa_from_digest(dmsg))
+    downgrade = dict(realm=realm, kid=kid, nonce=dnonce, preimage=dpre, message=dmsg.hex(), m=h(m), s_ri=h(s_ri),
+                     s_p=h(s_p), s=h(s))
+
     # Negatives, on the first JWT case: the combiner must REFUSE (s^e != m).
     base = cases[0]
     m0, s_ri0, s_p0 = int(base["m"], 16), int(base["s_ri"], 16), int(base["s_p"], 16)
@@ -215,11 +225,11 @@ def main():
     doc = dict(version=1, seed=SEED.decode(), encoding="big integers: lowercase hex, zero-padded to 512 chars",
                key=dict(bits=BITS, n=h(n), e=E, lambda_n=h(key["lam"]), d=h(key["d"]), d_ri=h(key["d_ri"]),
                         d_partner=h(key["d_p"]), p=h(key["p"], K // 2), q=h(key["q"], K // 2)),
-               jwt_cases=cases, handshake=handshake, negative_cases=negatives)
+               jwt_cases=cases, handshake=handshake, downgrade=downgrade, negative_cases=negatives)
     with open(out, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print("OK: %d jwt cases, 1 handshake, %d negatives, all self-checks passed -> %s"
+    print("OK: %d jwt cases, 1 handshake, 1 downgrade, %d negatives, all self-checks passed -> %s"
           % (len(cases), len(negatives), out))
 
 

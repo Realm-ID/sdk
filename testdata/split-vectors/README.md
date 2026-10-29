@@ -31,6 +31,8 @@ signature is `base64url(s as 256 big-endian bytes)`.
   EMSA encoding that uses `message` DIRECTLY as the digest in DigestInfo (it is not hashed again), then
   `s_ri`, `s_p`, `s`. The format is the plan's `[inferred]` one (v2 § 3); if the issuer settles on another
   construction, regenerate.
+- `downgrade` (SPEC 14.6, owner ruling C5 #4): the same construction as `handshake` with the preimage
+  `realmid-split-downgrade/v1|<realm>|<kid>|<nonce>` (fields as `handshake`, plus the `preimage` shown).
 - `negative_cases[]`: `corrupted-partner-partial` (one bit of `s_p` flipped) and
   `wrong-key-partner-partial` (`s_p` computed from an unrelated key, `wrong_key_n` given). Each carries
   `m`, `s_ri`, `s_p`, `combined_s`, `rejected_jwt` and `expect: "combiner_refuses"`: `combined_s^e mod N != m`.
