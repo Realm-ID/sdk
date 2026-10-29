@@ -10,7 +10,7 @@ Newest first.
 
 ## Index
 
-140 entries total — 85 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+141 entries total — 86 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
 - [2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)](#2026-10-29--r27-constant-time-half-signing-in-sdkts-ctexp-uint32array-limbs)
 - [2026-10-29 — R27 constant-time half-signing in sdk/java (CtExp)](#2026-10-29--r27-constant-time-half-signing-in-sdkjava-ctexp)
