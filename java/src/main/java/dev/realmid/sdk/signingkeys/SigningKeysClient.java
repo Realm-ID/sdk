@@ -112,12 +112,9 @@ public final class SigningKeysClient {
         }
         RSAPublicKey pub = (RSAPublicKey) pair.getPublic();
         RSAPrivateCrtKey priv = (RSAPrivateCrtKey) pair.getPrivate();
-        BigInteger p1 = priv.getPrimeP().subtract(BigInteger.ONE);
-        BigInteger q1 = priv.getPrimeQ().subtract(BigInteger.ONE);
-        BigInteger lam = p1.multiply(q1).divide(p1.gcd(q1));
-        BigInteger d = priv.getPrivateExponent().mod(lam);
-        BigInteger dRi = new BigInteger(lam.bitLength() - 1, new SecureRandom());
-        BigInteger dP = d.subtract(dRi).mod(lam);
+        BigInteger[] halves = splitExponent(priv, new SecureRandom());
+        BigInteger dRi = halves[0];
+        BigInteger dP = halves[1];
         ShareEntry entry = new ShareEntry(b64(pub.getModulus()), b64(pub.getPublicExponent()), b64(dP));
 
         String realm = cur.realm() == null || cur.realm().isEmpty() ? realmId : cur.realm();
@@ -168,6 +165,42 @@ public final class SigningKeysClient {
         } catch (RuntimeException e) {
             throw new RealmException(ErrorCode.SHARE_LOAD_FAILED,
                     "the new key is active at RealmID but the bundle could not be compacted: " + e.getMessage(), e);
+        }
+    }
+
+    /** lambda(n) = lcm(p-1, q-1). */
+    static BigInteger lambdaOf(BigInteger p, BigInteger q) {
+        BigInteger p1 = p.subtract(BigInteger.ONE);
+        BigInteger q1 = q.subtract(BigInteger.ONE);
+        return p1.multiply(q1).divide(p1.gcd(q1));
+    }
+
+    /**
+     * The pure split (SPEC 14.14): d_partner = (d - dRi) mod lambda(n), d reduced mod lambda first.
+     * Refuses dRi outside [1, lambda) and a zero d_partner.
+     */
+    static BigInteger splitWithDRi(BigInteger p, BigInteger q, BigInteger d, BigInteger dRi) {
+        BigInteger lam = lambdaOf(p, q);
+        if (dRi.signum() < 1 || dRi.compareTo(lam) >= 0) {
+            throw new IllegalArgumentException("d_ri outside [1, lambda)");
+        }
+        BigInteger dP = d.mod(lam).subtract(dRi).mod(lam);
+        if (dP.signum() == 0) throw new IllegalArgumentException("d_partner is zero");
+        return dP;
+    }
+
+    /** One deal: d_ri uniform in [1, lambda) by rejection sampling, redrawn on a zero half. {d_ri, d_partner}. */
+    static BigInteger[] splitExponent(RSAPrivateCrtKey priv, SecureRandom rnd) {
+        BigInteger p = priv.getPrimeP(), q = priv.getPrimeQ(), lam = lambdaOf(p, q);
+        int bits = lam.bitLength();
+        while (true) {
+            BigInteger dRi = new BigInteger(bits, rnd);
+            if (dRi.signum() < 1 || dRi.compareTo(lam) >= 0) continue;
+            try {
+                return new BigInteger[] {dRi, splitWithDRi(p, q, priv.getPrivateExponent(), dRi)};
+            } catch (IllegalArgumentException zeroHalf) {
+                // d_partner = 0: draw again
+            }
         }
     }
 

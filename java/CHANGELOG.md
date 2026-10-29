@@ -4,6 +4,10 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## Unreleased (0.56.0) — split dealer draws `d_ri` uniformly in `[1, lambda)` (SPEC §14.14)
+
+`rotateSplit` no longer draws `d_ri` from `[0, 2^(bitLength(lambda)-1))`; it is uniform in `[1, lambda)` and redrawn when either half is zero. Pure split `SigningKeysClient.splitWithDRi` (package-private) is pinned by the shared `dealer` vector (`DealerTest`).
+
 ## 0.55.0 — `realm_suspended` and `tenant_suspended` (410) registered (2026-11-01)
 
 Added `ErrorCode.REALM_SUSPENDED` / `TENANT_SUSPENDED` and `RealmException.isRealmSuspended` / `isTenantSuspended`. Before, a 410 carrying either code resolved to the status fallback. Not the 403 `TENANT_DISABLED`. Version bumped to 0.55.0 in `build.gradle.kts`; not tagged. See the root CHANGELOG.
