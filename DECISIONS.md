@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-137 entries total — 82 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+138 entries total — 83 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-29 — go: constant-time partner half-signature, ported from the issuer ladder (R27)](#2026-10-29--go-constant-time-partner-half-signature-ported-from-the-issuer-ladder-r27)
 - [2026-10-29 — Service-account OTP pairing is one call to /auth/token: dedicated method, required tenant_id (owner ruling Q3)](#2026-10-29--service-account-otp-pairing-is-one-call-to-authtoken-dedicated-method-required-tenant_id-owner-ruling-q3)
 - [2026-10-29 — Go share-source add-ons (GSM, Redis) as separate modules; tag-hygiene add-on forms](#2026-10-29--go-share-source-add-ons-gsm-redis-as-separate-modules-tag-hygiene-add-on-forms)
 - [2026-10-29 — Base-trust secret is JWKS-only with per-key trust_until; error reference gains split_realm_rotation_is_a_ceremony](#2026-10-29--base-trust-secret-is-jwks-only-with-per-key-trust_until-error-reference-gains-split_realm_rotation_is_a_ceremony)
@@ -150,6 +151,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-29 — go: constant-time partner half-signature, ported from the issuer ladder (R27)
+
+**Context.** R27 (owner, 2026-10-26): every half-signing implementation uses a hand-written constant-time modular exponentiation; `math/big.Exp` is not used on a secret. `sdk/go/cosign.go` `ladderExp` iterated a fixed bit count but indexed `pair[b]` by the secret bit and used big.Int Mul/Mod, so it was not constant-time (its own comment conceded it).
+
+**Decision.** Port the issuer's `splitsig.Ladder` into the sdk/go core as `ctExp` (`go/ctexp.go`): 4-bit fixed window, Montgomery CIOS over uint64 limbs (`bits.Mul64/Add64/Sub64`), masked final subtraction, branchless full-table scan, exponent padded to max(bitlen(n), bitlen(exp)). Ported, not imported, so the module stays zero-dependency. Not base-blinded (a blind is valid only for the full private exponent). Public values (R, R^2, the final verify s^e) still use math/big. Go gives no hard constant-time guarantee, so the empirical check is a `dudect`-tagged test (fixed low-weight exponent vs random, Welch t over several crops, with a leaky square-and-multiply as a positive control) run as its own CI step; a structural AST test pins that `ladderExp` is gone and no `Exp`/`Bit`/secret-indexed table is in the secret path.
+
+**Trade-offs.** Faster than before (52.6 -> 13.1 ms at 2048 bits), because limb arithmetic beats allocating big.Int per step. Timing on a shared CI runner can be noisy; the limit is |t| < 10 (knobs DUDECT_N, DUDECT_T) with the leaky control proving the harness is not blind.
 
 ## 2026-10-29 — Service-account OTP pairing is one call to /auth/token: dedicated method, required tenant_id (owner ruling Q3)
 

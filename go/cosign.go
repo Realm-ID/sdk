@@ -85,28 +85,6 @@ func emsaInt(digest []byte, k int) (*big.Int, error) {
 	return new(big.Int).SetBytes(em), nil
 }
 
-// ladderExp computes base^exp mod n with a Montgomery ladder over a FIXED bit count (the modulus
-// length, not the exponent's), so the sequence of operations does not depend on the exponent's
-// bits (R27). It is deliberately NOT base-blinded: the usual blind x = m*r^e, result*r^-1 is valid
-// only for the FULL private exponent (r^(e*d) = r); over a PARTIAL exponent d_partner it corrupts
-// the signature. math/big is not constant-time; same posture as the issuer's splitsig.Ladder.
-func ladderExp(base, exp, n *big.Int) *big.Int {
-	r0, r1 := big.NewInt(1), new(big.Int).Set(base)
-	for i := n.BitLen() - 1; i >= 0; i-- {
-		pair := [2]*big.Int{r0, r1}
-		b := exp.Bit(i)
-		prod := new(big.Int).Mul(pair[0], pair[1])
-		prod.Mod(prod, n)
-		sq := new(big.Int).Mul(pair[b], pair[b])
-		sq.Mod(sq, n)
-		// b=0: r1 = r0*r1, r0 = r0^2 ; b=1: r0 = r0*r1, r1 = r1^2
-		pair[1-b] = prod
-		pair[b] = sq
-		r0, r1 = pair[0], pair[1]
-	}
-	return r0
-}
-
 // completeDigest multiplies RI's partial by the partner partial over digest and checks s^e == m.
 func completeDigest(entry ShareEntry, digest, partialRI []byte) ([]byte, error) {
 	p, err := entry.decodeWithShare()
@@ -121,7 +99,12 @@ func completeDigest(entry ShareEntry, digest, partialRI []byte) ([]byte, error) 
 	if len(partialRI) == 0 || sRI.Sign() == 0 || sRI.Cmp(p.n) >= 0 {
 		return nil, errors.New("realmid: RealmID's partial signature is out of range")
 	}
-	sP := ladderExp(m, p.dP, p.n)
+	// d_partner is secret: constant-time exponentiation only (R27, ctexp.go). It is deliberately
+	// NOT base-blinded: the usual blind x = m*r^e is valid only for the FULL private exponent.
+	sP, err := ctExp(m, p.dP, p.n)
+	if err != nil {
+		return nil, fmt.Errorf("realmid: partner half-signature: %w", err)
+	}
 	s := new(big.Int).Mul(sRI, sP)
 	s.Mod(s, p.n)
 	if new(big.Int).Exp(s, p.e, p.n).Cmp(m) != 0 {

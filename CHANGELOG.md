@@ -13,6 +13,15 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — go: constant-time partner half-signature (R27)
+
+- `go/cosign.go`: the partner's secret-exponent exponentiation (`d_partner`) no longer uses a `math/big`
+  ladder that indexed by the secret bit. It runs `ctExp` (new `go/ctexp.go`), a fixed-window (4-bit)
+  Montgomery exponentiation over uint64 limbs with a masked full-table scan, ported from the issuer's
+  `splitsig.Ladder`; stdlib only. Same signatures (cross-language vectors unchanged); 2048-bit partner half
+  52.6 ms -> 13.1 ms on the dev laptop. New: structural test (no variable-time op on the secret) and a
+  `dudect`-tagged timing test, run in CI as its own step in the Go job. `const Version` stays 0.70.0 (untagged).
+
 ## Unreleased — error-reference: split-custody rows that had none (docs only)
 
 - `docs/error-reference.md` gains `split_key_invalid`, `split_upload_not_allowed` and `overlap_cap_exceeded`,

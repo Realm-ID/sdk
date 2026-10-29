@@ -188,6 +188,13 @@ jobs:
       - name: Unit tests
         run: go test ./...
 
+      # R27: the co-sign exponentiation of the secret share must be constant-time. A dudect-style
+      # fixed-vs-random timing test (with a leaky positive control), kept out of `go test ./...`
+      # by its build tag so race/shuffle noise cannot flake it. No pipe, so the step's status is
+      # go's own.
+      - name: Constant-time timing test (dudect)
+        run: go test -tags dudect -run Dudect -count=1 -timeout 8m ./...
+
   ts:
     if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',ts,') }}
     name: TypeScript (tsc + node --test)
