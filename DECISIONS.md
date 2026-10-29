@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-135 entries total — 80 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+136 entries total — 81 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-10-29 — Go share-source add-ons (GSM, Redis) as separate modules; tag-hygiene add-on forms](#2026-10-29--go-share-source-add-ons-gsm-redis-as-separate-modules-tag-hygiene-add-on-forms)
 - [2026-10-29 — Base-trust secret is JWKS-only with per-key trust_until; error reference gains split_realm_rotation_is_a_ceremony](#2026-10-29--base-trust-secret-is-jwks-only-with-per-key-trust_until-error-reference-gains-split_realm_rotation_is_a_ceremony)
 - [2026-10-28 — CI policy P3/P6: tests before publish, no lint skip](#2026-10-28--ci-policy-p3p6-tests-before-publish-no-lint-skip)
 - [2026-10-27 — W0b D7: SDK docs aligned to R60-R76 (escort form, one release, actor model, CI rotation via RI BFF)](#2026-10-27--w0b-d7-sdk-docs-aligned-to-r60-r76-escort-form-one-release-actor-model-ci-rotation-via-ri-bff)
@@ -148,6 +149,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-10-29 — Go share-source add-ons (GSM, Redis) as separate modules; tag-hygiene add-on forms
+
+Decision: the Go share-source add-ons ship as their own modules `go/secrets/gsm` and `go/secrets/redis` (tags `go/secrets/gsm/vX`, `go/secrets/redis/vX`, R35/R95), each depending only on the core and defining a small injectable client interface (GSM: AccessLatest/AddVersion; Redis: Get/Set/Publish/Persistent). They import no cloud or Redis library, so they add no dependency and their tests need no GCP, Redis, container or host port; a partner satisfies the interface with a few lines over their client.
+
+Why: SPEC 14.13 asks for an injectable client "so tests use a fake". Keeping the vendor client out of the module also keeps the dependency graph of a partner who uses only one add-on minimal.
+
+Choices a reader must not re-litigate without the spec: (1) the envelope v1 helpers are restated in each add-on (the core keeps them unexported and the brief forbids touching core); a test opens a core file-store envelope with the add-on and the reverse, pinning the format. (2) GSM's KEK is optional (Secret Manager encrypts at rest), but a plaintext-configured source REFUSES an envelope instead of parsing it as an empty bundle (found red in the first run). (3) GSM's version is Secret Manager's version id, so its envelope omits `ver`; Redis carries `ver` in the envelope. (4) Redis requires a KEK list (first writes, any reads) and refuses a server with no persistence (R39(2)); write order is bundle, public, version LAST, then publish, so a watcher that sees a new version finds the new bundle. (5) The content of `realmid:share:<realm>:public` is NOT specified in SPEC 14.13; it is built as plain JSON `{realm, keys:[{kid,n,e}], previous}` [proposed, to be pinned in the spec].
+
+tag-hygiene: `module-of <tag>` resolves go/vX and the two add-on forms to their module path (anything else exits 2), `go-immutable` uses it, and `unreleased-go` excludes `go/secrets` from its diff, since Go leaves nested modules out of the core zip. The verify-go-release workflow still triggers only on `go/v*`; add-on tags need `go/secrets/**` there (not done: workflow file not owned by this unit).
+
+ts and java add-ons are NOT built: there is no precedent for an optional second package in `ts/` or `java/`; the packaging choice was returned to the dispatcher.
 
 ## 2026-10-29 — Base-trust secret is JWKS-only with per-key trust_until; error reference gains split_realm_rotation_is_a_ceremony
 

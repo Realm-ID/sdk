@@ -60,5 +60,30 @@ git clone -q --no-tags "$WORK/o4" "$WORK/c4"
 git -C "$WORK/c4" remote set-url origin "$WORK/does-not-exist"
 expect "cannot reach origin, no local tag: fails loudly" 2 "could not compare" "$WORK/c4"
 
+# --- add-on module tags (R35/R95): go/secrets/gsm/vX and go/secrets/redis/vX -----------------------
+# `module-of <tag>` prints "<module path> <version>"; the sumdb check keys on the module, so the
+# add-on forms must resolve to THEIR module and anything else must be refused (exit 2).
+modof() { # <name> <tag> <want-rc> <want-text>
+  local out rc
+  out=$(cd "$REPO_ROOT" && ./scripts/tag-hygiene.sh module-of "$2" 2>&1); rc=$?
+  if [ "$rc" = "$3" ] && printf '%s' "$out" | grep -qF -- "$4"; then echo "  ok   $1"
+  else echo "  FAIL $1 (rc=$rc, want rc=$3 and text '$4')"; printf '%s\n' "$out" | sed 's/^/       /'; FAILED=1; fi
+}
+modof "core tag" go/v0.70.0 0 "github.com/Realm-ID/sdk/go v0.70.0"
+modof "gsm add-on tag" go/secrets/gsm/v0.1.0 0 "github.com/Realm-ID/sdk/go/secrets/gsm v0.1.0"
+modof "redis add-on tag" go/secrets/redis/v1.2.3 0 "github.com/Realm-ID/sdk/go/secrets/redis v1.2.3"
+modof "unknown add-on refused" go/secrets/vault/v0.1.0 2 "unsupported"
+modof "add-on without a version refused" go/secrets/gsm/latest 2 "unsupported"
+
+# An add-on is its own module, so a change under go/secrets/ is not a change to the CORE's tree:
+# `unreleased-go` must not demand a core const Version bump for it, but still demands one for go/.
+mkorigin "$WORK/o5" go/v0.1.0
+mkdir -p "$WORK/o5/go/secrets/gsm"; echo 'module x' > "$WORK/o5/go/secrets/gsm/go.mod"
+git -C "$WORK/o5" add -A; git -C "$WORK/o5" commit -qm addon
+expect "change only under go/secrets/ does not trip the core gate" 0 "identical to the released" "$WORK/o5"
+echo '// core change' >> "$WORK/o5/go/realmid.go"
+git -C "$WORK/o5" add -A; git -C "$WORK/o5" commit -qm core
+expect "core change under a released version still trips it" 1 "HAS CHANGED UNDER A RELEASED VERSION" "$WORK/o5"
+
 rm -rf "$WORK"
 [ "$FAILED" = 0 ] && echo "tag-hygiene tests: PASS" || { echo "tag-hygiene tests: FAIL"; exit 1; }

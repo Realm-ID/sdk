@@ -31,6 +31,8 @@
 #   tag-hygiene.sh annotated-prepublish <tag>   e.g. ts-v0.37.0
 #   tag-hygiene.sh go-immutable         <tag>
 #   tag-hygiene.sh unreleased-go                (no tag argument)
+#   tag-hygiene.sh module-of            <tag>   prints "<module> <version>" (go/vX, go/secrets/gsm/vX,
+#                                               go/secrets/redis/vX; exit 2 for any other form)
 #
 # The two annotation modes differ ONLY in the remedy they print, and the
 # difference is real. For `go/v*` the tag IS the release — by the time anything
@@ -108,13 +110,26 @@ check_annotated() {
   return 1
 }
 
+# Maps a Go release tag to the module it publishes (R35/R95). Sets MODULE_PATH, MODULE_ESCAPED and
+# RESOLVED_VERSION. Forms: go/vX (core), go/secrets/gsm/vX, go/secrets/redis/vX (add-ons, each its own
+# module). Anything else is refused: a new add-on is added here deliberately, never by a glob.
+resolve_module() {
+  local tag="$1" sub=""
+  case "$tag" in
+    go/v*) RESOLVED_VERSION="${tag#go/}" ;;
+    go/secrets/gsm/v*)   sub=/secrets/gsm;   RESOLVED_VERSION="${tag#go/secrets/gsm/}" ;;
+    go/secrets/redis/v*) sub=/secrets/redis; RESOLVED_VERSION="${tag#go/secrets/redis/}" ;;
+    *) echo "::error::unsupported Go release tag '$tag' (want go/vX, go/secrets/gsm/vX or go/secrets/redis/vX)" >&2; return 1 ;;
+  esac
+  MODULE_PATH="github.com/Realm-ID/sdk/go$sub"
+  MODULE_ESCAPED="github.com/!realm-!i!d/sdk/go$sub"
+}
+
 check_go_immutable() {
   local tag="$1" version lookup http recorded local_sum probe
   require_tag "$tag"
-  case "$tag" in
-    go/v*) version="${tag#go/}" ;;
-    *) echo "::error::go-immutable only applies to go/v* tags, got '$tag'" >&2; exit 2 ;;
-  esac
+  resolve_module "$tag" || exit 2
+  version="$RESOLVED_VERSION"
 
   # sum.golang.org is an append-only, signed log. If it already holds a hash for
   # this version then this version was published before, and that hash can never
@@ -228,7 +243,9 @@ check_unreleased_go() {
     return 0
   fi
 
-  if git diff --quiet "refs/tags/$tag" HEAD -- go/; then
+  # go/secrets/* are their own modules (own go.mod, own tags): Go excludes them from the core's zip,
+  # so a change there is not a change under the core's version.
+  if git diff --quiet "refs/tags/$tag" HEAD -- go/ ':(exclude)go/secrets'; then
     say "OK — \`go/\` is identical to the released \`$tag\` (compared against $tag ($(git rev-parse --short "refs/tags/$tag^{commit}")))."
     return 0
   fi
@@ -238,7 +255,7 @@ check_unreleased_go() {
   say "tree differs from this one:"
   say ""
   say '```'
-  git diff --stat "refs/tags/$tag" HEAD -- go/ | sed 's/^/    /' | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  git diff --stat "refs/tags/$tag" HEAD -- go/ ':(exclude)go/secrets' | sed 's/^/    /' | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
   say '```'
   say ""
   say "Two different trees would answer to one version. If \`$tag\` were re-pointed"
@@ -252,6 +269,7 @@ check_unreleased_go() {
 }
 
 case "${1:-}" in
+  module-of) [ $# -eq 2 ] || die_usage; resolve_module "$2" || exit 2; echo "$MODULE_PATH $RESOLVED_VERSION"; exit 0 ;;
   unreleased-go) [ $# -eq 1 ] || die_usage; check_unreleased_go; exit $? ;;
 esac
 

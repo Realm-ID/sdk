@@ -13,6 +13,17 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased — Go share-source add-ons: Google Secret Manager and Redis (SPEC §14.13, R35/R95)
+
+- New modules `github.com/Realm-ID/sdk/go/secrets/gsm` and `.../secrets/redis`, each its own `go.mod`
+  and its own tag (`go/secrets/gsm/vX`, `go/secrets/redis/vX`); the core stays stdlib-only and its
+  `const Version` is unchanged. Both implement `WritableShareSource` over an injectable client
+  interface and seal with envelope v1. Redis: keys `realmid:share:<realm>:bundle|public|version`,
+  KEK list (first writes), persistence required, version published on write.
+- `scripts/tag-hygiene.sh`: `go-immutable` accepts the two add-on tag forms (new `module-of`
+  subcommand); `unreleased-go` no longer counts `go/secrets/` as a change to the core's tree.
+- ts and java add-ons: not yet built (packaging decision pending).
+
 ## go `0.70.0` — workload login retries a replayed assertion (SPEC §4.0.1, 2026-10-26)
 
 ### Breaking
