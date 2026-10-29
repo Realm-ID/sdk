@@ -5022,6 +5022,12 @@ absent `trust_until` means the key does not expire. A `trust_until` that is pres
 closed. This SPEC sets no other rule for malformed key entries, so none is borrowed. Dormant until the
 base realm splits.
 
+**Two `trust_until` encodings; never mix them.** The base-trust JWKS secret above carries `trust_until`
+as an RFC 3339 STRING. The partner's `ShareBundle` `previous[]` entries (and the Redis `…:public` doc)
+carry `trust_until` as an int64 of unix SECONDS (R91). They are distinct documents. A writer of the
+base-trust secret must never reuse the `ShareBundle` / `PreviousKey` structs: a numeric `trust_until`
+(or `null`) makes the issuer refuse the whole secret.
+
 ### 14.5 Share sources
 
 `ShareSource.Load(ctx) → (bundle, version)`. Core, stdlib only: environment (read-only) and file
