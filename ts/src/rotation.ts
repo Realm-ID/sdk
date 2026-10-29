@@ -70,7 +70,11 @@ export async function rotateSplit(realm: Realm, store: ShareSource, opts: Rotate
   const { bundle: cur } = await store.load();
   const base = `/platforms/${encodeURIComponent(ih.realmId)}/signing-keys/split`;
   // R92: the issuer applies the recovery cap, audit and contact email from this reason.
-  await http.request({ method: "POST", path: `${base}/rotation-lease`, body: { reason: opts.recovery ? "recovery" : "rotation" } });
+  // The lease answers {lease_id, expires_at}; the upload of THIS rotation must carry the id.
+  const lease = await http.request<{ lease_id?: string; data?: { lease_id?: string } }>({
+    method: "POST", path: `${base}/rotation-lease`, body: { reason: opts.recovery ? "recovery" : "rotation" },
+  });
+  const leaseId = lease?.lease_id ?? lease?.data?.lease_id; // tolerate GoFr's {"data":{...}} wrapper
 
   const kp = await genKeyPair("rsa", { modulusLength: 2048, publicExponent: 0x10001 });
   const jwk = kp.privateKey.export({ format: "jwk" }) as { n: string; e: string; d: string; p: string; q: string };
@@ -90,7 +94,10 @@ export async function rotateSplit(realm: Realm, store: ShareSource, opts: Rotate
     throw new RealmError({ code: "server_error", message: `realmid: store the new share: ${(err as Error).message}`, cause: err });
   }
 
-  await http.request({ method: "POST", path: base, body: { kid: opts.kid, n: entry.n, e: entry.e, d_ri: wire(dRi) } });
+  await http.request({
+    method: "POST", path: base,
+    body: { kid: opts.kid, n: entry.n, e: entry.e, d_ri: wire(dRi), ...(leaseId ? { lease_id: leaseId } : {}) },
+  });
   const kidPath = `${base}/${encodeURIComponent(opts.kid)}`;
   const ch = await http.request<{ nonce?: string; partial_ri?: string }>({ method: "POST", path: `${kidPath}/handshake` });
   const ri = typeof ch?.partial_ri === "string" ? b64urlBytes(ch.partial_ri) : undefined;

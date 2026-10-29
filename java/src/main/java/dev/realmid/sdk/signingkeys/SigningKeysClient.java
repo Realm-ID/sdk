@@ -97,8 +97,10 @@ public final class SigningKeysClient {
         HttpTransport plat = http.withUserToken(null); // platform token only: no actor on any rotation call
         ShareBundle cur = w.load().bundle();
         String base = "/platforms/" + enc(realmId) + "/signing-keys/split";
-        plat.request(HttpTransport.Request.of("POST", base + "/rotation-lease")
+        // The lease answers {lease_id, expires_at}; the upload of THIS rotation must carry the id.
+        JsonNode lease = plat.request(HttpTransport.Request.of("POST", base + "/rotation-lease")
                 .body(Map.of("reason", opts.recovery() ? "recovery" : "rotation")));
+        String leaseId = lease == null ? "" : lease.path("lease_id").asText(lease.path("data").path("lease_id").asText(""));
 
         KeyPair pair;
         try {
@@ -129,6 +131,7 @@ public final class SigningKeysClient {
         up.put("n", entry.n());
         up.put("e", entry.e());
         up.put("d_ri", b64(dRi));
+        if (!leaseId.isEmpty()) up.put("lease_id", leaseId);
         plat.request(HttpTransport.Request.of("POST", base).body(up));
 
         String kidPath = base + "/" + enc(opts.kid());

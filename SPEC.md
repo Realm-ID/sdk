@@ -5016,7 +5016,13 @@ A load under a KEK whose id differs from the envelope's fails without trying to 
 
 **Rotation** (`RotateSplit`) opens with the lease `POST …/rotation-lease` whose body is
 `{"reason": "rotation" | "recovery"}` (R92: `recovery` when the caller sets the recovery option), so
-the issuer can apply the recovery cap, audit it and email the contacts. A source with no write
+the issuer can apply the recovery cap, audit it and email the contacts. The lease answers 200
+`{"lease_id": "<id>", "expires_at": "<RFC 3339>"}` (issuer owner ruling C5#1) and the SDK sends that
+`lease_id` as the optional `lease_id` field of the upload `POST …/signing-keys/split` of the SAME
+rotation or recovery. While an unexpired lease is held, an upload with an absent or different
+`lease_id` is `409 rotation_lease_held`; the SDK surfaces it as that existing error code (no new
+type) and never retries. A lease answer with no `lease_id` (an older issuer) uploads without one.
+The FIRST upload (the realm is normal, `init`) takes no lease. A source with no write
 method fails with `share_source_read_only` before anything is sent. Pods sync through `realmid:share:<realm>:version` (pub/sub + ~30 s poll) and one
 rate-limited re-read on an unknown `kid`. Rotation and lost-half recovery run on a writable store;
 an environment source emits `rotation_due` and recovers through the CLI.

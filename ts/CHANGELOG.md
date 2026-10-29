@@ -6,6 +6,8 @@ cross-cutting items affecting every SDK at once.
 
 ## Unreleased (0.58.0) — split signing, login → token everywhere, the actor model (SPEC §14, 2026-10-28)
 
+Rotation-lease ticket (issuer owner ruling C5#1, SPEC §14.5): `rotateSplit` sends the `lease_id` from the `rotation-lease` answer on the upload of the same rotation or recovery; a `409 rotation_lease_held` on the upload surfaces as the usual error and is not retried.
+
 Split-signing (plan v3 § 3.7; issuer spec W0b-final; go `0.70.0` is the reference). One lockstep release with go `0.70.0` and java; `package.json` is bumped to 0.58.0 here, the tag is not cut.
 
 ### Breaking

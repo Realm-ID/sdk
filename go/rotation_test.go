@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"math/big"
 	"net/http"
 	"testing"
@@ -19,7 +20,7 @@ func splitRoutes(f *fakeIssuer, handshakeOK bool) (uploads *[]map[string]any) {
 	var ups []map[string]any
 	base := "/platforms/" + testRealmID + "/signing-keys/split"
 	f.on(base+"/rotation-lease", func(w http.ResponseWriter, _ *http.Request, _ map[string]any) {
-		jsonReply(w, 200, map[string]any{"lease": "l1"})
+		jsonReply(w, 200, map[string]any{"lease_id": "l1", "expires_at": "2026-10-29T00:00:00Z"})
 	})
 	f.on(base, func(w http.ResponseWriter, _ *http.Request, body map[string]any) {
 		ups = append(ups, body)
@@ -180,5 +181,37 @@ func TestRotation_EnvSourceCannotRotateAndSendsNothing(t *testing.T) {
 		if p != "POST /auth/token" {
 			t.Errorf("env-source rotation sent %s", p)
 		}
+	}
+}
+
+func TestRotation_UploadCarriesLeaseID(t *testing.T) {
+	f := newFakeIssuer(t)
+	ups := splitRoutes(f, true)
+	src := &memShares{b: newSplitKey(t, "k1").bundle(testRealmID)}
+	if err := f.realm(t, nil).SigningKeys.RotateSplit(context.Background(), src, RotateSplitOptions{KID: "k2"}); err != nil {
+		t.Fatalf("RotateSplit: %v", err)
+	}
+	if len(*ups) != 1 || (*ups)[0]["lease_id"] != "l1" {
+		t.Errorf("upload body = %v; want lease_id l1 from the lease call", *ups)
+	}
+}
+
+func TestRotation_UploadLeaseHeldSurfacesAndDoesNotRetry(t *testing.T) {
+	f := newFakeIssuer(t)
+	base := "/platforms/" + testRealmID + "/signing-keys/split"
+	f.on(base+"/rotation-lease", func(w http.ResponseWriter, _ *http.Request, _ map[string]any) {
+		jsonReply(w, 200, map[string]any{"lease_id": "l1", "expires_at": "2026-10-29T00:00:00Z"})
+	})
+	f.on(base, func(w http.ResponseWriter, _ *http.Request, _ map[string]any) {
+		jsonReply(w, 409, map[string]any{"error": map[string]any{"code": "rotation_lease_held", "message": "held"}})
+	})
+	src := &memShares{b: newSplitKey(t, "k1").bundle(testRealmID)}
+	err := f.realm(t, nil).SigningKeys.RotateSplit(context.Background(), src, RotateSplitOptions{KID: "k2"})
+	var re *RealmError
+	if !errors.As(err, &re) || re.HTTPStatus != 409 {
+		t.Fatalf("err = %v; want a 409 RealmError", err)
+	}
+	if n := len(f.reqs(base)); n != 1 {
+		t.Errorf("upload called %d times; want 1 (no retry loop)", n)
 	}
 }

@@ -8,6 +8,8 @@ items affecting every SDK at once.
 
 Version bumped to 0.54.0 in `build.gradle.kts`; not tagged.
 
+Rotation-lease ticket (issuer owner ruling C5#1, SPEC §14.5): `rotateSplit` sends the `lease_id` from the `rotation-lease` answer on the upload of the same rotation or recovery; a `409 rotation_lease_held` on the upload surfaces as the usual error and is not retried.
+
 ### Breaking
 - **A user token is never the bearer (R60).** Removed: `applyBearerTrio`, the `userBearer` / `withBearer` request fields and factories (`DisableMfaRequest`, `ListAuthenticatorsRequest`, `RegenerateRecoveryCodesRequest`, `RevokeAllSessionsRequest`, `OtpVerifyRequest`, `OtpIssueRequest`, `OtpViewOptions`), `MeAuth.bearer`, and the bearer form of `listSessions` / `revokeSession`. Use `userToken` / `withUserToken(...)`, `MeAuth.onBehalfOf(jwt)` (`MeAuth` is now `MeAuth(String userToken)`), `listSessions(userToken)` or `realm.withUserToken(jwt)`. The token rides in `X-User-Token`; the platform token is always `Authorization`.
 - **`ActorRequiredException extends RealmException` (R61, R86).** An actor route called with no actor is refused locally before anything is sent, and the issuer's `403 actor_required` decodes to the same type. Test with `RealmException.isActorRequired(t)`. `ErrorCode.ACTOR_REQUIRED`. A call that used to be rejected as `BAD_REQUEST` for a missing token now throws this.

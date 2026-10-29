@@ -22,7 +22,7 @@ class RotationTest {
 
     private static List<Map<String, Object>> splitRoutes(Issuer f, boolean handshakeOk) {
         List<Map<String, Object>> ups = new ArrayList<>();
-        f.on(BASE + "/rotation-lease", r -> json(200, Map.of("lease", "l1")));
+        f.on(BASE + "/rotation-lease", r -> json(200, Map.of("lease_id", "l1", "expires_at", "2026-10-29T00:00:00Z")));
         f.on(BASE, r -> {
             ups.add(r.body());
             return json(200, Map.of("status", "uploaded"));
@@ -122,6 +122,30 @@ class RotationTest {
                     () -> f.realm(null).signingKeys().rotateSplit(env, new RotateSplitOptions("k2", false)),
                     "env source rotation: want a RealmException (read-only; rotation_due path)");
             for (String p : f.paths()) assertEquals("POST /auth/token", p, "env-source rotation sent " + p);
+        }
+    }
+
+    @Test
+    void uploadCarriesLeaseId() throws Exception {
+        try (Issuer f = new Issuer()) {
+            List<Map<String, Object>> ups = splitRoutes(f, true);
+            MemShares src = new MemShares(newKey("k1").bundle(REALM));
+            f.realm(null).signingKeys().rotateSplit(src, new RotateSplitOptions("k2", false));
+            assertEquals(1, ups.size());
+            assertEquals("l1", ups.get(0).get("lease_id"), "upload must carry the lease call's lease_id");
+        }
+    }
+
+    @Test
+    void uploadLeaseHeldSurfacesAndIsNotRetried() throws Exception {
+        try (Issuer f = new Issuer()) {
+            f.on(BASE + "/rotation-lease", r -> json(200, Map.of("lease_id", "l1", "expires_at", "2026-10-29T00:00:00Z")));
+            f.on(BASE, r -> err(409, "rotation_lease_held", "held"));
+            MemShares src = new MemShares(newKey("k1").bundle(REALM));
+            RealmException e = assertThrows(RealmException.class,
+                    () -> f.realm(null).signingKeys().rotateSplit(src, new RotateSplitOptions("k2", false)));
+            assertEquals(409, e.getHttpStatus());
+            assertEquals(1, f.reqs(BASE).size(), "upload must not be retried");
         }
     }
 }

@@ -16,7 +16,7 @@ const base = `/platforms/${TEST_REALM}/signing-keys/split`;
 
 function splitRoutes(f: FakeIssuer, handshakeOK: boolean): Record<string, any>[] {
   const ups: Record<string, any>[] = [];
-  f.on(`${base}/rotation-lease`, () => jsonReply(200, { lease: "l1" }));
+  f.on(`${base}/rotation-lease`, () => jsonReply(200, { lease_id: "l1", expires_at: "2026-10-29T00:00:00Z" }));
   f.on(base, (r) => { ups.push(r.body!); return jsonReply(200, { status: "uploaded" }); });
   f.on(`${base}/k2/handshake`, async () => {
     const up = ups[ups.length - 1]!;
@@ -94,4 +94,23 @@ test("rotation: an env source cannot rotate and nothing is sent", async () => {
   await assert.rejects(rotateSplit(f.realm(), src, { kid: "k2" }),
     (e: unknown) => e instanceof RealmError && /read-only|writable/i.test(e.message));
   assert.deepEqual(nonMint(f), [], "env-source rotation sent a request");
+});
+
+test("rotation: the upload carries the lease_id the lease call returned", async () => {
+  const f = new FakeIssuer();
+  const ups = splitRoutes(f, true);
+  const src = new MemShares((await SplitKey.make("k1")).bundle(TEST_REALM));
+  await rotateSplit(f.realm(), src, { kid: "k2" });
+  assert.equal(ups.length, 1);
+  assert.equal(ups[0]!.lease_id, "l1");
+});
+
+test("rotation: a rotation_lease_held on upload surfaces and is not retried", async () => {
+  const f = new FakeIssuer();
+  f.on(`${base}/rotation-lease`, () => jsonReply(200, { lease_id: "l1", expires_at: "2026-10-29T00:00:00Z" }));
+  f.on(base, () => jsonReply(409, { error: { code: "rotation_lease_held", message: "held" } }));
+  const src = new MemShares((await SplitKey.make("k1")).bundle(TEST_REALM));
+  await assert.rejects(rotateSplit(f.realm(), src, { kid: "k2" }),
+    (e: unknown) => e instanceof RealmError && e.httpStatus === 409);
+  assert.equal(f.reqs(base).length, 1, "upload must not be retried");
 });

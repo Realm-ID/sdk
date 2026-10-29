@@ -75,9 +75,20 @@ func (c *SigningKeysClient) RotateSplit(ctx ctxpkg.Context, store ShareSource, o
 	if opts.Recovery {
 		reason = "recovery"
 	}
+	// The lease answers {lease_id, expires_at}; the upload of THIS rotation must carry the id.
+	var lease struct {
+		LeaseID string `json:"lease_id"`
+		Data    struct {
+			LeaseID string `json:"lease_id"`
+		} `json:"data"` // tolerate GoFr's {"data":{...}} wrapper
+	}
 	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: base + "/rotation-lease", Bearer: tok,
-		Body: map[string]any{"reason": reason}}, nil); err != nil {
+		Body: map[string]any{"reason": reason}}, &lease); err != nil {
 		return err
+	}
+	leaseID := lease.LeaseID
+	if leaseID == "" {
+		leaseID = lease.Data.LeaseID
 	}
 
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -98,9 +109,11 @@ func (c *SigningKeysClient) RotateSplit(ctx ctxpkg.Context, store ShareSource, o
 		return fmt.Errorf("realmid: store the new share: %w", err)
 	}
 
-	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: base, Bearer: tok, Body: map[string]any{
-		"kid": opts.KID, "n": entry.N, "e": entry.E, "d_ri": bigB64(dRI),
-	}}, nil); err != nil {
+	upload := map[string]any{"kid": opts.KID, "n": entry.N, "e": entry.E, "d_ri": bigB64(dRI)}
+	if leaseID != "" {
+		upload["lease_id"] = leaseID
+	}
+	if err := r.http.do(ctx, requestOptions{Method: "POST", Path: base, Bearer: tok, Body: upload}, nil); err != nil {
 		return err
 	}
 	kidPath := base + "/" + url.PathEscape(opts.KID)
