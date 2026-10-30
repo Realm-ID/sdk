@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from claude-config skills/workflow-preflight @ 7be1b9f7116e — edit canonical, not this copy
+# VENDORED from claude-config skills/workflow-preflight @ 26e6cf65abd4 — edit canonical, not this copy
 """workflow-preflight: stop GitHub Actions failures before push (`lint`, `parity`, `refs`, `calls`, `dispatch-check`, `triggers`).
 
 Canonical copy lives in claude-config `skills/workflow-preflight/scripts/`; repos carry a stamped
@@ -1441,7 +1441,10 @@ def main(argv=None):
     ap.add_argument("--names-file", help="refs/dispatch-check: JSON names fixture instead of gh (tests)")
     ap.add_argument("--gh", help="refs/dispatch-check: path of the gh binary (default $WORKFLOW_PREFLIGHT_GH or PATH)")
     ap.add_argument("--offline", action="store_true", help="lint: skip the tag/SHA network check (prints a warning)")
-    args, extra = ap.parse_known_args(argv)
+    # Intermixed: before Python 3.13, plain parse_known_args fills the optional `workflow`
+    # positional with nothing when a flag sits between it and `subcommand`
+    # (`dispatch-check -R O/R x.yml`), leaving x.yml as an "unexpected argument".
+    args, extra = ap.parse_known_intermixed_args(argv)
     if extra:
         print(f"unexpected arguments: {extra}", file=sys.stderr)
         return 2
