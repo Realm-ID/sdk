@@ -257,6 +257,15 @@ in the same repo.
 
 ## Drift gates and test infra
 
+- [ ] `scripts/changelog-hygiene.sh` self-test (`_fixture`, and the acknowledged-phantom case) runs
+      `git init` / `git commit -qm x` / `git tag` in `$tmp/r` WITHOUT scrubbing the inherited
+      `GIT_DIR`/`GIT_INDEX_FILE`. Run from the pre-push hook in a worktree (W9 push, 2026-10-30) it
+      committed fixture "x" (author `t`, deleting every file) onto the worktree's HEAD, created
+      local tags `go/v0.1.0` + `go/v0.2.0` (deleted locally, never pushed; both on fixture `80b2998`)
+      and set `core.bare=true` on the shared config. A tag push would have published an immutable
+      `go/v0.2.0`. Fix: `unset $(git rev-parse --local-env-vars)` at the top of each fixture
+      subshell; same audit for `scripts/release-check.test.sh` and `scripts/tag-hygiene.test.sh`.
+
 - [ ] `ts/src/v063-middleware.test.ts` — "SPEC10_1_4a body mode: loser's 503 carries
       refresh_token" FLAKES under full-suite load: got `200` where it expected `503` once in the
       pre-push `make check` (2026-10-03, failed the go 0.64.2 main push), then passed 6/6 in
