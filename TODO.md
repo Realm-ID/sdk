@@ -257,6 +257,11 @@ in the same repo.
 
 ## Drift gates and test infra
 
+- [ ] CI `TypeScript (tsc + node --test)` job (`.github/workflows/ci.yml`, `timeout-minutes: 10`) runs
+      at the cap: 9m47s at `d363fb9`, then cancelled at 10m16s inside the dudect step at `f43a5f2`
+      (run 41120371487, 2026-10-30; a re-run was needed before `ts-v0.58.0`). Split dudect into its own
+      job or raise the cap to 15.
+
 - [ ] `scripts/changelog-hygiene.sh` self-test (`_fixture`, and the acknowledged-phantom case) runs
       `git init` / `git commit -qm x` / `git tag` in `$tmp/r` WITHOUT scrubbing the inherited
       `GIT_DIR`/`GIT_INDEX_FILE`. Run from the pre-push hook in a worktree (W9 push, 2026-10-30) it
