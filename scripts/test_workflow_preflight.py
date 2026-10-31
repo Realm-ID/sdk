@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from claude-config skills/workflow-preflight @ 033643a18997 — edit canonical, not this copy
+# VENDORED from claude-config skills/workflow-preflight @ 8dc177f4a676 — edit canonical, not this copy
 """Tests for workflow_preflight.py (W1: lint + parity) — stdlib + PyYAML, no runner to install.
 
 Fixtures are synthetic repos built in temp dirs (no checked-in tree, so the vendored copy of
@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -500,6 +501,90 @@ class ParityTests(Base):
 
 ORG = "Just-Git-Dev/reusable-workflows"
 TAGSHA = "c" * 40
+
+
+class ScratchIgnoreTests(Base):
+    """F-036: `.scratch/` must be ignored by the repo itself, not only by the laptop's global excludes."""
+
+    def setUp(self):
+        super().setUp()
+        self.wf("ci.yml", ci())
+        self.cfg(jobs={"ci.yml:test": {"local": "make test"}})
+        self.gitenv = {k: v for k, v in os.environ.items() if k not in self.git_local_vars()}
+        self.gitenv.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null")
+        self.git("init", "-q")
+
+    @staticmethod
+    def git_local_vars():
+        return set(subprocess.run(["git", "rev-parse", "--local-env-vars"], capture_output=True, text=True).stdout.split())
+
+    def git(self, *args, env=None):
+        return subprocess.run(["git", "-C", str(self.tree), *args], capture_output=True, text=True,
+                              env=env or self.gitenv)
+
+    def gitignore(self, text):
+        (self.tree / ".gitignore").write_text(text)
+
+    def test_global_excludes_only_is_a_finding(self):
+        excludes = self.tree.parent / (self.tree.name + "-excludes")
+        excludes.write_text(".scratch/\n")
+        gcfg = self.tree.parent / (self.tree.name + "-gitconfig")
+        gcfg.write_text(f"[core]\n\texcludesFile = {excludes}\n")
+        self.addCleanup(excludes.unlink)
+        self.addCleanup(gcfg.unlink)
+        # positive control: under that global config git really does ignore it
+        self.assertEqual(self.git("check-ignore", "-q", ".scratch/probe",
+                                  env={**self.gitenv, "GIT_CONFIG_GLOBAL": str(gcfg)}).returncode, 0)
+        with unittest.mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(gcfg)}):
+            rc, out = self.run_cli("parity")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("SCRATCH_NOT_IGNORED", out)
+        self.assertIn("add the line `.scratch/` to this repo's .gitignore", out)
+        self.assertIn("GIT_CONFIG_GLOBAL=/dev/null git check-ignore -q .scratch/probe", out)
+
+    def test_not_ignored_anywhere_is_a_finding(self):
+        rc, out = self.run_cli("parity")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("SCRATCH_NOT_IGNORED", out)
+
+    def test_repo_gitignore_forms_are_clean(self):
+        for form in (".scratch/", "/.scratch", "**/.scratch/", ".scratch*", "node_modules/\n.scratch/\n"):
+            with self.subTest(form=form):
+                self.gitignore(form + "\n")
+                rc, out = self.run_cli("parity")
+                self.assertEqual(rc, 0, out)
+                self.assertNotIn("SCRATCH_NOT_IGNORED", out)
+                self.assertIn("scratch-ignore: .scratch/ ignored by .gitignore", out)
+
+    def test_negation_after_ignore_is_a_finding(self):
+        self.gitignore(".scratch/\n!.scratch/\n")
+        rc, out = self.run_cli("parity")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("SCRATCH_NOT_IGNORED", out)
+
+    def test_info_exclude_only_is_a_finding(self):
+        (self.tree / ".git" / "info").mkdir(exist_ok=True)
+        (self.tree / ".git" / "info" / "exclude").write_text(".scratch/\n")
+        rc, out = self.run_cli("parity")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("SCRATCH_NOT_IGNORED", out)
+        self.assertIn(".git/info/exclude", out)
+
+    def test_hook_git_dir_does_not_redirect_the_check(self):
+        # inside a git hook GIT_DIR names the hooked repo; the check must still read --root
+        # (a GIT_DIR that does not exist makes an unscrubbed git fail, so only a scrub passes)
+        self.gitignore(".scratch/\n")
+        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": str(self.tree / "no-such.git")}):
+            rc, out = self.run_cli("parity")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("scratch-ignore: .scratch/ ignored by .gitignore", out)
+
+    def test_not_a_git_repo_is_skipped_with_a_reason(self):
+        shutil.rmtree(self.tree / ".git")
+        rc, out = self.run_cli("parity")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("scratch-ignore: skipped", out)
+        self.assertNotIn("SCRATCH_NOT_IGNORED", out)
 
 
 def job_yaml(jid, setup, version, extra=""):

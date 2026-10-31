@@ -31,3 +31,6 @@ hs_err_pid*
 # Python bytecode from scripts/ (contract-parity, taxonomy-parity).
 __pycache__/
 *.pyc
+
+# Session scratch (also in the global excludes; listed here so a push that skips the global config sees a clean tree)
+.scratch/

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# VENDORED from claude-config skills/workflow-preflight @ 26e6cf65abd4 — edit canonical, not this copy
+# VENDORED from claude-config skills/workflow-preflight @ aff54ac09f12 — edit canonical, not this copy
 """workflow-preflight: stop GitHub Actions failures before push (`lint`, `parity`, `refs`, `calls`, `dispatch-check`, `triggers`).
 
 Canonical copy lives in claude-config `skills/workflow-preflight/scripts/`; repos carry a stamped
@@ -423,6 +423,31 @@ def pin_findings(wfs, cfg):
     return out
 
 
+SCRATCH_CHECK = "GIT_CONFIG_GLOBAL=/dev/null git check-ignore -q .scratch/probe"
+
+
+def scratch_ignore(root):
+    """F-036: `.scratch/` must be ignored by the repo's own .gitignore. A push run with
+    GIT_CONFIG_GLOBAL=/dev/null drops the global excludes, and laptop_status.sh then refuses the
+    push as "tree dirty". Git itself answers, so every pattern form counts. Returns (finding, note)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a hook's GIT_DIR names another repo
+    env.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True, env=env)
+
+    top = git("rev-parse", "--show-toplevel")
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != Path(root).resolve():
+        return None, f"scratch-ignore: skipped, {root} is not a git repo's top level"
+    fix = f"add the line `.scratch/` to this repo's .gitignore (check: {SCRATCH_CHECK})"
+    if git("check-ignore", "-q", ".scratch/probe").returncode != 0:
+        return f"SCRATCH_NOT_IGNORED .scratch/ is not ignored without the global git config; {fix}", None
+    src = git("check-ignore", "-v", ".scratch/probe").stdout.split(":", 1)[0]
+    if Path(src).name != ".gitignore":
+        return f"SCRATCH_NOT_IGNORED .scratch/ is ignored only by {src} (this clone only); {fix}", None
+    return None, f"scratch-ignore: .scratch/ ignored by {src}"
+
+
 def cmd_parity(root, cfg, args):
     jobs_cfg = cfg.get("jobs", {})
     errors, no_reason = validate_jobs(jobs_cfg)
@@ -516,6 +541,9 @@ def cmd_parity(root, cfg, args):
         notes.append(f"{len(not_local)} CI job(s) not run locally: {', '.join(not_local)}")
     if unverified:
         notes.append(f"markers unverified (no --gate-log): {', '.join(unverified)}")
+    finding, note = scratch_ignore(root)
+    findings += [finding] if finding else []
+    notes += [note] if note else []
     return finish(findings, warns, summary, notes=notes)
 
 
