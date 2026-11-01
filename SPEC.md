@@ -5271,24 +5271,26 @@ changes nothing on the wire or for a partner. It is canonical so that every deal
 range and vector checks (below) and matches `testdata/split-vectors/vectors.json`, which is
 generated under λ.
 
-**As built, 2026-10-29** (every row is a builder item, W11 checklist 4):
+**As built, re-checked 2026-11-02** against the source (was a W11 checklist-4 builder list, 2026-10-29):
 
 | dealer | modulus | `d_ri` range | conforms? |
 |---|---|---|---|
-| go `go/rotation.go:161-175` | λ (`:168`) | `rand.Int(lam)` = `[0, λ)` (`:170`); a zero `d_ri` or `d_partner` is not redrawn | λ yes; range no (0 allowed) |
-| ts `ts/src/rotation.ts:38-46` | λ (`:42`) | `randomBelow(lam)` = `[0, λ)` (`:44`); no zero redraw | λ yes; range no (0 allowed) |
-| java `SigningKeysClient.java:115-120` | λ (`:117`) | `new BigInteger(bitLength(λ)−1, rnd)` = `[0, 2^(bitLength(λ)−1))` (`:119`): NOT uniform over `[1, λ)`, and 0 allowed | λ yes; range no |
+| go `go/rotation.go:161-200` (`splitExponent` → `splitWithDRI`) | λ (`lambdaOf`, `:165`), `d` reduced mod λ | `1 + rand.Int(λ−1)` = `[1, λ)` (`:166-171`), redrawn on a zero `d_partner` | **yes** (go `0.72.0`) |
+| ts `ts/src/rotation.ts:38-46` | λ (`:42`) | `randomBelow(lam)` = `[0, λ)` (`:44`); no zero redraw | λ yes; **range no (0 allowed)**: fix held back behind a constant-time measurement (`TODO.md`, `ts/src/rotation.ts` item) |
+| java `SigningKeysClient.java:172-200` (`splitExponent` → `splitWithDRi`) | λ (`lambdaOf`, `:172`), `d` reduced mod λ (`:187`) | rejection-sampled uniform `[1, λ)` (`:193-198`), redrawn on a zero half | **yes** (java `0.56.0`) |
+| web-admin `web/packages/admin/src/split-math.ts` (`splitWithDRi`, browser dealer, SPEC §14.15) | λ (`lambdaOf`, `:8`), `d` reduced mod λ | refuses `d_ri` outside `[1, λ)` (`:23`) | **yes** (web-admin `0.27.0`) |
 | cli `cli/cmd/realm-id/signing_keys.go:315-365` (`dealKey` → `dealFrom` → `splitWithDRI`) | λ (`lambdaOf`, `:345`), `d` reduced mod λ (`:354`) | `1 + rand.Int(λ−1)` = `[1, λ)` (`:330`), redrawn on a zero `d_partner` | **yes** (2026-11-02). The CLI **keeps its own dealer** (console-tier client, owner 2026-11-02; this reverses ruling 9's "replaced by the sdk/go dealer"), held to the shared vectors by `cli/cmd/realm-id/dealer_test.go` over a commit-pinned copy of `vectors.json` |
 
 A zero half is reachable only with probability about 2⁻²⁰⁴⁷, and the issuer refuses a zero `d_ri`
-anyway, so the go/ts gap is a conformance fix, not a live fault. Java's range leaks at most about
-one bit of `d_ri`'s position to the partner; it is fixed with the rest.
+anyway, so the remaining ts gap is a conformance fix, not a live fault. (Java's former
+non-uniform range, which leaked at most about one bit of `d_ri`'s position, was fixed in java
+`0.56.0`.)
 
 **Encodings.** Every integer on the wire and in a share (`n`, `e`, `d_ri`, `d_partner`) is the
 unsigned big-endian byte string of MINIMAL length (no leading zero byte; Java strips the sign byte
 of `toByteArray`), in base64url WITHOUT padding (RFC 4648 §5). `e = 65537` is `"AQAB"`. As built:
-go `bigB64` (`go/rotation.go:177`), ts `wire` (`ts/src/rotation.ts:48`), java `b64`
-(`SigningKeysClient.java:174-178`), cli `bigB64`. The issuer tolerates trailing `=`
+go `bigB64` (`go/rotation.go:201`), ts `wire` (`ts/src/rotation.ts:48`), java `b64`
+(`SigningKeysClient.java:207-211`), cli `bigB64`. The issuer tolerates trailing `=`
 (`httpapi/signing_split.go` `b64uDecode`); a dealer never writes it. No decimal or hex form exists
 anywhere on this path (the vectors file's lowercase hex is a test encoding only).
 
