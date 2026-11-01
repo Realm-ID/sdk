@@ -13,9 +13,9 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased — split dealers draw d_ri uniformly in [1, lambda) (go/java; web-admin 0.27.0 browser dealer; SPEC §14.14, §14.15)
+## go `0.72.0` · java `0.56.0` · web-admin `0.27.0` — split dealers draw d_ri uniformly in [1, lambda); browser dealer (SPEC §14.14, §14.15) (2026-11-01)
 
-go `rotation.go` and java `SigningKeysClient.rotateSplit` now draw `d_ri` uniformly in `[1, lambda(n))` and redraw on a zero half (go allowed 0; java drew from `[0, 2^(bitLength-1))`, not uniform). New shared vector case `dealer` (`d_ri > d`, so it tells lambda from phi) in `testdata/split-vectors/vectors.json`. `@realm-id/web-admin` 0.26.0 adds `dealSplitKey`, `isSplitKeygenUnsupported` and `admin.signingKeys.uploadSplitKey`. The ts dealer's range fix is queued in `TODO.md`.
+go `rotation.go` and java `SigningKeysClient.rotateSplit` now draw `d_ri` uniformly in `[1, lambda(n))` and redraw on a zero half (go allowed 0; java drew from `[0, 2^(bitLength-1))`, not uniform). New shared vector case `dealer` (`d_ri > d`, so it tells lambda from phi) in `testdata/split-vectors/vectors.json`. `@realm-id/web-admin` 0.27.0 adds `dealSplitKey`, `isSplitKeygenUnsupported` and `admin.signingKeys.uploadSplitKey`. The ts dealer's range fix is queued in `TODO.md`.
 
 ## go `0.71.0` · ts `0.59.0` · java `0.55.0` — `realm_suspended` and `tenant_suspended` (410) are registered codes (2026-11-01)
 
