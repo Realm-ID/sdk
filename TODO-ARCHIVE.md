@@ -2,6 +2,10 @@
 
 Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TODO.md) for open, actionable items.
 
+## Closed 2026-11-01 — done in released go 0.71.0 / ts 0.59.0 / java 0.55.0
+
+- **`go/errors.go` — Partner request (Traide, 2026-10-30): `realm_suspended` / `tenant_suspended` (410) constants and predicates** — `ErrCodeRealmSuspended`/`IsRealmSuspended`, `ErrCodeTenantSuspended`/`IsTenantSuspended` in go 0.71.0, ts/java parity in ts 0.59.0 and java 0.55.0 (web-admin 0.26.0 bundles it). Traide's session still to be told the version.
+
 ## Closed 2026-10-03 — verified already done (owner-approved sweep)
 
 - **`@realm-id/web` `completeSignIn` should recognize an OIDC *error* return** — done in `9506e7f`; `web/packages/core/src/realm.ts:268-271` calls `readCallbackError` before the code check.

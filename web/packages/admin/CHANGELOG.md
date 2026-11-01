@@ -4,7 +4,7 @@
 
 No source change in this package. The tarball bundles `@realm-id/sdk`, so the version is bumped to ship the sdk's two new 410 codes (`realm_suspended`, `tenant_suspended`) and their predicates. A `ts-v*` tag publishes this package too; republishing 0.25.0 would be skipped as already published.
 
-## 0.26.0 — browser split dealer (SPEC 14.15) (unreleased)
+## 0.27.0 — browser split dealer (SPEC 14.15) (unreleased)
 
 **Added.** `dealSplitKey({ realm, kid?, crypto? })`: generates an RSA-2048 key with WebCrypto, splits the private exponent modulo lambda(n) in BigInt (SPEC 14.14), and returns `{ kid, share, shareJson, filename, upload }`. `shareJson` is the plain ShareBundle to download (`{realm, shares:{<kid>:{n,e,d_partner}}}`, filename `realmid-share-<realm>-<kid>.json`); `upload` is RealmID's half. Default kid `split-<yyyymmdd>-<8hex>`. `isSplitKeygenUnsupported(err)` is true for the `invalid_config` / `details.reason: "split_keygen_unsupported"` refusal (no WebCrypto RSA, or a JWK without d/p/q). `admin.signingKeys.uploadSplitKey(platformId, body)` POSTs `{kid,n,e,d_ri}` to `/platforms/{id}/signing-keys/split`. No `node:` import and no `Buffer` in `src/` or `dist/`; the dealer does not use `@realm-id/sdk/split`. Pinned by `split-dealer.test.ts`.
 
