@@ -10,7 +10,7 @@ Newest first.
 
 ## Index
 
-143 entries total — 88 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+144 entries total — 89 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
 - [2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java](#2026-11-01--realm_suspended-and-tenant_suspended-410-registered-in-gotsjava)
 - [2026-10-29 — Split modulus is λ(n), canonical (Q3); browser dealer in web-admin; base-trust withdrawn from SPEC (D3/D4)](#2026-10-29--split-modulus-is-λn-canonical-q3-browser-dealer-in-web-admin-base-trust-withdrawn-from-spec-d3d4)
