@@ -25,11 +25,11 @@ Additive. A partner (Traide, 2026-10-30) could not branch on the issuer's two 41
 - java: `ErrorCode.REALM_SUSPENDED` / `TENANT_SUSPENDED`, `RealmException.isRealmSuspended` / `isTenantSuspended`.
 `realm_suspended` is the realm refusal on login, token and OIDC/JWKS routes; `tenant_suspended` is the integration routes' inactive-org refusal. Neither is the 403 `tenant_disabled`. SPEC §3.1 lists them. `@realm-id/web-admin` 0.26.0 repacks the bundled `@realm-id/sdk` 0.59.0.
 
-## Unreleased — split self-rotation reads the wrapped handshake answer (go/ts/java; fix)
+## go `0.70.0` · ts `0.58.0` · java `0.54.0` — split self-rotation reads the wrapped handshake answer (fix; shipped under an "Unreleased" heading, relabelled 2026-11-02)
 
 `RotateSplit` / `rotateSplit` read the handshake challenge from the top level, but the issuer GoFr-wraps it as `{"data":{"nonce","partial_ri"}}` (swagger `required: [data]`). Every rotation against the real issuer died after the lease, the share store and the `d_ri` upload. All three now unwrap `data` for that one route; lease, upload, complete, status, downgrade and cancel are `raw()` (bare) and unchanged. The test fakes now answer the issuer wire shape. See DECISIONS.md.
 
-## Unreleased — go: constant-time partner half-signature (R27)
+## go `0.70.0` — constant-time partner half-signature (R27) (shipped under an "Unreleased" heading, relabelled 2026-11-02)
 
 - `go/cosign.go`: the partner's secret-exponent exponentiation (`d_partner`) no longer uses a `math/big`
   ladder that indexed by the secret bit. It runs `ctExp` (new `go/ctexp.go`), a fixed-window (4-bit)
@@ -38,12 +38,12 @@ Additive. A partner (Traide, 2026-10-30) could not branch on the issuer's two 41
   52.6 ms -> 13.1 ms on the dev laptop. New: structural test (no variable-time op on the secret) and a
   `dudect`-tagged timing test, run in CI as its own step in the Go job. `const Version` stays 0.70.0 (untagged).
 
-## Unreleased — error-reference: split-custody rows that had none (docs only)
+## go `0.70.0` · ts `0.58.0` · java `0.54.0` — error-reference: split-custody rows that had none (docs only; shipped under an "Unreleased" heading, relabelled 2026-11-02)
 
 - `docs/error-reference.md` gains `split_key_invalid`, `split_upload_not_allowed` and `overlap_cap_exceeded`,
   emitted by the issuer's split-custody service but never documented. No SDK code or version changes.
 
-## Unreleased — Go share-source add-ons: Google Secret Manager and Redis (SPEC §14.13, R35/R95)
+## Go share-source add-ons: Google Secret Manager and Redis (SPEC §14.13, R35/R95) — code in go `0.70.0`; gsm module first tagged 2026-11-01 (`go/secrets/gsm/v0.1.0`), redis module untagged
 
 - New modules `github.com/Realm-ID/sdk/go/secrets/gsm` and `.../secrets/redis`, each its own `go.mod`
   and its own tag (`go/secrets/gsm/vX`, `go/secrets/redis/vX`); the core stays stdlib-only and its
