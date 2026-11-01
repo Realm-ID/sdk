@@ -5278,7 +5278,7 @@ generated under λ.
 | go `go/rotation.go:161-175` | λ (`:168`) | `rand.Int(lam)` = `[0, λ)` (`:170`); a zero `d_ri` or `d_partner` is not redrawn | λ yes; range no (0 allowed) |
 | ts `ts/src/rotation.ts:38-46` | λ (`:42`) | `randomBelow(lam)` = `[0, λ)` (`:44`); no zero redraw | λ yes; range no (0 allowed) |
 | java `SigningKeysClient.java:115-120` | λ (`:117`) | `new BigInteger(bitLength(λ)−1, rnd)` = `[0, 2^(bitLength(λ)−1))` (`:119`): NOT uniform over `[1, λ)`, and 0 allowed | λ yes; range no |
-| cli `cli/cmd/realm-id/signing_keys.go:311-328` (`dealKey`) | **φ** (`:316`), on the unreduced `key.D` | `[0, φ)`, redrawn until both halves are `> 0` (`:324`) | **no**: replaced by the sdk/go dealer (owner ruling 9) |
+| cli `cli/cmd/realm-id/signing_keys.go:315-365` (`dealKey` → `dealFrom` → `splitWithDRI`) | λ (`lambdaOf`, `:345`), `d` reduced mod λ (`:354`) | `1 + rand.Int(λ−1)` = `[1, λ)` (`:330`), redrawn on a zero `d_partner` | **yes** (2026-11-02). The CLI **keeps its own dealer** (console-tier client, owner 2026-11-02; this reverses ruling 9's "replaced by the sdk/go dealer"), held to the shared vectors by `cli/cmd/realm-id/dealer_test.go` over a commit-pinned copy of `vectors.json` |
 
 A zero half is reachable only with probability about 2⁻²⁰⁴⁷, and the issuer refuses a zero `d_ri`
 anyway, so the go/ts gap is a conformance fix, not a live fault. Java's range leaks at most about
@@ -5327,7 +5327,7 @@ nothing until the partner's SDK completes the handshake (§14.6): after the cons
 realm sits at `overlap_pending` until the partner's backend starts with the share.
 
 **Testing a dealer (`SPEC14_14_dealer`).** A dealer is random, so no vector pins its output; it is
-pinned by four checks, which go, ts, java, the CLI's replacement and web-admin all carry:
+pinned by four checks, which go, ts, java, the CLI and web-admin all carry:
 
 1. **Vector split.** Given the key of `testdata/split-vectors/vectors.json` (`p`, `q`, `d`) and its
    `d_ri` injected in place of the RNG, the dealer's pure split returns exactly that file's

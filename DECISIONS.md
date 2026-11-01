@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-144 entries total — 89 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+145 entries total — 90 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-02 — CLI keeps its own dealer, held to the shared split vectors (ruling 9 reversed)](#2026-11-02--cli-keeps-its-own-dealer-held-to-the-shared-split-vectors-ruling-9-reversed)
 - [2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java](#2026-11-01--realm_suspended-and-tenant_suspended-410-registered-in-gotsjava)
 - [2026-10-29 — Split modulus is λ(n), canonical (Q3); browser dealer in web-admin; base-trust withdrawn from SPEC (D3/D4)](#2026-10-29--split-modulus-is-λn-canonical-q3-browser-dealer-in-web-admin-base-trust-withdrawn-from-spec-d3d4)
 - [2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)](#2026-10-29--rca-split-self-rotation-misread-the-gofr-wrapped-handshake-answer-gotsjava)
@@ -156,6 +157,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-02 — CLI keeps its own dealer, held to the shared split vectors (ruling 9 reversed)
+
+**Problem.** SPEC §14.14's as-built table said the CLI dealer would be "replaced by the sdk/go dealer (owner ruling 9)". The CLI still split mod φ on the unreduced `d` (it signed correctly, since λ divides φ), and sdk/go exports no dealer, so the replacement needed a new public sdk/go API and a go release first.
+
+**Decision (owner, 2026-11-02).** Ruling 9 is reversed for the CLI: it **keeps its own dealer**. The CLI is a console-tier client, the terminal twin of the RI UI (whose dealer is web-admin's, not the server SDK's), not a partner backend. Making it import sdk/go would tie a console tool to the partner server SDK's release train and widen sdk/go's public surface with an export only RealmID's own tool needs. Drift is held by a shared TEST, not shared code: the CLI carries the four `SPEC14_14_dealer` checks against a commit-pinned copy of `testdata/split-vectors/vectors.json` (re-vendored by `cli/scripts/revendor-split-vectors.sh`, re-hashed by a test, the `error-reference.md` pattern).
+
+**What changed here.** SPEC §14.14: the CLI row now reads λ, `[1, λ)`, conforms; the testing paragraph says "the CLI", not "the CLI's replacement". No sdk/go export, no go release.
+
+**Trade-off.** Two copies of ~30 lines of split maths (sdk/go `rotation.go` and the CLI) instead of one. Accepted: the functions carry the same names (`lambdaOf`, `splitWithDRI`) so they diff cleanly, and the shared vectors catch a divergence, which is how the φ drift would have been caught had the CLI carried them.
+
+**Consequence.** A change to `vectors.json` reaches the CLI only when someone re-vendors it there; until then the CLI tests the older pinned copy.
 
 ## 2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java
 
