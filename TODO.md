@@ -262,6 +262,12 @@ in the same repo.
       (run 41120371487, 2026-10-30; a re-run was needed before `ts-v0.58.0`). Split dudect into its own
       job or raise the cap to 15.
 
+- [ ] Java dudect `CtExpDudectTest.ctExpIsConstantTime` (limit `max|t| < 10`) is a release-blocking
+      FLAKE on hosted runners: the same commit `d1d68b0` scored 1.28 (CI run 41316226067) and 11.19
+      (publish-maven run 41317032442, which blocked `java-v0.56.0` until a re-run); `java-v0.55.0`
+      scored 5.95. Code under test unchanged. Options: repeat-and-take-min (dudect's own advice for noisy
+      hosts), or run it in CI only and not as a publish gate. Measure the spread first.
+
 - [ ] `scripts/changelog-hygiene.sh` self-test (`_fixture`, and the acknowledged-phantom case) runs
       `git init` / `git commit -qm x` / `git tag` in `$tmp/r` WITHOUT scrubbing the inherited
       `GIT_DIR`/`GIT_INDEX_FILE`. Run from the pre-push hook in a worktree (W9 push, 2026-10-30) it
@@ -398,7 +404,7 @@ Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
 
-- [ ] `.githooks/pre-push` release-check + root `scripts/release.py` — no rule for the nested-module tag forms `go/secrets/gsm/v*` and `go/secrets/redis/v*`. `go/secrets/gsm/v0.1.0` (2026-11-01, first tag) was cut by hand with `git tag -a` and pushed UNGATED (pre-push: "has no release-check rule — NOT gated"); release.py refuses the form. Add a gate (changelog entry + module builds with no `replace` resolved) and teach release.py the form. `go/secrets/redis` is still untagged.
+- [ ] `.githooks/pre-push` release-check + root `scripts/release.py` — no rule for the nested-module tag forms `go/secrets/gsm/v*` and `go/secrets/redis/v*`. `go/secrets/gsm/v0.1.0` (2026-11-01, first tag) was cut by hand with `git tag -a` and pushed UNGATED (pre-push: "has no release-check rule — NOT gated"); release.py refuses the form. Add a gate (changelog entry + module builds with no `replace` resolved) and teach release.py the form. `go/secrets/redis` is still untagged. Also `.github/workflows/verify-go-release.yml` fires on every `go/**` tag and compares the CORE `realmid.Version` against the nested tag: run 41317385041 went red on `go/secrets/gsm/v0.1.0` ("realmid.Version=0.72.0 does not match tag"), and `release_verify.py` then reports go/v0.72.0's `ship-ci` as FAIL. Exclude or handle nested-module tags there.
 
 - [ ] `go/trust.go` — SPEC §14.6/§14.7/§14.5/§14.9 items Go lacks (S5c did not build them, SPEC names are proposals): `(*Realm).SplitReady(ctx)` startup handshake + readiness after every reload; metrics hooks `realmid_cosign_total` / `realmid_share_load_total`; `rotation_due` on the env source; `PublicKeyList` + `NewPublicKeySource` (verify-only services); `ShareWatcher` hook for pub/sub add-ons; `KEKRing` (`REALM_ID_SHARE_KEK` parsing, multi-KEK write-back); unpinned-kid log should name the key FINGERPRINT, not the kid (trust.go still logs the kid); a unit that gives ts/java the same pilot before S6/S7 green
 - [ ] `go/integrations.go` — `IntegrationsClient.MintToken` still POSTs `grant_type=integration_installation` to `/auth/login`, which R34 removed; the replacement is `POST /integrations/installations/{id}/pass` (platform token, no actor) then the pass in `X-User-Token` to `POST /auth/token`; no Go method exists for the pass mint (split-signing S5b)
