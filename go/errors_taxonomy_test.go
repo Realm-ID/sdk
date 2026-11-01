@@ -106,6 +106,8 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeUserSuspended, ErrCodeEscortSuspended,
 		// Tenant lifecycle: the org the token is for is suspended or deactivated.
 		ErrCodeTenantDisabled,
+		// The 410 suspension refusals (realm login/token routes; integration routes).
+		ErrCodeRealmSuspended, ErrCodeTenantSuspended,
 		// ADR-115 (SPEC §3.1 phone-delivery channel codes).
 		ErrCodeInvalidChannelConfig, ErrCodeChannelValidationFailed,
 		ErrCodeChannelNotConfigured, ErrCodePhoneOTPRateLimited,

@@ -104,6 +104,22 @@ public class RealmException extends RuntimeException {
     }
 
     /**
+     * True when {@code t} is the issuer's 410 {@code realm_suspended}: the realm
+     * is suspended or deactivated.
+     */
+    public static boolean isRealmSuspended(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.REALM_SUSPENDED;
+    }
+
+    /**
+     * True when {@code t} is the issuer's 410 {@code tenant_suspended}: the target
+     * org of an integration call is not active. Not the 403 {@code tenant_disabled}.
+     */
+    public static boolean isTenantSuspended(Throwable t) {
+        return t instanceof RealmException re && re.code == ErrorCode.TENANT_SUSPENDED;
+    }
+
+    /**
      * True when {@code t} is the issuer's 403 {@code user_suspended} (ADR-104
      * R-d): the subject's row in that org is suspended or deactivated. Not a
      * sign-out; the person may be active elsewhere.

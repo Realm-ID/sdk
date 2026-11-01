@@ -4,7 +4,11 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased (0.54.0) — split signing, platform token always, login mints at /auth/token (SPEC §3.1, §14.1-§14.11; R44-R95)
+## 0.55.0 — `realm_suspended` and `tenant_suspended` (410) registered (2026-11-01)
+
+Added `ErrorCode.REALM_SUSPENDED` / `TENANT_SUSPENDED` and `RealmException.isRealmSuspended` / `isTenantSuspended`. Before, a 410 carrying either code resolved to the status fallback. Not the 403 `TENANT_DISABLED`. Version bumped to 0.55.0 in `build.gradle.kts`; not tagged. See the root CHANGELOG.
+
+## 0.54.0 — split signing, platform token always, login mints at /auth/token (SPEC §3.1, §14.1-§14.11; R44-R95)
 
 Fix: The handshake route is GoFr-wrapped; lease, upload and complete are bare. Fakes now answer the issuer wire shape. See the root CHANGELOG and DECISIONS.md.
 

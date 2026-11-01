@@ -95,6 +95,12 @@ export type ErrorCode =
   // session is NOT ended: pick another org, or wait for this one to be reactivated.
   // Distinct from `user_suspended` (the end user's own row).
   | "tenant_disabled"
+  // `realm_suspended` (410): the realm is suspended or deactivated (login, token,
+  // OIDC discovery/JWKS and the like). Distinct from the 403 `tenant_disabled`.
+  | "realm_suspended"
+  // `tenant_suspended` (410): the target org of an integration call is not
+  // active. Distinct from the 403 `tenant_disabled` of bearer requests.
+  | "tenant_suspended"
   // `escort_suspended` (403 from the issuer, ADR-104 R-d): the BFF's own /auth/*
   // escort account is disabled. A service problem, not the user's.
   | "escort_suspended"
@@ -361,6 +367,16 @@ export function isTenantDisabled(e: unknown): boolean {
   return e instanceof RealmError && e.code === "tenant_disabled";
 }
 
+/** True when `e` is the issuer's 410 `realm_suspended` (the realm is suspended or deactivated). */
+export function isRealmSuspended(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "realm_suspended";
+}
+
+/** True when `e` is the issuer's 410 `tenant_suspended` (an integration call's target org is not active). */
+export function isTenantSuspended(e: unknown): boolean {
+  return e instanceof RealmError && e.code === "tenant_suspended";
+}
+
 /** True when `e` is the issuer's 403 `escort_suspended` (ADR-104 R-d). */
 export function isEscortSuspended(e: unknown): boolean {
   return e instanceof RealmError && e.code === "escort_suspended";
@@ -438,6 +454,7 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "realm_origin_mismatch", "realm_mismatch",
   "missing_origin", "refresh_invalid", "token_stale", "last_owner",
   "user_suspended", "escort_suspended", "tenant_disabled",
+  "realm_suspended", "tenant_suspended",
   "invalid_scope", "too_many_scopes", "scope_too_long", "scope_not_supported",
   "reserved_claim_key", "realmid_audience_immutable", "invalid_rename",
   "unauthorized", "forbidden", "not_found", "conflict", "rate_limited",

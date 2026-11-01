@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-142 entries total — 87 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+143 entries total — 88 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java](#2026-11-01--realm_suspended-and-tenant_suspended-410-registered-in-gotsjava)
 - [2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)](#2026-10-29--rca-split-self-rotation-misread-the-gofr-wrapped-handshake-answer-gotsjava)
 - [2026-10-29 — R27 constant-time half-signing in sdk/ts (ctExp, Uint32Array limbs)](#2026-10-29--r27-constant-time-half-signing-in-sdkts-ctexp-uint32array-limbs)
 - [2026-10-29 — R27 constant-time half-signing in sdk/java (CtExp)](#2026-10-29--r27-constant-time-half-signing-in-sdkjava-ctexp)
@@ -154,6 +155,10 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java
+
+Partner Traide (2026-10-30) could not branch on the issuer's 410 `realm_suspended` / `tenant_suspended`: the SDKs surfaced them under the status fallback. Registered both in go/ts/java, mirroring `tenant_disabled` (const + predicate + known-code list; java enum + static predicate). Issuer evidence: `issuer/internal/httpapi/auth.go:369,817` (realm_suspended, 410), `integration_mint_handler.go:68` and `integration_installations.go:87` (tenant_suspended, 410); both in swagger. Versions go 0.71.0, ts 0.59.0, java 0.55.0, web-admin 0.26.0 (it bundles the ts sdk and the publisher skips an already-published version, so without a bump partners would not get the codes through web-admin). No new typed-error class: neither code is raised locally. The sdk/TODO.md item this answers was not present in TODO.md at build time, so nothing was ticked.
 
 ## 2026-10-29 — RCA: split self-rotation misread the GoFr-wrapped handshake answer (go/ts/java)
 

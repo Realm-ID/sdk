@@ -9,7 +9,7 @@ plugins {
 }
 
 group = "dev.realmid"
-version = "0.54.0"
+version = "0.55.0"
 
 base {
     archivesName.set("sdk")

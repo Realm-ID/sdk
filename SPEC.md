@@ -230,7 +230,8 @@ SDK failure. It carries:
 `session_limit_reached`, `tenant_required`, `tenant_invalid`,
 `account_suspended`, `account_deactivated`, `realm_origin_mismatch`,
 `realm_mismatch`, `missing_origin`, `refresh_invalid`, `token_stale`,
-`user_suspended`, `escort_suspended`, `tenant_disabled`.
+`user_suspended`, `escort_suspended`, `tenant_disabled`, `realm_suspended`,
+`tenant_suspended`.
 
 **Typed-error naming (R86).** A code is REGISTERED in all three taxonomies (Go `ErrCode<Stem>`, ts
 `"<code>"`, java `ErrorCode.<STEM>`), gated by `scripts/taxonomy-parity.py`. A code the SDK also
@@ -249,6 +250,15 @@ Initialisms follow each language (Go `OTP`, ts/java `Otp`). First instance: `act
 > Go BFF middleware relays it as **403** with its real code and never tears the
 > session down; it is not a token-level failure. Go: `ErrCodeTenantDisabled`,
 > `IsTenantDisabled`.
+>
+> `realm_suspended` and `tenant_suspended` are the **410** counterparts: the
+> realm (login, token, OIDC discovery/JWKS) or the target org of an integration
+> route is suspended or deactivated. They are registered codes (Go
+> `ErrCodeRealmSuspended`/`IsRealmSuspended` and `ErrCodeTenantSuspended`/
+> `IsTenantSuspended`; ts `isRealmSuspended`/`isTenantSuspended`; java
+> `ErrorCode.REALM_SUSPENDED`/`TENANT_SUSPENDED` with
+> `RealmException.isRealmSuspended`/`isTenantSuspended`), not a status fallback.
+> Neither is the 403 `tenant_disabled`.
 >
 > `user_suspended` (403, issuer ADR-104 R-d) means the token's subject row in
 > THAT org is suspended or deactivated. `escort_suspended` (403 from the issuer)

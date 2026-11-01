@@ -143,6 +143,20 @@ public enum ErrorCode {
     TENANT_DISABLED("tenant_disabled"),
 
     /**
+     * {@code realm_suspended} (410): the realm is suspended or deactivated (login,
+     * token, OIDC discovery/JWKS and the like). Distinct from the 403
+     * {@code tenant_disabled}. See {@link RealmException#isRealmSuspended}.
+     */
+    REALM_SUSPENDED("realm_suspended"),
+
+    /**
+     * {@code tenant_suspended} (410): the target org of an integration call is not
+     * active. Distinct from the 403 {@code tenant_disabled}. See
+     * {@link RealmException#isTenantSuspended}.
+     */
+    TENANT_SUSPENDED("tenant_suspended"),
+
+    /**
      * {@code escort_suspended} (403 from the issuer, ADR-104 R-d): the BFF's own
      * /auth/* escort account is disabled. A service problem, not the user's.
      */

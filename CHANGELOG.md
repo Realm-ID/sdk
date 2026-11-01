@@ -13,6 +13,14 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.71.0` · ts `0.59.0` · java `0.55.0` — `realm_suspended` and `tenant_suspended` (410) are registered codes (2026-11-01)
+
+Additive. A partner (Traide, 2026-10-30) could not branch on the issuer's two 410 suspension refusals: the SDKs did not register them, so a decoded error fell back to the HTTP status and the specific code was lost. Both are now in all three taxonomies (`scripts/taxonomy-parity.py` holds), with a predicate each:
+- go: `ErrCodeRealmSuspended` / `IsRealmSuspended`, `ErrCodeTenantSuspended` / `IsTenantSuspended`.
+- ts: `"realm_suspended"` / `"tenant_suspended"` in `ErrorCode` and `ERROR_CODES`, `isRealmSuspended` / `isTenantSuspended` (exported from the entry point).
+- java: `ErrorCode.REALM_SUSPENDED` / `TENANT_SUSPENDED`, `RealmException.isRealmSuspended` / `isTenantSuspended`.
+`realm_suspended` is the realm refusal on login, token and OIDC/JWKS routes; `tenant_suspended` is the integration routes' inactive-org refusal. Neither is the 403 `tenant_disabled`. SPEC §3.1 lists them. `@realm-id/web-admin` 0.26.0 repacks the bundled `@realm-id/sdk` 0.59.0.
+
 ## Unreleased — split self-rotation reads the wrapped handshake answer (go/ts/java; fix)
 
 `RotateSplit` / `rotateSplit` read the handshake challenge from the top level, but the issuer GoFr-wraps it as `{"data":{"nonce","partial_ri"}}` (swagger `required: [data]`). Every rotation against the real issuer died after the lease, the share store and the `d_ri` upload. All three now unwrap `data` for that one route; lease, upload, complete, status, downgrade and cancel are `raw()` (bare) and unchanged. The test fakes now answer the issuer wire shape. See DECISIONS.md.

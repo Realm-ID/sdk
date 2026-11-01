@@ -208,3 +208,25 @@ test("tenant_disabled: registered code, lands on .code, predicate matches", asyn
   assert.equal(isTenantDisabled(new RealmError({ code: "forbidden", message: "x" })), false);
   assert.equal(isTenantDisabled(new Error("x")), false);
 });
+
+// The 410 suspension refusals (partner request, Traide 2026-10-30): realm_suspended
+// and tenant_suspended are registered codes, not a status-fallback.
+test("realm_suspended / tenant_suspended: registered 410 codes, exact predicates", async () => {
+  const { isKnownCode, isRealmSuspended, isTenantSuspended } = await import("./errors.js");
+  for (const [code, is, other] of [
+    ["realm_suspended", isRealmSuspended, isTenantSuspended],
+    ["tenant_suspended", isTenantSuspended, isRealmSuspended],
+  ] as const) {
+    assert.equal(isKnownCode(code), true);
+    const c = new HttpClient({
+      baseUrl: "https://x.example",
+      fetch: fixedFetch(410, { error: { code, message: "suspended" } }),
+    });
+    await assert.rejects(() => c.request({ path: "/x" }), (e: Error) => {
+      return e instanceof RealmError && e.code === code && e.httpStatus === 410
+        && e.details?.["server_code"] === undefined && is(e) && !other(e);
+    });
+    assert.equal(is(new RealmError({ code: "otp_expired", message: "x", httpStatus: 410 })), false);
+    assert.equal(is(new Error("x")), false);
+  }
+});

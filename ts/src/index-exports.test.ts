@@ -10,4 +10,7 @@ test("index exports the 403 predicates", () => {
   assert.equal(sdk.isEscortSuspended(e("escort_suspended")), true);
   assert.equal(sdk.isTenantDisabled(e("tenant_disabled")), true);
   assert.equal(sdk.isTenantDisabled(e("forbidden")), false);
+  assert.equal(sdk.isRealmSuspended(e("realm_suspended")), true);
+  assert.equal(sdk.isTenantSuspended(e("tenant_suspended")), true);
+  assert.equal(sdk.isTenantSuspended(e("realm_suspended")), false);
 });

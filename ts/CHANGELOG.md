@@ -4,7 +4,11 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## Unreleased (0.58.0) — split signing, login → token everywhere, the actor model (SPEC §14, 2026-10-28)
+## 0.59.0 — `realm_suspended` and `tenant_suspended` (410) registered (2026-11-01)
+
+Added `"realm_suspended"` and `"tenant_suspended"` to `ErrorCode` / `ERROR_CODES` and the predicates `isRealmSuspended` / `isTenantSuspended` (exported from the entry point). Before, a 410 carrying either code surfaced under the status fallback. Not the 403 `tenant_disabled`. See the root CHANGELOG.
+
+## 0.58.0 — split signing, login → token everywhere, the actor model (SPEC §14, 2026-10-28)
 
 Fix: The handshake route is GoFr-wrapped; lease, upload and complete are bare. Fakes now answer the issuer wire shape. See the root CHANGELOG and DECISIONS.md.
 

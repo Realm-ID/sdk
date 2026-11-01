@@ -86,6 +86,14 @@ const (
 	// the person may still use their other orgs. The BFF middleware relays it as
 	// 403 and never tears the session down.
 	ErrCodeTenantDisabled ErrorCode = "tenant_disabled"
+	// ErrCodeRealmSuspended (410): the realm is suspended or deactivated. Sent on
+	// login, token, OIDC discovery/JWKS and the like. Distinct from the 403
+	// tenant_disabled (a bearer request into a disabled org).
+	ErrCodeRealmSuspended ErrorCode = "realm_suspended"
+	// ErrCodeTenantSuspended (410): the target org is not active. Sent by the
+	// integration routes (mint, installations). Distinct from the 403
+	// tenant_disabled of bearer requests.
+	ErrCodeTenantSuspended ErrorCode = "tenant_suspended"
 	// ErrCodeEscortSuspended (403 from the issuer, ADR-104 R-d): the BFF's own
 	// /auth/* escort account is suspended or deactivated. A service problem, not
 	// the user's; the BFF middleware relays it as 503, session untouched.
@@ -469,6 +477,14 @@ func IsTenantDisabled(err error) bool {
 	return re.Code == ErrCodeTenantDisabled
 }
 
+// IsRealmSuspended reports whether err is the issuer's 410 realm_suspended: the
+// realm is suspended or deactivated.
+func IsRealmSuspended(err error) bool { return IsCode(err, ErrCodeRealmSuspended) }
+
+// IsTenantSuspended reports whether err is the issuer's 410 tenant_suspended: the
+// target org of an integration call is not active. Not the 403 tenant_disabled.
+func IsTenantSuspended(err error) bool { return IsCode(err, ErrCodeTenantSuspended) }
+
 // IsInvalidChannelConfig reports whether err is the issuer's 400
 // invalid_channel_config: a messaging save broke a shape rule; the message names
 // the field (SPEC §6.16).
@@ -574,6 +590,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeMissingOrigin:       {}, ErrCodeRefreshInvalid: {},
 	ErrCodeTokenStale: {}, ErrCodeLastOwner: {},
 	ErrCodeUserSuspended: {}, ErrCodeEscortSuspended: {}, ErrCodeTenantDisabled: {},
+	ErrCodeRealmSuspended: {}, ErrCodeTenantSuspended: {},
 	ErrCodeUnauthorized: {}, ErrCodeForbidden: {},
 	ErrCodeNotFound: {}, ErrCodeConflict: {}, ErrCodeRateLimited: {},
 	ErrCodeBadRequest: {}, ErrCodeNetwork: {}, ErrCodeServerError: {},

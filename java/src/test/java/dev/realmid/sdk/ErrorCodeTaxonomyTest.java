@@ -65,6 +65,25 @@ class ErrorCodeTaxonomyTest {
         org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantDisabled(new RuntimeException("x")));
     }
 
+    @Test void goneSuspendedCodesResolveAndPredicatesMatch() {
+        // 410 realm_suspended / tenant_suspended (partner request, Traide 2026-10-30).
+        assertEquals(ErrorCode.REALM_SUSPENDED, ErrorCode.fromWire("realm_suspended"));
+        assertEquals(ErrorCode.TENANT_SUSPENDED, ErrorCode.fromWire("tenant_suspended"));
+        assertEquals("realm_suspended", ErrorCode.REALM_SUSPENDED.wire());
+        assertEquals("tenant_suspended", ErrorCode.TENANT_SUSPENDED.wire());
+        var realm = new RealmException(ErrorCode.REALM_SUSPENDED, "x", 410, null);
+        var tenant = new RealmException(ErrorCode.TENANT_SUSPENDED, "x", 410, null);
+        var otp = new RealmException(ErrorCode.OTP_EXPIRED, "x", 410, null);
+        org.junit.jupiter.api.Assertions.assertTrue(RealmException.isRealmSuspended(realm));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isRealmSuspended(tenant));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isRealmSuspended(otp));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isRealmSuspended(null));
+        org.junit.jupiter.api.Assertions.assertTrue(RealmException.isTenantSuspended(tenant));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantSuspended(realm));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantSuspended(otp));
+        org.junit.jupiter.api.Assertions.assertFalse(RealmException.isTenantSuspended(new RuntimeException("x")));
+    }
+
     @Test void everyEnumConstantRoundTrips() {
         // A constant whose wire string does not resolve back to itself is
         // unreachable from the network — the only place these are ever built.
