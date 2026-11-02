@@ -388,11 +388,8 @@ const (
 	ErrCodeDeviceApprovalNotAllowed      ErrorCode = "device_approval_not_allowed"
 )
 
-// ErrDeviceApprovalNotAllowed is the R86 sentinel for the BFF's `403 device_approval_not_allowed`
-// (the partner's CanApprove refused). It rides in RealmError.Cause of the decoded error.
-var ErrDeviceApprovalNotAllowed = errors.New("realmid: you cannot approve this device")
-
-// IsDeviceApprovalNotAllowed reports whether err is, or wraps, ErrDeviceApprovalNotAllowed. Safe on nil.
+// IsDeviceApprovalNotAllowed reports whether err is, or wraps, ErrDeviceApprovalNotAllowed (declared in
+// device_handlers.go, SPEC §15.3): the decoded `403 device_approval_not_allowed` carries it as Cause. Safe on nil.
 func IsDeviceApprovalNotAllowed(err error) bool {
 	return err != nil && errors.Is(err, ErrDeviceApprovalNotAllowed)
 }
@@ -670,7 +667,7 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeDeviceAuthorizationNotPending: {}, ErrCodeDeviceAuthorizationCollected: {},
 	ErrCodeRevokeExistingSessionsReq: {}, ErrCodeInvalidClientID: {}, ErrCodeTenantNotMember: {},
 	ErrCodeDeviceApprovalNotAllowed: {},
-	ErrCodeActorRequired: {}, ErrCodeUnpinnedKID: {},
+	ErrCodeActorRequired:            {}, ErrCodeUnpinnedKID: {},
 	// SPEC §14.9 (R91-R95): local split-signing codes.
 	ErrCodeShareLoadFailed: {}, ErrCodeShareSourceReadOnly: {},
 }

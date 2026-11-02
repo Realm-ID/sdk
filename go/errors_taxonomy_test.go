@@ -127,6 +127,12 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeActorRequired, ErrCodeUnpinnedKID,
 		// R91-R95: local codes of the split share path.
 		ErrCodeShareLoadFailed, ErrCodeShareSourceReadOnly,
+		// ADR-122 (SPEC §3.1 device-authorization codes).
+		ErrCodeAuthorizationPending, ErrCodeSlowDown, ErrCodeAccessDenied, ErrCodeExpiredToken,
+		ErrCodeDeviceCodeAttemptsExceeded, ErrCodeSubjectSuspended,
+		ErrCodeDeviceAuthorizationNotPending, ErrCodeDeviceAuthorizationCollected,
+		ErrCodeRevokeExistingSessionsReq, ErrCodeInvalidClientID, ErrCodeTenantNotMember,
+		ErrCodeDeviceApprovalNotAllowed,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the
