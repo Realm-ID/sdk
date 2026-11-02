@@ -146,6 +146,7 @@ test("Approve calls realm.device.approve with the code; Deny moves to the denied
 
 test("fresh MFA (verify) is rendered IN the card", async () => {
   const { m, calls } = await page({ approve: async () => { throw realmErr("mfa_required", 412, { details: { stepUp: VERIFY } }); } }, {});
+  await pickRevoke(m, false);
   await click(button(m, "Approve"));
   assert.match(m.text(), /Confirm it's you/);
   assert.match(m.text(), /Enter the code from your authenticator app to approve this device\./);
@@ -156,6 +157,7 @@ test("fresh MFA (verify) is rendered IN the card", async () => {
 
 test("fresh MFA (enroll): explanation, a link to enrollHref, Cancel; never a dead end", async () => {
   const { m } = await page({ approve: async () => { throw realmErr("mfa_registration_required", 412, { details: { stepUp: ENROLL } }); } }, {});
+  await pickRevoke(m, false);
   await click(button(m, "Approve"));
   assert.match(m.text(), /Set up an authenticator/);
   assert.match(m.text(), /Approving a device needs a code from an authenticator app, and your account has none yet\./);
@@ -262,4 +264,20 @@ test("onDone reports approved, denied and signed_out", async () => {
   await click(button(s.m, "Not you? Sign it out"));
   await click(button(s.m, "Sign it out"));
   assert.deepEqual(seen, ["approved", "denied", "signed_out"]);
+});
+
+async function pickRevoke(m: Mounted, revoke: boolean) {
+  const radios = m.container.querySelectorAll("input[name=realmid-device-revoke]");
+  await click(radios[revoke ? 1 : 0]);
+}
+
+test("Q3: no approve call goes out until a revoke radio is picked; a visible prompt says why; the pick is sent as stated", async () => {
+  const { m, calls } = await page();
+  await click(button(m, "Approve"));
+  assert.equal(calls.approve.length, 0, "approve was sent with an unstated revoke choice");
+  assert.match(m.text(), /Choose whether to sign out the other sessions before approving\./);
+  await pickRevoke(m, true);
+  await click(button(m, "Approve"));
+  assert.equal(calls.approve.length, 1);
+  assert.equal(calls.approve[0].revokeExistingSessions, true);
 });

@@ -75,6 +75,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
   const [activeCode, setActiveCode] = useState(props.initialCode ?? "");
   const [revoke, setRevoke] = useState<boolean | null>(null);
   const [tenantPick, setTenantPick] = useState<string | null>(null);
+  const [needChoice, setNeedChoice] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const [mfaCode, setMfaCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
@@ -259,9 +260,9 @@ export function DeviceApproval(props: DeviceApprovalProps) {
     e.preventDefault();
     if (sl) { void sl.revokeAndRetry(picked); return; }
     if (suspended) { pending.current = "approved"; void h.retryApprove(); return; }
+    // Q3: the choice is stated, never inferred. With the radios shown, nothing is sent until one is picked.
+    if (showRevokeChoice && revoke === null) { setNeedChoice(true); return; }
     pending.current = "approved";
-    // Unpicked is the non-destructive answer: the choice is never pre-selected, but a missing choice
-    // must not sign anyone out.
     const opts: { tenantId?: string; revokeExistingSessions?: boolean } = {
       revokeExistingSessions: req.replaceExistingSessions ? true : revoke === true,
     };
@@ -317,11 +318,11 @@ export function DeviceApproval(props: DeviceApprovalProps) {
         <fieldset className={cx("realmid-device__choice", k.choice)}>
           <legend>{`Other sessions of ${account}`}</legend>
           <label>
-            <input type="radio" name="realmid-device-revoke" checked={revoke === false} onChange={() => setRevoke(false)} />
+            <input type="radio" name="realmid-device-revoke" checked={revoke === false} onChange={() => { setRevoke(false); setNeedChoice(false); }} />
             {" Keep them signed in"}
           </label>
           <label>
-            <input type="radio" name="realmid-device-revoke" checked={revoke === true} onChange={() => setRevoke(true)} />
+            <input type="radio" name="realmid-device-revoke" checked={revoke === true} onChange={() => { setRevoke(true); setNeedChoice(false); }} />
             {" Sign them out when this device connects"}
           </label>
           <small>Your current browser session stays signed in.</small>
@@ -346,6 +347,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
           </ul>
         </>
       )}
+      {needChoice && revoke === null && errLine("Choose whether to sign out the other sessions before approving.")}
       {msg && errLine(msg)}
       {suspended && note("The request stays open, so you can approve it after unsuspending, until the time runs out.")}
       {actions(
