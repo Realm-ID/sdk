@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-147 entries total — 92 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+148 entries total — 93 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — W2-sdk: red tests for device login (SPEC 15), local only](#2026-11-03--w2-sdk-red-tests-for-device-login-spec-15-local-only)
 - [2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component](#2026-11-03--device-login-adr-122-sdk-contract-for-the-handler-set-poll-client-browser-calls-hook-and-component)
 - [2026-11-02 — 2026-11-02: ts unit tests failed on a wrong-platform esbuild in node_modules (RCA)](#2026-11-02--2026-11-02-ts-unit-tests-failed-on-a-wrong-platform-esbuild-in-node_modules-rca)
 - [2026-11-02 — CLI keeps its own dealer, held to the shared split vectors (ruling 9 reversed)](#2026-11-02--cli-keeps-its-own-dealer-held-to-the-shared-split-vectors-ruling-9-reversed)
@@ -159,6 +160,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — W2-sdk: red tests for device login (SPEC 15), local only
+
+W2-sdk red tests for SPEC 15 (device login), committed locally on main and NOT pushed: the pre-push gate runs them, so the implementing wave (W4) pushes them together with the code once green.
+
+Go: `go/device_handlers_test.go`, `go/device_taxonomy_test.go`, `go/deviceclient/deviceclient_test.go`, plus signature-only stubs (`go/device_handlers.go`, `go/deviceclient/deviceclient.go`; the handlers answer 501, no logic) so the package compiles. ts and java: taxonomy tests for the 12 codes (the java typed exception is checked by reflection so one missing class cannot break every java test). web core: `device.test.ts`. web-react: hook, component and styling tests with a harness (`device-test-harness.tsx`) that needs react-dom and jsdom as devDependencies, which is an owner decision (not added here).
+
+Two spec gaps found while writing: core `RealmError` has `body`, not `details`, so SPEC 15.8's `details.stepUp` needs a core change; and `error.retryAfter` (SPEC 15.9) has no named source on the wire error. Tests assert the SPEC wording and accept `retryAfter` on either the error or its details.
 
 ## 2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component
 
