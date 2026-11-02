@@ -1,6 +1,8 @@
 import { RealmError } from "./errors.js";
 import { unwrapData } from "./envelope.js";
 import { Observable } from "./observable.js";
+import { createDeviceClient, type DeviceClient } from "./device.js";
+import { verifyStepUp } from "./stepup.js";
 import { Transport } from "./transport.js";
 import {
   buildAuthorizeUrl,
@@ -70,8 +72,48 @@ export class Realm {
   private storage: StorageAdapter;
   private tokenless: boolean;
 
+  /**
+   * Device approval (SPEC §15.8): inspect / approve / deny / signOut plus `completeStepUp`. Built in the
+   * constructor because it needs the transport; every dependency is read lazily.
+   */
+  readonly device: DeviceClient;
+
   constructor(cfg: RealmConfig) {
     this.transport = new Transport(cfg);
+    const ep = this.transport.endpoints;
+    this.device = createDeviceClient({
+      paths: { inspect: ep.deviceInspect, approve: ep.deviceApprove, deny: ep.deviceDeny, signOut: ep.deviceSignOut },
+      resolve: (p) => this.transport.resolve(p),
+      // With a session the call goes through the authenticated wrapper (bearer, refresh-on-401); before
+      // one exists it is sent bare, so the BFF answers 401 itself and a step-up adopt can follow.
+      fetch: (url, init) =>
+        this.tokens.getCurrentTenant() ? this.fetch(url, init) : this.transport.fetchImpl(url, init),
+      verify: async (challenge, code) => {
+        const t = this.transport;
+        const v = await verifyStepUp(
+          t.fetchImpl,
+          { baseUrl: () => t.baseUrl, currentBearer: () => this.tokens.peek() ?? undefined, verifyPath: t.endpoints.mfaVerify },
+          challenge,
+          code,
+        );
+        // MFA proof is per (session, tenant) (ADR-059): keep the tenant already acting.
+        const tenantId = this.tokens.getCurrentTenant() ?? v.tenants?.[0]?.id;
+        if (!tenantId || !v.user) throw new RealmError("mfa_failed", "step-up verify returned no session context");
+        const tenants: TenantRef[] | undefined = v.tenants?.map((x) => ({
+          id: x.id,
+          role: x.role ?? "",
+          displayName: x.display_name,
+        }));
+        this.adopt({
+          accessToken: v.session_token!,
+          expiresIn: typeof v.expires_in === "number" ? v.expires_in : undefined,
+          expiresAt: v.expires_at,
+          tenantId,
+          user: { id: v.user.id, email: v.user.email, displayName: v.user.display_name },
+          tenants: tenants && tenants.length > 0 ? tenants : this.state.tenants,
+        });
+      },
+    });
     this.adapters = cfg.adapters ?? {};
     this.requestAdapters = cfg.requestAdapters ?? {};
     this.gates = cfg.gates ?? [];

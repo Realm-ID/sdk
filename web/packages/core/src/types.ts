@@ -334,6 +334,11 @@ export interface Endpoints {
   mfaVerify: string;
   logout: string;
   me: string;
+  /** Device approval (SPEC §15.8; BFF-SPEC § Device approval). */
+  deviceInspect: string;
+  deviceApprove: string;
+  deviceDeny: string;
+  deviceSignOut: string;
 }
 
 export const DEFAULT_ENDPOINTS: Endpoints = {
@@ -345,4 +350,8 @@ export const DEFAULT_ENDPOINTS: Endpoints = {
   mfaVerify: "/mfa/verify",
   logout: "/logout",
   me: "/me",
+  deviceInspect: "/device/inspect",
+  deviceApprove: "/device/approve",
+  deviceDeny: "/device/deny",
+  deviceSignOut: "/device/signout",
 };

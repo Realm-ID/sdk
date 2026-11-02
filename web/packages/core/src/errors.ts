@@ -35,6 +35,15 @@ export type ErrorCode =
   // `{ error, error_description }` for logging.
   | "oidc_provider_error"
   | "no_browser"
+  // Device approval (SPEC §3.1, §15). Carried verbatim from the BFF / issuer.
+  | "device_code_attempts_exceeded"
+  | "subject_suspended"
+  | "device_authorization_not_pending"
+  | "device_authorization_collected"
+  | "revoke_existing_sessions_required"
+  | "invalid_client_id"
+  | "tenant_not_member"
+  | "device_approval_not_allowed"
   | "unknown";
 
 /**
@@ -46,13 +55,31 @@ export class RealmError extends Error {
   readonly code: ErrorCode;
   readonly status: number;
   readonly body: unknown;
+  /**
+   * The server's envelope siblings (gate payloads such as `revocation_token`), and for a step-up `412`
+   * from `realm.device.*` the classified `details.stepUp` challenge (SPEC §15.8). Absent when the
+   * call that raised this error did not collect any.
+   */
+  readonly details?: Record<string, unknown>;
+  /** Seconds to wait, from the `Retry-After` header (also in `details.retryAfter`). SPEC §15.9. */
+  readonly retryAfter?: number;
 
-  constructor(code: ErrorCode, message: string, status = 0, body: unknown = undefined) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    status = 0,
+    body: unknown = undefined,
+    details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "RealmError";
     this.code = code;
     this.status = status;
     this.body = body;
+    if (details) {
+      this.details = details;
+      if (typeof details.retryAfter === "number") this.retryAfter = details.retryAfter;
+    }
   }
 }
 

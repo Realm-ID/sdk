@@ -77,6 +77,13 @@ export type { ErrorEnvelope } from "./envelope.js";
  */
 export { withStepUpRetry } from "./stepup.js";
 export type {
+  DeviceApproveRequest,
+  DeviceApproveResult,
+  DeviceClient,
+  DeviceRequestView,
+  DeviceSignOutResult,
+} from "./device.js";
+export type {
   StepUpChallenge,
   StepUpDeps,
   StepUpFetch,

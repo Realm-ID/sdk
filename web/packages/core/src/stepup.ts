@@ -116,7 +116,7 @@ const STEP_UP_CODES: Readonly<Record<string, StepUpChallenge["kind"]>> = {
  * still gets the original body if we decide not to handle it. Returns `null`
  * for any 412 that is not a step-up.
  */
-async function parseStepUp(res: Response): Promise<StepUpChallenge | null> {
+export async function parseStepUp(res: Response): Promise<StepUpChallenge | null> {
   if (res.status !== 412) return null;
   let body: Record<string, unknown>;
   try {
@@ -162,9 +162,50 @@ function reauthorize(init: RequestInit | undefined, bearer: string): RequestInit
   return { ...(init ?? {}), headers };
 }
 
+/**
+ * The RequestInit marker a caller sets to answer its OWN step-up `412` (SPEC §15.8): `realm.device.*`
+ * collects the code in its own card, so a host-wide prompt must never fire for it. A marked request's
+ * response is returned untouched by {@link withStepUpRetry}.
+ */
+export const STEP_UP_MARKER = "realmidStepUp";
+
+/**
+ * The verify half of the sequence, shared by {@link withStepUpRetry} and `realm.device.completeStepUp`:
+ * POST the challenge token and code to the verify path carrying the CURRENT bearer (behaviour 3), and
+ * return the freshly minted session. Throws on any failure (non-2xx, transport, no `session_token`);
+ * callers decide whether that is the original 412 or a typed error.
+ */
+export async function verifyStepUp(
+  inner: StepUpFetch,
+  deps: Pick<StepUpDeps, "baseUrl" | "currentBearer" | "verifyPath">,
+  challenge: StepUpChallenge,
+  code: string,
+): Promise<StepUpVerifyResponse & { session_token: string }> {
+  const bearer = deps.currentBearer();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  // Behaviour 3. Absence degrades to "server picks a default tenant", which
+  // is the bug this prevents — but an EMPTY header would be worse than none.
+  if (bearer) headers.Authorization = `Bearer ${bearer}`;
+  const vr = await inner(`${deps.baseUrl()}${deps.verifyPath ?? "/auth/mfa/verify"}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ mfa_challenge_token: challenge.challengeToken, code }),
+  });
+  if (!vr.ok) throw new Error(`step-up verify failed: HTTP ${vr.status}`);
+  const verified = unwrapData<StepUpVerifyResponse>(await vr.json());
+  if (!verified?.session_token) throw new Error("step-up verify returned no session_token");
+  return verified as StepUpVerifyResponse & { session_token: string };
+}
+
 /** Wrap a fetch so operation step-up gates are answered and the call replayed. */
 export function withStepUpRetry(inner: StepUpFetch, deps: StepUpDeps): StepUpFetch {
   return async (input, init) => {
+    // A caller that answers its own step-up opts out (SPEC §15.8): strip the marker (it is not a
+    // fetch option) and hand the response back untouched, 412 included.
+    if (init && (init as Record<string, unknown>)[STEP_UP_MARKER] === "caller") {
+      const { [STEP_UP_MARKER]: _marker, ...rest } = init as Record<string, unknown>;
+      return inner(input, rest as RequestInit);
+    }
     const res = await inner(input, init);
     const challenge = await parseStepUp(res);
     if (!challenge || !deps.prompt) return res;
@@ -175,27 +216,14 @@ export function withStepUpRetry(inner: StepUpFetch, deps: StepUpDeps): StepUpFet
     const code = await deps.prompt(challenge);
     if (!code) return res;
 
-    const bearer = deps.currentBearer();
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    // Behaviour 3. Absence degrades to "server picks a default tenant", which
-    // is the bug this prevents — but an EMPTY header would be worse than none.
-    if (bearer) headers.Authorization = `Bearer ${bearer}`;
-
-    let verified: StepUpVerifyResponse;
+    let verified: StepUpVerifyResponse & { session_token: string };
     try {
-      const vr = await inner(`${deps.baseUrl()}${deps.verifyPath ?? "/auth/mfa/verify"}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ mfa_challenge_token: challenge.challengeToken, code }),
-      });
-      if (!vr.ok) return res;
-      verified = unwrapData<StepUpVerifyResponse>(await vr.json());
+      verified = await verifyStepUp(inner, deps, challenge, code);
     } catch {
       // A failed verify must surface the ORIGINAL 412, not a transport error
       // about a call the caller never made.
       return res;
     }
-    if (!verified?.session_token) return res;
 
     deps.adopt(verified);
 
