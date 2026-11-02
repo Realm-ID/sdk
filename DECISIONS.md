@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-150 entries total — 95 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+151 entries total — 96 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — web-react: <DeviceApproval/> host-controlled workspaces (R41, R-CLI1); Confirm waits for a code](#2026-11-03--web-react-deviceapproval-host-controlled-workspaces-r41-r-cli1-confirm-waits-for-a-code)
 - [2026-11-03 — go: device login handler set and deviceclient (SPEC §15, go 0.73.0)](#2026-11-03--go-device-login-handler-set-and-deviceclient-spec-15-go-0730)
 - [2026-11-03 — W3-sdk-web: realm.device.*, useDeviceApproval, <DeviceApproval/>, device codes (SPEC 15), local only](#2026-11-03--w3-sdk-web-realmdevice-usedeviceapproval-deviceapproval-device-codes-spec-15-local-only)
 - [2026-11-03 — W2-sdk: red tests for device login (SPEC 15), local only](#2026-11-03--w2-sdk-red-tests-for-device-login-spec-15-local-only)
@@ -162,6 +163,10 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — web-react: <DeviceApproval/> host-controlled workspaces (R41, R-CLI1); Confirm waits for a code
+
+Owner rulings R41 (root DECISIONS 2026-10-30, amendment) and R-CLI1 require the HOST to control the workspace picker, and R41 requires Confirm to wait for a code. `<DeviceApproval/>` therefore gains two optional props, `workspaces` (ordered list overriding the realm order; ui passes base-tenant-last) and `defaultTenantId` (preselected). With exactly one supplied workspace the self-case approval is PINNED: its tenantId is sent and no picker shows. Without the props nothing changes. In the in-card MFA step Confirm is disabled until a code is typed. web-react stays 0.6.0 (unpublished). Test infrastructure: the jsdom globals now install from `device-dom.ts`, imported first by the harness, because react-dom decides at import time whether `input` events exist and onChange on text inputs never fired otherwise.
 
 ## 2026-11-03 — go: device login handler set and deviceclient (SPEC §15, go 0.73.0)
 

@@ -16,6 +16,7 @@ records cross-cutting items affecting every SDK at once.
 ## Unreleased (0.6.0) — `useDeviceApproval` and `<DeviceApproval/>` (SPEC §15.9, §15.10) (2026-11-03)
 
 - `useDeviceApproval(userCode)`, `<DeviceApproval/>` with a stable `realmid-device*` class per part and a `classNames` prop per part, and the optional `@realm-id/web-react/device-approval.css` (CSS custom properties only).
+- `<DeviceApproval/>` optional props `workspaces` (ordered picker list; exactly one is a pinned approval) and `defaultTenantId`; Confirm in the in-card MFA step is disabled until a code is typed (R41, R-CLI1).
 - devDependencies `react-dom`, `jsdom`, `tsx` and a `test` script; the peer range accepts `@realm-id/web` 0.13.
 
 ## 0.5.5 — peer range accepts @realm-id/web 0.12 (2026-10-19)

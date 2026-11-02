@@ -4,7 +4,7 @@
  * return). Swap the renderer here and every device test follows.
  */
 
-import { JSDOM } from "jsdom";
+import "./device-dom.js"; // must stay first: the jsdom globals have to exist before react-dom loads
 import { createElement, act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as ReactPkg from "./index.js";
@@ -73,17 +73,8 @@ export function fakeRealm(over: Partial<FakeDevice> = {}, tenants: any[] = [{ id
   return { realm, calls };
 }
 
-let dom: JSDOM | null = null;
-
-export function setupDom(): void {
-  if (dom) return;
-  dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", { url: "https://app.test/device?code=ABCD-EFGH" });
-  const g = globalThis as any;
-  g.window = dom.window; g.document = dom.window.document;
-  Object.defineProperty(g, "navigator", { value: dom.window.navigator, configurable: true });
-  g.HTMLElement = dom.window.HTMLElement; g.Node = dom.window.Node; g.Event = dom.window.Event;
-  g.IS_REACT_ACT_ENVIRONMENT = true;
-}
+/** The globals are installed by ./device-dom.js at import; kept so callers need not change. */
+export function setupDom(): void {}
 
 export interface Mounted { root: Root; container: HTMLElement; unmount: () => Promise<void>; text: () => string; html: () => string; }
 

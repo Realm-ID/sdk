@@ -22,6 +22,8 @@ import "@realm-id/web-react/device-approval.css"; // optional
   enrollHref="/account#security"    // REQUIRED: where a person with no MFA factor sets one up (4.7)
   appLabels={{ "traide-sync": "Traide sync agent" }} // client_id -> label; unknown ids show as typed
   classNames={{ root: "my-page", primaryButton: "btn btn-primary" }}
+  workspaces={[{ id: "t1", displayName: "Acme" }]} // optional: ordered picker list; exactly one = pinned (4.4)
+  defaultTenantId="t1"              // optional: preselected workspace (4.4)
   onDone={(outcome) => {}}          // "approved" | "denied" | "signed_out"
 />
 ```
@@ -100,6 +102,11 @@ it). RealmID's ui styles the component through the same `classNames` slots and c
 ### 4.4 Account and workspace choice (`ready`, self case, approver in more than one workspace)
 - Legend: "Which workspace should the device use?"
 - One radio per membership (display name), plus "Choose later on the device" (sends no `tenantId`; R41).
+- Host control (R41 amendment, R-CLI1; both props optional): `workspaces` is an ordered list that replaces
+  the realm's order in the picker (RealmID's ui passes the base tenant last); `defaultTenantId` preselects
+  one radio. With EXACTLY ONE `workspaces` entry the approval is PINNED: no picker, and that `tenantId` is
+  sent. Without the props the picker lists the realm's memberships and sends no `tenantId` unless one is
+  picked.
 - Bot case: no picker. A line instead: "Workspace: <current workspace name>" (the bot lives in the
   approver's current workspace, ADR-122 D1).
 
@@ -118,7 +125,7 @@ it). RealmID's ui styles the component through the same `classNames` slots and c
 The step-up is rendered in this card and never handed to a host-wide prompt: `realm.device.*` calls opt
 out of `withStepUpRetry` (SPEC §15.8), so a host's global step-up modal does not fire for them.
 - `mfa.kind === "verify"`: Title "Confirm it's you". Body "Enter the code from your authenticator app to
-  approve this device." Input + "Confirm" / "Cancel".
+  approve this device." Input + "Confirm" / "Cancel". "Confirm" is disabled until a code is typed (R41).
 - `mfa.kind === "enroll"` (ADR-096 D4 `412 mfa_registration_required`, or a verify challenge with an empty
   token): Title "Set up an authenticator". Body "Approving a device needs a code from an authenticator
   app, and your account has none yet. Set one up, then come back to this page; the request stays open

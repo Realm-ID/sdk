@@ -40,6 +40,10 @@ export interface DeviceApprovalProps {
   appLabels?: Record<string, string>;
   classNames?: DeviceApprovalClassNames;
   onDone?: (outcome: DeviceApprovalOutcome) => void;
+  /** Optional ordered workspace list for the self-case picker; overrides the realm order (R41). */
+  workspaces?: Array<{ id: string; displayName?: string }>;
+  /** Optional preselected workspace id in the picker (R41). */
+  defaultTenantId?: string;
 }
 
 const REASONS: Record<string, (account: string) => string> = {
@@ -74,7 +78,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
   const [code, setCode] = useState(props.initialCode ?? "");
   const [activeCode, setActiveCode] = useState(props.initialCode ?? "");
   const [revoke, setRevoke] = useState<boolean | null>(null);
-  const [tenantPick, setTenantPick] = useState<string | null>(null);
+  const [tenantPick, setTenantPick] = useState<string | null>(props.defaultTenantId ?? null);
   const [needChoice, setNeedChoice] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const [mfaCode, setMfaCode] = useState("");
@@ -106,8 +110,8 @@ export function DeviceApproval(props: DeviceApprovalProps) {
   const title = (t: string) => <h1 className={cx("realmid-device__title", k.title)}>{t}</h1>;
   const note = (t: string) => <p className={cx("realmid-device__notice", k.notice)}>{t}</p>;
   const errLine = (t: string) => <p className={cx("realmid-device__error", k.error)} role="alert">{t}</p>;
-  const primary = (label: string, type: "submit" | "button" = "submit", onClick?: () => void) => (
-    <button type={type} onClick={onClick} className={cx("realmid-device__button realmid-device__button--primary", k.primaryButton)}>{label}</button>
+  const primary = (label: string, type: "submit" | "button" = "submit", onClick?: () => void, disabled = false) => (
+    <button type={type} onClick={onClick} disabled={disabled} className={cx("realmid-device__button realmid-device__button--primary", k.primaryButton)}>{label}</button>
   );
   const secondary = (label: string, onClick: () => void) => (
     <button type="button" onClick={onClick} className={cx("realmid-device__button realmid-device__button--secondary", k.secondaryButton)}>{label}</button>
@@ -236,7 +240,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
           <input type="text" inputMode="numeric" autoComplete="one-time-code" value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} />
         </label>
         {error?.code === "mfa_failed" && errLine("That code didn't work. Try again.")}
-        {actions(primary("Confirm"), secondary("Cancel", m.cancel))}
+        {actions(primary("Confirm", "submit", undefined, !mfaCode.trim()), secondary("Cancel", m.cancel))}
       </form>
     </>);
   }
@@ -244,7 +248,10 @@ export function DeviceApproval(props: DeviceApprovalProps) {
   // ---- ready: request details ----
   const self = req.subjectType === "user";
   const current = auth.tenants.find((t) => t.id === auth.currentTenantId);
-  const showWorkspacePicker = self && auth.tenants.length > 1;
+  const wsList = props.workspaces ?? auth.tenants;
+  const showWorkspacePicker = self && wsList.length > 1;
+  // Exactly one host-supplied workspace is a PINNED approval: its id is sent (R-CLI1). Without the prop, omitted as before.
+  const pinnedTenant = self && props.workspaces?.length === 1 ? props.workspaces[0].id : undefined;
   const showRevokeChoice = !req.replaceExistingSessions && !h.sessionLimit;
   const suspended = error?.code === "subject_suspended";
   const sl = h.sessionLimit;
@@ -267,6 +274,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
       revokeExistingSessions: req.replaceExistingSessions ? true : revoke === true,
     };
     if (showWorkspacePicker && tenantPick) opts.tenantId = tenantPick;
+    else if (pinnedTenant) opts.tenantId = pinnedTenant;
     void h.approve(opts);
   };
 
@@ -301,7 +309,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
       {showWorkspacePicker && (
         <fieldset className={cx("realmid-device__choice", k.choice)}>
           <legend>Which workspace should the device use?</legend>
-          {auth.tenants.map((t) => (
+          {wsList.map((t) => (
             <label key={t.id}>
               <input type="radio" name="realmid-device-tenant" checked={tenantPick === t.id} onChange={() => setTenantPick(t.id)} />
               {` ${t.displayName ?? t.id}`}

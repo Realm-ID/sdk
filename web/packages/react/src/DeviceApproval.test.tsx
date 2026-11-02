@@ -266,6 +266,45 @@ test("onDone reports approved, denied and signed_out", async () => {
   assert.deepEqual(seen, ["approved", "denied", "signed_out"]);
 });
 
+const selfView = () => view({ subjectType: "user", subjectLabel: "you", replaceExistingSessions: true });
+const ws = [{ id: "t1", displayName: "Acme" }, { id: "t2", displayName: "Beta" }, { id: "base", displayName: "RealmID" }];
+
+test("R41: `workspaces` overrides the realm order and `defaultTenantId` is preselected and sent", async () => {
+  const { m, calls } = await page({ inspect: async () => selfView() }, { workspaces: [ws[1], ws[2], ws[0]], defaultTenantId: "t2" });
+  const labels = Array.from(m.container.querySelectorAll("input[name=realmid-device-tenant]")).map((r) => r.parentElement?.textContent?.trim());
+  assert.deepEqual(labels.slice(0, 3), ["Beta", "RealmID", "Acme"]);
+  const checked = Array.from(m.container.querySelectorAll("input[name=realmid-device-tenant]")).filter((r) => (r as HTMLInputElement).checked);
+  assert.equal(checked.length, 1);
+  assert.equal(checked[0].parentElement?.textContent?.trim(), "Beta");
+  await click(button(m, "Approve"));
+  assert.equal(calls.approve[0].tenantId, "t2");
+});
+
+test("R-CLI1: exactly one supplied workspace is a pinned approval (tenantId sent, no picker); without the prop it is omitted", async () => {
+  const pinned = await page({ inspect: async () => selfView() }, { workspaces: [ws[0]] });
+  assert.doesNotMatch(pinned.m.text(), /Which workspace should the device use\?/);
+  await click(button(pinned.m, "Approve"));
+  assert.equal(pinned.calls.approve[0].tenantId, "t1");
+  const plain = await page({ inspect: async () => selfView() }, {}, [{ id: "t1", displayName: "Acme", role: "owner" }]);
+  await click(button(plain.m, "Approve"));
+  assert.equal("tenantId" in plain.calls.approve[0], false);
+});
+
+test("R41: Confirm in the in-card MFA step is disabled until a code is typed", async () => {
+  const { m } = await page({ inspect: async () => selfView(), approve: async () => { throw realmErr("mfa_required", 412, { details: { stepUp: VERIFY } }); } });
+  await click(button(m, "Approve"));
+  const confirm = button(m, "Confirm") as HTMLButtonElement;
+  assert.equal(confirm.disabled, true);
+  const input = m.container.querySelector("form.realmid-device__mfa-form input") as HTMLInputElement;
+  const { act } = await import("react");
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor((globalThis as any).window.HTMLInputElement.prototype, "value")!.set!;
+    set.call(input, "123456");
+    input.dispatchEvent(new (globalThis as any).window.Event("input", { bubbles: true }));
+  });
+  assert.equal((button(m, "Confirm") as HTMLButtonElement).disabled, false);
+});
+
 async function pickRevoke(m: Mounted, revoke: boolean) {
   const radios = m.container.querySelectorAll("input[name=realmid-device-revoke]");
   await click(radios[revoke ? 1 : 0]);
