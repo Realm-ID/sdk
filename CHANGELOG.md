@@ -13,6 +13,14 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased (0.13.0) — `@realm-id/web` 0.13.0 + `@realm-id/web-react` 0.6.0: device approval; the 12 device codes in go/ts/java (SPEC §3.1, §15.8-15.10) (2026-11-03)
+
+Not released. The go `const Version` is NOT bumped here (the device handler set lands with it).
+- web `0.13.0`: `realm.device.{inspect,approve,deny,signOut,completeStepUp}`, four `Endpoints` keys (`deviceInspect` ...), the `realmidStepUp: "caller"` RequestInit marker honoured by `withStepUpRetry`, and `RealmError.details` / `.retryAfter`.
+- web-react `0.6.0`: `useDeviceApproval`, `<DeviceApproval/>`, and the optional `@realm-id/web-react/device-approval.css` (custom properties only, no CSS framework). New devDependencies `react-dom`, `jsdom`, `tsx` and a `test` script.
+- web-bff-realmid `0.8.2`, web-firebase `0.6.3`, web-google `0.6.3`, web-admin `0.27.1`: peer range accepts `@realm-id/web` 0.13.
+- go, ts, java: the twelve device-authorization codes are registered, with the R86 typed `device_approval_not_allowed` (`ErrDeviceApprovalNotAllowed`, `DeviceApprovalNotAllowedError`, `DeviceApprovalNotAllowedException`).
+
 ## go `0.72.0` · java `0.56.0` · web-admin `0.27.0` — split dealers draw d_ri uniformly in [1, lambda); browser dealer (SPEC §14.14, §14.15) (2026-11-01)
 
 go `rotation.go` and java `SigningKeysClient.rotateSplit` now draw `d_ri` uniformly in `[1, lambda(n))` and redraw on a zero half (go allowed 0; java drew from `[0, 2^(bitLength-1))`, not uniform). New shared vector case `dealer` (`d_ri > d`, so it tells lambda from phi) in `testdata/split-vectors/vectors.json`. `@realm-id/web-admin` 0.27.0 adds `dealSplitKey`, `isSplitKeygenUnsupported` and `admin.signingKeys.uploadSplitKey`. The ts dealer's range fix is queued in `TODO.md`.

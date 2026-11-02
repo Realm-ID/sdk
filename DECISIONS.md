@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-148 entries total — 93 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+149 entries total — 94 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — W3-sdk-web: realm.device.*, useDeviceApproval, <DeviceApproval/>, device codes (SPEC 15), local only](#2026-11-03--w3-sdk-web-realmdevice-usedeviceapproval-deviceapproval-device-codes-spec-15-local-only)
 - [2026-11-03 — W2-sdk: red tests for device login (SPEC 15), local only](#2026-11-03--w2-sdk-red-tests-for-device-login-spec-15-local-only)
 - [2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component](#2026-11-03--device-login-adr-122-sdk-contract-for-the-handler-set-poll-client-browser-calls-hook-and-component)
 - [2026-11-02 — 2026-11-02: ts unit tests failed on a wrong-platform esbuild in node_modules (RCA)](#2026-11-02--2026-11-02-ts-unit-tests-failed-on-a-wrong-platform-esbuild-in-node_modules-rca)
@@ -160,6 +161,20 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — W3-sdk-web: realm.device.*, useDeviceApproval, <DeviceApproval/>, device codes (SPEC 15), local only
+
+W3-sdk-web built `realm.device.*`, `useDeviceApproval`, `<DeviceApproval/>`, the optional stylesheet and the device codes in go/ts/java. Local commits only; sdk is NOT pushed (the go device reds are still red; W4 pushes).
+
+Decisions:
+- `@realm-id/web-react` gets devDependencies `react-dom`, `jsdom`, `tsx` and a `test` script (owner ruling 2026-11-03), so its tests run in-tree. The package tsconfig excludes tests and the harness (no `@types/jsdom` or `@types/react-dom` is installed).
+- Core `RealmError` gains `details` (SPEC 15.8 `details.stepUp`) and `retryAfter`. SPEC 15.9's `error.retryAfter` had no named wire source: it is the `Retry-After` header, also stored in `details.retryAfter`.
+- The step-up opt-out is the RequestInit marker `realmidStepUp: "caller"`; `withStepUpRetry` strips it and returns the response untouched. The verify half is factored into `verifyStepUp`, shared with `realm.device.completeStepUp`.
+- `realm.device.*` sends through `realm.fetch` when a session exists and through the bare fetch before one does, so the BFF answers 401 itself and a verify-adopt can follow.
+- `<DeviceApproval/>` with no radio chosen sends `revokeExistingSessions: false` (the non-destructive answer): the choice is never pre-selected, but the red tests click Approve without choosing and expect the call to go out. Flagged for the owner in the W3 return.
+- go `ErrDeviceApprovalNotAllowed` / ts `DeviceApprovalNotAllowedError` / java `DeviceApprovalNotAllowedException` follow the R86 `actor_required` pattern.
+- Peer ranges accept `^0.13.0` in react, bff-realmid, firebase, google, admin; patch bumps bff-realmid 0.8.2, firebase 0.6.3, google 0.6.3, admin 0.27.1. `const Version` (go) untouched.
+- Local `web/packages/react/node_modules/@realm-id/web` (a stale 0.5.0 install, gitignored) was deleted so the workspace link resolves to core 0.13.
 
 ## 2026-11-03 — W2-sdk: red tests for device login (SPEC 15), local only
 

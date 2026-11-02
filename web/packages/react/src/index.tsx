@@ -97,3 +97,16 @@ export function useRealmReady(): boolean {
   }, [realm]);
   return ready;
 }
+
+export { useDeviceApproval, isWellFormedUserCode } from "./useDeviceApproval.js";
+export type {
+  DeviceApprovalApi,
+  DeviceApprovalError,
+  DeviceApprovalState,
+  DeviceApproveOptions,
+  DeviceMfa,
+  DeviceSessionLimit,
+  DeviceSessionRow,
+} from "./useDeviceApproval.js";
+export { DeviceApproval } from "./DeviceApproval.js";
+export type { DeviceApprovalClassNames, DeviceApprovalOutcome, DeviceApprovalProps } from "./DeviceApproval.js";

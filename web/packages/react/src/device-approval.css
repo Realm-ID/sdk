@@ -1,0 +1,115 @@
+/*
+ * Optional default stylesheet for <DeviceApproval/> (docs/device-approval-component.md § 3).
+ * Reads ONLY the ten documented custom properties, each with a fallback. Every selector is scoped to
+ * .realmid-device, so nothing leaks into the host page.
+ */
+
+.realmid-device {
+  font-family: var(--realmid-font, system-ui, sans-serif);
+  color: var(--realmid-text, #1a1a1a);
+  background: var(--realmid-surface, #ffffff);
+  border: 1px solid var(--realmid-border, #d9d9d9);
+  border-radius: var(--realmid-radius, 8px);
+  padding: calc(var(--realmid-gap, 12px) * 2);
+  max-width: 32rem;
+  margin: 0 auto;
+}
+
+.realmid-device__title {
+  margin: 0 0 var(--realmid-gap, 12px);
+  font-size: 1.25rem;
+}
+
+.realmid-device__details {
+  margin: 0 0 var(--realmid-gap, 12px);
+}
+
+.realmid-device .realmid-device__detail {
+  display: flex;
+  gap: var(--realmid-gap, 12px);
+  padding: 4px 0;
+}
+
+.realmid-device .realmid-device__detail dt {
+  flex: 0 0 8rem;
+  color: var(--realmid-muted, #666666);
+}
+
+.realmid-device .realmid-device__detail dd {
+  margin: 0;
+}
+
+.realmid-device .realmid-device__detail small {
+  color: var(--realmid-muted, #666666);
+}
+
+.realmid-device__notice {
+  color: var(--realmid-muted, #666666);
+  margin: 0 0 var(--realmid-gap, 12px);
+}
+
+.realmid-device__choice {
+  border: 1px solid var(--realmid-border, #d9d9d9);
+  border-radius: var(--realmid-radius, 8px);
+  margin: 0 0 var(--realmid-gap, 12px);
+  padding: var(--realmid-gap, 12px);
+}
+
+.realmid-device .realmid-device__choice label {
+  display: block;
+  padding: 2px 0;
+}
+
+.realmid-device__sessions {
+  list-style: none;
+  margin: 0 0 var(--realmid-gap, 12px);
+  padding: 0;
+}
+
+.realmid-device__code-input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--realmid-border, #d9d9d9);
+  border-radius: var(--realmid-radius, 8px);
+}
+
+.realmid-device__code-input:focus-visible {
+  outline: 2px solid var(--realmid-accent, #2563eb);
+}
+
+.realmid-device__actions {
+  display: flex;
+  gap: var(--realmid-gap, 12px);
+  margin-top: var(--realmid-gap, 12px);
+}
+
+.realmid-device__button {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: var(--realmid-radius, 8px);
+  border: 1px solid var(--realmid-border, #d9d9d9);
+  background: var(--realmid-surface, #ffffff);
+  color: var(--realmid-text, #1a1a1a);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.realmid-device__button--primary {
+  background: var(--realmid-accent, #2563eb);
+  border-color: var(--realmid-accent, #2563eb);
+  color: var(--realmid-accent-contrast, #ffffff);
+}
+
+.realmid-device__button:focus-visible {
+  outline: 2px solid var(--realmid-accent, #2563eb);
+  outline-offset: 2px;
+}
+
+.realmid-device__error {
+  color: var(--realmid-danger, #b91c1c);
+  margin: 0 0 var(--realmid-gap, 12px);
+}
+
+.realmid-device__countdown {
+  font-variant-numeric: tabular-nums;
+}
