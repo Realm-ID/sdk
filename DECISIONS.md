@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-146 entries total — 91 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+147 entries total — 92 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component](#2026-11-03--device-login-adr-122-sdk-contract-for-the-handler-set-poll-client-browser-calls-hook-and-component)
 - [2026-11-02 — 2026-11-02: ts unit tests failed on a wrong-platform esbuild in node_modules (RCA)](#2026-11-02--2026-11-02-ts-unit-tests-failed-on-a-wrong-platform-esbuild-in-node_modules-rca)
 - [2026-11-02 — CLI keeps its own dealer, held to the shared split vectors (ruling 9 reversed)](#2026-11-02--cli-keeps-its-own-dealer-held-to-the-shared-split-vectors-ruling-9-reversed)
 - [2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java](#2026-11-01--realm_suspended-and-tenant_suspended-410-registered-in-gotsjava)
@@ -158,6 +159,28 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component
+
+**Context.** Issuer ADR-122 (swagger `0.66.0`) moves device login into the issuer (umbrella plan `plans/2026-11-02-device-code-service-account.md`, all § 6 questions and DQ1/DQ2 ruled 2026-11-02). The SDK carries only wiring. This entry records the SDK contract written in `SPEC.md` §3.1 + §15, `web/BFF-SPEC.md` § Device approval, `docs/device-approval-component.md` (new) and `docs/partner-integration-guide.md` § 6.10. NOT BUILT: waves W2-W4 test and build it; targets go `0.73.0`, `@realm-id/web` `0.13.0`, `@realm-id/web-react` `0.6.0`, peers patch-bumped.
+
+**Ruled by the owner (cited, not re-decided).** Q1 (issuer once), T1 (account named at approve), N3 (`realmid.DeviceHandlers`, Go only), N5 (`client_id` reaches `CanApprove` and `ResolveSubject`), Q2 (one `403` for unknown and ineligible; per-actor cap `429`), Q3 (`ReplaceExistingSessions` always sends `true`), Q5 (approve step-up ON by default), Q6 (partner-reported IP, labelled, never compared), Q7 + DQ1 A (deny until collected, then a SIXTH `signout` route over existing revoke routes), DQ2 (`409 subject_suspended`, request stays pending), Q8 (TS/Java get only the error codes), N1 + styling (rendered `<DeviceApproval/>`, stable classes, `className` per part, CSS-custom-property stylesheet, no Tailwind).
+
+**Design choices made inside the rulings (each a reviewer may reverse before W4):**
+1. `CanApprove` is REQUIRED and called twice: once before any issuer call (false -> local `403 device_approval_not_allowed`, the hook's `not_owner`), once with the looked-up request so `client_id` reaches it (false -> the issuer's own `403 forbidden` bytes). Why: Q2 wants an early refusal, N5 wants `client_id` in the gate, and only a pre-lookup refusal may carry its own code without becoming an oracle. Required, because a set built without it would let every realm member approve a pending request (ADR-122 D4: a pending request is approvable by any human of the realm as themselves).
+2. `ResolveSubject` is side-effect free and also runs at INSPECT in preview, so the page can say which account the device becomes before approve; provisioning stays in `OnBeforeApprove`.
+3. The approve step-up is evaluated by the handler itself (same evaluator and 412 envelope as `Realm.Middleware`, `go/middleware.go:483-500`), so "ON by default" holds for a partner who configures no `MFAProtectedPaths`. Default rule `RequireFresh`.
+4. A new SDK-local code `device_approval_not_allowed` (typed in go/ts/java per R86), and `tenant_not_member` registered although ADR-122's Consequences list omits it (it is in ADR-122 D4).
+5. Browser routes use the canonical camelCase BFF-SPEC shapes; `subjectHint` and the issuer-observed IP are not relayed to the browser.
+6. `failed` (collection failure) maps to the hook state `denied` with `failureReason`; the brief's state list has no `failed`.
+7. `deviceclient` imports only the standard library and not the root package.
+8. Step-up on approve is rendered IN THE CARD (coordinator constraint from the ui W1c findings, 2026-11-03, following R41 and ui's 2026-10-30 rule that a route handling its own 412 skips the global wrapper). Chosen mechanism: every `realm.device.*` request carries the RequestInit marker `realmidStepUp: "caller"` and `withStepUpRetry` passes a marked response through untouched; `approve` throws the classified challenge; the hook's `needs_mfa` state collects the code in the card and calls `realm.device.completeStepUp`, then retries once. Rejected: a per-call `onStepUp` prompt (still lets a host's global wrapper answer first). A person with no factor gets ADR-096 D4 `412 mfa_registration_required`, and `<DeviceApproval>` takes a REQUIRED `enrollHref` prop (ui passes `/account#security`) so that state is never a dead end.
+
+**Gaps found, carried to the implementing waves (not decided here).**
+- `Realm.Middleware`'s step-up mints a VERIFY challenge for an approver with no enrolled factor (`go/middleware.go:334-344`, falls back to `["totp"]`), while ADR-096 D4 / `stepup.ts` expect `412 mfa_registration_required`. The device gate answers the enroll code (SPEC §15.5); whether to fix the middleware too is W4's adjacent-bug call. Consequence to raise with the owner (W1c): with step-up ON, a RealmID console user with no MFA cannot approve their own CLI login until they enrol, where today a fresh Google sign-in suffices.
+- ADR-122's inspect answer has no `tenant_id`, so the bot-case sign-out uses the approver's CURRENT pinned tenant; an approver who switched workspace after approving gets the issuer's refusal. Adding `tenant_id` to inspect (additive) is W3's call.
+
+**Rejected.** Making `CanApprove` optional (nil = everyone): inverts the safe default. A device-specific step-up path the partner must list in `MFAProtectedPaths`: breaks "ON by default".
 
 ## 2026-11-02 — 2026-11-02: ts unit tests failed on a wrong-platform esbuild in node_modules (RCA)
 

@@ -533,6 +533,35 @@ seen. Registered in all three languages (Go `ErrCodeAssertionReplayed`, java
 | `share_source_read_only` | local | A rotation was asked of a share source with no write method (the environment source); nothing was sent. Rotate with the CLI, then reload the bundle (§14.5). No typed subclass. |
 | `login_grant_removed` | 400 | A bot grant (`api_key`, `user_api_key`, token exchange, `platform_api_key`, the old integration grant) was sent to `/auth/login`. Send it to `/auth/token`. |
 
+**Device-authorization codes (issuer ADR-122, spec `0.66.0`; §15; NOT BUILT, UNRELEASED).** Registered
+in ALL THREE taxonomies (Q8, owner 2026-11-02: TS and Java get no device methods, only these codes),
+gated by `scripts/taxonomy-parity.py`. Go `ErrCode<Stem>`, ts `"<code>"`, java `ErrorCode.<STEM>`;
+initialisms per language (Go `ErrCodeInvalidClientID`, java `INVALID_CLIENT_ID`). Only
+`device_approval_not_allowed` gets a typed error (R86: Go raises it locally in the handler set), as Go
+sentinel `ErrDeviceApprovalNotAllowed`, ts `DeviceApprovalNotAllowedError`, java
+`DeviceApprovalNotAllowedException`. Ships with go `0.73.0` and the next ts/java minor [I: the plan fixes
+no ts/java number].
+
+| Code | HTTP | Where | Meaning |
+| --- | --- | --- | --- |
+| `authorization_pending` | 400 | device-code grant (poll) | Not approved yet, or an approve was refused (the refusal's code is on the request, R-CLI2). Poll again after `interval`. |
+| `slow_down` | 400 | device-code grant | Polled sooner than `interval`; the request's interval grew by 5 s (RFC 8628 § 3.5). |
+| `access_denied` | 400 | device-code grant | Denied (also after approve, before collection, Q7), or the bot was suspended or deactivated before collection (DQ2). Terminal. |
+| `expired_token` | 400 | device-code grant | Unknown, already collected, or expired: ONE answer for all three. Terminal. |
+| `device_code_attempts_exceeded` | 429 | inspect, approve, deny | 10 wrong codes by this actor in a fixed 15-minute window (Q2). `Retry-After` = seconds left in the window. |
+| `subject_suspended` | 409 | approve | The service account is suspended or deactivated (DQ2). The request STAYS pending; unsuspend and approve within the 10 minutes. Approving never reactivates a bot. |
+| `device_authorization_not_pending` | 409 | approve | Already approved, denied, collected, failed or expired. |
+| `device_authorization_collected` | 409 | deny | The device has collected its tokens; use "Not you? Sign it out" (§15.5). |
+| `revoke_existing_sessions_required` | 400 | approve | `revoke_existing_sessions` absent (Q3: stated, never inferred). |
+| `invalid_client_id` | 400 | start | `client_id` over 64 characters or not printable (N5). |
+| `tenant_not_member` | 400 | approve (self case) | `tenant_id` is not one of the approver's memberships. Named in ADR-122 D4 but missing from its Consequences list; registered here so the hook can branch on it. |
+| `device_approval_not_allowed` | 403 (local) | `sdk/go` handler set | The partner's `CanApprove` returned false; no issuer call was made and no code was read, so it is no oracle (§15.3). |
+
+`invalid_subject_ref` (400, approve) and `session_limit_reached` (412) were already registered. A device
+`400 invalid_request` (a `device_name` or `subject_hint` over its limit) is not registered; it reaches the
+caller as `bad_request` with `details.server_code` (§3.3). The issuer's unknown-or-ineligible answer is the
+existing `forbidden` (403, message "no device request you can act on matches this code").
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,
@@ -5427,3 +5456,275 @@ reuse ts `bigToBytes` (`Buffer`). The pure split lives in its own module with an
 is not re-exported from the entry point, so the §14.14 checks can drive it. Check 3 additionally
 verifies the combined signature with `crypto.subtle.verify("RSASSA-PKCS1-v1_5", …)` under the dealt
 public key.
+
+## 15. Device login (RFC 8628) — handler set, poll client, browser calls, hook, component (ADDED 2026-11-03, NOT BUILT, UNRELEASED)
+
+**Contract:** issuer ADR-122 and swagger `0.66.0` (`/auth/device-authorizations`, `/inspect`, `/approve`,
+`/deny`, and grant `urn:ietf:params:oauth:grant-type:device_code` on `/auth/token` and
+`/auth/token/partial`). Rulings: umbrella `plans/2026-11-02-device-code-service-account.md` § 6 (Q1-Q8, T1,
+N1-N5) and § 5.3 (DQ1, DQ2), umbrella `DECISIONS.md` "2026-11-02 — Device login lives in the issuer once"
+and its amendments. Where this section and ADR-122 disagree, ADR-122 wins and this section is fixed.
+**Version targets** (no tag, no publish in this work): go `0.73.0`, `@realm-id/web` `0.13.0`,
+`@realm-id/web-react` `0.6.0`; every other web package takes a PATCH bump that widens its peer range to
+`^0.13.0` (a core minor breaks an unwidened peer with npm `ERESOLVE`; `web/packages/react/package.json:37`
+ends at `^0.12.0` today [V]). ts `@realm-id/sdk` and java get ONLY the §3.1 codes (Q8).
+
+**Topology (owner, 2026-11-02).** The device talks only to the partner's BFF, the browser talks only to the
+partner's BFF, and the BFF talks only to the issuer. Nothing in this section calls `api.realmid.dev` from a
+partner, and no device or browser reaches the issuer directly.
+
+**What is NOT changed (§1.0 of the plan, owner 2026-11-02).** The service-account OTP login,
+`OTP.Issue` (`go/otp.go:87`) with `delivery_mode: view_bff` plus `Auth.ServiceAccountOTPLogin`
+(`go/auth.go:1001`), keeps its signatures and behaviour and is NOT deprecated. Device login is an
+additional method.
+
+### 15.1 `realmid.DeviceHandlers(client, opts)` (Go only, Q8; N3)
+
+```go
+func DeviceHandlers(client *Realm, opts DeviceOptions) (*DeviceHandlerSet, error)
+
+type DeviceHandlerSet struct {
+    Start, Token                     http.Handler // device-facing (RFC 8628)
+    Inspect, Approve, Deny, SignOut  http.Handler // browser-facing (BFF-SPEC § Device approval)
+}
+// Mount registers all six on mux at DefaultDevicePaths under prefix. A partner that wants its own paths
+// mounts the six fields itself (the stable-types ask, 2026-11-02).
+func (s *DeviceHandlerSet) Mount(mux *http.ServeMux, prefix string)
+```
+
+The constructor returns an error (never a half-built set) when `VerificationURI` is empty, `CanApprove`
+is nil, or `ApproveStepUp` is an invalid `MFARule` (`ValidateMFARules`, `go/middleware_mfa_rules.go:115`).
+Rationale: a set built without its gate would approve for everyone; the same "refuse to boot" reason as
+`MiddlewareE` (`go/middleware.go:382`).
+
+**Default paths** (`DefaultDevicePaths`): `/device/start`, `/device/token` (device-facing);
+`/device/inspect`, `/device/approve`, `/device/deny`, `/device/signout` (browser-facing). Six routes: the
+sixth, `signout`, is DQ1 option A (owner, 2026-11-02).
+
+**Mounting.** The four browser-facing handlers MUST sit behind the partner's `Realm.Middleware` (or
+`MiddlewareE`): they read the approver from `ClaimsFrom(r.Context())` (`go/middleware.go:248`) and answer
+`401 unauthorized` when it is absent. The two device-facing handlers MUST NOT: a device has no session, so
+the partner lists them in `MiddlewareOptions.ExemptPaths`. Every issuer call carries the platform token as
+the bearer (ADR-121 D1). The browser-facing ones also carry the approver's access token as `X-User-Token`
+(the actor, ADR-121 D2), taken from the inbound bearer the middleware verified [I: W4 confirms the
+middleware's bearer source, `go/middleware.go:446`].
+
+### 15.2 Stable named types (all exported, JSON tags as on the wire)
+
+Device-facing (RFC 8628 wire, form-encoded request, JSON response):
+- `DeviceStartRequest{ClientID, DeviceName, SubjectHint string}` — form fields `client_id`, `device_name`,
+  `subject_hint` (the last two are RFC 8628 extension parameters, both optional).
+- `DeviceStartResponse{DeviceCode, UserCode, VerificationURI, VerificationURIComplete string; ExpiresIn,
+  Interval int}` — RFC 8628 § 3.2. `user_code` is shown `XXXX-XXXX`; `verification_uri_complete` is
+  `VerificationURI?code=<user_code>` unless `opts.OmitVerificationURIComplete`.
+- `DeviceTokenRequest{GrantType, DeviceCode, ClientID string}` — RFC 8628 § 3.4.
+- `DeviceTokenError{Error, ErrorDescription string}` — RFC 6749 § 5.2 body; HTTP 400 for the four RFC codes.
+- `DeviceTokens` — what the issuer minted, passed to `OnIssued` (§15.3): `SubjectType` (`user`|`service`),
+  `DeviceAuthorizationID`, and EITHER `Bot *MintResult` plus `ServiceAccountID` (bot case) OR
+  `Self *DeviceLoginResult` (self case: the issuer's `DeviceLoginResponse`: refresh token, user, tenants,
+  optional `TenantID`, `SessionID`; NO access token, R44).
+
+Browser-facing (canonical BFF-SPEC JSON, camelCase):
+- `DeviceCodeRequest{UserCode string}` (inspect, deny, signout).
+- `DeviceApproveRequest{UserCode string; TenantID string; RevokeExistingSessions *bool}`.
+- `DeviceRequestView` — inspect answer: `id, status, clientId, deviceName, deviceNameSource
+  ("client_declared"), reportedIp, reportedIpSource ("partner"), createdAt, expiresAt, subjectType,
+  subjectLabel, collectedSessionId, failureReason, replaceExistingSessions (bool), stepUp (bool)`.
+  `subjectHint` and `observedIp` are deliberately NOT relayed to the browser (the hint is untrusted, the
+  observed IP is the partner's own server). `subjectLabel` comes from `ResolveSubject` (§15.3).
+- `DeviceApproveResponse{ID, Status, SubjectType string; ExpiresAt string}`; `DeviceDenyResponse{ID, Status}`;
+  `DeviceSignOutResponse{SubjectType string; Scope string}` (`"account"` bot, `"session"` self).
+
+### 15.3 The hooks (all run on the BFF; T1: the account is named at APPROVE)
+
+```go
+type DeviceApprover struct {
+    UserID, TenantID, SessionID string // from the verified access token (sub, tenant_id, sid)
+    Claims *Claims
+}
+type DeviceRequest struct { // the issuer's inspect answer, as the hooks see it
+    ID, Status, ClientID, DeviceName, SubjectHint, ReportedIP, ObservedIP string
+    CreatedAt, ExpiresAt time.Time
+}
+type DeviceSubject struct {
+    Ref      string // "self" or "user:<service account id>"; may be "" in preview (below)
+    Kind     string // "self" | "service"
+    TenantID string // self case only: the workspace pin (R41); "" = issuer default
+    Label    string // what the page shows, e.g. "sync-bot in Acme" or "you"
+}
+
+type DeviceOptions struct {
+    VerificationURI string // REQUIRED: the partner's approval page (absolute URL)
+    OmitVerificationURIComplete bool
+
+    // CanApprove (REQUIRED, Q2) is called TWICE per browser route. First with req == nil, before any
+    // issuer call: false -> 403 device_approval_not_allowed, no code read. Then, on inspect, approve
+    // and signout, with the looked-up request (client_id reaches it here, N5): false -> the issuer's
+    // own 403 forbidden body, byte for byte, so a refusal after the lookup is no oracle.
+    CanApprove func(r *http.Request, approver DeviceApprover, req *DeviceRequest) bool
+    // OnBeforeApprove (optional) runs after step-up and before ResolveSubject + the issuer approve.
+    // A non-nil error aborts: nothing is sent to the issuer, the browser gets the error (a *RealmError
+    // is relayed as is; any other error is 500 server_error). Traide provisions its sync SA here.
+    OnBeforeApprove func(r *http.Request, approver DeviceApprover, req DeviceRequest) error
+    // ResolveSubject (optional; nil = self case) names the account. It MUST be side-effect free: it is
+    // called at INSPECT in preview (to fill subjectType/subjectLabel; Ref may be "" when the account
+    // does not exist yet) and at APPROVE to bind (after OnBeforeApprove). client_id is req.ClientID (N5).
+    ResolveSubject func(r *http.Request, approver DeviceApprover, req DeviceRequest, preview bool) (DeviceSubject, error)
+    // OnIssued (optional) shapes what the DEVICE receives at collection. nil: bot case -> RFC 6749
+    // token response {access_token, token_type:"Bearer", expires_in, refresh_token?}; self case -> the
+    // issuer's DeviceLoginResponse JSON as is (NOT an RFC 6749 response: a partner serving a people CLI
+    // supplies OnIssued, as RealmID's BFF does to make its own BFF session).
+    OnIssued func(r *http.Request, tokens DeviceTokens) (status int, body any, err error)
+
+    // ReplaceExistingSessions (Q3): true -> every approve sends revoke_existing_sessions: true and the
+    // browser's choice is ignored (and hidden: DeviceRequestView.replaceExistingSessions). false -> the
+    // browser MUST state it; absent -> 400 revoke_existing_sessions_required, relayed.
+    ReplaceExistingSessions bool
+    // Approve step-up (Q5): ON by default. DisableApproveStepUp turns it off. ApproveStepUp overrides the
+    // rule; nil = MFARule{RequireFresh: true} ("a fresh MFA code to approve", plan § 1.3).
+    DisableApproveStepUp bool
+    ApproveStepUp        *MFARule
+    // DeviceIP returns the device's IP for X-On-Behalf-Of-IP on start and token (Q6). nil = host part
+    // of r.RemoteAddr. A partner behind a proxy supplies it (the SDK never trusts X-Forwarded-For itself).
+    DeviceIP func(r *http.Request) string
+}
+```
+
+Why twice: Q2 wants an early refusal the partner can show as "you cannot approve devices here", and N5
+wants `client_id` to reach the gate. Only the first call may answer with its own code, because it runs
+before the code is read; the second answers exactly what an unknown code would get. Its typical body is "is this person allowed to use the device page at all"
+(Traide: owner of the current tenant; RealmID: any signed-in console user).
+
+### 15.4 Route behaviour
+
+| route | handler does, in order | issuer call |
+|---|---|---|
+| `start` | parse RFC form; `client_id` over 64 chars -> `400 invalid_client_id` locally (N5, saves a round trip); forward with `X-On-Behalf-Of-IP = DeviceIP(r)`; add `verification_uri[_complete]` | `POST /auth/device-authorizations` |
+| `token` | require `grant_type` = the device-code URN (else RFC `unsupported_grant_type`); forward `device_code` with `X-On-Behalf-Of-IP`; split realm -> `/auth/token/partial` and co-sign (§15.6); map the four RFC codes to `DeviceTokenError` 400; any other issuer code (R-CLI2: e.g. `user_suspended`, `tenant_disabled`) -> `DeviceTokenError{error: <code>}` with the issuer's status; success -> `OnIssued` | `POST /auth/token` (`/partial`) |
+| `inspect` | approver required; `CanApprove(r, a, nil)`; forward with actor; `CanApprove(r, a, &req)`; then `ResolveSubject(preview=true)` for an UNBOUND (`pending`) request; build `DeviceRequestView` | `POST /auth/device-authorizations/inspect` |
+| `approve` | approver required; `CanApprove(r, a, nil)`; step-up gate (§15.5); inspect (actor) -> `CanApprove(r, a, &req)`; `OnBeforeApprove`; `ResolveSubject(preview=false)`; `revoke_existing_sessions` per `ReplaceExistingSessions`; forward | `.../approve` |
+| `deny` | approver required; `CanApprove(r, a, nil)`; forward | `.../deny` |
+| `signout` | approver required; `CanApprove(r, a, nil)`; inspect (actor; the issuer's eligibility rule = "gated like deny", DQ1); `CanApprove(r, a, &req)`; status must be `collected` else `409 device_authorization_not_pending`; bot case -> service-account revoke; self case -> session delete with `collectedSessionId` | see §15.5 |
+
+Every issuer error is relayed with its status and BOTH envelope levels (BFF-SPEC § Relaying an upstream
+error). The issuer's `403 forbidden` (unknown code OR not eligible, byte-identical, Q2) and
+`429 device_code_attempts_exceeded` (with `Retry-After`, relayed) are never rewritten.
+
+### 15.5 Step-up on approve, and sign-out
+
+**Step-up (Q5, ADR-096).** The handler set evaluates freshness ITSELF on the approve route, with the same
+evaluator and the same `412` envelope `Realm.Middleware` writes for an `MFAProtectedPaths` hit
+(`go/middleware.go:483-500`: `{error:{code:"mfa_required"}, mfa_challenge_token, methods,
+max_age_seconds, reason}`), so the browser's existing step-up client (`web/packages/core/src/stepup.ts`)
+handles it unchanged. It does not rely on the partner listing the path in `MFAProtectedPaths`, because
+"ON by default" must hold for a partner who configures nothing. **Gap carried to W4 [V]:** today's
+middleware mints a VERIFY challenge even for an approver with no confirmed factor (`mintMFAChallenge`,
+`go/middleware.go:334-344`, falls back to `methods: ["totp"]` with an empty token), while ADR-096 D4 and
+`stepup.ts` expect `412 mfa_registration_required` (an ENROLL challenge) for that person. The device
+approve gate answers `mfa_registration_required` when the challenge mint reports no enrolled factor; the
+component renders the enroll screen for it (and, defensively, for an `mfa_required` with an empty
+challenge token).
+
+**Sign-out (Q7, DQ1 option A, owner 2026-11-02).** Bot case: `POST /tenants/{id}/service-accounts/{said}/revoke`
+with the actor, which ends ALL the bot's sessions (issuer `internal/httpapi/service_accounts.go:573-596`,
+gate `requireServiceAccountManage`); `{id}` is the approver's pinned tenant (`DeviceApprover.TenantID`;
+the bot lives in the approver's pinned tenant, ADR-122 D1.2) [I: ADR-122's inspect answer carries no
+`tenant_id`, so an approver who switched workspace after approving gets the issuer's refusal; flagged to
+W3]. Self case: `DELETE /auth/sessions/{collected_session_id}` with the actor (issuer
+`internal/httpapi/sessions.go:276-286`). No new issuer route.
+
+### 15.6 Split-signing realm at the poll
+
+When the client is split (`client.split != nil`, the same switch `ServiceAccountOTPLogin` uses,
+`go/auth.go:1023-1025`), `token` posts to `/auth/token/partial` and, for the bot case, finishes the
+signature with the existing co-sign path (`splitToken` / `finishPartial`, `go/split_token.go:29-40`;
+`CoSign`, `go/cosign.go:136`). The self case's `DeviceLoginResponse` carries no `signing` block (it mints
+no access token, ADR-122 D6) and is passed through without co-signing. A partial that fails to co-sign
+answers the device `500 server_error` and NO token, as `splitToken` does today.
+
+### 15.7 `sdk/go/deviceclient` — the device side
+
+A standalone RFC 8628 client in package `github.com/Realm-ID/sdk/go/deviceclient`. **Standard library
+only**: it adds no `require` to `go/go.mod` and does not import the root `realmid` package (it talks to
+the partner's BFF, not the issuer, so it needs nothing from it).
+
+```go
+type Config struct {
+    StartURL, TokenURL string       // the partner BFF's /device/start and /device/token
+    ClientID, DeviceName, SubjectHint string
+    HTTPClient *http.Client         // nil = http.DefaultClient
+}
+type Authorization struct { DeviceCode, UserCode, VerificationURI, VerificationURIComplete string; ExpiresIn, Interval int }
+func Start(ctx context.Context, cfg Config) (*Authorization, error)
+// Poll waits Interval between polls, adds 5 s on slow_down (and keeps the larger interval), keeps going
+// on authorization_pending, returns ErrAccessDenied / ErrExpiredToken (terminal), returns ctx.Err() on
+// cancel, and returns *Error{Code, Description, Status} for any other code (R-CLI2: the real reason).
+// On success it returns the raw JSON body: its shape is the partner's OnIssued choice.
+func Poll(ctx context.Context, cfg Config, a *Authorization) (json.RawMessage, error)
+var ErrAccessDenied, ErrExpiredToken error
+```
+
+The deadline is `ExpiresIn` from Start; past it `Poll` returns `ErrExpiredToken` without another request.
+RealmID's CLI keeps its own loop (`cli/cmd/realm-id/main.go:425-470`; N2, the CLI does not change).
+
+### 15.8 `@realm-id/web`: `realm.device.*` (0.13.0)
+
+```ts
+realm.device.inspect(userCode: string): Promise<DeviceRequestView>
+realm.device.approve(req: { userCode: string; tenantId?: string; revokeExistingSessions?: boolean }): Promise<DeviceApproveResult>
+realm.device.completeStepUp(challenge: StepUpChallenge, code: string): Promise<void> // verify + adopt; caller retries approve once
+realm.device.deny(userCode: string): Promise<{ id: string; status: "denied" }>
+realm.device.signOut(userCode: string): Promise<{ subjectType: "user" | "service"; scope: "account" | "session" }>
+```
+
+Paths come from `Endpoints` (`web/packages/core/src/types.ts:327`), four new keys with these defaults:
+`deviceInspect: "/device/inspect"`, `deviceApprove: "/device/approve"`, `deviceDeny: "/device/deny"`,
+`deviceSignOut: "/device/signout"`; a partner renames them with the existing `endpoints` setting
+(BFF-SPEC). Errors are the usual `RealmError` with the §3.1 code. **Step-up is handled IN THE CARD, never
+by a host-wide prompt** (R41, umbrella `DECISIONS.md` 2026-10-30; ui's 2026-10-30 rule that a route
+handling its own `412` skips the global wrapper; coordinator constraint for W1b, 2026-11-03). Mechanism
+(chosen: the device calls OPT OUT of the core retry): every `realm.device.*` request carries the
+RequestInit marker `realmidStepUp: "caller"`, and `withStepUpRetry` (`stepup.ts:166`) returns the response
+of a marked request untouched, so a partner's global step-up modal never fires for a device call. The
+`412` then reaches `approve`, which throws a `RealmError` (`mfa_required` or `mfa_registration_required`)
+whose `details.stepUp` is the `StepUpChallenge` classified exactly as `stepup.ts` classifies it. The hook
+turns that into `needs_mfa`; the card collects the code and calls `completeStepUp`, which runs the
+verify -> adopt half of the same sequence (W3 factors it out of `withStepUpRetry` rather than copying it),
+and the hook retries approve ONCE. An enroll challenge is never answered with a code: the card shows the
+host's enrol link (`<DeviceApproval enrollHref>`). A
+`412 session_limit_reached` is never treated as step-up; it is thrown with `revocation_token` and the
+session list for `createRevocationSessions` (`revocation-sessions.ts:49`). User codes are sent as typed;
+the issuer ignores case and the dash.
+
+### 15.9 `@realm-id/web-react`: `useDeviceApproval(userCode)` (0.6.0)
+
+```ts
+const { state, request, approve, deny, signOut, mfa, sessionLimit, error } = useDeviceApproval(userCode);
+// state: "loading" | "ready" | "needs_mfa" | "approved" | "denied" | "expired" | "not_owner" | "not_found"
+```
+
+| state | entered when |
+|---|---|
+| `loading` | an inspect (or approve/deny) call is in flight, or `userCode` changed |
+| `ready` | inspect answered `pending`. Recoverable errors stay here with `error` set: `subject_suspended` (DQ2), `device_code_attempts_exceeded` (`error.retryAfter` seconds), `tenant_not_member`, `session_limit_reached` (then `sessionLimit` is set) |
+| `needs_mfa` | approve hit the step-up `412`; `mfa = {kind: "verify" \| "enroll", methods, submit(code), cancel()}`; `submit` calls `realm.device.completeStepUp` then retries approve once; `cancel` returns to `ready`. `kind: "enroll"` (ADR-096 D4 `mfa_registration_required`, also used for a verify challenge with an empty token) has no `submit` |
+| `approved` | approve succeeded, or inspect answered `approved` or `collected`. The hook re-inspects every 5 s until `collected`, `denied`, `failed` or expiry, so `request.status === "collected"` drives the Q7 line |
+| `denied` | deny succeeded, inspect answered `denied`, or `failed` (then `request.failureReason` is set) |
+| `expired` | inspect answered `expired`, approve answered `device_authorization_not_pending` for an expired request, or the local countdown to `request.expiresAt` reached zero |
+| `not_owner` | the BFF answered `403 device_approval_not_allowed` (the partner's `CanApprove`) |
+| `not_found` | the issuer's `403 forbidden` (an unknown code, or a request this person cannot act on; Q2 makes them one answer, so the hook cannot and does not tell them apart) |
+
+`not_owner` and `not_found` MUST render the same copy (Q2). `sessionLimit` = `{sessions, revokeAndRetry(ids)}`
+built on `createRevocationSessions`; after the revoke it retries the same approve once. A `userCode` that is
+empty or malformed (not 8 characters of the alphabet after removing the dash) never calls the BFF; the hook
+stays `ready` with `request` null and `error.code = "bad_request"`, so the code-entry screen can show
+"Check the code". Approve stays possible only in `ready`; deny in `ready` and `approved`-not-collected
+(Q7); `signOut` only when `request.status === "collected"`.
+
+### 15.10 `@realm-id/web-react`: `<DeviceApproval/>` (0.6.0; N1, styling ruling 2026-11-02)
+
+A rendered component built ONLY on `useDeviceApproval`, so RealmID's ui and every partner's page share it.
+Its parts, stable class names, `className` props, optional stylesheet, every UX state and its copy are
+specified in `docs/device-approval-component.md`; that file is part of this contract. No Tailwind (or any
+CSS framework) in `web/packages/react/package.json`; the default stylesheet is a separate import and reads
+only CSS custom properties.
