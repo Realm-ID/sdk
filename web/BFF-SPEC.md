@@ -220,6 +220,33 @@ Used on SDK init to restore session state.
 
 **Response 401** — anonymous; SDK sets `status = "anonymous"`.
 
+### Device approval — `POST /device/inspect`, `/device/approve`, `/device/deny`, `/device/signout` (NOT BUILT, UNRELEASED; `@realm-id/web` 0.13.0)
+
+The browser half of device login (issuer ADR-122; SDK `SPEC.md` §15). All four need a signed-in
+session (the access JWT as the bearer, as on every other route) and are served by the `sdk/go` handler
+set `realmid.DeviceHandlers` (SPEC §15.1). The device's own two routes (`/device/start`,
+`/device/token`) are RFC 8628, not part of this contract. Paths are renameable through the existing
+`endpoints` setting: keys `deviceInspect`, `deviceApprove`, `deviceDeny`, `deviceSignOut`.
+
+| route | request | 200 response |
+|---|---|---|
+| `/device/inspect` | `{ "userCode": "ABCD-EFGH" }` | `DeviceRequestView`: `{ "id", "status": "pending"\|"approved"\|"denied"\|"collected"\|"failed"\|"expired", "clientId"?, "deviceName"?, "deviceNameSource": "client_declared", "reportedIp"?, "reportedIpSource": "partner", "createdAt", "expiresAt", "subjectType"?: "user"\|"service", "subjectLabel"?, "collectedSessionId"?, "failureReason"?, "replaceExistingSessions": bool, "stepUp": bool }` |
+| `/device/approve` | `{ "userCode", "tenantId"?, "revokeExistingSessions"? }` (`revokeExistingSessions` required unless `replaceExistingSessions`) | `{ "id", "status": "approved", "subjectType", "expiresAt" }` |
+| `/device/deny` | `{ "userCode" }` | `{ "id", "status": "denied" }` (repeat deny is 200) |
+| `/device/signout` | `{ "userCode" }` | `{ "subjectType", "scope": "account"\|"session" }` |
+
+Errors use the canonical envelope with the SPEC §3.1 codes, relayed with both envelope levels:
+`403 device_approval_not_allowed` (the partner's `CanApprove`, before any code is read); `403 forbidden`
+(an unknown code OR a request this person cannot act on: one answer, Q2); `429
+device_code_attempts_exceeded` with `Retry-After`; `412 mfa_required` / `412 mfa_registration_required`
+on approve (the step-up envelope, handled by `stepup.ts`; Q5, ON by default); `412
+session_limit_reached` on a self-case approve (the existing session-limit envelope, to the approver; Q3);
+`409 subject_suspended` (DQ2; the request stays pending); `409 device_authorization_not_pending`; `409
+device_authorization_collected` on deny (use `/device/signout`, Q7); `400
+revoke_existing_sessions_required`; `400 tenant_not_member`.
+`subjectHint` and the issuer-observed IP are never sent to the browser. A response never compares the
+device IP with the browser's (Q6).
+
 ## Session restore
 
 The SDK's `autoRestore` (default `true`) supports two transports
