@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-149 entries total — 94 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+150 entries total — 95 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — go: device login handler set and deviceclient (SPEC §15, go 0.73.0)](#2026-11-03--go-device-login-handler-set-and-deviceclient-spec-15-go-0730)
 - [2026-11-03 — W3-sdk-web: realm.device.*, useDeviceApproval, <DeviceApproval/>, device codes (SPEC 15), local only](#2026-11-03--w3-sdk-web-realmdevice-usedeviceapproval-deviceapproval-device-codes-spec-15-local-only)
 - [2026-11-03 — W2-sdk: red tests for device login (SPEC 15), local only](#2026-11-03--w2-sdk-red-tests-for-device-login-spec-15-local-only)
 - [2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component](#2026-11-03--device-login-adr-122-sdk-contract-for-the-handler-set-poll-client-browser-calls-hook-and-component)
@@ -161,6 +162,21 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — go: device login handler set and deviceclient (SPEC §15, go 0.73.0)
+
+**Context.** SPEC §15 asks `sdk/go` for a device handler set and a poll client (ADR-122; plan Q1-Q8, T1, N5). The issuer holds the logic; the SDK is wiring.
+
+**Decisions.**
+- `realmid.DeviceHandlers` is six `http.Handler`s over `platformToken` + `http.do`; device-facing routes speak RFC 6749 (`{"error": "<code>"}`), browser-facing routes speak BFF-SPEC camelCase with both envelope levels preserved. An issuer 404 on start/token becomes 502 (a missing issuer route is a bad gateway, not a 404 for the device's own path).
+- Approve step-up reuses `evaluateMFAFreshness` and the middleware's 412 envelope, but classifies the approver first via `Auth.ListAuthenticators`: nothing confirmed -> `412 mfa_registration_required` (ADR-096 D4); list unreadable or a confirmed factor -> the verify challenge the middleware mints. The general middleware (`mintMFAChallenge`) is NOT changed here (the fix is wider than this unit); filed in `TODO.md` § Go SDK only.
+- `revokeExistingSessions` not stated and `ReplaceExistingSessions` false: the key is OMITTED and the issuer's `400 revoke_existing_sessions_required` is relayed (Q3: stated, never inferred; the SDK never defaults).
+- Q2 no-oracle: an unknown code and a refusal after the lookup both write one constant `403 forbidden` body, so they cannot differ even if the issuer's message text does.
+- A pin from `ResolveSubject` (`DeviceSubject.TenantID`) wins over the browser's `tenantId`.
+- `DeviceLoginResult` (self case) completed to the swagger `DeviceLoginResponse` (status, subject_type, user, refresh_exp, idle_ttl, tenants, device_authorization_id added); still no access token (R44).
+- Issuer answers are read bare with a tolerant unwrap of a GoFr `{"data": ...}` wrapper, because the issuer handlers were not in the tree when this was written (UNVERIFIED against a live issuer).
+- `deviceclient.Poll` waits `interval` BEFORE the first poll (RFC 8628 § 3.5), keeps a slow_down increment for the rest of the loop, and treats `ExpiresIn` from Start as the deadline.
+- go `const Version` 0.72.0 -> 0.73.0 (`tag-hygiene.sh unreleased-go`). No tag.
 
 ## 2026-11-03 — W3-sdk-web: realm.device.*, useDeviceApproval, <DeviceApproval/>, device codes (SPEC 15), local only
 

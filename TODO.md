@@ -402,6 +402,8 @@ in the same repo.
 
 ## Go SDK only
 
+- [ ] `go/middleware.go` (`mintMFAChallenge`, :334-344) — a stale-MFA 412 for a person with NO confirmed factor is `mfa_required` with an EMPTY `mfa_challenge_token` (falls back to `methods: ["totp"]`); ADR-096 D4 says `412 mfa_registration_required`. The device approve gate (`go/device_handlers.go` `stepUpFresh`) classifies via `ListAuthenticators` and answers correctly; the general `MFAProtectedPaths` gate does not, and the issuer's `/auth/mfa/challenge` does not signal enrollment either. Fix = share the device classifier in `buildMiddleware` (one extra read per 412) or have the issuer's endpoint return an enroll challenge; needs a test and a DECISIONS entry.
+
 Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the
 module hash and demands a version bump (see the note at the top of this file).
