@@ -19,7 +19,7 @@ import (
 // Compile-time pin (§1.0, owner 2026-11-02): the SA OTP login keeps its signatures.
 var (
 	_ func(*AuthClient, context.Context, ServiceAccountOTPLoginRequest) (*MintResult, error) = (*AuthClient).ServiceAccountOTPLogin
-	_ func(*OTPClient, context.Context, IssueRequest) (*IssueResponse, error)                 = (*OTPClient).Issue
+	_ func(*OTPClient, context.Context, IssueRequest) (*IssueResponse, error)                = (*OTPClient).Issue
 )
 
 const deviceURN = "urn:ietf:params:oauth:grant-type:device_code"
@@ -374,7 +374,10 @@ func TestDevice_OnIssuedSelfCaseGetsDeviceLoginResult(t *testing.T) {
 		"tenants": []any{}, "session_id": "s9", "device_authorization_id": "da1"})
 	var seen DeviceTokens
 	o := baseDeviceOpts()
-	o.OnIssued = func(_ *http.Request, tk DeviceTokens) (int, any, error) { seen = tk; return 200, map[string]any{"ok": true}, nil }
+	o.OnIssued = func(_ *http.Request, tk DeviceTokens) (int, any, error) {
+		seen = tk
+		return 200, map[string]any{"ok": true}, nil
+	}
 	s := mustSet(t, d.realm(t, nil), o)
 	w := httptest.NewRecorder()
 	s.Token.ServeHTTP(w, tokenForm(deviceURN))
@@ -436,7 +439,10 @@ func TestDevice_CanApproveFalseRefusesEarlyWithNoIssuerCall(t *testing.T) {
 	d := newDevIssuer(t)
 	var firstReqs []*DeviceRequest
 	o := baseDeviceOpts()
-	o.CanApprove = func(_ *http.Request, _ DeviceApprover, req *DeviceRequest) bool { firstReqs = append(firstReqs, req); return false }
+	o.CanApprove = func(_ *http.Request, _ DeviceApprover, req *DeviceRequest) bool {
+		firstReqs = append(firstReqs, req)
+		return false
+	}
 	s := mustSet(t, d.realm(t, nil), o)
 	for name, h := range browserRoutes(s) {
 		firstReqs = nil
