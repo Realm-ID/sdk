@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-145 entries total — 90 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+146 entries total — 91 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-02 — 2026-11-02: ts unit tests failed on a wrong-platform esbuild in node_modules (RCA)](#2026-11-02--2026-11-02-ts-unit-tests-failed-on-a-wrong-platform-esbuild-in-node_modules-rca)
 - [2026-11-02 — CLI keeps its own dealer, held to the shared split vectors (ruling 9 reversed)](#2026-11-02--cli-keeps-its-own-dealer-held-to-the-shared-split-vectors-ruling-9-reversed)
 - [2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java](#2026-11-01--realm_suspended-and-tenant_suspended-410-registered-in-gotsjava)
 - [2026-10-29 — Split modulus is λ(n), canonical (Q3); browser dealer in web-admin; base-trust withdrawn from SPEC (D3/D4)](#2026-10-29--split-modulus-is-λn-canonical-q3-browser-dealer-in-web-admin-base-trust-withdrawn-from-spec-d3d4)
@@ -157,6 +158,18 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-02 — 2026-11-02: ts unit tests failed on a wrong-platform esbuild in node_modules (RCA)
+
+**Symptom.** `make check` failed at "ts: unit tests": every `src/*.test.ts` died with esbuild's `TransformError` ("You installed esbuild for another platform... `@esbuild/linux-arm64` is present but this platform needs `@esbuild/darwin-arm64`"). Typecheck passed.
+
+**Root cause.** `ts/node_modules` (gitignored) had been populated by an `npm install` run inside a Linux docker container on the bind-mounted tree, leaving the linux esbuild binary. The host (darwin-arm64) `node --import tsx` could not load it. No tracked file was wrong.
+
+**Why it wasn't caught.** `node_modules` is gitignored, so git and CI (clean checkout, native install) never see it; the error reads as a code failure, not an environment one.
+
+**Fix.** `npm ci` in `ts/` on the host (node_modules now has `@esbuild/darwin-arm64`). `make check` then passed (rc=0, 75s). No source, spec, version or CHANGELOG change.
+
+**Prevention.** Proposal only, not built: a platform check in preflight (fail early with "run npm ci on the host" when `node_modules/@esbuild` lacks the host platform), or keep docker npm installs out of the bind-mounted `ts/`.
 
 ## 2026-11-02 — CLI keeps its own dealer, held to the shared split vectors (ruling 9 reversed)
 
