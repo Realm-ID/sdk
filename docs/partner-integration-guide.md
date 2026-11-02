@@ -2855,6 +2855,72 @@ Two things to check in your code: a webhook or background path that used to call
 (for example a helper that falls back to a bare call when no user token is stashed) now gets
 `403`; give it a service account. And a bare startup probe such as `realm.Info` stays allowed.
 
+## 6.10 Device login for a CLI or an agent (RFC 8628; NOT BUILT, UNRELEASED: go `0.73.0`)
+
+> **Who talks to whom (owner ruling, 2026-11-02).** Your clients (browser app, CLI, sync agent) talk
+> ONLY to your own backend (BFF). Your BFF talks ONLY to the RealmID issuer (`auth.realmid.dev`), never to
+> RealmID's own BFF (`api.realmid.dev`). Every flow in this guide follows that rule; the device flow below
+> is mounted on YOUR backend for that reason.
+
+A device (a sync agent, a CLI) logs in without anyone copying a secret onto it: it shows a short code,
+someone signed in to your web app types the code and approves, and the device collects its tokens.
+RealmID keeps every rule (hashed codes, 10-minute expiry, single use, `slow_down`, who may approve whom,
+audit); you write the look of your page and two small callbacks. Contract: `SPEC.md` §15.
+
+**The two shapes.** The approver logs a device in as THEMSELVES (a person's CLI), or as a service
+account in a workspace they OWN (an agent; owner-only, like minting a bot's one-time code today). The
+existing bot login (`OTP.Issue` with `view_bff` + `Auth.ServiceAccountOTPLogin`) is unchanged and not
+deprecated; device login is an additional way in.
+
+**1. Mount the handlers** (one line, plus the device routes in `ExemptPaths`):
+
+```go
+set, err := realmid.DeviceHandlers(realm, realmid.DeviceOptions{
+    VerificationURI:         "https://app.traide.example/connect",
+    CanApprove:              canApprove,     // required
+    OnBeforeApprove:         provisionSyncSA, // optional
+    ResolveSubject:          tenantSyncSA,    // optional; nil = the approver themselves
+    ReplaceExistingSessions: true,            // one live agent per workspace
+})
+if err != nil { log.Fatal(err) }
+set.Mount(mux, "/api") // /api/device/{start,token,inspect,approve,deny,signout}
+```
+
+**2. The callbacks (Traide's sync agent as the example).**
+
+```go
+// Only a workspace owner may use the connect page at all. req is nil on the first call.
+func canApprove(r *http.Request, a realmid.DeviceApprover, req *realmid.DeviceRequest) bool {
+    return a.TenantID != "" && isOwner(r.Context(), a.UserID, a.TenantID) &&
+        (req == nil || req.ClientID == "traide-sync")
+}
+// Create the workspace's sync service account if it does not exist yet. An error aborts the approve.
+func provisionSyncSA(r *http.Request, a realmid.DeviceApprover, req realmid.DeviceRequest) error {
+    _, err := ensureSyncServiceAccount(r.Context(), a.TenantID)
+    return err
+}
+// Side-effect free: called at inspect (preview) and at approve.
+func tenantSyncSA(r *http.Request, a realmid.DeviceApprover, req realmid.DeviceRequest, preview bool) (realmid.DeviceSubject, error) {
+    id, ok := lookupSyncServiceAccount(r.Context(), a.TenantID)
+    if !ok && preview {
+        return realmid.DeviceSubject{Kind: "service", Label: "sync agent (created on approve)"}, nil
+    }
+    return realmid.DeviceSubject{Kind: "service", Ref: "user:" + id, Label: "sync agent"}, nil
+}
+```
+
+**3. The page.** Mount `<DeviceApproval/>` from `@realm-id/web-react` at `VerificationURI`
+(`docs/device-approval-component.md`), or build your own on `useDeviceApproval`.
+
+**4. The device.** Any RFC 8628 client works; in Go, `sdk/go/deviceclient` (standard library only):
+`deviceclient.Start`, print `UserCode` and `VerificationURIComplete`, then `deviceclient.Poll`.
+
+**Things that are deliberate.** Approving asks for a fresh MFA code by default (turn off with
+`DisableApproveStepUp`). The device IP shown is the one your backend reports, labelled "reported by
+<you>"; it is never compared with the approver's browser IP. A mistyped code costs the approver one of
+10 attempts per 15 minutes. "Not you? Sign it out" after the device connected signs the service account
+out on every machine.
+
 ## 7. Migration checklist
 
 If you are replacing an existing self-hosted auth stack, this section is the
