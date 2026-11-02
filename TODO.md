@@ -212,6 +212,8 @@ in the same repo.
 
 ## Web packages (`@realm-id/web*`)
 
+- [ ] **The default OIDC `redirect_uri` drops the page's query string** (`web/packages/core/src/realm.ts:822`, "Current page URL without query/hash"; found by ui W1c, built `realm.js:747-750` in 0.12.0). A sign-in started from `/device?code=ABCD-EFGH` returns to `/device` and loses the code, so the device page (SPEC §15, `docs/device-approval-component.md`) must carry the code across sign-in itself (ui `docs/device-approval-screens.md`). Decide: keep the query in the default, or document the limitation. Not fixed in the device docs wave (W1b, 2026-11-03).
+
 - [ ] `web/packages/core/src/envelope.ts` + `memberships.ts` — `@realm-id/web`
       takes ZERO runtime dependencies, so it cannot import `@realm-id/sdk`,
       which OWNS `unwrapData` / `parseErrorEnvelope` / `MEMBERSHIP_ACTION_CODES`.
