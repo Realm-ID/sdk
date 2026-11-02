@@ -259,6 +259,21 @@ export type ErrorCode =
   | "unpinned_kid"
   | "share_load_failed"
   | "share_source_read_only"
+  // Device authorization (SPEC §3.1, §15; ADR-122; Q8). The first four are the RFC 8628 poll errors;
+  // `device_approval_not_allowed` is the BFF's 403 when the partner's CanApprove says no (R86 typed
+  // error DeviceApprovalNotAllowedError).
+  | "authorization_pending"
+  | "slow_down"
+  | "access_denied"
+  | "expired_token"
+  | "device_code_attempts_exceeded"
+  | "subject_suspended"
+  | "device_authorization_not_pending"
+  | "device_authorization_collected"
+  | "revoke_existing_sessions_required"
+  | "invalid_client_id"
+  | "tenant_not_member"
+  | "device_approval_not_allowed"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -487,6 +502,10 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "invalid_invitation_token", "contact_not_found", "contact_already_verified", "contact_changed",
   "reset_email_not_identifying", "assertion_replayed",
   "actor_required", "unpinned_kid", "share_load_failed", "share_source_read_only",
+  "authorization_pending", "slow_down", "access_denied", "expired_token",
+  "device_code_attempts_exceeded", "subject_suspended", "device_authorization_not_pending",
+  "device_authorization_collected", "revoke_existing_sessions_required", "invalid_client_id",
+  "tenant_not_member", "device_approval_not_allowed",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

@@ -38,6 +38,20 @@ public enum ErrorCode {
     SHARE_LOAD_FAILED("share_load_failed"),
     /** SPEC 14.9: the share source is read-only (environment); rotation on it is refused. */
     SHARE_SOURCE_READ_ONLY("share_source_read_only"),
+    /** Device authorization (SPEC 3.1, 15; ADR-122): the RFC 8628 poll errors and the approval-flow refusals. */
+    AUTHORIZATION_PENDING("authorization_pending"),
+    SLOW_DOWN("slow_down"),
+    ACCESS_DENIED("access_denied"),
+    EXPIRED_TOKEN("expired_token"),
+    DEVICE_CODE_ATTEMPTS_EXCEEDED("device_code_attempts_exceeded"),
+    SUBJECT_SUSPENDED("subject_suspended"),
+    DEVICE_AUTHORIZATION_NOT_PENDING("device_authorization_not_pending"),
+    DEVICE_AUTHORIZATION_COLLECTED("device_authorization_collected"),
+    REVOKE_EXISTING_SESSIONS_REQUIRED("revoke_existing_sessions_required"),
+    INVALID_CLIENT_ID("invalid_client_id"),
+    TENANT_NOT_MEMBER("tenant_not_member"),
+    /** R86: the BFF's 403 when the partner's CanApprove refuses; see {@link DeviceApprovalNotAllowedException}. */
+    DEVICE_APPROVAL_NOT_ALLOWED("device_approval_not_allowed"),
     TENANT_INVALID("tenant_invalid"),
     ACCOUNT_SUSPENDED("account_suspended"),
     ACCOUNT_DEACTIVATED("account_deactivated"),

@@ -371,6 +371,32 @@ const ErrCodeShareLoadFailed ErrorCode = "share_load_failed"
 // source): rotate with the CLI, then reload the bundle (SPEC §14.5, §14.9). Local.
 const ErrCodeShareSourceReadOnly ErrorCode = "share_source_read_only"
 
+// Device authorization codes (SPEC §3.1, §15; ADR-122; Q8): the RFC 8628 poll errors and the
+// approval-flow refusals.
+const (
+	ErrCodeAuthorizationPending          ErrorCode = "authorization_pending"
+	ErrCodeSlowDown                      ErrorCode = "slow_down"
+	ErrCodeAccessDenied                  ErrorCode = "access_denied"
+	ErrCodeExpiredToken                  ErrorCode = "expired_token"
+	ErrCodeDeviceCodeAttemptsExceeded    ErrorCode = "device_code_attempts_exceeded"
+	ErrCodeSubjectSuspended              ErrorCode = "subject_suspended"
+	ErrCodeDeviceAuthorizationNotPending ErrorCode = "device_authorization_not_pending"
+	ErrCodeDeviceAuthorizationCollected  ErrorCode = "device_authorization_collected"
+	ErrCodeRevokeExistingSessionsReq     ErrorCode = "revoke_existing_sessions_required"
+	ErrCodeInvalidClientID               ErrorCode = "invalid_client_id"
+	ErrCodeTenantNotMember               ErrorCode = "tenant_not_member"
+	ErrCodeDeviceApprovalNotAllowed      ErrorCode = "device_approval_not_allowed"
+)
+
+// ErrDeviceApprovalNotAllowed is the R86 sentinel for the BFF's `403 device_approval_not_allowed`
+// (the partner's CanApprove refused). It rides in RealmError.Cause of the decoded error.
+var ErrDeviceApprovalNotAllowed = errors.New("realmid: you cannot approve this device")
+
+// IsDeviceApprovalNotAllowed reports whether err is, or wraps, ErrDeviceApprovalNotAllowed. Safe on nil.
+func IsDeviceApprovalNotAllowed(err error) bool {
+	return err != nil && errors.Is(err, ErrDeviceApprovalNotAllowed)
+}
+
 // actorRequiredHint is the text partners read when a job forgets the actor (SPEC §14.10).
 const actorRequiredHint = "This action needs a user or service account. Send its token in X-User-Token."
 
@@ -639,6 +665,11 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeContactAlreadyVerified: {}, ErrCodeContactChanged: {},
 	ErrCodeResetEmailNotIdentifying: {}, ErrCodeAssertionReplayed: {},
 	// SPEC §14.4, §14.10 (split signing; R60, R86).
+	ErrCodeAuthorizationPending: {}, ErrCodeSlowDown: {}, ErrCodeAccessDenied: {}, ErrCodeExpiredToken: {},
+	ErrCodeDeviceCodeAttemptsExceeded: {}, ErrCodeSubjectSuspended: {},
+	ErrCodeDeviceAuthorizationNotPending: {}, ErrCodeDeviceAuthorizationCollected: {},
+	ErrCodeRevokeExistingSessionsReq: {}, ErrCodeInvalidClientID: {}, ErrCodeTenantNotMember: {},
+	ErrCodeDeviceApprovalNotAllowed: {},
 	ErrCodeActorRequired: {}, ErrCodeUnpinnedKID: {},
 	// SPEC §14.9 (R91-R95): local split-signing codes.
 	ErrCodeShareLoadFailed: {}, ErrCodeShareSourceReadOnly: {},

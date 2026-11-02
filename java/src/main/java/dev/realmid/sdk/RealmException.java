@@ -94,6 +94,15 @@ public class RealmException extends RuntimeException {
         return false;
     }
 
+    /** True when {@code t}, or anything in its cause chain, is the typed {@link DeviceApprovalNotAllowedException}. */
+    public static boolean isDeviceApprovalNotAllowed(Throwable t) {
+        int depth = 0;
+        for (Throwable c = t; c != null && depth < 32; c = c.getCause(), depth++) {
+            if (c instanceof DeviceApprovalNotAllowedException) return true;
+        }
+        return false;
+    }
+
     /**
      * True when {@code t} is the issuer's 403 {@code tenant_disabled}: the org
      * the token is for is suspended or deactivated. Do NOT sign the user out;

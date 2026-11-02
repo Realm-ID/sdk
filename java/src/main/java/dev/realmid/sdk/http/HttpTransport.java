@@ -364,6 +364,9 @@ public final class HttpTransport {
         if (code == ErrorCode.ACTOR_REQUIRED) {
             return ActorRequiredException.fromServer(message, status, details);
         }
+        if (code == ErrorCode.DEVICE_APPROVAL_NOT_ALLOWED) {
+            return new dev.realmid.sdk.DeviceApprovalNotAllowedException(message, status, details);
+        }
         return new RealmException(code, message, status, details, null, retryAfter);
     }
 

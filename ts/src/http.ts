@@ -13,6 +13,7 @@
 import { RealmError, parseRetryAfterSeconds, statusToCode, isKnownCode, type ErrorCode } from "./errors.js";
 import { parseErrorEnvelope } from "./envelope.js";
 import { ActorRequiredError } from "./actor-required.js";
+import { DeviceApprovalNotAllowedError } from "./device-approval-not-allowed.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER, redactCredential } from "./logger.js";
 import type { PlatformTokenManager } from "./platform-token-manager.js";
@@ -238,6 +239,7 @@ function mapErrorResponse(
   }
   // R86: the server's `actor_required` is the SAME typed error as the SDK's local refusal.
   if (code === "actor_required") return new ActorRequiredError({ message, httpStatus: status, details });
+  if (code === "device_approval_not_allowed") return new DeviceApprovalNotAllowedError({ message, httpStatus: status, details });
   return new RealmError({ code, message, httpStatus: status, details, retryAfterSeconds });
 }
 
