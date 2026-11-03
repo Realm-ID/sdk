@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-153 entries total — 98 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+154 entries total — 99 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — SDK: separate expected issuer (issuerUrl), default baseUrl; iss must start with issuerUrl/realmId](#2026-11-03--sdk-separate-expected-issuer-issuerurl-default-baseurl-iss-must-start-with-issuerurlrealmid)
 - [2026-11-03 — web CI builds core before typecheck (RCA: stale nested lock copy hid it)](#2026-11-03--web-ci-builds-core-before-typecheck-rca-stale-nested-lock-copy-hid-it)
 - [2026-11-03 — Device approval: optional subject fields, strict poll subject_type](#2026-11-03--device-approval-optional-subject-fields-strict-poll-subject_type)
 - [2026-11-03 — web-react: <DeviceApproval/> host-controlled workspaces (R41, R-CLI1); Confirm waits for a code](#2026-11-03--web-react-deviceapproval-host-controlled-workspaces-r41-r-cli1-confirm-waits-for-a-code)
@@ -165,6 +166,20 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — SDK: separate expected issuer (issuerUrl), default baseUrl; iss must start with issuerUrl/realmId
+
+**Problem.** Each SDK used one URL, `baseUrl`, for two jobs: where to FETCH (JWKS, discovery, every API call) and what the token's `iss` must start with. A service that reaches the issuer on an internal URL (`http://api:8080`) while the issuer stamps its public one (`https://api.realmid.local`) got `401 wrong_issuer` on every locally verified route. Prod was unaffected because the two URLs are equal there. The root CI overlay (`tests/docker-compose.ci.yml`, commit 4cd0550) worked around it by moving the issuer's `iss` to the internal URL.
+
+**Decision (SPEC §1, §5, §14.4).** A new optional config field `issuerUrl` (Go `IssuerURL`), default `baseUrl`. Only the `iss` checks read it (the verifier and the split co-signer's expected `iss`); every fetch stays on `baseUrl`. Additive: an unset field changes nothing for any caller.
+
+**Owner answers (2026-11-03).** Q1: go, ts and java ship it together, in lockstep. Q2: the name is `issuerUrl` / `IssuerURL`. Q3: the test stack returns to the realistic shape (issuer stamps `https://api.realmid.local`, BFFs fetch `http://api:8080`, CI overlay block deleted). Q4: the BFF env is `ISSUER_PUBLIC_URL`, optional, defaulting to `ISSUER_URL`.
+
+**Edge cases, now SPEC sentences.** E1 a trailing slash is trimmed like `baseUrl`. E2 blank or whitespace-only counts as unset and falls back to `baseUrl`; no other URL validation. E3 `wrong_issuer` keeps naming the RECEIVED `iss` only. E4 the co-signer's expected `iss` is `issuerUrl + "/" + realmId`.
+
+**Side finding (owner: "C: fix it all").** SPEC §5 said `iss` must start with `${baseUrl}/${realmId}` but the verifiers checked only `${baseUrl}/` and parsed the realm out of `iss`. Tightening to `${issuerUrl}/${realmId}` was allowed only after checking that no SPEC flow verifies another realm's token through the same verifier: the ADR-109 base-realm service tokens are accepted only by a verifier configured for the base realm (SPEC §5.1.1), the base realm is verified like any realm (§14), the cross-realm integration mint (§6.14) yields target-realm tokens verified by the target's own SDK, and the audience check already binds a token to the verifier's own realm. docs/error-reference.md already described a different-realm token as the `wrong_issuer` case. So Go is tightened (go 0.74.0); ts and java follow in their waves.
+
+**Trade-off.** One more optional knob. Rejected: deriving the expected `iss` from discovery (an extra fetch on the hot path and a trust-on-first-fetch hole).
 
 ## 2026-11-03 — web CI builds core before typecheck (RCA: stale nested lock copy hid it)
 

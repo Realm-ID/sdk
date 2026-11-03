@@ -157,6 +157,7 @@ The SDK exposes a single handle. Configuration is minimal:
 | `realmId`  | **yes**  | Your realm's id (UUID-ish string).                                          |
 | `apiKey`   | **yes**  | Realm API key (`rk_live_...`). Used for every operation, including login. The SDK exchanges it for short-lived platform tokens internally — your raw API key never crosses login traffic (see §4.0). |
 | `baseUrl`  | no       | Override the issuer host. Default: `https://auth.realmid.dev`.              |
+| `issuerUrl` | no      | The host the issuer stamps into `iss`. Default: `baseUrl`. Set it when you reach the issuer on a different URL than it publishes (e.g. `baseUrl` `http://api:8080` inside a compose network, `issuerUrl` `https://auth.realmid.dev`). Only the `iss` checks (§5, §14.4) read it; every fetch (JWKS, discovery, API calls) stays on `baseUrl`. A trailing slash is trimmed, as for `baseUrl`; a blank or whitespace-only value counts as unset (falls back to `baseUrl`); it is not validated further. |
 | `origin`   | no       | Origin host the SDK announces on auth calls. If unset, derived from the realm's claimed domain via `realm.info()`. Override per-call on `auth.login()`. |
 | `logger`   | no       | A `Logger` instance (see §9). No-op by default.                             |
 | `tokenDelivery` | no  | `"cookie" \| "body"`. How the middleware returns refresh tokens (see §10.2). Default `"cookie"`. |
@@ -1869,7 +1870,9 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 ```
 
 - Algorithm enforced: `RS256`.
-- `iss` must start with `${baseUrl}/${realmId}`.
+- `iss` must start with `${issuerUrl}/${realmId}` (`issuerUrl` defaults to `baseUrl`, §1). A token whose `iss` names
+  another realm is `wrong_issuer`. The `wrong_issuer` message names the RECEIVED `iss` only, never the expected one.
+  The JWKS is still fetched from `${baseUrl}/{realm}/.well-known/jwks.json`.
 - `aud` must match the realm's auto-discovered audience, or the per-call
   override.
 - `exp` / `nbf` checked with leeway (default 30s).
@@ -5044,8 +5047,8 @@ until `trust_until`) and NEVER the issuer's JWKS (R39). Construction fails witho
 and a share source given WITHOUT the split switch is equally a construction error (set both or
 neither). A token under an unpinned `kid` is refused with the coded error `unpinned_kid`
 (`ErrCodeUnpinnedKID`). A share source that cannot be read is `share_load_failed`, never
-`jwks_fetch_failed`. The expected `iss` of a co-signed token is `baseURL + "/" + realmID` (the
-issuer's public base URL, no trailing slash).
+`jwks_fetch_failed`. The expected `iss` of a co-signed token is `issuerUrl + "/" + realmId` (the
+issuer's public URL, no trailing slash; `issuerUrl` defaults to `baseUrl`, §1).
 
 **Previous-key window (R91, ADR-068:908).** A rotation retires the old split key but keeps it
 trusted until `trust_until` = rotation time + one access-token lifetime + 5 minutes of clock slack.

@@ -13,6 +13,13 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## Unreleased (go 0.74.0 · ts 0.61.0 · java 0.58.0) — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4)
+
+Additive config field, default `baseUrl`, so an unset field changes nothing. A service that reaches the issuer on an internal URL (`http://api:8080`) while the issuer stamps its public one no longer gets `401 wrong_issuer`: only the `iss` checks read `issuerUrl`; every fetch (JWKS, discovery, API calls) stays on `baseUrl`. A trailing slash is trimmed, a blank value counts as unset. See DECISIONS.md.
+- go `0.74.0`: `Config.IssuerURL`, read by the verifier's `iss` check and the split co-signer's expected `iss`. The verifier now requires `iss` to start with `${issuerUrl}/${realmId}` as SPEC §5 always said, where it used to check only `${baseUrl}/` and take the realm from `iss`: a token naming another realm is `wrong_issuer`.
+- ts `0.61.0`: `issuerUrl` in the config type, read by `verifier.ts` and `split.ts`, with the same `${issuerUrl}/${realmId}` tightening.
+- java `0.58.0`: an `issuerUrl` builder field passed to `Verifier` (new overload; old constructors kept) and `CoSigner`, with the same tightening.
+
 ## go `0.73.0` · ts `0.60.0` · java `0.57.0` · web `0.13.0` · web-react `0.6.0` — device login: handler set, device approval UI, the 12 device codes (SPEC §3.1, §15.1-15.10) (2026-11-03)
 
 - go `0.73.0`: `realmid.DeviceHandlers(client, opts)` and `DeviceHandlerSet.Mount` (SPEC §15.1-15.6) - six handlers (start, token, inspect, approve, deny, signout), the hooks, `DeviceLoginResult` completed per ADR-122, approve step-up ON by default and answering `mfa_registration_required` for a person with no factor, split-realm co-sign at the poll; and the stdlib-only `sdk/go/deviceclient` (`Start`, `Poll`, `ErrAccessDenied`, `ErrExpiredToken`, `*Error`). No new `require` in `go.mod`.
