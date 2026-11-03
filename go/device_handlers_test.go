@@ -334,6 +334,31 @@ func TestDevice_TokenRelaysOtherIssuerCodesWithTheirStatus(t *testing.T) {
 	}
 }
 
+// The poll's subject_type is strict: "user" is the self case, "service" the bot case, and anything else
+// (missing, or a value this SDK does not know) is a server_error to the device, never a bot mint.
+func TestDevice_TokenUnknownOrMissingSubjectTypeIsServerError(t *testing.T) {
+	for name, st := range map[string]any{"missing": nil, "platform": "platform", "empty": ""} {
+		t.Run(name, func(t *testing.T) {
+			d := newDevIssuer(t)
+			body := map[string]any{"status": "ok", "access_token": "at", "refresh_token": "rt",
+				"expires_in": 900, "service_account_id": "sa1", "device_authorization_id": "da1"}
+			if st != nil {
+				body["subject_type"] = st
+			}
+			d.reply("/auth/token", 200, body)
+			called := false
+			o := baseDeviceOpts()
+			o.OnIssued = func(*http.Request, DeviceTokens) (int, any, error) { called = true; return 200, nil, nil }
+			s := mustSet(t, d.realm(t, nil), o)
+			w := httptest.NewRecorder()
+			s.Token.ServeHTTP(w, tokenForm(deviceURN))
+			if w.Code != 500 || decode(t, w)["error"] != "server_error" || called || strings.Contains(w.Body.String(), "access_token") {
+				t.Errorf("status %d body %s onIssued=%v, want 500 server_error and no token", w.Code, w.Body.String(), called)
+			}
+		})
+	}
+}
+
 func TestDevice_TokenBotCaseDefaultsToRFC6749Response(t *testing.T) {
 	d := newDevIssuer(t)
 	d.reply("/auth/token", 200, map[string]any{"status": "ok", "subject_type": "service", "access_token": "at", "refresh_token": "rt",

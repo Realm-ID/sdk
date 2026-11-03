@@ -17,6 +17,7 @@ that affect every SDK at once are recorded under a shared heading.
 
 Not released. go `const Version` is `0.73.0` (the device handler set, below).
 - go `0.73.0`: `realmid.DeviceHandlers(client, opts)` and `DeviceHandlerSet.Mount` (SPEC §15.1-15.6) - six handlers (start, token, inspect, approve, deny, signout), the hooks, `DeviceLoginResult` completed per ADR-122, approve step-up ON by default and answering `mfa_registration_required` for a person with no factor, split-realm co-sign at the poll; and the stdlib-only `sdk/go/deviceclient` (`Start`, `Poll`, `ErrAccessDenied`, `ErrExpiredToken`, `*Error`). No new `require` in `go.mod`.
+- go `0.73.0` fix: the device poll treats `subject_type` strictly (`user` = self, `service` = bot, anything else or missing = `server_error` 500 and no token), where any non-`user` value used to mint as a bot.
 - web `0.13.0`: `realm.device.{inspect,approve,deny,signOut,completeStepUp}`, four `Endpoints` keys (`deviceInspect` ...), the `realmidStepUp: "caller"` RequestInit marker honoured by `withStepUpRetry`, and `RealmError.details` / `.retryAfter`.
 - web-react `0.6.0`: `useDeviceApproval`, `<DeviceApproval/>`, and the optional `@realm-id/web-react/device-approval.css` (custom properties only, no CSS framework). New devDependencies `react-dom`, `jsdom`, `tsx` and a `test` script.
 - web-bff-realmid `0.8.2`, web-firebase `0.6.3`, web-google `0.6.3`, web-admin `0.27.1`: peer range accepts `@realm-id/web` 0.13.

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-151 entries total — 96 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+152 entries total — 97 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — Device approval: optional subject fields, strict poll subject_type](#2026-11-03--device-approval-optional-subject-fields-strict-poll-subject_type)
 - [2026-11-03 — web-react: <DeviceApproval/> host-controlled workspaces (R41, R-CLI1); Confirm waits for a code](#2026-11-03--web-react-deviceapproval-host-controlled-workspaces-r41-r-cli1-confirm-waits-for-a-code)
 - [2026-11-03 — go: device login handler set and deviceclient (SPEC §15, go 0.73.0)](#2026-11-03--go-device-login-handler-set-and-deviceclient-spec-15-go-0730)
 - [2026-11-03 — W3-sdk-web: realm.device.*, useDeviceApproval, <DeviceApproval/>, device codes (SPEC 15), local only](#2026-11-03--w3-sdk-web-realmdevice-usedeviceapproval-deviceapproval-device-codes-spec-15-local-only)
@@ -163,6 +164,21 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — Device approval: optional subject fields, strict poll subject_type
+
+Three W7-critic findings on device approval (unreleased go 0.73.0, web 0.13.0, web-react 0.6.0; no version bump).
+
+- `DeviceRequestView.subjectType` / `subjectLabel` are optional in `@realm-id/web`, as BFF-SPEC says; `<DeviceApproval/>` uses neutral copy ("the account" / "The account was suspended...") when the label is absent, and the component doc says so.
+- The go device poll is strict on `subject_type`: `user` = self, `service` = bot, anything else or missing = 500 `server_error`, no token (was: any non-`user` minted as a bot).
+- BFF-SPEC no longer says "NOT BUILT" for the device routes.
+
+RCA (label):
+- Symptom: a collected or failed bot request rendered "undefined was suspended before the device connected" and "This signs undefined out on every machine".
+- Root cause: the TS type made `subjectLabel` required, but the producer (sdk/go device_handlers.go) sets it only while pending, and the component interpolated it unguarded.
+- Why not caught: the test fixture `view()` mirrored the consumer's type (always carries a label) instead of what the producer sends.
+- Fix: optional types, neutral copy, collected/failed fixtures drop the label and assert no "undefined".
+- Prevention: fixtures for a status are built from the producer's per-status output (BFF-SPEC row), and tests assert the rendered text never contains "undefined".
 
 ## 2026-11-03 — web-react: <DeviceApproval/> host-controlled workspaces (R41, R-CLI1); Confirm waits for a code
 

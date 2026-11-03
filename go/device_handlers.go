@@ -316,14 +316,15 @@ func (d *deviceSet) token(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tokens := DeviceTokens{SubjectType: head.SubjectType, DeviceAuthorizationID: head.DeviceAuthorizationID}
-	if head.SubjectType == "user" {
+	switch head.SubjectType {
+	case "user":
 		var self DeviceLoginResult
 		if err := json.Unmarshal(raw, &self); err != nil {
 			rfcError(w, http.StatusInternalServerError, "server_error", "")
 			return
 		}
 		tokens.Self = &self
-	} else {
+	case "service":
 		var mr *MintResult
 		if d.realm.split != nil {
 			// A partial that fails to co-sign answers the device 500 and NO token (SPEC §15.6).
@@ -341,6 +342,11 @@ func (d *deviceSet) token(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		tokens.Bot, tokens.ServiceAccountID = mr, head.ServiceAccountID
+	default:
+		// Strict: a missing or unknown subject_type is never read as a bot (no token minted).
+		d.realm.logger.Error("realmid device poll: unknown subject_type", "subject_type", head.SubjectType)
+		rfcError(w, http.StatusInternalServerError, "server_error", "")
+		return
 	}
 	if d.opts.OnIssued != nil {
 		status, out, err := d.opts.OnIssued(r, tokens)
