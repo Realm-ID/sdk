@@ -271,6 +271,17 @@ jobs:
 
       - run: npm ci
 
+      # Same gap as the ts/ step above, one level down: react, bff-realmid and
+      # admin import `@realm-id/web`, which `npm ci` resolves to the workspace
+      # link `packages/core`, whose `exports` point at the gitignored `dist/`.
+      # Until 2026-11-02 the lockfile hid this: it carried a stale NESTED
+      # `packages/react/node_modules/@realm-id/web` 0.5.0 from the registry, so
+      # react typechecked against an old PUBLISHED core, not this tree. The
+      # device-login lock refresh dropped that entry and the job went TS2307
+      # red from eb2b902 (see DECISIONS.md 2026-11-03). Build core first.
+      - name: "Build core — siblings resolve @realm-id/web to its dist/"
+        run: npm run build -w @realm-id/web
+
       # Same ordering rationale as the `ts` job above: typecheck before the
       # suite, because node --test runs each file through tsx (transpile
       # only, no typecheck). Runs across all 6 packages via

@@ -49,6 +49,8 @@ this is the SDK-side work.
 
 ## Web-package test infra
 
+- [ ] **Siblings typecheck against an old PUBLISHED `@realm-id/web`, not this tree.** `web/package-lock.json` carries stale nested registry copies of core: `packages/admin` and `packages/bff-realmid` at 0.6.0, `packages/firebase` and `packages/google` at 0.5.0. So their tsc and tests resolve `@realm-id/web` to that tarball, not to `packages/core`, and a core change that breaks them stays green. web-react lost its copy in the device-login lock refresh, which is how the gap surfaced (DECISIONS 2026-11-03 "web CI builds core"). Fix: drop the nested entries (widen the peer ranges or `npm dedupe`), then confirm each sibling resolves `node_modules/@realm-id/web` → `packages/core`.
+
 - [ ] **`web/packages/firebase/` + `web/packages/react/` are untested**
   (`google/` was backfilled 2026-06-03 with 12 tests). `firebase` statically
   imports `firebase/app` + `firebase/auth` at module top level, which

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-152 entries total — 97 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+153 entries total — 98 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-03 — web CI builds core before typecheck (RCA: stale nested lock copy hid it)](#2026-11-03--web-ci-builds-core-before-typecheck-rca-stale-nested-lock-copy-hid-it)
 - [2026-11-03 — Device approval: optional subject fields, strict poll subject_type](#2026-11-03--device-approval-optional-subject-fields-strict-poll-subject_type)
 - [2026-11-03 — web-react: <DeviceApproval/> host-controlled workspaces (R41, R-CLI1); Confirm waits for a code](#2026-11-03--web-react-deviceapproval-host-controlled-workspaces-r41-r-cli1-confirm-waits-for-a-code)
 - [2026-11-03 — go: device login handler set and deviceclient (SPEC §15, go 0.73.0)](#2026-11-03--go-device-login-handler-set-and-deviceclient-spec-15-go-0730)
@@ -164,6 +165,17 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-03 — web CI builds core before typecheck (RCA: stale nested lock copy hid it)
+
+**RCA (CI config bug; no shipped code changes).**
+
+- **Symptom.** sdk `CI` was red on every push from `eb2b902` to `7482ded` (4 runs). The `Web (tsc + node --test, per package)` job failed at `npm run typecheck` in `@realm-id/web-react` with `TS2307: Cannot find module '@realm-id/web'`, plus 7 TS7006 implicit-`any` errors that follow from it. `publish-npm.yml` reuses this job as its pre-publish `tests`, so `ts-v0.60.0` would have stopped before publishing anything. The release pre-check (`gh run list --commit 7482ded`) caught it before any tag.
+- **Root cause.** `npm ci` in `web/` links `@realm-id/web` to the workspace package `packages/core`, whose `exports` point at the gitignored `dist/`. The job never built core. Until `a7b9752` that gap was HIDDEN by the lockfile: it carried a stale nested `packages/react/node_modules/@realm-id/web` = **0.5.0 from the registry**, so web-react typechecked and tested against an old PUBLISHED core, not this tree. The device-login lock refresh dropped that nested entry, web-react started resolving to the workspace link, and the missing build surfaced. admin, bff-realmid, firebase and google still carry nested registry copies (0.5.0/0.6.0), so they are still checked against old published cores (filed in `TODO.md`).
+- **Why it wasn't caught.** The release-prep evidence was all local, and the local package build ran in dependency order (ts, core, react, …), so core's `dist/` existed before anything resolved it. Nobody read the red CI between `eb2b902` and the release pre-check.
+- **Fix.** `ci.yml` `web` job: after `npm ci`, a step that runs `npm run build -w @realm-id/web`. This is the same shape as the existing "Build ts/" step, and the publish job already builds core first.
+- **Prevention.** The fix step's comment names the hidden-lockfile mechanism. The release plan's pre-check (CI green on the exact tag commit) is what caught it, so keep it. The nested stale copies are a TODO, so that every sibling typechecks against this tree.
+- **Evidence.** A clean `git archive` of `7482ded` in `node:20`: typecheck red (TS2307) without the build step, and typecheck rc 0 and tests 362/362 across 5 packages with it (root `.scratch/release/webrepro-*`).
 
 ## 2026-11-03 — Device approval: optional subject fields, strict poll subject_type
 
