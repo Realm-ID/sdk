@@ -264,13 +264,14 @@ in the same repo.
 - [ ] CI `TypeScript (tsc + node --test)` job (`.github/workflows/ci.yml`, `timeout-minutes: 10`) runs
       at the cap: 9m47s at `d363fb9`, then cancelled at 10m16s inside the dudect step at `f43a5f2`
       (run 41120371487, 2026-10-30; a re-run was needed before `ts-v0.58.0`). Split dudect into its own
-      job or raise the cap to 15.
+      job or raise the cap to 15. Hit again 2026-11-03: publish-npm run 41593002483 attempt 1 (`ts-v0.60.0`).
 
 - [ ] Java dudect `CtExpDudectTest.ctExpIsConstantTime` (limit `max|t| < 10`) is a release-blocking
       FLAKE on hosted runners: the same commit `d1d68b0` scored 1.28 (CI run 41316226067) and 11.19
       (publish-maven run 41317032442, which blocked `java-v0.56.0` until a re-run); `java-v0.55.0`
       scored 5.95. Code under test unchanged. Options: repeat-and-take-min (dudect's own advice for noisy
-      hosts), or run it in CI only and not as a publish gate. Measure the spread first.
+      hosts), or run it in CI only and not as a publish gate. Measure the spread first. Datapoint
+      2026-11-03: 12.31 on CI run 41590906947 attempt 1 (`main`, before `java-v0.57.0`; attempt 2 green).
 
 - [ ] `scripts/changelog-hygiene.sh` self-test (`_fixture`, and the acknowledged-phantom case) runs
       `git init` / `git commit -qm x` / `git tag` in `$tmp/r` WITHOUT scrubbing the inherited
