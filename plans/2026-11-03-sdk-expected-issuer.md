@@ -122,7 +122,12 @@ Each agent works in its own language dir only and gets the same brief:
 - Prod: nothing changes (prod leaves `issuerUrl` unset). After the release, `release_verify` per tag.
 
 ## Checklist
-- [ ] Q1-Q4 answered and written into the SPEC/DECISIONS as sentences
-- [ ] W1 docs  - [ ] W2 go  - [ ] W2 ts  - [ ] W2 java  - [ ] side finding filed in sdk/TODO.md
-- [ ] W3 tags released + verified (owner ask)  - [ ] W4 api + tests (if Q3) - [ ] close sdk/TODO item
-- [ ] copy this plan to `sdk/plans/2026-11-03-sdk-expected-issuer.md` as the first post-approval action
+Status 2026-11-03: ALL DONE (evidence per line).
+- [x] Q1-Q4 answered and written into the SPEC/DECISIONS as sentences — sdk DECISIONS 2026-11-03 (7e18f92)
+- [x] W1 docs (7e18f92)  - [x] W2 go (5b514d5)  - [x] W2 ts (141ce32)  - [x] W2 java (c5dc288)
+- [x] side finding: owner widened scope to FIX it ("C: Fix it all"); iss must name the own realm in all three langs; plus owner "make them refuse": no realm-less verifier (d8f1554, ts/java BREAKING)
+- [x] W3 tags released + verified (owner "tag all three"): go/v0.74.0, ts-v0.61.0, java-v0.58.0, release_verify 3/3 each; root ledger 632d8a5
+- [x] W4 api + tests: api 7297572, root 9c9ed44; positive control `401 wrong_issuer` with ISSUER_PUBLIC_URL unset, device spec 7 passed, release smoke 21 passed (local; runner shape = root CI)
+- [x] close sdk/TODO item — moved to TODO-ARCHIVE.md "Closed 2026-11-03"
+- [x] copy this plan to `sdk/plans/2026-11-03-sdk-expected-issuer.md` as the first post-approval action (ca22096)
+- Not in this plan, still to ship: api `v0.48.0`-ish, issuer, ui via the F2 root release PR (owner ask).

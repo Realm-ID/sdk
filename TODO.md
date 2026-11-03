@@ -409,7 +409,6 @@ in the same repo.
 ## Go SDK only
 
 - [ ] `go/middleware.go` (`mintMFAChallenge`, :334-344) — a stale-MFA 412 for a person with NO confirmed factor is `mfa_required` with an EMPTY `mfa_challenge_token` (falls back to `methods: ["totp"]`); ADR-096 D4 says `412 mfa_registration_required`. The device approve gate (`go/device_handlers.go` `stepUpFresh`) classifies via `ListAuthenticators` and answers correctly; the general `MFAProtectedPaths` gate does not, and the issuer's `/auth/mfa/challenge` does not signal enrollment either. Fix = share the device classifier in `buildMiddleware` (one extra read per 412) or have the issuer's endpoint return an enroll challenge; needs a test and a DECISIONS entry.
-- [ ] `go/verifier.go` (:147-149) + `go/trust.go` (:149) — `Config.BaseURL` is both the JWKS/issuer fetch URL AND the required `iss` prefix, so a deployment that reaches the issuer on an internal URL (e.g. `http://api:8080`) while the issuer stamps its public one fails every LOCALLY verified route (the device handler set is the first such BFF path) with `401 wrong_issuer`; the 401 body hides the real `iss`, only the log shows it. Found by the 2026-11-03 device-login e2e (root `tests/` stack; prod's `ISSUER_URL` matches, so prod is unaffected). Fix = an optional separate expected-issuer in `Config`, defaulting to `BaseURL`; needs a test and a DECISIONS entry.
 
 Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
 under `go/` ships inside the published module zip, so editing it changes the

@@ -2,6 +2,10 @@
 
 Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TODO.md) for open, actionable items.
 
+## Closed 2026-11-03 — done in released go 0.74.0 / ts 0.61.0 / java 0.58.0
+
+- **`Config.BaseURL` is both the JWKS/issuer fetch URL AND the required `iss` prefix** (found by the 2026-11-03 device-login e2e) — optional `issuerUrl` / `IssuerURL` (expected `iss` host, default `baseUrl`; every fetch stays on `baseUrl`) in all three languages, plus `iss` must name the verifier's OWN realm (checked before any JWKS fetch), plus no realm-less verifier (ts/java BREAKING, owner ruling). Plan `plans/2026-11-03-sdk-expected-issuer.md`; SPEC 7e18f92, go 5b514d5, ts 141ce32, java c5dc288, refuse d8f1554; tags verified 3/3 each. Consumer: api 7297572 (`ISSUER_PUBLIC_URL`), root 9c9ed44 (test stack off the 4cd0550 overlay; positive control `401 wrong_issuer` with it unset).
+
 ## Closed 2026-11-01 — done in released go 0.71.0 / ts 0.59.0 / java 0.55.0
 
 - **`go/errors.go` — Partner request (Traide, 2026-10-30): `realm_suspended` / `tenant_suspended` (410) constants and predicates** — `ErrCodeRealmSuspended`/`IsRealmSuspended`, `ErrCodeTenantSuspended`/`IsTenantSuspended` in go 0.71.0, ts/java parity in ts 0.59.0 and java 0.55.0 (web-admin 0.26.0 bundles it). Traide's session still to be told the version.
