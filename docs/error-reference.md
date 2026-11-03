@@ -528,6 +528,37 @@ phone-proof flows. HTTP status is in brackets. The 409 bodies carry their offend
 Swagger 0.65.0 lists these two only in the parameter description, not on the operations'
 responses (critic finding #6, unresolved at the issuer). A request without the header behaves as before.
 
+## Device authorization codes (`/auth/device-authorizations/*` and the device-code grant, issuer spec 0.66.0, ADR-122)
+
+> **Added in spec 0.66.0.** RFC 8628 device authorization: the device starts a request
+> (`POST /auth/device-authorizations`), a signed-in person inspects and approves or denies it, and
+> the device polls `POST /auth/token` (or `/auth/token/partial`) with
+> `grant_type=urn:ietf:params:oauth:grant-type:device_code`. HTTP status is in brackets. Issuer
+> ADR-122; the partner-side wiring is SPEC section 15.
+
+### The device's poll (`POST /auth/token`, device-code grant)
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `authorization_pending` | [400] The request is not approved yet, or an approve attempt was refused (the request stays pending). | Keep polling at the current interval. Not a failure. |
+| `slow_down` | [400] The device polled sooner than the interval (RFC 8628 section 3.5). The request's interval grows by 5 seconds. | Add 5 seconds to your poll interval and continue. |
+| `access_denied` | [400] The request was denied, or the bot became suspended or deactivated after approval and before collection. | Stop polling and tell the user the sign-in was refused. Start a new request to try again. |
+| `expired_token` | [400] One answer for three cases: the device code is unknown, it was already collected, or the request expired (10 minutes). | Stop polling. Start a new request if the user still wants to sign in. |
+
+### Starting and acting on a request
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `invalid_client_id` | [400] Start: `client_id` is over 64 characters or not printable. | Send a shorter, printable `client_id`, or omit it. |
+| `invalid_request` | [400] Start: `device_name` or `subject_hint` is over its length limit. | Shorten the field. |
+| `device_authorization_unavailable` | [503] Device authorization is not available on this deployment. (Status is from the issuer's emitting code; swagger 0.66.0 does not list it.) | Treat as unavailable; do not retry in a loop. Use another sign-in method. |
+| `device_code_attempts_exceeded` | [429] Inspect, approve or deny: the acting person entered too many wrong user codes (10 in a fixed 15-minute window). Carries `Retry-After` (seconds left in the window). | Stop and wait `Retry-After` seconds, then ask the person to re-read the code from the device. |
+| `revoke_existing_sessions_required` | [400] Approve: the `revoke_existing_sessions` field is absent. Its value is stated, never inferred. | Send `revoke_existing_sessions` explicitly as `true` or `false`. |
+| `tenant_not_member` | [400] Approve (self case): the given `tenant_id` is not one of the approver's memberships. | Offer only the approver's own organizations. |
+| `subject_suspended` | [409] Approve: the target `kind=service` account is suspended or deactivated. The request stays pending; approving never reactivates a bot. | Unsuspend the account, then approve again within the request's 10 minutes. |
+| `device_authorization_not_pending` | [409] Approve: the request is already approved, denied, collected, failed or expired. | Start a new request. |
+| `device_authorization_collected` | [409] Deny: the device already collected its session, so it is too late to deny. | Sign the session out instead (the whole-account sign-out route). |
+
 ## Management / generic codes
 
 These fire from any HTTP-backed call.
