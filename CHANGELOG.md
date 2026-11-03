@@ -13,7 +13,7 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased (go 0.74.0 · ts 0.61.0 · java 0.58.0) — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4)
+## go `0.74.0` · ts `0.61.0` · java `0.58.0` — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4) (2026-11-03, unreleased)
 
 Additive config field, default `baseUrl`, so an unset field changes nothing. A service that reaches the issuer on an internal URL (`http://api:8080`) while the issuer stamps its public one no longer gets `401 wrong_issuer`: only the `iss` checks read `issuerUrl`; every fetch (JWKS, discovery, API calls) stays on `baseUrl`. A trailing slash is trimmed, a blank value counts as unset. See DECISIONS.md.
 - go `0.74.0`: `Config.IssuerURL`, read by the verifier's `iss` check and the split co-signer's expected `iss`. The verifier now requires `iss` to start with `${issuerUrl}/${realmId}` as SPEC §5 always said, where it used to check only `${baseUrl}/` and take the realm from `iss`: a token naming another realm is `wrong_issuer`.

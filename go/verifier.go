@@ -132,6 +132,12 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 	if rerr != nil {
 		return nil, v.fail(rerr.Code, "%s", rerr.Message)
 	}
+	// SPEC §5: iss must start with ${issuerUrl}/${realmId}. Checked before any
+	// key is resolved, so a token naming another realm never triggers a JWKS
+	// fetch for that realm. Only the received iss is named.
+	if !strings.HasPrefix(claims.Issuer, v.realm.issuerURL+"/") || realmID != v.realm.realmID {
+		return nil, v.fail(ErrCodeWrongIssuer, "iss mismatch: %s", claims.Issuer)
+	}
 
 	pub, kerr := v.resolveKey(ctx, realmID, hdr.Kid)
 	if kerr != nil {
@@ -142,11 +148,6 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 	sum := sha256.Sum256(signedInput)
 	if err := rsa.VerifyPKCS1v15(pub, crypto.SHA256, sum[:], sig); err != nil {
 		return nil, v.fail(ErrCodeBadSignature, "signature invalid")
-	}
-
-	issuerPrefix := strings.TrimRight(v.realm.baseURL, "/") + "/"
-	if !strings.HasPrefix(claims.Issuer, issuerPrefix) {
-		return nil, v.fail(ErrCodeWrongIssuer, "iss mismatch: %s", claims.Issuer)
 	}
 
 	expectedAud, audErr := v.expectedAudience(ctx, opts)

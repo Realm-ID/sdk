@@ -56,6 +56,12 @@ type Config struct {
 	// BaseURL overrides the issuer host. Default: DefaultBaseURL.
 	BaseURL string
 
+	// IssuerURL is the host the issuer stamps into `iss` (SPEC §1). Default:
+	// BaseURL. Set it when you reach the issuer on a different URL than it
+	// publishes. Only the iss checks read it; every fetch stays on BaseURL.
+	// A trailing slash is trimmed; blank or whitespace-only means unset.
+	IssuerURL string
+
 	// Origin is the value attached to the Origin header on auth calls.
 	// If unset, derived from realm.Info().Audience on first use.
 	Origin string
@@ -167,10 +173,11 @@ type Config struct {
 // Realm is the SDK handle. Construct with NewRealm; safe for concurrent
 // use across goroutines.
 type Realm struct {
-	cfg     Config
-	realmID string
-	baseURL string
-	logger  *slog.Logger
+	cfg       Config
+	realmID   string
+	baseURL   string
+	issuerURL string
+	logger    *slog.Logger
 
 	http          *httpClient
 	platformToken *sessionManager
@@ -262,7 +269,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.73.0"
+const Version = "0.74.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
@@ -293,15 +300,21 @@ func NewRealm(cfg Config) (*Realm, error) {
 		cfg.BaseURL = DefaultBaseURL
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
+	// SPEC §1: IssuerURL defaults to BaseURL; blank/whitespace is unset.
+	cfg.IssuerURL = strings.TrimRight(strings.TrimSpace(cfg.IssuerURL), "/")
+	if cfg.IssuerURL == "" {
+		cfg.IssuerURL = cfg.BaseURL
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = noopLogger()
 	}
 
 	r := &Realm{
-		cfg:     cfg,
-		realmID: cfg.RealmID,
-		baseURL: cfg.BaseURL,
-		logger:  cfg.Logger,
+		cfg:       cfg,
+		realmID:   cfg.RealmID,
+		baseURL:   cfg.BaseURL,
+		issuerURL: cfg.IssuerURL,
+		logger:    cfg.Logger,
 	}
 	r.http = newHTTPClient(cfg.BaseURL, cfg.HTTPClient, cfg.Logger)
 	r.platformToken = newSessionManager(cred, cfg.RealmID, r.http, cfg.Logger, cfg.Clock)
@@ -367,6 +380,9 @@ func (r *Realm) clock() time.Time {
 
 // BaseURL returns the configured issuer host.
 func (r *Realm) BaseURL() string { return r.baseURL }
+
+// IssuerURL returns the host the issuer stamps into `iss` (defaults to BaseURL).
+func (r *Realm) IssuerURL() string { return r.issuerURL }
 
 // Info returns cached realm metadata. First call hits the network;
 // subsequent calls reuse the cached value for the lifetime of the

@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 )
@@ -146,5 +145,5 @@ func (s *splitState) publicKey(ctx context.Context, kid string) (*rsa.PublicKey,
 
 // expectedIssuer is the iss a co-signed token must carry: the realm's own issuer URL.
 func (r *Realm) expectedIssuer() string {
-	return strings.TrimRight(r.baseURL, "/") + "/" + r.realmID
+	return r.issuerURL + "/" + r.realmID
 }
