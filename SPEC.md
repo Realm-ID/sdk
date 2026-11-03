@@ -1873,6 +1873,10 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 - `iss` must start with `${issuerUrl}/${realmId}` (`issuerUrl` defaults to `baseUrl`, §1). A token whose `iss` names
   another realm is `wrong_issuer`. The `wrong_issuer` message names the RECEIVED `iss` only, never the expected one.
   The JWKS is still fetched from `${baseUrl}/{realm}/.well-known/jwks.json`.
+- A verifier is always bound to ONE realm: it takes the `realmId`, and the realm segment of `iss` must equal it. Constructing
+  a verifier without a `realmId` (missing, empty or whitespace-only) is a configuration error in every language: TS throws on
+  `new Verifier` / `createVerifier`, Java throws `IllegalArgumentException`, and Go has no realm-less path (its verifier is
+  reached only through `Realm`).
 - `aud` must match the realm's auto-discovered audience, or the per-call
   override.
 - `exp` / `nbf` checked with leeway (default 30s).

@@ -20,6 +20,12 @@ Additive config field, default `baseUrl`, so an unset field changes nothing. A s
 - ts `0.61.0`: `issuerUrl` in the config type, read by `verifier.ts` and `split.ts`, with the same `${issuerUrl}/${realmId}` tightening.
 - java `0.58.0`: an `issuerUrl` builder field passed to `Verifier` (new overload; old constructors kept) and `CoSigner`, with the same tightening.
 
+### Breaking — ts `0.61.0` · java `0.58.0` (owner ruling 2026-11-03: a verifier without a realm id must not exist)
+
+- ts `0.61.0`: `VerifierConfig.realmId` is REQUIRED (type-level), and `new Verifier(...)` / `createVerifier(...)` throw `realmid: realmId required` for a missing, empty or whitespace-only value. Before, the standalone verifier skipped the same-realm check and accepted a token from any realm under `issuerUrl`. Pass the realm id you serve. `createRealm` is unchanged (it already requires `realmId`).
+- java `0.58.0`: the three public `Verifier` constructors that had no `issuerUrl`/`realmId` (9, 10 and 11 arguments) are REMOVED, a compile-time break; the one remaining 13-argument constructor throws `IllegalArgumentException("realmid: realmId required")` on null, empty or whitespace `realmId`. `Realm.builder()` is unchanged (it already requires `realmId`).
+- go `0.74.0`: no change. Go's verifier is unexported and reached only through `Realm`, which always carries a realm id.
+
 ## go `0.73.0` · ts `0.60.0` · java `0.57.0` · web `0.13.0` · web-react `0.6.0` — device login: handler set, device approval UI, the 12 device codes (SPEC §3.1, §15.1-15.10) (2026-11-03)
 
 - go `0.73.0`: `realmid.DeviceHandlers(client, opts)` and `DeviceHandlerSet.Mount` (SPEC §15.1-15.6) - six handlers (start, token, inspect, approve, deny, signout), the hooks, `DeviceLoginResult` completed per ADR-122, approve step-up ON by default and answering `mfa_registration_required` for a person with no factor, split-realm co-sign at the poll; and the stdlib-only `sdk/go/deviceclient` (`Start`, `Poll`, `ErrAccessDenied`, `ErrExpiredToken`, `*Error`). No new `require` in `go.mod`.
