@@ -58,8 +58,8 @@ export function createSplitRealm(cfg: SplitRealmConfig): Realm {
   const baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const state = new SplitState(
     src,
-    // The expected `iss` of a co-signed token: the issuer's public base URL + "/" + realm id (SPEC §14.4).
-    `${baseUrl}/${cfg.realmId}`,
+    // The expected `iss` of a co-signed token: issuerUrl (default baseUrl) + "/" + realm id (SPEC §14.4).
+    `${(cfg.issuerUrl ?? "").trim().replace(/\/+$/, "") || baseUrl}/${cfg.realmId}`,
     () => (cfg.clock ? cfg.clock().getTime() : Date.now()),
     cfg.logger ?? NOOP_LOGGER,
   );

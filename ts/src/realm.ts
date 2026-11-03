@@ -76,6 +76,12 @@ export interface RealmConfig {
   /** Defaults to "https://auth.realmid.dev". */
   baseUrl?: string;
   /**
+   * The host the issuer stamps into `iss` (SPEC §1). Default: `baseUrl`. Set it when you reach
+   * the issuer on a different URL than it publishes. Only the `iss` checks read it; every fetch
+   * stays on `baseUrl`. A trailing slash is trimmed; blank or whitespace-only means unset.
+   */
+  issuerUrl?: string;
+  /**
    * Origin host the SDK announces on auth calls. If unset, derived from
    * the realm's claimed domain via `realm.info()`. Override per-call on
    * `auth.login()` etc.
@@ -381,6 +387,8 @@ export function createRealm(cfg: RealmConfig, internals?: RealmInternals): Realm
 
   const verifier = new Verifier({
     baseUrl,
+    issuerUrl: cfg.issuerUrl,
+    realmId: cfg.realmId,
     audience: cfg.audience,
     revocation: cfg.revocation,
     authority: cfg.authority,

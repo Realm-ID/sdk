@@ -16,6 +16,13 @@ export interface VerifierConfig {
   /** Issuer host, no trailing slash. e.g. "https://auth.realmid.dev" */
   baseUrl: string;
   /**
+   * The host the issuer stamps into `iss` (SPEC §1). Default: `baseUrl`. Only the `iss`
+   * check reads it; every fetch stays on `baseUrl`. Trailing slash trimmed; blank = unset.
+   */
+  issuerUrl?: string;
+  /** The realm this verifier serves. When set, an `iss` naming another realm is `wrong_issuer` (SPEC §5). */
+  realmId?: string;
+  /**
    * Pinned audience. Optional — if omitted, the verifier calls
    * `audienceResolver` lazily on first verify (and caches per realm).
    */
@@ -64,6 +71,8 @@ interface CachedKeys {
 
 export class Verifier {
   private readonly baseUrl: string;
+  private readonly issuerUrl: string;
+  private readonly realmId?: string;
   private readonly audiencePinned?: string;
   private readonly resolver?: (realmId: string) => Promise<string>;
   private readonly fetchImpl: typeof fetch;
@@ -83,6 +92,9 @@ export class Verifier {
       throw new Error("realmid: audience or audienceResolver required");
     }
     this.baseUrl = cfg.baseUrl.replace(/\/+$/, "");
+    // SPEC §1: issuerUrl defaults to baseUrl; blank/whitespace is unset.
+    this.issuerUrl = (cfg.issuerUrl ?? "").trim().replace(/\/+$/, "") || this.baseUrl;
+    this.realmId = cfg.realmId;
     this.audiencePinned = cfg.audience;
     this.resolver = cfg.audienceResolver;
     this.fetchImpl = cfg.fetch ?? globalThis.fetch.bind(globalThis);
@@ -125,6 +137,11 @@ export class Verifier {
     }
 
     const realmId = extractRealmId(claims.iss);
+    // SPEC §5: iss must be ${issuerUrl}/${realmId}. Checked before any key is resolved, so a token
+    // naming another realm never triggers a JWKS fetch. Only the received iss is named.
+    if (!claims.iss.startsWith(this.issuerUrl + "/") || (this.realmId !== undefined && realmId !== this.realmId)) {
+      throw rerr("wrong_issuer", `iss mismatch: ${claims.iss}`);
+    }
     const key = await this.resolveKey(realmId, header.kid);
 
     const ok = await globalThis.crypto.subtle.verify(
@@ -134,11 +151,6 @@ export class Verifier {
       signedInput as BufferSource,
     );
     if (!ok) throw rerr("bad_signature", "signature invalid");
-
-    const issuerPrefix = this.baseUrl + "/";
-    if (!claims.iss.startsWith(issuerPrefix)) {
-      throw rerr("wrong_issuer", `iss mismatch: ${claims.iss}`);
-    }
 
     const expectedAud = await this.expectedAudience(realmId, opts?.audience);
     if (claims.aud !== expectedAud) {
