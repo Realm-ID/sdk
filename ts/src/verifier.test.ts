@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { Verifier } from "./verifier.js";
+import { Verifier, createVerifier } from "./verifier.js";
 import { RealmError } from "./errors.js";
 
 const BASE_URL = "https://auth.test.example";
@@ -67,7 +67,7 @@ test("verify: happy path", async () => {
   const { fetch, calls } = fakeFetch({ [REALM_ID]: [publicJwk] });
 
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
 
   const exp = Math.floor(now.getTime() / 1000) + 900;
   const token = await signToken({
@@ -93,7 +93,7 @@ test("verify: wrong audience rejected", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const { fetch } = fakeFetch({ [REALM_ID]: [publicJwk] });
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
 
   const token = await signToken({
     iss: `${BASE_URL}/${REALM_ID}`,
@@ -110,7 +110,7 @@ test("verify: wrong issuer rejected", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const { fetch } = fakeFetch({ [REALM_ID]: [publicJwk] });
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
 
   const token = await signToken({
     iss: `https://evil.example/${REALM_ID}`,
@@ -127,7 +127,7 @@ test("verify: expired rejected", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const { fetch } = fakeFetch({ [REALM_ID]: [publicJwk] });
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch, now: () => now, leewaySeconds: 0 });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now, leewaySeconds: 0 });
 
   const token = await signToken({
     iss: `${BASE_URL}/${REALM_ID}`,
@@ -144,7 +144,7 @@ test("verify: tampered signature rejected", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const { fetch } = fakeFetch({ [REALM_ID]: [publicJwk] });
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
 
   const good = await signToken({
     iss: `${BASE_URL}/${REALM_ID}`,
@@ -185,7 +185,7 @@ test("verify: unknown kid triggers refetch", async () => {
   }) as typeof fetch;
 
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
 
   const tokOld = await a.signToken({
     iss: `${BASE_URL}/${REALM_ID}`, sub: "u", aud: AUD,
@@ -203,13 +203,13 @@ test("verify: unknown kid triggers refetch", async () => {
 });
 
 test("constructor: missing config rejected", () => {
-  assert.throws(() => new Verifier({ baseUrl: "", audience: "x" }));
-  assert.throws(() => new Verifier({ baseUrl: "http://x" }));
+  assert.throws(() => new Verifier({ realmId: REALM_ID, baseUrl: "", audience: "x" }));
+  assert.throws(() => new Verifier({ realmId: REALM_ID, baseUrl: "http://x" }));
 });
 
 test("verify: malformed token rejected", async () => {
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({ baseUrl: BASE_URL, audience: AUD, fetch: fakeFetch({}).fetch, now: () => now });
+  const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch: fakeFetch({}).fetch, now: () => now });
 
   await assert.rejects(() => v.verify("not.a"), (e: Error) => {
     return e instanceof RealmError && e.code === "malformed";
@@ -221,7 +221,7 @@ test("verify: audience auto-discovered via resolver and cached", async () => {
   const { fetch } = fakeFetch({ [REALM_ID]: [publicJwk] });
   const now = new Date("2026-04-01T00:00:00Z");
   let resolveCalls = 0;
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM_ID,
     baseUrl: BASE_URL,
     audienceResolver: async (rid) => {
       resolveCalls++;
@@ -245,7 +245,7 @@ test("verify: per-call audience override wins over resolver", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const { fetch } = fakeFetch({ [REALM_ID]: [publicJwk] });
   const now = new Date("2026-04-01T00:00:00Z");
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM_ID,
     baseUrl: BASE_URL,
     audienceResolver: async () => "would-be-wrong.example",
     fetch,
@@ -258,4 +258,12 @@ test("verify: per-call audience override wins over resolver", async () => {
   });
   const claims = await v.verify(token, { audience: AUD });
   assert.equal(claims.sub, "u");
+});
+
+test("constructor: a verifier without a realmId is refused (SPEC §5)", () => {
+  const base = { baseUrl: BASE_URL, audience: AUD };
+  assert.throws(() => new Verifier(base as never), /realmId required/);
+  assert.throws(() => new Verifier({ ...base, realmId: "" }), /realmId required/);
+  assert.throws(() => new Verifier({ ...base, realmId: "   " }), /realmId required/);
+  assert.throws(() => createVerifier({ ...base, realmId: undefined } as never), /realmId required/);
 });

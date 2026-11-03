@@ -8,6 +8,10 @@ cross-cutting items affecting every SDK at once.
 
 `RealmConfig.issuerUrl` (default `baseUrl`; trailing slash trimmed; blank = unset) is read by the `iss` checks only: the verifier and the split realm's co-signer. Every fetch stays on `baseUrl`. The verifier now also requires `iss` to be `issuerUrl/<own realmId>` (another realm's `iss` is `wrong_issuer`) and checks it before any JWKS fetch. See the root CHANGELOG.
 
+### Breaking
+
+`VerifierConfig.realmId` is now REQUIRED (owner ruling 2026-11-03: a verifier without a realm id must not exist). `new Verifier(...)` and `createVerifier(...)` throw `realmid: realmId required` for a missing, empty or whitespace-only value; before, the standalone verifier skipped the same-realm check and accepted a token from any realm under `issuerUrl`. `createRealm` is unchanged (it already requires `realmId`).
+
 ## 0.60.0 — the twelve device-authorization codes, typed `device_approval_not_allowed` (SPEC §3.1) (2026-11-03)
 
 `ErrorCode` / `ERROR_CODES` register the twelve ADR-122 device codes, with the R86 typed `DeviceApprovalNotAllowedError`. See the root CHANGELOG.

@@ -142,7 +142,7 @@ The full contract is in [`../SPEC.md`](../SPEC.md). Summary:
 - `realm.middleware(cfg?)` — Connect/Express-compatible auth middleware.
 
 A low-level `createVerifier()` is also exported for callers that only
-need JWT verification with no management API.
+need JWT verification with no management API; it requires `realmId` (a verifier is always bound to one realm, SPEC §5).
 
 ## Tests
 

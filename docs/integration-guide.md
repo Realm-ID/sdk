@@ -403,9 +403,10 @@ import { createVerifier } from "@realm-id/sdk";
 const verifier = createVerifier({
   baseUrl:  "https://auth.realmid.dev",
   audience: process.env.REALM_AUDIENCE!,
+  realmId:  process.env.REALM_ID!,
 });
-// (No realmId parameter — the verifier reads the realm from the
-// token's iss and fetches that realm's JWKS.)
+// (realmId is required: a verifier is bound to ONE realm, SPEC §5, and a
+// token whose iss names another realm is refused before any JWKS fetch.)
 
 const claims = await verifier.verify(token);
 ```

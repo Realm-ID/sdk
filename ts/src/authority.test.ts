@@ -171,7 +171,7 @@ test("verify: a token minted before the change is token_stale (D10)", async () =
   const now = new Date("2026-04-01T00:00:00Z");
   const sec = Math.floor(now.getTime() / 1000);
   const cache = new MemAuthorityCache(() => now.getTime());
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM_ID,
     baseUrl: BASE_URL, audience: AUD, fetch: jwksFetch([publicJwk]),
     now: () => now, authority: cache,
   });
@@ -204,7 +204,7 @@ test("verify: the REFRESHED token passes the same marker (D3 self-heal)", async 
   const cache = new MemAuthorityCache(() => now.getTime());
   await cache.markStale("user-1", now.getTime() - 30_000, now.getTime() + 900_000);
 
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM_ID,
     baseUrl: BASE_URL, audience: AUD, fetch: jwksFetch([publicJwk]),
     now: () => now, authority: cache,
   });
@@ -226,7 +226,7 @@ test("verify: a cache outage fails closed as unauthorized, NOT token_stale", asy
     markStale: async () => { throw new Error("backend down"); },
     staleSince: async () => { throw new Error("backend down"); },
   };
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM_ID,
     baseUrl: BASE_URL, audience: AUD, fetch: jwksFetch([publicJwk]),
     now: () => now, authority: broken,
   });
@@ -245,7 +245,7 @@ test("verify: no authority cache configured is a no-op", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const now = new Date("2026-04-01T00:00:00Z");
   const sec = Math.floor(now.getTime() / 1000);
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM_ID,
     baseUrl: BASE_URL, audience: AUD, fetch: jwksFetch([publicJwk]), now: () => now,
   });
   const token = await signToken({

@@ -197,7 +197,7 @@ test("SPEC6_7_6 #89-90,95 Config.Revocation keys on the session; v0.62 jti entri
   const { publicJwk, sign } = await makeSigner();
   const f = fakeIssuer(publicJwk);
   const rev = new MemRevocationCache(() => NOW_S * 1000);
-  const v = new Verifier({ baseUrl: BASE, audience: AUD, fetch: f.fetch, now: () => new Date(NOW_S * 1000), revocation: rev });
+  const v = new Verifier({ realmId: REALM, baseUrl: BASE, audience: AUD, fetch: f.fetch, now: () => new Date(NOW_S * 1000), revocation: rev });
   await rev.revoke("S", NOW_S * 1000 + H);
   const unauth = (e: unknown) => e instanceof RealmError && e.code === "unauthorized";
   await assert.rejects(async () => v.verify(await sign(claimsFor(NOW_S, { sid: "S", jti: "unique-1" }))), unauth);
@@ -211,7 +211,7 @@ async function verifierFixture() {
   const { publicJwk, sign } = await makeSigner();
   const f = fakeIssuer(publicJwk);
   const spy = { revocation: 0, authority: 0 };
-  const v = new Verifier({
+  const v = new Verifier({ realmId: REALM,
     baseUrl: BASE, audience: AUD, fetch: f.fetch, now: () => new Date(NOW_S * 1000),
     revocation: { revoke: async () => {}, isRevoked: async () => { spy.revocation++; return false; } },
     authority: { markStale: async () => {}, staleSince: async () => { spy.authority++; return null; } },
