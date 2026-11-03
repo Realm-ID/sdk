@@ -265,6 +265,9 @@ in the same repo.
       at the cap: 9m47s at `d363fb9`, then cancelled at 10m16s inside the dudect step at `f43a5f2`
       (run 41120371487, 2026-10-30; a re-run was needed before `ts-v0.58.0`). Split dudect into its own
       job or raise the cap to 15. Hit again 2026-11-03: publish-npm run 41593002483 attempt 1 (`ts-v0.60.0`).
+      TS dudect THRESHOLD flake too (not the cap): `ctExp max|t| = 32.18 >= 10` on publish-npm run
+      41642805034 attempt 1 (`ts-v0.61.0`, 2026-11-03; ctexp.ts untouched since 744c255; leaky control
+      5412); attempt 2 green. Same fix family as the Java item below (repeat-and-take-min, or CI-only).
 
 - [ ] Java dudect `CtExpDudectTest.ctExpIsConstantTime` (limit `max|t| < 10`) is a release-blocking
       FLAKE on hosted runners: the same commit `d1d68b0` scored 1.28 (CI run 41316226067) and 11.19
