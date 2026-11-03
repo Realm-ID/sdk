@@ -19,6 +19,7 @@ records cross-cutting items affecting every SDK at once.
 - `realm.device.inspect/approve/deny/signOut/completeStepUp`; paths from four new `Endpoints` keys.
 - `withStepUpRetry` returns a request marked `realmidStepUp: "caller"` untouched; the verify half is factored out as `verifyStepUp`.
 - `RealmError` gains `details` (the envelope siblings, plus `details.stepUp` for a device step-up 412) and `retryAfter` (the `Retry-After` header).
+- Fix: `DeviceRequestView.subjectType` and `subjectLabel` are optional, as BFF-SPEC states (the BFF omits them once a request is collected or failed).
 
 ## 0.12.0 — invitation sign-up (ADR-117 D6) (2026-10-19)
 

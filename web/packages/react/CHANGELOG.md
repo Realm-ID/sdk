@@ -17,6 +17,7 @@ records cross-cutting items affecting every SDK at once.
 
 - `useDeviceApproval(userCode)`, `<DeviceApproval/>` with a stable `realmid-device*` class per part and a `classNames` prop per part, and the optional `@realm-id/web-react/device-approval.css` (CSS custom properties only).
 - `<DeviceApproval/>` optional props `workspaces` (ordered picker list; exactly one is a pinned approval) and `defaultTenantId`; Confirm in the in-card MFA step is disabled until a code is typed (R41, R-CLI1).
+- Fix: a collected or failed request (the BFF sends no `subjectLabel` then) no longer renders "undefined"; the copy says "the account" (`DeviceRequestView.subjectType` / `subjectLabel` are now optional in `@realm-id/web`, matching BFF-SPEC).
 - devDependencies `react-dom`, `jsdom`, `tsx` and a `test` script; the peer range accepts `@realm-id/web` 0.13.
 
 ## 0.5.5 — peer range accepts @realm-id/web 0.12 (2026-10-19)

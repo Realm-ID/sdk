@@ -206,32 +206,34 @@ test("approved-waiting and device-connected screens (Q7), with the DQ1 confirmat
   assert.match(wait.m.text(), /Waiting for the device to connect\. This usually takes a few seconds\./);
   assert.ok(button(wait.m, "Cancel"));
 
-  const bot = await page({ inspect: async () => view({ status: "collected", collectedSessionId: "sx" }) });
+  const bot = await page({ inspect: async () => view({ status: "collected", subjectLabel: undefined, collectedSessionId: "sx" }) });
   assert.match(bot.m.text(), /Device connected/);
-  assert.match(bot.m.text(), /Connected as sync-bot in Acme from 203\.0\.113\.9\./);
+  assert.match(bot.m.text(), /Connected as the account from 203\.0\.113\.9\./);
   await click(button(bot.m, "Not you? Sign it out"));
-  assert.match(bot.m.text(), /This signs sync-bot in Acme out on every machine, including this one\./);
+  assert.match(bot.m.text(), /This signs the account out on every machine, including this one\./);
   assert.ok(button(bot.m, "Sign it out") && button(bot.m, "Keep it"));
   await click(button(bot.m, "Sign it out"));
   assert.deepEqual(bot.calls.signOut, [CODE]);
+  assert.doesNotMatch(bot.m.text(), /undefined/);
   assert.match(bot.m.text(), /Signed out\. The device must ask for a new code to connect again\./);
 
-  const self = await page({ inspect: async () => view({ status: "collected", subjectType: "user", subjectLabel: "you", collectedSessionId: "sx" }) });
+  const self = await page({ inspect: async () => view({ status: "collected", subjectType: "user", subjectLabel: undefined, collectedSessionId: "sx" }) });
   await click(button(self.m, "Not you? Sign it out"));
   assert.match(self.m.text(), /This signs out the device that just connected\./);
 });
 
 test("denied with a failure reason, with the doc's reason texts", async () => {
   const cases: Array<[string, RegExp]> = [
-    ["subject_suspended", /The device could not connect: sync-bot in Acme was suspended before the device connected\./],
+    ["subject_suspended", /The device could not connect: The account was suspended before the device connected\./],
     ["user_suspended", /your account is suspended in this workspace/],
     ["tenant_disabled", /this workspace is disabled/],
     ["session_limit_reached", /the session limit was reached/],
     ["weird_code", /error weird_code/],
   ];
   for (const [reason, re] of cases) {
-    const { m } = await page({ inspect: async () => view({ status: "failed", failureReason: reason }) });
+    const { m } = await page({ inspect: async () => view({ status: "failed", subjectLabel: undefined, failureReason: reason }) });
     assert.match(m.text(), re, reason);
+    assert.doesNotMatch(m.text(), /undefined/, reason);
   }
 });
 
@@ -260,7 +262,7 @@ test("onDone reports approved, denied and signed_out", async () => {
   await click(button(a.m, "Approve"));
   const d = await page({}, { onDone: (o: string) => seen.push(o) });
   await click(button(d.m, "Deny"));
-  const s = await page({ inspect: async () => view({ status: "collected", collectedSessionId: "sx" }) }, { onDone: (o: string) => seen.push(o) });
+  const s = await page({ inspect: async () => view({ status: "collected", subjectLabel: undefined, collectedSessionId: "sx" }) }, { onDone: (o: string) => seen.push(o) });
   await click(button(s.m, "Not you? Sign it out"));
   await click(button(s.m, "Sign it out"));
   assert.deepEqual(seen, ["approved", "denied", "signed_out"]);

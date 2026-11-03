@@ -72,7 +72,9 @@ it). RealmID's ui styles the component through the same `classNames` slots and c
 
 ## 4. Every state, with its copy
 
-`<partner>` = the `partnerName` prop. `<app>` = `appLabels[clientId]`, else the raw `clientId`, else
+"An app". `<device>` = the device name as sent. `<account>` = `request.subjectLabel`. The BFF sends the
+label only while the request is pending (BFF-SPEC), so on a collected or failed request `<account>` is
+the neutral "the account" (sentence-initial: "The account"); no screen may print an absent label.
 "An app". `<device>` = the device name as sent. `<account>` = `request.subjectLabel`.
 
 ### 4.1 Code entry (no code yet, or `error.code = "bad_request"` from a malformed code)

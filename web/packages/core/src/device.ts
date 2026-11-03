@@ -28,8 +28,9 @@ export interface DeviceRequestView {
   reportedIpSource?: string;
   createdAt: string;
   expiresAt: string;
-  subjectType: "user" | "service";
-  subjectLabel: string;
+  /** Absent on a collected or failed request (BFF-SPEC): the label is sent only while pending. */
+  subjectType?: "user" | "service";
+  subjectLabel?: string;
   /** True when the BFF always replaces the subject's other sessions (sdk/go ReplaceExistingSessions). */
   replaceExistingSessions: boolean;
   /** True when approving needs fresh MFA. */

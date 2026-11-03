@@ -46,8 +46,8 @@ export interface DeviceApprovalProps {
   defaultTenantId?: string;
 }
 
-const REASONS: Record<string, (account: string) => string> = {
-  subject_suspended: (a) => `${a} was suspended before the device connected`,
+const REASONS: Record<string, (account: string | undefined) => string> = {
+  subject_suspended: (a) => `${a ?? "The account"} was suspended before the device connected`,
   user_suspended: () => "your account is suspended in this workspace",
   tenant_disabled: () => "this workspace is disabled",
   session_limit_reached: () => "the session limit was reached",
@@ -95,7 +95,7 @@ export function DeviceApproval(props: DeviceApprovalProps) {
     if (pending.current === "denied" && state === "denied") { pending.current = null; onDone?.("denied"); }
   }, [state, onDone]);
 
-  const account = request ? (request.subjectType === "user" ? "your account" : request.subjectLabel) : "";
+  const account = request ? (request.subjectType === "user" ? "your account" : (request.subjectLabel ?? "the account")) : "";
   const app = request?.clientId ? (appLabels?.[request.clientId] ?? request.clientId) : "An app";
   const root = (children: ReactNode, busy = false) => (
     <section
@@ -181,13 +181,13 @@ export function DeviceApproval(props: DeviceApprovalProps) {
     if (signedOut) return root(<>{title("Signed out")}{note("Signed out. The device must ask for a new code to connect again.")}</>);
     if (request?.status === "collected") {
       const from = request.reportedIp ? ` from ${request.reportedIp}` : "";
-      const who = request.subjectType === "user" ? "you" : request.subjectLabel;
+      const who = request.subjectType === "user" ? "you" : (request.subjectLabel ?? "the account");
       if (confirmingSignOut) {
         return root(<>
           {title("Device connected")}
           {note(request.subjectType === "user"
             ? "This signs out the device that just connected."
-            : `This signs ${request.subjectLabel} out on every machine, including this one.`)}
+            : `This signs ${request.subjectLabel ?? "the account"} out on every machine, including this one.`)}
           {error && errLine("Something went wrong. Try again.")}
           {actions(
             primary("Sign it out", "button", () => {
