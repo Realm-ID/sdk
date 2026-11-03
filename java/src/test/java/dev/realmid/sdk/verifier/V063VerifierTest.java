@@ -66,11 +66,11 @@ class V063VerifierTest {
     void tearDown() { server.stop(0); }
 
     private Verifier verifier() {
-        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null);
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, null, null, null, REALM_ID);
     }
 
     private Verifier verifier(AuthorityCache a, RevocationCache r) {
-        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, a, r);
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, a, r, null, REALM_ID);
     }
 
     // ---- SPEC5_1: blank sub ----------------------------------------------------

@@ -58,51 +58,15 @@ public final class Verifier {
     private final ConcurrentHashMap<String, CachedJwks> cache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> audienceCache = new ConcurrentHashMap<>();
 
-    public Verifier(String baseUrl, String pinnedAudience,
-                    Function<String, String> audienceResolver,
-                    HttpClient http, ObjectMapper mapper,
-                    Duration cacheTtl, Duration leeway, Clock clock, Logger logger) {
-        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger, null, null);
-    }
-
-    /**
-     * @param authority optional ADR-107 subject-keyed staleness marker consulted
-     *                  after the standard claim checks. {@code null} → no-op;
-     *                  the verifier behaves exactly as it did before ADR-107.
-     */
-    public Verifier(String baseUrl, String pinnedAudience,
-                    Function<String, String> audienceResolver,
-                    HttpClient http, ObjectMapper mapper,
-                    Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
-                    dev.realmid.sdk.authority.AuthorityCache authority) {
-        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger,
-                authority, null);
-    }
-
-    /**
-     * @param authority  optional ADR-107 subject-keyed staleness marker
-     * @param revocation optional ADR-041 jti denylist consulted before it. Both
-     *                   are {@code null} → no-op; the verifier behaves as it did
-     *                   before either existed.
-     */
-    public Verifier(String baseUrl, String pinnedAudience,
-                    Function<String, String> audienceResolver,
-                    HttpClient http, ObjectMapper mapper,
-                    Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
-                    dev.realmid.sdk.authority.AuthorityCache authority,
-                    dev.realmid.sdk.revocation.RevocationCache revocation) {
-        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger,
-                authority, revocation, null, null);
-    }
-
     /**
      * @param issuerUrl SPEC §1: the host the issuer stamps into {@code iss}.
      *                  {@code null}, empty or whitespace → {@code baseUrl}. A
      *                  trailing slash is trimmed. Read only by the iss check;
      *                  every fetch stays on {@code baseUrl}.
-     * @param realmId   when non-null, the realm segment of {@code iss} must equal
-     *                  it (SPEC §5). The older constructors pass {@code null}
-     *                  and keep the prefix-only check.
+     * @param realmId   REQUIRED: the realm this verifier serves. The realm segment of
+     *                  {@code iss} must equal it (SPEC §5). {@code null}, empty or
+     *                  whitespace throws {@link IllegalArgumentException}; there is no
+     *                  realm-less verifier.
      */
     public Verifier(String baseUrl, String pinnedAudience,
                     Function<String, String> audienceResolver,
@@ -111,7 +75,6 @@ public final class Verifier {
                     dev.realmid.sdk.authority.AuthorityCache authority,
                     dev.realmid.sdk.revocation.RevocationCache revocation,
                     String issuerUrl, String realmId) {
-        this.realmId = realmId;
         this.authority = authority;
         this.revocation = revocation;
         if (baseUrl == null || baseUrl.isEmpty()) {
@@ -120,6 +83,10 @@ public final class Verifier {
         if (pinnedAudience == null && audienceResolver == null) {
             throw new IllegalArgumentException("realmid: audience or audienceResolver required");
         }
+        if (realmId == null || realmId.isBlank()) {
+            throw new IllegalArgumentException("realmid: realmId required");
+        }
+        this.realmId = realmId.strip();
         this.baseUrl = stripSlash(baseUrl);
         String iu = issuerUrl == null ? "" : stripSlash(issuerUrl.strip());
         this.issuerUrl = iu.isEmpty() ? this.baseUrl : iu;
@@ -193,7 +160,7 @@ public final class Verifier {
         // SPEC §5: iss must start with ${issuerUrl}/${realmId}. Checked before any
         // key is resolved, so a token naming another realm never triggers a JWKS
         // fetch for that realm. Only the received iss is named.
-        if (!iss.startsWith(issuerUrl + "/") || (this.realmId != null && !realmId.equals(this.realmId))) {
+        if (!iss.startsWith(issuerUrl + "/") || !realmId.equals(this.realmId)) {
             throw new RealmException(ErrorCode.WRONG_ISSUER, "iss mismatch: " + iss);
         }
 

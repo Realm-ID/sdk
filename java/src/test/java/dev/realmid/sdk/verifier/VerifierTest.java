@@ -28,6 +28,7 @@ import dev.realmid.sdk.Claims;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VerifierTest {
 
@@ -68,15 +69,15 @@ class VerifierTest {
     }
 
     private Verifier newVerifier() {
-        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null);
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, null, null, null, REALM_ID);
     }
 
     private Verifier newVerifier(dev.realmid.sdk.authority.AuthorityCache authority) {
-        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, authority);
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, authority, null, null, REALM_ID);
     }
 
     private Verifier newVerifier(dev.realmid.sdk.revocation.RevocationCache revocation) {
-        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, null, revocation);
+        return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, null, revocation, null, REALM_ID);
     }
 
     // ---- ADR-041: the jti denylist Java did not have until 2026-09-04 --------
@@ -312,9 +313,19 @@ class VerifierTest {
     @Test
     void requiresBaseUrlAndAudience() {
         assertThrows(IllegalArgumentException.class,
-                () -> new Verifier("", "x", null, null, null, null, null, null, null));
+                () -> new Verifier("", "x", null, null, null, null, null, null, null, null, null, null, REALM_ID));
         assertThrows(IllegalArgumentException.class,
-                () -> new Verifier("https://example.com", null, null, null, null, null, null, null, null));
+                () -> new Verifier("https://example.com", null, null, null, null, null, null, null, null, null, null, null, REALM_ID));
+    }
+
+    @Test
+    void requiresRealmId() {
+        for (String blank : new String[] {null, "", "   "}) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null,
+                            null, null, null, blank));
+            assertTrue(e.getMessage().contains("realmId required"), e.getMessage());
+        }
     }
 
     // ----- helpers -----
