@@ -42,6 +42,8 @@ public final class Verifier {
     );
 
     private final String baseUrl;
+    private final String issuerUrl;
+    private final String realmId;
     private final String pinnedAudience;
     private final Function<String, String> audienceResolver;
     private final HttpClient http;
@@ -89,6 +91,27 @@ public final class Verifier {
                     Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
                     dev.realmid.sdk.authority.AuthorityCache authority,
                     dev.realmid.sdk.revocation.RevocationCache revocation) {
+        this(baseUrl, pinnedAudience, audienceResolver, http, mapper, cacheTtl, leeway, clock, logger,
+                authority, revocation, null, null);
+    }
+
+    /**
+     * @param issuerUrl SPEC §1: the host the issuer stamps into {@code iss}.
+     *                  {@code null}, empty or whitespace → {@code baseUrl}. A
+     *                  trailing slash is trimmed. Read only by the iss check;
+     *                  every fetch stays on {@code baseUrl}.
+     * @param realmId   when non-null, the realm segment of {@code iss} must equal
+     *                  it (SPEC §5). The older constructors pass {@code null}
+     *                  and keep the prefix-only check.
+     */
+    public Verifier(String baseUrl, String pinnedAudience,
+                    Function<String, String> audienceResolver,
+                    HttpClient http, ObjectMapper mapper,
+                    Duration cacheTtl, Duration leeway, Clock clock, Logger logger,
+                    dev.realmid.sdk.authority.AuthorityCache authority,
+                    dev.realmid.sdk.revocation.RevocationCache revocation,
+                    String issuerUrl, String realmId) {
+        this.realmId = realmId;
         this.authority = authority;
         this.revocation = revocation;
         if (baseUrl == null || baseUrl.isEmpty()) {
@@ -98,6 +121,8 @@ public final class Verifier {
             throw new IllegalArgumentException("realmid: audience or audienceResolver required");
         }
         this.baseUrl = stripSlash(baseUrl);
+        String iu = issuerUrl == null ? "" : stripSlash(issuerUrl.strip());
+        this.issuerUrl = iu.isEmpty() ? this.baseUrl : iu;
         this.pinnedAudience = pinnedAudience;
         this.audienceResolver = audienceResolver;
         this.http = http == null ? HttpClient.newHttpClient() : http;
@@ -165,6 +190,12 @@ public final class Verifier {
             throw new RealmException(ErrorCode.MALFORMED, "iss missing");
         }
         String realmId = extractRealmId(iss);
+        // SPEC §5: iss must start with ${issuerUrl}/${realmId}. Checked before any
+        // key is resolved, so a token naming another realm never triggers a JWKS
+        // fetch for that realm. Only the received iss is named.
+        if (!iss.startsWith(issuerUrl + "/") || (this.realmId != null && !realmId.equals(this.realmId))) {
+            throw new RealmException(ErrorCode.WRONG_ISSUER, "iss mismatch: " + iss);
+        }
 
         PublicKey key = resolveKey(realmId, kid);
 
@@ -178,11 +209,6 @@ public final class Verifier {
             }
         } catch (GeneralSecurityException e) {
             throw new RealmException(ErrorCode.BAD_SIGNATURE, "signature check failed: " + e.getMessage(), e);
-        }
-
-        String issuerPrefix = baseUrl + "/";
-        if (!iss.startsWith(issuerPrefix)) {
-            throw new RealmException(ErrorCode.WRONG_ISSUER, "iss mismatch: " + iss);
         }
 
         String aud = strOrNull(payload, "aud");

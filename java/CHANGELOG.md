@@ -4,6 +4,10 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.58.0 — `Realm.Builder.issuerUrl` (SPEC §1, §5, §14.4) (2026-11-03)
+
+Optional `issuerUrl`: the host the issuer stamps into `iss` (default `baseUrl`; trailing slash trimmed; blank is unset). `Verifier` gains a constructor overload taking `issuerUrl` and `realmId` (old constructors kept); `CoSigner`'s expected iss is `issuerUrl/realmId`. Every fetch stays on `baseUrl`. The iss check now runs before key resolution and requires the realm segment to equal the configured realm (`wrong_issuer` otherwise). Pinned by `IssuerUrlTest`. See the root CHANGELOG.
+
 ## 0.57.0 — the twelve device-authorization codes, typed `device_approval_not_allowed` (SPEC §3.1) (2026-11-03)
 
 `ErrorCode` registers the twelve ADR-122 device codes; `device_approval_not_allowed` (R86) surfaces as the typed `DeviceApprovalNotAllowedException`. Pinned by `DeviceCodesTest`. See the root CHANGELOG.

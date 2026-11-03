@@ -48,6 +48,7 @@ public final class Realm {
 
     private final String realmId;
     private final String baseUrl;
+    private final String issuerUrl;
     private final String origin;
     private final Logger logger;
     private final HttpTransport http;
@@ -124,6 +125,9 @@ public final class Realm {
         if (b.maxDetachedThreads > 0) dev.realmid.sdk.session.Detached.setMaxThreads(b.maxDetachedThreads);
         this.realmId = b.realmId;
         this.baseUrl = stripSlash(b.baseUrl == null ? DEFAULT_BASE_URL : b.baseUrl);
+        // SPEC §1: issuerUrl defaults to baseUrl; blank/whitespace is unset.
+        String iu = b.issuerUrl == null ? "" : stripSlash(b.issuerUrl.strip());
+        this.issuerUrl = iu.isEmpty() ? this.baseUrl : iu;
         this.origin = b.origin;
         this.logger = b.logger == null ? Logging.NOOP : b.logger;
         this.productRoles = b.productRoles;
@@ -161,9 +165,10 @@ public final class Realm {
                     return i == null ? null : i.audience();
                 }),
                 httpClient, mapper,
-                b.cacheTtl, b.leeway, clock, this.logger, b.authority, b.revocation);
+                b.cacheTtl, b.leeway, clock, this.logger, b.authority, b.revocation,
+                b.issuerUrl, this.realmId);
         this.splitState = new dev.realmid.sdk.split.SplitState(b.shareSource, clock, this.logger,
-                this.baseUrl + "/" + this.realmId);
+                this.issuerUrl + "/" + this.realmId);
         if (this.splitState.isSplit()) this.verifier.setKeyResolver(this.splitState::publicKey);
         this.authority = b.authority;
         this.revocation = b.revocation;
@@ -211,6 +216,7 @@ public final class Realm {
     private Realm(Realm parent, String userToken) {
         this.realmId = parent.realmId;
         this.baseUrl = parent.baseUrl;
+        this.issuerUrl = parent.issuerUrl;
         this.origin = parent.origin;
         this.logger = parent.logger;
         this.productRoles = parent.productRoles;
@@ -288,6 +294,8 @@ public final class Realm {
 
     public String realmId() { return realmId; }
     public String baseUrl() { return baseUrl; }
+    /** The host the issuer stamps into {@code iss} (defaults to {@link #baseUrl()}). */
+    public String issuerUrl() { return issuerUrl; }
     public Logger logger() { return logger; }
 
     /** SPEC §5 — verify. */
@@ -467,6 +475,7 @@ public final class Realm {
         private String apiKey;
         private CredentialSource credential;
         private String baseUrl;
+        private String issuerUrl;
         private String origin;
         private String audience;
         private Logger logger;
@@ -501,6 +510,12 @@ public final class Realm {
         /** Workload identity federation credential source (ADR-057). Overrides apiKey. */
         public Builder credential(CredentialSource v) { this.credential = v; return this; }
         public Builder baseUrl(String v) { this.baseUrl = v; return this; }
+        /**
+         * SPEC §1: the host the issuer stamps into {@code iss}. Default: baseUrl.
+         * Set it when you reach the issuer on a different URL than it names
+         * itself by. Read only by the {@code iss} checks; every fetch stays on baseUrl.
+         */
+        public Builder issuerUrl(String v) { this.issuerUrl = v; return this; }
         public Builder origin(String v) { this.origin = v; return this; }
         public Builder audience(String v) { this.audience = v; return this; }
         public Builder logger(Logger v) { this.logger = v; return this; }
