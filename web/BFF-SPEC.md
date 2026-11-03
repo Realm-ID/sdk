@@ -220,7 +220,7 @@ Used on SDK init to restore session state.
 
 **Response 401** — anonymous; SDK sets `status = "anonymous"`.
 
-### Device approval — `POST /device/inspect`, `/device/approve`, `/device/deny`, `/device/signout` (NOT BUILT, UNRELEASED; `@realm-id/web` 0.13.0)
+### Device approval — `POST /device/inspect`, `/device/approve`, `/device/deny`, `/device/signout` (BUILT, UNRELEASED; `@realm-id/web` 0.13.0)
 
 The browser half of device login (issuer ADR-122; SDK `SPEC.md` §15). All four need a signed-in
 session (the access JWT as the bearer, as on every other route) and are served by the `sdk/go` handler
