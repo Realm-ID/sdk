@@ -4,6 +4,10 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.60.0 — the twelve device-authorization codes, typed `device_approval_not_allowed` (SPEC §3.1) (2026-11-03)
+
+`ErrorCode` / `ERROR_CODES` register the twelve ADR-122 device codes, with the R86 typed `DeviceApprovalNotAllowedError`. See the root CHANGELOG.
+
 ## 0.59.0 — `realm_suspended` and `tenant_suspended` (410) registered (2026-11-01)
 
 Added `"realm_suspended"` and `"tenant_suspended"` to `ErrorCode` / `ERROR_CODES` and the predicates `isRealmSuspended` / `isTenantSuspended` (exported from the entry point). Before, a 410 carrying either code surfaced under the status fallback. Not the 403 `tenant_disabled`. See the root CHANGELOG.

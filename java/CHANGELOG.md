@@ -4,7 +4,11 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased (0.56.0) — split dealer draws `d_ri` uniformly in `[1, lambda)` (SPEC §14.14)
+## 0.57.0 — the twelve device-authorization codes, typed `device_approval_not_allowed` (SPEC §3.1) (2026-11-03)
+
+`ErrorCode` registers the twelve ADR-122 device codes; `device_approval_not_allowed` (R86) surfaces as the typed `DeviceApprovalNotAllowedException`. Pinned by `DeviceCodesTest`. See the root CHANGELOG.
+
+## 0.56.0 — split dealer draws `d_ri` uniformly in `[1, lambda)` (SPEC §14.14) (2026-11-01)
 
 `rotateSplit` no longer draws `d_ri` from `[0, 2^(bitLength(lambda)-1))`; it is uniform in `[1, lambda)` and redrawn when either half is zero. Pure split `SigningKeysClient.splitWithDRi` (package-private) is pinned by the shared `dealer` vector (`DealerTest`).
 

@@ -13,14 +13,14 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## Unreleased (0.13.0) — `@realm-id/web` 0.13.0 + `@realm-id/web-react` 0.6.0: device approval; the 12 device codes in go/ts/java (SPEC §3.1, §15.8-15.10) (2026-11-03)
+## go `0.73.0` · ts `0.60.0` · java `0.57.0` · web `0.13.0` · web-react `0.6.0` — device login: handler set, device approval UI, the 12 device codes (SPEC §3.1, §15.1-15.10) (2026-11-03)
 
-Not released. go `const Version` is `0.73.0` (the device handler set, below).
 - go `0.73.0`: `realmid.DeviceHandlers(client, opts)` and `DeviceHandlerSet.Mount` (SPEC §15.1-15.6) - six handlers (start, token, inspect, approve, deny, signout), the hooks, `DeviceLoginResult` completed per ADR-122, approve step-up ON by default and answering `mfa_registration_required` for a person with no factor, split-realm co-sign at the poll; and the stdlib-only `sdk/go/deviceclient` (`Start`, `Poll`, `ErrAccessDenied`, `ErrExpiredToken`, `*Error`). No new `require` in `go.mod`.
 - go `0.73.0` fix: the device poll treats `subject_type` strictly (`user` = self, `service` = bot, anything else or missing = `server_error` 500 and no token), where any non-`user` value used to mint as a bot.
 - web `0.13.0`: `realm.device.{inspect,approve,deny,signOut,completeStepUp}`, four `Endpoints` keys (`deviceInspect` ...), the `realmidStepUp: "caller"` RequestInit marker honoured by `withStepUpRetry`, and `RealmError.details` / `.retryAfter`.
 - web-react `0.6.0`: `useDeviceApproval`, `<DeviceApproval/>`, and the optional `@realm-id/web-react/device-approval.css` (custom properties only, no CSS framework). New devDependencies `react-dom`, `jsdom`, `tsx` and a `test` script.
 - web-bff-realmid `0.8.2`, web-firebase `0.6.3`, web-google `0.6.3`, web-admin `0.27.1`: peer range accepts `@realm-id/web` 0.13.
+- ts `0.60.0`, java `0.57.0`, web-admin `0.27.1` (bundles `@realm-id/sdk` 0.60.0).
 - go, ts, java: the twelve device-authorization codes are registered, with the R86 typed `device_approval_not_allowed` (`ErrDeviceApprovalNotAllowed`, `DeviceApprovalNotAllowedError`, `DeviceApprovalNotAllowedException`).
 
 ## go `0.72.0` · java `0.56.0` · web-admin `0.27.0` — split dealers draw d_ri uniformly in [1, lambda); browser dealer (SPEC §14.14, §14.15) (2026-11-01)

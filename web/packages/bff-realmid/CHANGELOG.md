@@ -16,6 +16,10 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.8.2 — peer range accepts @realm-id/web 0.13 (2026-11-03)
+
+The `@realm-id/web` peer range gains `^0.13.0`. No source change.
+
 ## 0.8.1 — peer range accepts @realm-id/web 0.12 (2026-10-19)
 
 Peer range only: `@realm-id/web` gains `|| ^0.12.0`. No code change.

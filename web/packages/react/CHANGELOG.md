@@ -13,7 +13,7 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
-## Unreleased (0.6.0) — `useDeviceApproval` and `<DeviceApproval/>` (SPEC §15.9, §15.10) (2026-11-03)
+## 0.6.0 — `useDeviceApproval` and `<DeviceApproval/>` (SPEC §15.9, §15.10) (2026-11-03)
 
 - `useDeviceApproval(userCode)`, `<DeviceApproval/>` with a stable `realmid-device*` class per part and a `classNames` prop per part, and the optional `@realm-id/web-react/device-approval.css` (CSS custom properties only).
 - `<DeviceApproval/>` optional props `workspaces` (ordered picker list; exactly one is a pinned approval) and `defaultTenantId`; Confirm in the in-card MFA step is disabled until a code is typed (R41, R-CLI1).

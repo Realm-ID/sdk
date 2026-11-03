@@ -14,7 +14,7 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
-## Unreleased (0.13.0) — `realm.device.*` (SPEC §15.8) (2026-11-03)
+## 0.13.0 — `realm.device.*` (SPEC §15.8) (2026-11-03)
 
 - `realm.device.inspect/approve/deny/signOut/completeStepUp`; paths from four new `Endpoints` keys.
 - `withStepUpRetry` returns a request marked `realmidStepUp: "caller"` untouched; the verify half is factored out as `verifyStepUp`.
