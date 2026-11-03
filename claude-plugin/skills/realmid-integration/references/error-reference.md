@@ -28,7 +28,7 @@ These fire from `realm.verify(token)`.
 | `malformed`           | Token isn't 3 dot-separated parts, or header/payload aren't JSON.   | Reject the request with 401. Don't retry.                                                |
 | `wrong_algorithm`     | Header `alg` is not `RS256`.                                        | Reject. A non-RS256 token did not come from RealmID.                                     |
 | `bad_signature`       | Signature did not verify against the realm's JWKS.                  | Reject. May indicate token forgery or a network-corrupted token.                         |
-| `wrong_issuer`        | `iss` claim does not start with `${baseUrl}/${realmId}`.            | Reject. Either misconfigured `baseUrl` or token from a different realm.                  |
+| `wrong_issuer`        | `iss` claim does not start with `${issuerUrl}/${realmId}` (`issuerUrl` defaults to `baseUrl`). | Reject. Either misconfigured `baseUrl`/`issuerUrl` (reach the issuer on an internal URL? set `issuerUrl` to the public one) or token from a different realm.                  |
 | `wrong_audience`      | `aud` claim does not equal the realm's audience (auto or override). | Reject. Tokens minted for a different audience cannot replay against your service.       |
 | `expired`             | `exp` is in the past beyond leeway.                                 | Return 401. Client should refresh and retry.                                             |
 | `not_yet_valid`       | `nbf` is in the future beyond leeway.                               | Reject. Likely clock skew if seen often.                                                 |
