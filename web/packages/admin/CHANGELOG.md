@@ -1,5 +1,9 @@
 # @realm-id/web-admin — changelog
 
+## 0.28.0 — `email_otp_login_enabled`, the `email_otp` group, `acknowledgeMailboxRisk` (ADR-123) (2026-11-04)
+
+**Added.** `RealmConfigPatch.email_otp_login_enabled` and `.email_otp` (`Partial<EmailOtpConfig>`), and the same two on `RealmConfigView` (`email_otp` optional for an older issuer). `EmailOtpConfig` is re-exported from `@realm-id/sdk`. `platforms.updateConfig(id, patch, { acknowledgeMailboxRisk: true })` adds `acknowledge_mailbox_risk: true` to the sent body; it is a request-only field (swagger `allOf`), so it is deliberately NOT on `RealmConfigPatch`. Without it, turning emailed codes on is `400 acknowledgement_required`. Only the realm owner may turn it on (`403` for anyone else). Bundles `@realm-id/sdk` 0.63.0, which registers the five new error codes.
+
 ## 0.27.1 — peer range accepts @realm-id/web 0.13; bundles `@realm-id/sdk` 0.60.0 (2026-11-03)
 
 The `@realm-id/web` peer range gains `^0.13.0`. The tarball bundles `@realm-id/sdk`, so it now carries the sdk's twelve device codes. No other source change.

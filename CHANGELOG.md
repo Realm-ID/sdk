@@ -13,6 +13,15 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.76.0` · ts `0.63.0` · java `0.60.0` · web-admin `0.28.0` — owner opt-in emailed sign-in codes and the lockout-guard codes (SPEC §3.1, §6.5, §X.4a; issuer ADR-123, ADR-124) (2026-11-04)
+
+Additive. The issuer side (spec above `0.66.0`) is built in parallel; these SDKs only carry its contract. Nothing here changes an existing call.
+- go `0.76.0` · ts `0.63.0` · java `0.60.0`: five new codes registered in the taxonomy, so none collapses into the HTTP-status fallback: `acknowledgement_required` (400), `email_otp_requires_identifying_email` (409), `email_otp_rate_limited` (429, with `Retry-After`), `last_browser_sign_in` (409), `last_machine_credential` (409). No typed error. Go constants `ErrCodeAcknowledgementRequired`, `ErrCodeEmailOTPRequiresIdentifyingMail`, `ErrCodeEmailOTPRateLimited`, `ErrCodeLastBrowserSignIn`, `ErrCodeLastMachineCredential`; java `ErrorCode.ACKNOWLEDGEMENT_REQUIRED` and the matching four. See `docs/error-reference.md`.
+- ts `0.63.0`: `auth.sendLoginCode({ deliveryMode })` also accepts `"email"` (the identifier is an email address); new `EmailOtpConfig` type for the realm's `email_otp` group. Go and java already passed the mode through as a string, so they gain documentation only (Go `DeliveryModeEmail` already existed).
+- web-admin `0.28.0`: `RealmConfigPatch` / `RealmConfigView` gain `email_otp_login_enabled` and the `email_otp` group; `platforms.updateConfig(id, patch, { acknowledgeMailboxRisk: true })` adds the REQUEST-ONLY `acknowledge_mailbox_risk` to the sent body (it is not a config key, so it is not on the patch type). Bundles `@realm-id/sdk` 0.63.0.
+- Partner docs: `docs/partner-integration-guide.md` step 4b. Emailed codes are the realm owner's opt-in, never available on RealmID's own realm, and the partner's own edge must run a captcha (the issuer has none).
+- `@realm-id/web` and the other web packages carry none of these codes (they are config-lane and send-code codes, and web has no send-code call), so they are unchanged.
+
 ## go `0.75.0` — an error after a hand-over carries the newest refresh token (SPEC §4.2, §4.2.1) (2026-11-04)
 
 - Fixed (go `0.75.0`): `AuthClient.Token` dropped the newer rotated refresh token when a hop AFTER a hand-over ended in an error (store failure, "refresh in progress", cancelled context, shape-specific 4xx, 5xx, timeout). The caller kept the token it sent, which a winner had already spent, so its next refresh was `refresh_invalid` (a logout). Now every such error except a token-level one (`refresh_invalid` or any 401) is returned as a `*RefreshHandedOverError` carrying the held token. The 3-hop give-up stays a `*RefreshSupersededError`; hop-0 errors are unchanged.

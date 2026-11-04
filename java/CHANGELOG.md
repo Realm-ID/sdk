@@ -4,6 +4,10 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.60.0 — emailed sign-in codes and lockout-guard codes (SPEC §3.1, §X.4a) (2026-11-04)
+
+`ErrorCode` registers `ACKNOWLEDGEMENT_REQUIRED`, `EMAIL_OTP_REQUIRES_IDENTIFYING_EMAIL`, `EMAIL_OTP_RATE_LIMITED`, `LAST_BROWSER_SIGN_IN` and `LAST_MACHINE_CREDENTIAL`. `SendLoginCodeRequest.deliveryMode` may be `"email"` (it was always passed through as a string; the Javadoc now says so). Pinned by `EmailSignInCodesTest`. See the root CHANGELOG. Additive.
+
 ## 0.59.0 — an error after a hand-over carries the newest token (SPEC §4.2, §4.2.1) (2026-11-04)
 
 Once `AuthClient.token` has followed a hand-over (the token it holds differs from the one the caller sent), every error it throws carries the newest token it held, as the new public `RefreshHandedOverException`: lock/store failure, interrupt/cancel, wait timeout, shape-specific 4xx, 5xx, timeout. A token-level error (`refresh_invalid`, any 401) carries nothing. Hop-0 errors and same-token retries are unchanged; the 3-hop give-up stays `RefreshSupersededException`. The exception wraps the original as `getCause()` and copies its code, message, status, details and retry-after (a non-SDK original becomes `server_error`, status 0); the token is in `refreshToken()` only, never in `getMessage()`, `toString()` or serialization.

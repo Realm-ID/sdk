@@ -4,6 +4,10 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.63.0 — emailed sign-in codes and lockout-guard codes (SPEC §3.1, §6.5, §X.4a) (2026-11-04)
+
+`ErrorCode` / `ERROR_CODES` register `acknowledgement_required`, `email_otp_requires_identifying_email`, `email_otp_rate_limited`, `last_browser_sign_in` and `last_machine_credential`. `auth.sendLoginCode` accepts `deliveryMode: "email"`. New exported type `EmailOtpConfig`. See the root CHANGELOG. Additive; `0.62.0` is tagged but not yet on npm, and is untouched.
+
 ## 0.62.0 — an error after a hand-over carries the newest refresh token (SPEC §4.2, §4.2.1) (2026-11-04)
 
 New exported `RefreshHandedOverError` (extends `RealmError`). Once `auth.token` has followed a hand-over (the token it holds when the error happens differs from the one the caller sent), every error it throws carries the newest token via `refreshToken()`: a lock/store failure, an aborted call, a wait timeout, a shape-specific 4xx, a 5xx, a timeout. A token-level error (`refresh_invalid` or any 401) carries nothing and is thrown as before. It wraps the original as `cause` and copies `code`, `message`, `httpStatus`, `details` and `retryAfterSeconds`; a non-SDK original becomes `server_error` with no status. Hop-0 errors and same-token retries are unchanged; the 3-hop give-up stays `RefreshSupersededError`, never wrapped. The token is held in a `#private` field, absent from `String`, `JSON.stringify` and `util.inspect`.
