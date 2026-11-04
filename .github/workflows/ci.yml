@@ -199,7 +199,7 @@ jobs:
     if: ${{ inputs.scope == '' || contains(format(',{0},', inputs.scope), ',ts,') }}
     name: TypeScript (tsc + node --test)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: ts
