@@ -2,6 +2,27 @@
 
 Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TODO.md) for open, actionable items.
 
+## Closed 2026-11-04 — owner question ruled (carried-token sink failure)
+
+Moved here from `OPEN-QUESTIONS.md` when the owner ruled (plan
+`plans/2026-11-04-token-handover-and-turnstile.md` Q5; `DECISIONS.md` 2026-11-04,
+"Token: an error after a hand-over carries the newest refresh token"). Filed the
+same day by SPEC `9e958cc`.
+
+- **"Carried-token sink failure: which error does `TokenManager` surface?"** —
+  RULED option A, as recommended: in all three languages, for both
+  `RefreshSupersededError` and `RefreshHandedOverError`, the caller gets the
+  ORIGINAL error (code, status and carried token unchanged) with the sink failure
+  ATTACHED — Go in the wrapped message (as `go/token_manager.go:159-161` already
+  does), java `addSuppressed`, ts the new `persistError` field. ts stops throwing a
+  replacement `server_error` (`ts/src/token-manager.ts:192-197`); java stops
+  swallowing it (`java/.../auth/TokenManager.java:211`). SPEC §4.2.1 *When the
+  sink also fails*. Code lands with the go `0.75.0` · ts `0.62.0` · java `0.59.0`
+  hand-over work. The filed question read, in brief: Go wrapped the sink error into
+  the original's message; ts replaced the original (losing its type and token)
+  with a new `server_error` whose `cause` was the sink error; java ignored the sink
+  failure and rethrew the original; options A (Go's shape) / B (java's) / C (ts's).
+
 ## Closed 2026-11-03 — done in released go 0.74.0 / ts 0.61.0 / java 0.58.0
 
 - **`Config.BaseURL` is both the JWKS/issuer fetch URL AND the required `iss` prefix** (found by the 2026-11-03 device-login e2e) — optional `issuerUrl` / `IssuerURL` (expected `iss` host, default `baseUrl`; every fetch stays on `baseUrl`) in all three languages, plus `iss` must name the verifier's OWN realm (checked before any JWKS fetch), plus no realm-less verifier (ts/java BREAKING, owner ruling). Plan `plans/2026-11-03-sdk-expected-issuer.md`; SPEC 7e18f92, go 5b514d5, ts 141ce32, java c5dc288, refuse d8f1554; tags verified 3/3 each. Consumer: api 7297572 (`ISSUER_PUBLIC_URL`), root 9c9ed44 (test stack off the 4cd0550 overlay; positive control `401 wrong_issuer` with it unset).

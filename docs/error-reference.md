@@ -575,7 +575,13 @@ call; read it, and never retry with the token you passed in.
 An error before any hand-over is unchanged: you still hold the token you sent.
 `TokenManager` adopts the carried token from both types itself (it replaces its
 in-memory token and hands it to your `refreshSink`), so a manager user needs no
-code for this.
+code for this. If your sink fails while saving it, you still get the same carrying
+error (same code, status and token), with the save failure attached: Go appends it
+to the error message, ts sets it on `e.persistError`, java adds it to
+`e.getSuppressed()` (planned go `0.75.0` · ts `0.62.0` · java `0.59.0`; before
+that, ts threw a new `server_error` instead and java dropped the save failure).
+A save failure means a restart would present a spent token, so treat it as you
+would any failed sink write.
 
 **The token is redacted.** It is never in the message, `String(e)` / `toString()`,
 `%v` / `%+v` / `%#v`, JSON, `util.inspect` or a stack trace. Only the accessor

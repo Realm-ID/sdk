@@ -1448,7 +1448,8 @@ i.e. a logout.
   and after each hand-over the winner's rotated token. A *hand-over* is a hop that
   ends with a `next` token to retry on.
 - **The rule (MUST).** When `Token` returns an error and the held token at that
-  moment DIFFERS from the presented token, it MUST return that error wrapped in
+  moment DIFFERS from the presented token (this reading of "after a hand-over" is
+  owner-confirmed, ruling Q6, 2026-11-04), it MUST return that error wrapped in
   the language's `RefreshHandedOverError` (below), carrying the held token —
   **unless the error is token-level**: code `refresh_invalid`, or any HTTP 401
   (the same predicate that decides which stored outcomes are shared across request
@@ -1617,12 +1618,34 @@ in-memory refresh token with the carried one, (2) hand the carried token to
 does not present the spent token, then (3) still fail the acquisition: no access
 token is cached or returned. Go detects both types with `errors.As`; ts and java
 by type. A token-level failure (`refresh_invalid`, any 401) carries nothing and
-stays terminal as above. *Not yet normative:* which error the caller sees when the
-sink ALSO fails on this path differs today (Go returns the original wrapped with
-`%w` plus the sink error; ts throws a new `server_error` whose `cause` is the sink
-error; java ignores the sink failure and rethrows the original) — see
-`OPEN-QUESTIONS.md` "carried-token sink failure". Until that is ruled, each
-language applies its existing give-up behaviour to the new type unchanged.
+stays terminal as above.
+
+*When the sink also fails (MUST; owner ruling Q5, 2026-11-04, option A).* The
+same rule holds for both carrying types: the caller gets the ORIGINAL error — the
+`RefreshSupersededError` / `RefreshHandedOverError` the refresh produced, its code
+and HTTP status unchanged and still carrying the token — with the sink's failure
+ATTACHED to it, never in its place and never dropped. The in-memory token is
+already replaced (step 1) whether or not the sink succeeded.
+- Go: returns `fmt.Errorf("%w; realmid token manager: persist rotated refresh
+  token: %v", err, serr)` (as `go/token_manager.go` does for the give-up today):
+  `errors.As` still finds the carrying type and `IsCode` its code; the sink error
+  is in the message only.
+- ts: throws the SAME error object it caught, with the value the sink threw set on
+  its `persistError` field (type `unknown`; `undefined` whenever the sink was not
+  called or succeeded). Both `RefreshSupersededError` and `RefreshHandedOverError`
+  declare `persistError`. It does not change `message`, `code`, `httpStatus` or
+  `cause`. The manager MUST NOT throw a new `server_error` in its place (the
+  pre-ruling ts behaviour, which lost the carried token and the original's type).
+- java: rethrows the SAME exception it caught after
+  `addSuppressed(sinkException)`, so the caller reads it from `getSuppressed()`;
+  `getCode()`, `getHttpStatus()`, `getMessage()` and `getCause()` are unchanged.
+  The manager MUST NOT swallow it (the pre-ruling java behaviour, which hid a
+  failed save). If the sink threw `InterruptedException`, the thread's interrupt
+  status is re-set before rethrowing.
+
+Why: nothing is lost and nothing is hidden. The caller still holds the token it
+must present next (the replaced ts error lost it) and can see that the save
+failed, so a restart would present a spent token (the java swallow hid that).
 
 ### 4.3 `mfaVerify(req)`
 

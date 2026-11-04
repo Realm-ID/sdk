@@ -2,28 +2,6 @@
 
 Needs an ADR or an owner ruling before any code. See [`TODO.md`](TODO.md) for open, actionable items.
 
-## Carried-token sink failure: which error does `TokenManager` surface? (filed 2026-11-04)
-
-SPEC §4.2.1 *Adopting a carried token* makes `TokenManager` adopt the token carried by
-`RefreshSupersededError` and (planned go `0.75.0` · ts `0.62.0` · java `0.59.0`)
-`RefreshHandedOverError`, then hand it to `refreshSink`. When the sink ALSO fails, the three
-languages already disagree on the give-up path (read in source 2026-11-04):
-
-- Go `go/token_manager.go:159-161`: returns `fmt.Errorf("%w; …persist rotated refresh token: %v", err, serr)` —
-  the original stays reachable by `errors.As`; the sink error is text only.
-- ts `ts/src/token-manager.ts:191-199`: throws a NEW `RealmError{server_error, cause: serr}` — the
-  original (and its type and token) is lost to the caller.
-- java `java/.../auth/TokenManager.java:208-212`: swallows the sink exception and rethrows the original.
-
-In every language the in-memory copy is already replaced, so the next attempt presents the live
-token either way; the difference is what the caller can observe. Options: (A) Go's shape everywhere
-— the original error surfaces, the sink failure is attached (ts `AggregateError` or a property,
-java `addSuppressed`); (B) java's shape — ignore the sink failure; (C) ts's shape — a
-`server_error` about the sink. Recommendation: **A**, with java's `addSuppressed(sinkError)`,
-because it keeps the carried token and the original's type visible AND does not hide a broken sink.
-Until ruled, SPEC §4.2.1 marks this sub-case not normative and each language keeps its own
-behaviour for the new type.
-
 ## `onAuthSuccess` exists only in Go, and only in middleware (OQ-4, deferred 2026-09-05)
 
 `OnAuthSuccess` is a field on Go's `MiddlewareOptions` (`go/middleware.go:186`).
