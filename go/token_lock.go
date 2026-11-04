@@ -8,6 +8,7 @@ package realmid
 import (
 	ctxpkg "context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -183,6 +184,41 @@ func (e *RefreshSupersededError) GoString() string { return e.Error() }
 // MarshalJSON emits the error's code, message and status only.
 func (e *RefreshSupersededError) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"code": e.re.Code, "message": e.re.Message, "status": e.re.HTTPStatus})
+}
+
+// RefreshHandedOverError is what Token returns for ANY error (other than a
+// token-level one) once it has followed at least one hand-over: the token the
+// caller presented is spent, and refreshToken is the newest one Token held, the
+// only live token for the next call. It wraps the original error, which Unwrap
+// exposes, so errors.As, IsCode and errors.Is(err, context.Canceled) match
+// exactly as before. The token is redacted like RefreshSupersededError's.
+type RefreshHandedOverError struct {
+	err          error
+	refreshToken string
+}
+
+// RefreshToken returns the newest live refresh token; present it on the next call.
+func (e *RefreshHandedOverError) RefreshToken() string { return e.refreshToken }
+
+func (e *RefreshHandedOverError) Error() string { return e.err.Error() }
+
+// Unwrap exposes the original error.
+func (e *RefreshHandedOverError) Unwrap() error { return e.err }
+
+// Format prints Error() for every verb so no formatting path reaches the token.
+func (e *RefreshHandedOverError) Format(s fmt.State, _ rune) { _, _ = io.WriteString(s, e.Error()) }
+
+// GoString keeps %#v (and anything using it) from printing the field.
+func (e *RefreshHandedOverError) GoString() string { return e.Error() }
+
+// MarshalJSON emits the original's code, message and status when it is (or
+// wraps) a *RealmError, else only the message.
+func (e *RefreshHandedOverError) MarshalJSON() ([]byte, error) {
+	var re *RealmError
+	if errors.As(e.err, &re) {
+		return json.Marshal(map[string]any{"code": re.Code, "message": re.Message, "status": re.HTTPStatus})
+	}
+	return json.Marshal(map[string]any{"message": e.err.Error()})
 }
 
 // tokenLevelErr reports whether a stored error is about the refresh token
