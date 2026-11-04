@@ -1,5 +1,5 @@
 import type { AuditEvent } from "@realm-id/sdk/internal";
-import type { PhoneOtpConfig } from "@realm-id/sdk";
+import type { PhoneOtpConfig, EmailOtpConfig } from "@realm-id/sdk";
 
 /**
  * Shared wire types for the admin SDK. Shapes mirror `ui/web/src/api.ts`
@@ -412,6 +412,14 @@ export interface RealmConfigPatch {
   // Login
   otp_login_enabled?: boolean;
   /**
+   * ADR-123: sign-in by a code sent by EMAIL, independent of `otp_login_enabled`. Default false.
+   * Only the realm OWNER may turn it ON (`403 forbidden` for anyone else, staff included); the
+   * owner, a `platform:config` holder or staff may turn it OFF. Turning it on needs the
+   * acknowledgement option on `updateConfig` (`400 acknowledgement_required` without it) and
+   * `email` in `contacts.unique_kinds` (`409 email_otp_requires_identifying_email`).
+   */
+  email_otp_login_enabled?: boolean;
+  /**
    * A-M11 / ADR-104: gates `grant_type=password` for this realm. Default
    * **false** — a realm opts IN, and prod held zero `user_credentials` rows
    * when the knob was introduced (checked, not assumed).
@@ -445,6 +453,11 @@ export interface RealmConfigPatch {
    */
   phone_otp?: Partial<PhoneOtpConfig>;
   /**
+   * ADR-123 D6: limits for emailed sign-in codes, separate from `phone_otp`. A PATCH merges, so
+   * either field may be sent alone. Ceiling 20 per 3600s.
+   */
+  email_otp?: Partial<EmailOtpConfig>;
+  /**
    * ADR-117 D1: which contact kinds identify a person in this realm. `unique_kinds` is a nullable
    * list on write: `null` (or absent) resets to the default `["email","phone"]`, `[]` means no
    * identifying kind. Narrowing it can answer `409 unique_kind_lockout` (retry with
@@ -465,6 +478,7 @@ export type UniqueContactKind = "email" | "phone";
 export type RealmConfigView = Omit<
   Required<RealmConfigPatch>,
   | "phone_otp"
+  | "email_otp"
   | "contacts"
   | "mfa_policy"
   | "session_eviction_policy"
@@ -479,6 +493,8 @@ export type RealmConfigView = Omit<
   signing_key_rotation_interval: string;
   /** Absent from an issuer older than spec 0.60.0, hence optional (unlike the other keys). */
   phone_otp?: PhoneOtpConfig;
+  /** ADR-123: absent from an issuer older than the release that adds emailed codes, hence optional. */
+  email_otp?: EmailOtpConfig;
   /** ADR-117: always present on read (the RESOLVED list); optional here for an older issuer. */
   contacts?: { unique_kinds: UniqueContactKind[] };
   /** Absent from an older issuer. Read side only; the patch has no such field. */

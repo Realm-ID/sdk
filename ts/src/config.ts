@@ -64,6 +64,17 @@ export function phoneOtpConfig(values: RealmConfigValues): PhoneOtpConfig | unde
   };
 }
 
+/**
+ * Typed view of the realm's `email_otp` config group (issuer ADR-123 D6; SPEC §6.5): limits for
+ * EMAILED sign-in codes, separate from `phone_otp`. A PATCH merges. Defaults 5 per 900s per
+ * address and 10 per end-user IP per hour; RealmID's ceiling is 20 per 3600s.
+ */
+export interface EmailOtpConfig {
+  max_per_window: number;
+  window_seconds: number;
+  sign_in_per_ip_per_hour: number;
+}
+
 /** A contact kind that can identify a person in a realm (ADR-117). */
 export type UniqueContactKind = "email" | "phone";
 

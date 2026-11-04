@@ -153,7 +153,7 @@ export type {
 
 export { ConfigClient, phoneOtpConfig, contactsConfig } from "./config.js";
 export type {
-  RealmConfigValues, RealmConfigResponse, PhoneOtpConfig, ContactsConfig, UniqueContactKind,
+  RealmConfigValues, RealmConfigResponse, PhoneOtpConfig, EmailOtpConfig, ContactsConfig, UniqueContactKind,
   UniqueKindsReport, UniqueKindsReportEntry, ConfigUpdateOptions,
 } from "./config.js";
 

@@ -177,7 +177,7 @@ export class PlatformsClient {
   async updateConfig(
     platformId: string,
     patch: RealmConfigPatch,
-    opts?: { confirmLockout?: boolean },
+    opts?: { confirmLockout?: boolean; acknowledgeMailboxRisk?: boolean },
   ): Promise<RealmConfigResponse> {
     return this.http.request<RealmConfigResponse>({
       method: "PATCH",
@@ -185,7 +185,10 @@ export class PlatformsClient {
       // ADR-117 D8: a QUERY parameter, never a header. It never escapes 503
       // unique_kind_lockout_check_failed or any other refusal.
       query: opts?.confirmLockout ? { confirm_lockout: "true" } : undefined,
-      body: patch,
+      // ADR-123 D3: `acknowledge_mailbox_risk` is a REQUEST-ONLY body field (swagger `allOf`), never a
+      // config key, so it rides here and not in `RealmConfigPatch`. Required with
+      // `email_otp_login_enabled: true`, else `400 acknowledgement_required`.
+      body: opts?.acknowledgeMailboxRisk ? { ...patch, acknowledge_mailbox_risk: true } : patch,
     });
   }
 

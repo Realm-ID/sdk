@@ -259,7 +259,7 @@ export {
   phoneOtpConfig,
   offersPhoneLogin,
 } from "@realm-id/sdk";
-export type { PhoneOtpConfig } from "@realm-id/sdk";
+export type { PhoneOtpConfig, EmailOtpConfig } from "@realm-id/sdk";
 
 // Wire types.
 export type * from "./types.js";
