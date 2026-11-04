@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-155 entries total — 100 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+156 entries total — 101 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-04 — ts-v0.62.0: raise the TS job cap, then delete and re-cut the tag on the fix commit (owner)](#2026-11-04--ts-v0620-raise-the-ts-job-cap-then-delete-and-re-cut-the-tag-on-the-fix-commit-owner)
 - [2026-11-04 — Token: an error after a hand-over carries the newest refresh token (RefreshHandedOverError; RCA)](#2026-11-04--token-an-error-after-a-hand-over-carries-the-newest-refresh-token-refreshhandedovererror-rca)
 - [2026-11-03 — SDK: separate expected issuer (issuerUrl), default baseUrl; iss must start with issuerUrl/realmId](#2026-11-03--sdk-separate-expected-issuer-issuerurl-default-baseurl-iss-must-start-with-issuerurlrealmid)
 - [2026-11-03 — web CI builds core before typecheck (RCA: stale nested lock copy hid it)](#2026-11-03--web-ci-builds-core-before-typecheck-rca-stale-nested-lock-copy-hid-it)
@@ -167,6 +168,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-04 — ts-v0.62.0: raise the TS job cap, then delete and re-cut the tag on the fix commit (owner)
+
+**Context.** `ts-v0.62.0` (tagged at `eeaf473`) never reached npm. Publish-npm run 41827097996 failed three times on the dudect timing step: attempts 1 and 3 ran past the TypeScript job's 10-minute cap (`ci.yml`), attempt 2 hit the threshold flake (`ctExp max|t|=13.12`). A re-run of a tag uses the workflow file at the tag, so a fix on `main` cannot reach it.
+
+**Decision (owner, 2026-11-04).** Fix the cap, then delete and re-cut `ts-v0.62.0` on the fix commit. Allowed because npm never received 0.62.0 (the earlier Q10 ruling: a ts/java tag whose publish failed before the registry may be deleted and re-cut; `go/v*` never). The fix commit sits directly after `eeaf473`, so ts is still 0.62.0 there; the unpushed ADR-123/124 SDK work (ts 0.63.0) is replayed on top. `java-v0.59.0` follows once ts verifies.
+
+**Not chosen.** Another plain re-run (three failures running on this tag); skipping 0.62.0 and folding it into 0.63.0.
 
 ## 2026-11-04 — Token: an error after a hand-over carries the newest refresh token (RefreshHandedOverError; RCA)
 
