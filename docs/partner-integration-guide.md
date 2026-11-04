@@ -523,7 +523,7 @@ curl -X POST https://auth.realmid.dev/auth/otp/send-login \
   whether the number belongs to anyone: an unknown number, a user with no phone and a failed
   provider send all answer the same, and the send happens after the response. Show the same
   text either way, for example "If this number is registered, we sent a code by SMS."
-- `delivery_mode` is `sms` or `whatsapp`, required, no default and no fallback; offer only
+- `delivery_mode` is `sms` or `whatsapp` (or `email`, see 4b), required, no default and no fallback; offer only
   what discovery's `phone_channels` lists. `identifier` is strict E.164. `tenant_id` is an
   optional hint; send the same one when you later sign the person in.
 - **Pass the end user's IP in `X-On-Behalf-Of-IP`** (SDK field `OnBehalfOfIP` /
@@ -546,6 +546,35 @@ curl -X POST https://auth.realmid.dev/auth/otp/send-login \
   cannot be turned off) and the per-phone pair in step 5. Sign-in sends are counted
   separately from codes sent to signed-in users, so a burst of sign-in requests never blocks
   someone's MFA code.
+
+**4b. Emailed sign-in codes (issuer ADR-123, owner opt-in).** The same call can email the
+code: `delivery_mode: "email"`, with `identifier` set to the person's email address
+(`{"identifier":"ana@acme.example","delivery_mode":"email"}`; SDK `deliveryMode: "email"` /
+`DeliveryModeEmail`). Read this before you offer it:
+
+- **It is the realm owner's opt-in, per realm, and off by default.** The owner turns on
+  `email_otp_login_enabled` in the realm config, separately from the phone switch
+  `otp_login_enabled`. Only the realm owner (the person who owns the realm's admin
+  organization) can turn it on, and they must acknowledge the mailbox risk (anyone who can
+  read a member's mailbox can sign in as that member). Until then the call is
+  `403 method_not_enabled`: hide the email option.
+- **It is never available on RealmID's own realm.** It exists for your partner realm only.
+- **Run your own captcha.** RealmID has none on this route, so your own edge (your BFF or
+  gateway) must verify one before it calls `sendLoginCode`. Without it anyone can make your
+  realm send mail to any address.
+- It is enumeration-safe like the phone send: the answer is always
+  `202 {"sent_if_registered": true}`. A code is sent only to a VERIFIED email that is a
+  sign-in contact (`email` in `contacts.unique_kinds`); any other address gets the same
+  `202` and nothing is sent.
+- Limits are their own `email_otp` group (`max_per_window` 5 and `window_seconds` 900 per
+  address, `sign_in_per_ip_per_hour` 10 per end-user IP; ceiling 20 per 3600s), not the
+  `phone_otp` ones. Past them: `429 email_otp_rate_limited` (per address) or
+  `429 sign_in_ip_rate_limited` (per IP); wait `Retry-After` seconds.
+- Then call `otpLogin` / `OTPLogin` with the same `identifier`. MFA still applies after the
+  code, and an emailed code is never accepted as an MFA second factor.
+- Turning it on from the admin SDK needs the acknowledgement: web-admin
+  `platforms.updateConfig(id, { email_otp_login_enabled: true }, { acknowledgeMailboxRisk: true })`;
+  without it the answer is `400 acknowledgement_required`.
 
 **5. The limit.** By default one phone number may be sent 5 codes per 15 minutes in
 your realm, SMS and WhatsApp counted together (switching channel does not reset it).

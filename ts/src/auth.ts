@@ -952,10 +952,16 @@ export class AuthClient {
    * `tenantId`). `onBehalfOfIp` is the END USER's IP, sent as
    * `X-On-Behalf-Of-IP`; without it only the per-phone limit applies. The 202
    * body is bare, not `{"data":…}`.
+   *
+   * `deliveryMode: "email"` (issuer ADR-123) sends the code to an email address (`identifier` is
+   * the address). It works only when the realm's owner turned `email_otp_login_enabled` on
+   * (otherwise `403 method_not_enabled`), never on RealmID's own realm, and is limited per
+   * address (`429 email_otp_rate_limited`) and per IP. RealmID has no captcha here: run your own
+   * before calling this.
    */
   async sendLoginCode(req: {
     identifier: string;
-    deliveryMode: "sms" | "whatsapp";
+    deliveryMode: "sms" | "whatsapp" | "email";
     tenantId?: string;
     onBehalfOfIp?: string;
   }): Promise<SendLoginCodeResponse> {

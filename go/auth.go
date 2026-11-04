@@ -857,6 +857,9 @@ type OTPLoginRequest struct {
 // SendLoginCodeRequest is the input for AuthClient.SendLoginCode (SPEC §X.4a,
 // issuer ADR-116). Identifier is a strict E.164 phone number; DeliveryMode is
 // DeliveryModeSMS or DeliveryModeWhatsApp (required, no default, no fallback).
+// With DeliveryModeEmail (issuer ADR-123) Identifier is an email address instead; that works only
+// when the realm's owner turned email_otp_login_enabled on (else 403 method_not_enabled), never
+// on RealmID's own realm. RealmID has no captcha on this route: run your own first.
 // TenantID is an optional hint; send the same one to OTPLogin. OnBehalfOfIP is
 // the END USER's IP, sent as X-On-Behalf-Of-IP: without it only the per-phone
 // limit applies; when set it must parse as IPv4/IPv6 (else 400
