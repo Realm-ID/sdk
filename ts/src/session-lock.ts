@@ -15,7 +15,7 @@
  */
 
 import type { TokenRequest, TokenResponse } from "./auth.js";
-import { RealmError, RefreshSupersededError } from "./errors.js";
+import { RealmError, RefreshSupersededError, RefreshHandedOverError } from "./errors.js";
 import type { Logger } from "./logger.js";
 import { scopeWireValue } from "./scope.js";
 import { lockKey, outKey, type SessionStateStore } from "./session-store.js";
@@ -262,6 +262,11 @@ function tokenLevelErr(o: RefreshOutcome): boolean {
   return code === "refresh_invalid" || o.status === 401;
 }
 
+/** The thrown form of {@link tokenLevelErr}: `refresh_invalid` or any 401. */
+function tokenLevelThrown(e: unknown): boolean {
+  return e instanceof RealmError && (e.code === "refresh_invalid" || e.httpStatus === 401);
+}
+
 function tokenOutcomeUsable(o: RefreshOutcome, fp: string, key: string): boolean {
   if (!o.ok) return o.fp === fp || tokenLevelErr(o);
   if (o.fp === fp) return true;
@@ -287,7 +292,15 @@ export async function tokenUnderLock(
   scopeWireValue(req.scope);
   let cur = req;
   for (let hop = 0; hop < TOKEN_MAX_HOPS; hop++) {
-    const { res, next } = await tokenLockedOnce(deps, cur, mint);
+    let once;
+    try {
+      once = await tokenLockedOnce(deps, cur, mint);
+    } catch (e) {
+      // SPEC §4.2: after a hand-over the caller's token is spent, so every error but a token-level one carries the newest.
+      if (cur.refreshToken !== req.refreshToken && !tokenLevelThrown(e)) throw new RefreshHandedOverError(e, cur.refreshToken);
+      throw e;
+    }
+    const { res, next } = once;
     if (res || !next) return res as TokenResponse;
     cur = { ...cur, refreshToken: next };
   }

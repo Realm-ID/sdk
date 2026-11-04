@@ -10,7 +10,7 @@ import { strict as assert } from "node:assert";
 import { inspect } from "node:util";
 import { createRealm } from "./realm.js";
 import { createMemorySessionStore, lockKey, outKey, type SessionStateStore } from "./session-store.js";
-import { RefreshSupersededError, RealmError } from "./errors.js";
+import { RefreshSupersededError, RefreshHandedOverError, RealmError } from "./errors.js";
 import { AUD, BASE, REALM, claimsFor, drive, fakeIssuer, jsonRes, makeSigner, refreshCount } from "./v063-fixture.test.js";
 import type { IdentityResolvedEvent } from "./identity-resolved.js";
 
@@ -503,6 +503,116 @@ test("TestTokenManager_AdoptsTheTokenFromASupersededGiveUp (and persists it to t
   await assert.rejects(m.accessToken(), (e: unknown) => e instanceof RefreshSupersededError);
   assert.equal(m.refreshToken(), "rt-3", "the next attempt presents the live token, not the spent one");
   assert.deepEqual(sunk, ["rt-3"], "persisted exactly as after a normal rotation");
+});
+
+// ---- SPEC §4.2 "An error after a hand-over carries the newest token" / §4.2.1 "Adopting a carried token"
+
+/** rt-old was rotated to rt-1 by someone else's request (fingerprint differs): the caller is handed over to rt-1. */
+async function seedHandOver(inner: SessionStateStore): Promise<void> {
+  await inner.putRefreshResult(await outKey("rt-old"), JSON.stringify({ fp: "someone-else", ok: true, refreshToken: "rt-1" }), 60_000);
+}
+const handedOver = (e: unknown): e is RefreshHandedOverError => e instanceof RefreshHandedOverError;
+/** A store whose lock acquisition fails for `token` only. */
+async function failAt(inner: SessionStateStore, token: string, failure: unknown = new Error("redis down")): Promise<Partial<SessionStateStore>> {
+  const lk = await lockKey(token);
+  return { acquireRefreshLock: async (k, ttl) => { if (k === lk) throw failure; return inner.acquireRefreshLock(k, ttl); } };
+}
+
+test("SPEC4_2_handover: a lock-store failure after a hand-over carries the hop-1 token, code/status/cause kept", async () => {
+  const inner = createMemorySessionStore({ now: () => Date.now() });
+  await seedHandOver(inner);
+  const s = await setup({ store: wrapStore(inner, await failAt(inner, "rt-1")) });
+  let err: unknown;
+  try { await tokenAsync(s, "rt-old"); } catch (e) { err = e; }
+  assert.ok(handedOver(err), `got ${String(err)}`);
+  assert.equal(err.refreshToken(), "rt-1");
+  assert.equal(err.code, "server_error");
+  assert.equal(err.httpStatus, 503);
+  assert.match(err.message, /session store unavailable/);
+  assert.ok(err.cause instanceof RealmError && !(err.cause instanceof RefreshHandedOverError));
+  for (const out of [String(err), err.message, JSON.stringify(err), inspect(err, { depth: 6, showHidden: true }), `${err.stack}`]) {
+    assert.ok(!out.includes("rt-1"), `live refresh token leaked: ${out.slice(0, 80)}`);
+  }
+});
+
+test("SPEC4_2_handover: a shape-specific 403 from the issuer after a hand-over carries the token", async () => {
+  const inner = createMemorySessionStore({ now: () => Date.now() });
+  await seedHandOver(inner);
+  const s = await setup({ store: inner });
+  const old = s.f.token;
+  s.f.token = async (b) => (b["refresh_token"] === "rt-1" ? jsonRes(403, { error: { code: "forbidden", message: "nope" } }) : old(b));
+  let err: unknown;
+  try { await tokenAsync(s, "rt-old"); } catch (e) { err = e; }
+  assert.ok(handedOver(err), `got ${String(err)}`);
+  assert.equal(err.refreshToken(), "rt-1");
+  assert.equal(err.code, "forbidden");
+  assert.equal(err.httpStatus, 403);
+});
+
+test("SPEC4_2_handover: an aborted call after a hand-over carries the token (non-SDK original: server_error, no status)", async () => {
+  const inner = createMemorySessionStore({ now: () => Date.now() });
+  await seedHandOver(inner);
+  const s = await setup({ store: wrapStore(inner, await failAt(inner, "rt-1", new DOMException("aborted", "AbortError"))) });
+  let err: unknown;
+  try { await tokenAsync(s, "rt-old"); } catch (e) { err = e; }
+  assert.ok(handedOver(err), `got ${String(err)}`);
+  assert.equal(err.refreshToken(), "rt-1");
+  assert.equal(err.code, "server_error");
+});
+
+test("SPEC4_2_handover: a token-level failure (refresh_invalid / 401) after a hand-over carries nothing", async () => {
+  for (const [status, code] of [[401, "refresh_invalid"], [401, "unauthorized"]] as const) {
+    const inner = createMemorySessionStore({ now: () => Date.now() });
+    await seedHandOver(inner);
+    await inner.putRefreshResult(await outKey("rt-1"), JSON.stringify({ fp: "someone-else", ok: false, status, body: { error: { code, message: "m" } } }), 60_000);
+    const s = await setup({ store: inner });
+    let err: unknown;
+    try { await tokenAsync(s, "rt-old"); } catch (e) { err = e; }
+    assert.ok(err instanceof RealmError && !handedOver(err) && !(err instanceof RefreshSupersededError), `got ${String(err)}`);
+    assert.equal((err as RealmError).code, code);
+  }
+});
+
+test("SPEC4_2_handover: hop 0 failures are unchanged (no wrapper)", async () => {
+  const inner = createMemorySessionStore({ now: () => Date.now() });
+  const s = await setup({ store: wrapStore(inner, await failAt(inner, "rt-old")) });
+  let err: unknown;
+  try { await tokenAsync(s, "rt-old"); } catch (e) { err = e; }
+  assert.ok(err instanceof RealmError && !handedOver(err));
+  assert.equal(err.httpStatus, 503);
+});
+
+test("SPEC4_2_1_adopt: TokenManager adopts and persists the token from a RefreshHandedOverError, and still throws it", async () => {
+  const inner = createMemorySessionStore({ now: () => Date.now() });
+  await seedHandOver(inner);
+  const s = await setup({ store: wrapStore(inner, await failAt(inner, "rt-1")) });
+  const sunk: string[] = [];
+  const m = s.realm.auth.newTokenManager("rt-old", { refreshSink: (t) => { sunk.push(t); } });
+  await assert.rejects(m.accessToken(), (e: unknown) => handedOver(e) && e.code === "server_error");
+  assert.equal(m.refreshToken(), "rt-1");
+  assert.deepEqual(sunk, ["rt-1"]);
+});
+
+test("SPEC4_2_1_adopt: a failing refreshSink throws the ORIGINAL error with persistError, for both carrying types", async () => {
+  const sinkErr = new Error("disk full");
+  {
+    const inner = createMemorySessionStore({ now: () => Date.now() });
+    await seedHandOver(inner);
+    const s = await setup({ store: wrapStore(inner, await failAt(inner, "rt-1")) });
+    const m = s.realm.auth.newTokenManager("rt-old", { refreshSink: () => { throw sinkErr; } });
+    await assert.rejects(m.accessToken(), (e: unknown) => handedOver(e) && e.code === "server_error" && e.httpStatus === 503 && e.refreshToken() === "rt-1" && (e as { persistError?: unknown }).persistError === sinkErr);
+    assert.equal(m.refreshToken(), "rt-1");
+  }
+  {
+    const inner = createMemorySessionStore({ now: () => Date.now() });
+    const s = await setup({ store: inner });
+    const chain = ["rt-old", "rt-1", "rt-2", "rt-3"];
+    for (let i = 0; i + 1 < chain.length; i++) {
+      await inner.putRefreshResult(await outKey(chain[i]!), JSON.stringify({ fp: "someone-else", ok: true, refreshToken: chain[i + 1] }), 60_000);
+    }
+    const m = s.realm.auth.newTokenManager("rt-old", { refreshSink: () => { throw sinkErr; } });
+    await assert.rejects(m.accessToken(), (e: unknown) => e instanceof RefreshSupersededError && e.code === "server_error" && e.refreshToken() === "rt-3" && (e as { persistError?: unknown }).persistError === sinkErr);
+  }
 });
 
 test("TestTokenManager_TwoManagersOnOneSessionMintOnce", async () => {

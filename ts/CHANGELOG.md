@@ -4,6 +4,16 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.62.0 — an error after a hand-over carries the newest refresh token (SPEC §4.2, §4.2.1) — unreleased
+
+New exported `RefreshHandedOverError` (extends `RealmError`). Once `auth.token` has followed a hand-over (the token it holds when the error happens differs from the one the caller sent), every error it throws carries the newest token via `refreshToken()`: a lock/store failure, an aborted call, a wait timeout, a shape-specific 4xx, a 5xx, a timeout. A token-level error (`refresh_invalid` or any 401) carries nothing and is thrown as before. It wraps the original as `cause` and copies `code`, `message`, `httpStatus`, `details` and `retryAfterSeconds`; a non-SDK original becomes `server_error` with no status. Hop-0 errors and same-token retries are unchanged; the 3-hop give-up stays `RefreshSupersededError`, never wrapped. The token is held in a `#private` field, absent from `String`, `JSON.stringify` and `util.inspect`.
+
+`TokenManager` adopts and persists (`refreshSink`) the token from BOTH `RefreshSupersededError` and `RefreshHandedOverError`; the call still throws. If `refreshSink` fails, the ORIGINAL error is thrown (code and status unchanged, still carrying the token) with the sink's error on its `persistError` field; before, a new `server_error` replaced it.
+
+### Breaking
+
+A post-hand-over error is now a `RefreshHandedOverError`, so `instanceof X` on those failures stops matching. Read the original through `.cause`; `code`, `httpStatus`, `message`, `details` and `retryAfterSeconds` are copied onto the wrapper. On a `refreshSink` failure `TokenManager` now rethrows the original carrying error (`RefreshSupersededError`, status 503, same code, or `RefreshHandedOverError`) with the sink's error on its writable `persistError` field (`unknown`, `undefined` unless the sink threw), instead of a new plain `server_error` `RealmError` whose `cause` was the sink error. Code that read that `cause` must read `persistError`.
+
 ## 0.61.0 — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4) (2026-11-03)
 
 `RealmConfig.issuerUrl` (default `baseUrl`; trailing slash trimmed; blank = unset) is read by the `iss` checks only: the verifier and the split realm's co-signer. Every fetch stays on `baseUrl`. The verifier now also requires `iss` to be `issuerUrl/<own realmId>` (another realm's `iss` is `wrong_issuer`) and checks it before any JWKS fetch. See the root CHANGELOG.

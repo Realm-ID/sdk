@@ -317,6 +317,45 @@ export class RealmError extends Error {
   }
 }
 
+/**
+ * An error `auth.token` threw AFTER it followed a hand-over (SPEC §4.2 "An error
+ * after a hand-over carries the newest token"): the token held when the error
+ * happened differs from the one the caller sent, so the caller's token is spent
+ * and the error carries the live one. Everything except a token-level failure
+ * (`refresh_invalid`, any 401, which carries nothing and is thrown unwrapped).
+ *
+ * It copies `code`, `message`, `httpStatus`, `details` and `retryAfterSeconds`
+ * from the original and exposes it as `cause`; a non-SDK original becomes code
+ * `server_error`, no status, with its message. Like {@link RefreshSupersededError}
+ * the token lives in a `#private` field behind {@link RefreshHandedOverError.refreshToken}.
+ * NOTE: `instanceof` the original's class no longer matches; read `.cause`.
+ */
+export class RefreshHandedOverError extends RealmError {
+  readonly #refreshToken: string;
+  /** Set by `TokenManager` when persisting the carried token to `refreshSink` failed: the sink's error. */
+  persistError?: unknown;
+
+  constructor(original: unknown, refreshToken: string) {
+    const o = original instanceof RealmError ? original : undefined;
+    super({
+      code: o?.code ?? "server_error",
+      message: o?.message ?? (original instanceof Error ? original.message : String(original)),
+      httpStatus: o?.httpStatus,
+      details: o?.details,
+      retryAfterSeconds: o?.retryAfterSeconds,
+      cause: original,
+    });
+    this.name = "RefreshHandedOverError";
+    this.#refreshToken = refreshToken;
+    Object.defineProperty(this, "persistError", { value: undefined, writable: true, enumerable: false });
+  }
+
+  /** The newest live refresh token; present it on the next call. */
+  refreshToken(): string {
+    return this.#refreshToken;
+  }
+}
+
 /** Parse a `Retry-After` header value to whole seconds, or undefined (SPEC §3). */
 export function parseRetryAfterSeconds(v: string | null | undefined, nowMs: number = Date.now()): number | undefined {
   const s = v?.trim();
@@ -349,7 +388,11 @@ export class RefreshSupersededError extends RealmError {
     super({ code: "server_error", message: "refresh superseded, retry", httpStatus: 503 });
     this.name = "RefreshSupersededError";
     this.#refreshToken = refreshToken;
+    Object.defineProperty(this, "persistError", { value: undefined, writable: true, enumerable: false });
   }
+
+  /** Set by `TokenManager` when persisting the carried token to `refreshSink` failed: the sink's error. */
+  persistError?: unknown;
 
   /** The newest live refresh token; present it on the next call. */
   refreshToken(): string {

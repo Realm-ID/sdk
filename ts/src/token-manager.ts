@@ -20,7 +20,7 @@
  */
 
 import type { AuthClient } from "./auth.js";
-import { RealmError, RefreshSupersededError } from "./errors.js";
+import { RealmError, RefreshSupersededError, RefreshHandedOverError } from "./errors.js";
 
 /**
  * Durably persists a rotated refresh token. The manager calls it after each
@@ -184,17 +184,16 @@ export class TokenManager {
       // which the next attempt must present, not the spent one. Committed to memory,
       // then handed to the sink exactly as after a normal rotation, so a restart does
       // not present the spent token.
-      if (e instanceof RefreshSupersededError && e.refreshToken() !== "") {
+      // The same holds for an error after a hand-over (RefreshHandedOverError). If the sink
+      // fails, the ORIGINAL error is still thrown (it carries the token); the save failure
+      // rides on its `persistError` field (SPEC §4.2.1).
+      if ((e instanceof RefreshSupersededError || e instanceof RefreshHandedOverError) && e.refreshToken() !== "") {
         this.refreshTokenValue = e.refreshToken();
         if (this.sink) {
           try {
             await this.sink(e.refreshToken());
           } catch (serr) {
-            throw new RealmError({
-              code: "server_error",
-              message: "realmid token manager: persist rotated refresh token failed",
-              cause: serr,
-            });
+            e.persistError = serr;
           }
         }
       }

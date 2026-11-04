@@ -40,7 +40,7 @@ export type { OrgSessionMode } from "./org-session.js";
 // R86: the ONE typed error for the server's `403 actor_required` and the SDK's local refusal.
 export { ActorRequiredError, isActorRequired } from "./actor-required.js";
 export { DeviceApprovalNotAllowedError, isDeviceApprovalNotAllowed } from "./device-approval-not-allowed.js";
-export { RealmError, RefreshSupersededError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled, isRealmSuspended, isTenantSuspended, isInvalidChannelConfig, isChannelValidationFailed, isChannelNotConfigured, isPhoneOtpRateLimited, isSignInIpRateLimited, isDeliveryUnavailable } from "./errors.js";
+export { RealmError, RefreshSupersededError, RefreshHandedOverError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled, isRealmSuspended, isTenantSuspended, isInvalidChannelConfig, isChannelValidationFailed, isChannelNotConfigured, isPhoneOtpRateLimited, isSignInIpRateLimited, isDeliveryUnavailable } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
 
 export type { Claims } from "./claims.js";
