@@ -4,7 +4,7 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## 0.61.0 — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4) (2026-11-03, unreleased)
+## 0.61.0 — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4) (2026-11-03)
 
 `RealmConfig.issuerUrl` (default `baseUrl`; trailing slash trimmed; blank = unset) is read by the `iss` checks only: the verifier and the split realm's co-signer. Every fetch stays on `baseUrl`. The verifier now also requires `iss` to be `issuerUrl/<own realmId>` (another realm's `iss` is `wrong_issuer`) and checks it before any JWKS fetch. See the root CHANGELOG.
 

@@ -1420,9 +1420,11 @@ token: it RETRIES ONCE MORE, up to 3 hops, on the winner's rotated token**, as a
 ordinary winner there (the Go-API form of the middleware's `503 retry` hand-over).
 If the hops run out it returns `server_error` (HTTP 503, "refresh superseded,
 retry"); the newest token is carried on a typed `*RefreshSupersededError`
-(`errors.As`, accessor `RefreshToken()`), NOT in `Details`, and the error's
+(`errors.As`, accessor `RefreshToken()`; ts `RefreshSupersededError`, java
+`RefreshSupersededException`, accessor `refreshToken()`), NOT in `Details`, and the error's
 `Error()` / formatting / JSON redact it (it is a live credential). A stored ERROR
-outcome is returned as that error. **A store error while reading the stored
+outcome is returned as that error (after a hand-over, wrapped as § *An error after a
+hand-over* below says). **A store error while reading the stored
 outcome is `503` `server_error` "session store unavailable" and NEVER a mint**
 (not-found and error are different answers; the read runs on a fresh bounded
 context, so a cancelled caller cannot turn a found outcome into a miss). The one
@@ -1430,9 +1432,103 @@ residual case: if the OUTCOME STORE itself is down after a successful mint, the
 outcome is not recorded and a later presenter of the spent token reaches the
 issuer; the SDK logs it and cannot prevent it. Lock failures are as §4.3 (`server_error` 503 "session
 store unavailable" / "refresh in progress"; a done context returns its own error;
-the issuer is not called). The middleware's own mint, the derived-claims re-mint
+the issuer is not called; after a hand-over each of these is wrapped as below). The middleware's own mint, the derived-claims re-mint
 and the post-login mint call an UNLOCKED inner and never re-take the lock (it is
 not re-entrant). An empty `RefreshToken` takes no lock.
+
+**An error after a hand-over carries the newest token (planned go `0.75.0` · ts
+`0.62.0` · java `0.59.0`; owner rulings Q1 + Q2, 2026-11-04).** Before this rule
+only the 3-hop give-up carried a token: an error on hop 1 or 2 dropped the token
+the previous hop had been handed, so the caller kept the token it presented —
+which a winner had already SPENT — and its next refresh was `refresh_invalid`,
+i.e. a logout.
+
+- **Terms.** The *presented* token is the `RefreshToken` the caller passed. The
+  *held* token is the one the current hop presents: the presented token on hop 0,
+  and after each hand-over the winner's rotated token. A *hand-over* is a hop that
+  ends with a `next` token to retry on.
+- **The rule (MUST).** When `Token` returns an error and the held token at that
+  moment DIFFERS from the presented token, it MUST return that error wrapped in
+  the language's `RefreshHandedOverError` (below), carrying the held token —
+  **unless the error is token-level**: code `refresh_invalid`, or any HTTP 401
+  (the same predicate that decides which stored outcomes are shared across request
+  shapes). A token-level error is returned unwrapped and carries nothing, because
+  the held token is known dead.
+- **Which errors that covers.** Every error a hop after a hand-over can produce:
+  a lock-acquire or outcome-read store failure (`503` "session store
+  unavailable"), a loser's wait that found no outcome (`503` "refresh in
+  progress"), an unreadable stored outcome, the caller's own done context or
+  cancellation (Go `ctx.Err()`; java "cancelled before the session lock"), a
+  stored or freshly minted shape-specific 4xx (e.g. a `403` for this request's
+  tenant), a 5xx, a network failure and a mint timeout. The list is illustrative;
+  the rule is "every error except a token-level one".
+- **What it does NOT cover.** An error while the held token still equals the
+  presented one is returned unchanged: on hop 0 the caller already holds the token
+  it sent, and the same is true after a "go round again" on the SAME token (a
+  different request's shape-specific stored error, or a non-rotating class whose
+  outcome carried no new token). Errors before the lock (an invalid `Scope`) and
+  the empty-`RefreshToken` path are unchanged. The 3-hop give-up stays a
+  `RefreshSupersededError` / `RefreshSupersededException` and is NEVER wrapped in
+  `RefreshHandedOverError`.
+- **Why every error, not only the ones that might follow a rotation.** The rule
+  does NOT rely on the issuer refusing a 4xx before it writes the rotation (a code
+  comment claims that; it is unverified). The held token is never worse than the
+  presented one, which is certainly spent once a hand-over has happened; so
+  carrying it can only help the caller.
+- **The type (MUST, every language).** Go `*RefreshHandedOverError`, ts
+  `RefreshHandedOverError`, java `RefreshHandedOverException`. It wraps the
+  ORIGINAL error and exposes the held token through `RefreshToken()` (Go) /
+  `refreshToken()` (ts, java). The token is a live credential and MUST be redacted
+  exactly as `RefreshSupersededError` redacts it: Go keeps it in an unexported
+  field, `Error()` returns the original's `Error()`, `Format` prints `Error()` for
+  every verb, `GoString` returns `Error()`, and `MarshalJSON` emits only the code,
+  message and status of the `*RealmError` in the original's chain (only `message`
+  when there is none); ts keeps it in a `#private` field, so it is absent from
+  `message`, `String(e)`, `JSON.stringify(e)`, `util.inspect` (including
+  `showHidden`) and the stack; java keeps it in a `transient` field absent from
+  `getMessage()`, `getDetails()` and `toString()`.
+- **Reading the original.** Go: `Unwrap()` returns the original, so
+  `errors.As(err, &*RealmError)`, `IsCode` and `errors.Is(err,
+  context.Canceled)` match exactly as before; `errors.As(err,
+  &*RefreshSupersededError)` does not match it. ts: the type extends `RealmError`,
+  `cause` is the original, and `code`, `message`, `httpStatus`, `details` and
+  `retryAfterSeconds` are copied from it. java: the type extends `RealmException`,
+  `getCause()` is the original, and `getCode()`, `getMessage()`,
+  `getHttpStatus()`, `getDetails()` and `getRetryAfter()` are copied from it. When
+  the original is not an SDK error (ts: any other thrown value; java: any other
+  `RuntimeException`), the wrapper's code is `server_error`, it has no HTTP
+  status, and its message is the original's message.
+- **Breaking in ts and java (not Go).** For these failures the THROWN TYPE
+  changes: a caller's `instanceof X` / `catch (XException e)` for a subclass `X`
+  of the base error no longer matches a post-hand-over error. A check on the base
+  type (`instanceof RealmError`, `catch (RealmException e)`) or on the code keeps
+  matching, because the wrapper extends the base type and copies the code. Each
+  language's CHANGELOG entry carries a **Breaking** block saying so.
+- **What the caller does.** Present `refreshToken()` on the next call, never the
+  token it presented. `TokenManager` does this itself (§4.2.1 *Adopting a carried
+  token*).
+
+*Worked example.* A caller presents `R0` for a tenant switch (fingerprint F2)
+while another request (F1) refreshes the same session.
+
+1. Hop 0, held `R0`: the F1 winner already rotated `R0` → `R1` and stored its
+   outcome. The fingerprints differ, so `Token` is handed over to `R1`. `R0` is
+   now spent.
+2. Hop 1, held `R1`: `AcquireRefreshLock` fails because the session store is
+   down.
+3. `Token` returns `503 server_error` "session store unavailable" wrapped in
+   `RefreshHandedOverError` with `refreshToken() == "R1"`. Go: `IsCode(err,
+   ErrCodeServerError)` is still true. ts/java: `e.code` / `getCode()` is
+   `server_error`, `httpStatus` 503, and `cause` / `getCause()` is the original.
+4. The caller retries with `R1`, which is live. Before this rule it got the bare
+   `503`, retried with the spent `R0`, and received `refresh_invalid`.
+
+Had hop 1 instead returned `401 refresh_invalid` (the session was revoked), the
+caller would get that error unwrapped and nothing carried: `R1` is dead too.
+
+**Cite as** `SPEC4_2_handover` (this paragraph) and `SPEC4_2_1_adopt` (§4.2.1
+*Adopting a carried token*) in test names, so a parity sweep finds each across
+languages.
 
 ### 4.2.1 Token manager (long-lived clients)
 
@@ -1509,6 +1605,24 @@ token manager never re-bootstraps the *user* identity — the user refresh
 is the only thing that can mint a user access token, and it is gone — so a
 dead refresh is terminal here even though the underlying handle still
 holds a live platform session.)
+
+**Adopting a carried token (MUST; planned go `0.75.0` · ts `0.62.0` · java
+`0.59.0`, owner ruling Q2, 2026-11-04).** When the refresh's §4.2 `token()` call
+fails with an error that carries a token — the 3-hop give-up
+(`RefreshSupersededError` / `RefreshSupersededException`) **or**
+`RefreshHandedOverError` / `RefreshHandedOverException` (§4.2 *An error after a
+hand-over*) — and the carried token is non-empty, the manager MUST (1) replace its
+in-memory refresh token with the carried one, (2) hand the carried token to
+`refreshSink` and wait for it, exactly as after a normal rotation, so a restart
+does not present the spent token, then (3) still fail the acquisition: no access
+token is cached or returned. Go detects both types with `errors.As`; ts and java
+by type. A token-level failure (`refresh_invalid`, any 401) carries nothing and
+stays terminal as above. *Not yet normative:* which error the caller sees when the
+sink ALSO fails on this path differs today (Go returns the original wrapped with
+`%w` plus the sink error; ts throws a new `server_error` whose `cause` is the sink
+error; java ignores the sink failure and rethrows the original) — see
+`OPEN-QUESTIONS.md` "carried-token sink failure". Until that is ruled, each
+language applies its existing give-up behaviour to the new type unchanged.
 
 ### 4.3 `mfaVerify(req)`
 

@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-154 entries total — 99 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+155 entries total — 100 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-04 — Token: an error after a hand-over carries the newest refresh token (RefreshHandedOverError; RCA)](#2026-11-04--token-an-error-after-a-hand-over-carries-the-newest-refresh-token-refreshhandedovererror-rca)
 - [2026-11-03 — SDK: separate expected issuer (issuerUrl), default baseUrl; iss must start with issuerUrl/realmId](#2026-11-03--sdk-separate-expected-issuer-issuerurl-default-baseurl-iss-must-start-with-issuerurlrealmid)
 - [2026-11-03 — web CI builds core before typecheck (RCA: stale nested lock copy hid it)](#2026-11-03--web-ci-builds-core-before-typecheck-rca-stale-nested-lock-copy-hid-it)
 - [2026-11-03 — Device approval: optional subject fields, strict poll subject_type](#2026-11-03--device-approval-optional-subject-fields-strict-poll-subject_type)
@@ -166,6 +167,27 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-04 — Token: an error after a hand-over carries the newest refresh token (RefreshHandedOverError; RCA)
+
+**Problem.** `Token` (and so `TokenManager`) follows up to 3 hand-overs: when another request already rotated the session's refresh token, it retries on the winner's NEWER token rather than re-presenting the spent one. Only the 3-hop give-up carried that newer token back. Any error on hop 1 or 2 returned the bare error, so the caller kept its original token — already spent — and its next refresh was `refresh_invalid`, i.e. a logout caused by a transient failure.
+
+**Decision (SPEC §4.2 *An error after a hand-over carries the newest token*, §4.2.1 *Adopting a carried token*; plan `plans/2026-11-04-token-handover-and-turnstile.md`).** Owner rulings 2026-11-04. Q1: once `Token` has followed a hand-over, EVERY error it returns carries the newest token it held, except a token-level error (`refresh_invalid` or any 401), where that token is known dead. A hop-0 error is unchanged. Q2: the token rides on a NEW public type — Go `*RefreshHandedOverError`, ts `RefreshHandedOverError`, java `RefreshHandedOverException` — wrapping the original, accessor `RefreshToken()` / `refreshToken()`, redacted from every print and JSON path the way `RefreshSupersededError` is. Go unwraps to the original (`errors.As`, `IsCode`, `errors.Is(context.Canceled)` unchanged); ts/java extend the base error and copy code, message, status, details and retry-after, and the original is `cause` / `getCause()`. `TokenManager` adopts and persists the token from both carrying types.
+
+**Why every error and not only those that might follow a rotation.** A code comment (`go/token_lock.go:136-140`) says every issuer 4xx on `/auth/token` is refused before the rotation is written; that is unverified, and the rule must not depend on it. After a hand-over the presented token is certainly spent, and the held one is never worse, so carrying it can only help.
+
+**Spec fill-ins made while writing (owner may overrule).** (1) "Followed a hand-over" is read as "the held token DIFFERS from the presented one": a go-round-again on the SAME token (another shape's stored error, a non-rotating class) carries nothing, for the same reason hop 0 carries nothing, and so does not change the thrown type in ts/java for no gain. (2) When the original is not an SDK error, the ts/java wrapper is `server_error` with no HTTP status and the original's message. (3) The give-up is never wrapped in the new type. (4) Which error surfaces when `refreshSink` also fails on the adopt path already differs per language; filed in `OPEN-QUESTIONS.md` rather than ruled here.
+
+**Trade-off.** ts and java change the thrown type for post-hand-over failures: a caller's `instanceof Sub` / `catch (SubException)` stops matching, so the per-language CHANGELOG entries carry a Breaking block. Rejected: putting the token in `details` (it would be logged with them), and carrying only on errors that might follow a rotation (needs the unverified issuer claim).
+
+**RCA.**
+- *Symptom.* A long-lived client, or a BFF switching tenants, that lost a refresh race and then hit any transient failure on the retry (session store blip, cancelled request, 503) was signed out on its next refresh with `refresh_invalid`.
+- *Root cause.* The hop loop returns `(mr, err)` from the failing hop and discards the token it was handed: `go/token_lock.go:60-66`, `ts/src/session-lock.ts:289-294`, `java/src/main/java/dev/realmid/sdk/auth/AuthClient.java:546-553`. Only the post-loop give-up builds a carrying error, and each TokenManager adopts from that type alone (`go/token_manager.go:154-155`, `ts/src/token-manager.ts:187`, `java/.../auth/TokenManager.java:200`).
+- *Why it wasn't caught.* SPEC §4.2 was silent on an error after a hand-over, so no test asked for it: the hop tests (`go/token_lock_round2_test.go`, `go/token_lock_round3_test.go` and their ts/java twins) seed hand-overs that end in success or in the give-up, never in an error on hop 1+. The gap was seen and filed (`sdk/TODO.md:"a hop that ends in an error drops the newer rotated refresh token"`, 2026-10-16) but deliberately left unchanged in go 0.67.0.
+- *Fix.* SPEC first (this entry); then red tests per language per plan step 3 (a lock-store failure, a shape-specific 403 and a cancelled context after one hand-over each surface the hop-1 token; `refresh_invalid` surfaces none; code/status/type unchanged; redaction on every print/JSON path; TokenManager adopts and persists), then go → ts → java.
+- *Prevention.* The SPEC now names the carry rule as "every error except a token-level one" rather than listing cases, with test-name tags `SPEC4_2_handover` / `SPEC4_2_1_adopt` so a parity sweep finds the test in each language; the red tests cover each error class on hop 1.
+
+**Adjacent fix.** `CHANGELOG.md` and `ts/CHANGELOG.md` still headed the go `0.74.0` · ts `0.61.0` · java `0.58.0` entry "unreleased"; all three tags exist on origin (dated 2026-11-03) and the root ledger records them verified live, so the headings now carry just the date.
 
 ## 2026-11-03 — SDK: separate expected issuer (issuerUrl), default baseUrl; iss must start with issuerUrl/realmId
 
