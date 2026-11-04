@@ -58,9 +58,18 @@ func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 	if _, err := scopeWireValue(req.Scope); err != nil {
 		return nil, err
 	}
+	presented := req.RefreshToken
 	for hop := 0; hop < tokenMaxHops; hop++ {
 		mr, next, err := a.tokenLockedOnce(ctx, req)
-		if err != nil || next == "" {
+		if err != nil {
+			// SPEC §4.2: once the held token differs from the presented one
+			// (it is spent), every error except a token-level one carries it.
+			if req.RefreshToken != presented && !tokenLevelRealmErr(err) {
+				return nil, &RefreshHandedOverError{err: err, refreshToken: req.RefreshToken}
+			}
+			return mr, err
+		}
+		if next == "" {
 			return mr, err
 		}
 		req.RefreshToken = next
@@ -228,6 +237,13 @@ func (e *RefreshHandedOverError) MarshalJSON() ([]byte, error) {
 // that produced it and must not be handed to a different request.
 func tokenLevelErr(e *storedErr) bool {
 	return e.Code == string(ErrCodeRefreshInvalid) || e.Status == http.StatusUnauthorized
+}
+
+// tokenLevelRealmErr is tokenLevelErr for a live error: refresh_invalid or any
+// 401 means the held token is dead too, so there is nothing to carry.
+func tokenLevelRealmErr(err error) bool {
+	var re *RealmError
+	return errors.As(err, &re) && (re.Code == ErrCodeRefreshInvalid || re.HTTPStatus == http.StatusUnauthorized)
 }
 
 func tokenOutcomeUsable(oc *refreshOutcome, fp, key string) bool {
