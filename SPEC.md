@@ -1448,7 +1448,7 @@ the issuer is not called; after a hand-over each of these is wrapped as below). 
 and the post-login mint call an UNLOCKED inner and never re-take the lock (it is
 not re-entrant). An empty `RefreshToken` takes no lock.
 
-**An error after a hand-over carries the newest token (planned go `0.75.0` · ts
+**An error after a hand-over carries the newest token (since go `0.75.0` · ts
 `0.62.0` · java `0.59.0`; owner rulings Q1 + Q2, 2026-11-04).** Before this rule
 only the 3-hop give-up carried a token: an error on hop 1 or 2 dropped the token
 the previous hop had been handed, so the caller kept the token it presented —
@@ -1461,7 +1461,7 @@ i.e. a logout.
   ends with a `next` token to retry on.
 - **The rule (MUST).** When `Token` returns an error and the held token at that
   moment DIFFERS from the presented token (this reading of "after a hand-over" is
-  owner-confirmed, ruling Q6, 2026-11-04), it MUST return that error wrapped in
+  owner-confirmed 2026-11-04), it MUST return that error wrapped in
   the language's `RefreshHandedOverError` (below), carrying the held token —
   **unless the error is token-level**: code `refresh_invalid`, or any HTTP 401
   (the same predicate that decides which stored outcomes are shared across request
@@ -1619,7 +1619,7 @@ is the only thing that can mint a user access token, and it is gone — so a
 dead refresh is terminal here even though the underlying handle still
 holds a live platform session.)
 
-**Adopting a carried token (MUST; planned go `0.75.0` · ts `0.62.0` · java
+**Adopting a carried token (MUST; since go `0.75.0` · ts `0.62.0` · java
 `0.59.0`, owner ruling Q2, 2026-11-04).** When the refresh's §4.2 `token()` call
 fails with an error that carries a token — the 3-hop give-up
 (`RefreshSupersededError` / `RefreshSupersededException`) **or**
