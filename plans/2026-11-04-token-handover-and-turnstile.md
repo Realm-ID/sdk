@@ -55,6 +55,22 @@ only `REDIS_PASSWORD`). The release App (`RELEASE_APP_ID` = 5234980 = `realm-id-
 - **Q4 — sync trigger (owner, 2026-11-04):** Rotation stays a DOCUMENTED TWO-STEP:
   `ensure-turnstile` writes the secret and its run summary tells the operator to run `api`'s
   `sync-api-secrets` within the 2h overlap; no root→api dispatch is added.
+- **Q5 — refreshSink fails during adoption (owner, 2026-11-04, option A):** All three TokenManagers
+  behave like Go does today, for the 3-hop give-up AND the new hand-over type: the caller gets the
+  ORIGINAL error (its code and status unchanged, still carrying the token), with the save failure
+  attached to it (Go: in the wrapped message; java: `addSuppressed`; ts: a field on the error).
+  ts no longer replaces it with a new `server_error`, and java no longer ignores the failure.
+- **Q6 — what "followed a hand-over" means (owner, 2026-11-04):** An error carries a token only when
+  the token held at that moment DIFFERS from the one the caller sent. A retry on the same token (a
+  non-rotating grant, or a shape-specific stored error) carries nothing, and the thrown type stays
+  as it is today. Confirms the SPEC §4.2 text written in sdk `9e958cc`.
+- **Q7 — push and release (owner, 2026-11-04):** Once go/ts/java are green and committed, sdk `main`
+  is pushed. Then all three are RELEASED (go `0.75.0`, ts `0.62.0`, java `0.59.0`) through
+  `scripts/release.py` and proven with `scripts/release_verify.py`. The partner notice to Traide
+  about the ts/java Breaking change is DRAFTED for the owner to approve, never sent unattended.
+- **Q8 — parked base-realm providers / OTP config (owner, 2026-11-04):** After Part A ships, ONE
+  read-only investigation answers both with file:line evidence (does the issuer allow it, does the
+  ui hide it) and writes its findings into the root TODO item; nothing is built.
 
 ## Part A steps (Design → Doc → Red → Green)
 1. **SPEC** `sdk/SPEC.md` §4.2 + §4.2.1: the rule from Q1, the accessor from Q2, TokenManager adopts
