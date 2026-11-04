@@ -636,6 +636,20 @@ error, the wrapper's code is `server_error` with no HTTP status (ts `undefined`,
 java `0`) and the original's message. Go is unaffected: the wrapper unwraps to
 the original, so `errors.As` and `IsCode` see straight through it.
 
+## Emailed sign-in codes and lockout guards (issuer ADR-123, ADR-124)
+
+Five codes from the owner opt-in for emailed sign-in codes and the guards that stop a realm locking itself out. All five are registered in go, ts and java. HTTP status is in brackets.
+
+| Code | When | What to do |
+| --- | --- | --- |
+| `acknowledgement_required` | [400] `PATCH /platforms/{id}/config` set `email_otp_login_enabled: true` without `acknowledge_mailbox_risk: true`. Nothing in the patch was written. | Show the owner the risk (anyone who can read a member's mailbox can sign in as that member), and resend with the acknowledgement on an explicit yes (web-admin `updateConfig(…, { acknowledgeMailboxRisk: true })`). |
+| `email_otp_requires_identifying_email` | [409] The patch would leave `email_otp_login_enabled` on while `email` is not in `contacts.unique_kinds`. | Add `email` to `contacts.unique_kinds` in the same patch, or leave emailed codes off. |
+| `email_otp_rate_limited` | [429] This email address has used the realm's `email_otp.max_per_window` emailed sign-in codes within `email_otp.window_seconds` (default 5 per 15 minutes; its own counter, not `phone_otp`'s). The `Retry-After` header gives the seconds to wait. The per-IP refusal is `sign_in_ip_rate_limited`, against `email_otp.sign_in_per_ip_per_hour`. | Show "try again in a few minutes" and wait. The realm owner can raise the limit with `email_otp` in realm config, up to RealmID's ceiling (20 per 3600s). |
+| `last_browser_sign_in` | [409] The change would leave the realm with no browser sign-in method: deleting or disabling its last realm-level web identity provider (or the source carrying it), or turning off its last of `password_login_enabled`, `otp_login_enabled`, `email_otp_login_enabled`. There is no override. | Enable another sign-in method first, then repeat the change. |
+| `last_machine_credential` | [409] The API key or workload binding being revoked is the credential that minted this request's bearer AND is the realm's last active one. | Mint the replacement first, then revoke the old one with the new credential (a rotation). |
+
+Emailed codes are the partner realm owner's opt-in, per realm. They are never available on RealmID's own realm, and `delivery_mode: "email"` on `auth.sendLoginCode` for a realm that has not opted in is `403 method_not_enabled`.
+
 ## Management / generic codes
 
 These fire from any HTTP-backed call.

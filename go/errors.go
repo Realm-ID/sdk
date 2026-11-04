@@ -388,6 +388,15 @@ const (
 	ErrCodeDeviceApprovalNotAllowed      ErrorCode = "device_approval_not_allowed"
 )
 
+// Emailed sign-in codes and lockout guards (SPEC §3.1; issuer ADR-123, ADR-124).
+const (
+	ErrCodeAcknowledgementRequired         ErrorCode = "acknowledgement_required"
+	ErrCodeEmailOTPRequiresIdentifyingMail ErrorCode = "email_otp_requires_identifying_email"
+	ErrCodeEmailOTPRateLimited             ErrorCode = "email_otp_rate_limited"
+	ErrCodeLastBrowserSignIn               ErrorCode = "last_browser_sign_in"
+	ErrCodeLastMachineCredential           ErrorCode = "last_machine_credential"
+)
+
 // IsDeviceApprovalNotAllowed reports whether err is, or wraps, ErrDeviceApprovalNotAllowed (declared in
 // device_handlers.go, SPEC §15.3): the decoded `403 device_approval_not_allowed` carries it as Cause. Safe on nil.
 func IsDeviceApprovalNotAllowed(err error) bool {
@@ -667,7 +676,10 @@ var knownCodes = map[ErrorCode]struct{}{
 	ErrCodeDeviceAuthorizationNotPending: {}, ErrCodeDeviceAuthorizationCollected: {},
 	ErrCodeRevokeExistingSessionsReq: {}, ErrCodeInvalidClientID: {}, ErrCodeTenantNotMember: {},
 	ErrCodeDeviceApprovalNotAllowed: {},
-	ErrCodeActorRequired:            {}, ErrCodeUnpinnedKID: {},
+	// SPEC §3.1 (ADR-123, ADR-124).
+	ErrCodeAcknowledgementRequired: {}, ErrCodeEmailOTPRequiresIdentifyingMail: {}, ErrCodeEmailOTPRateLimited: {},
+	ErrCodeLastBrowserSignIn: {}, ErrCodeLastMachineCredential: {},
+	ErrCodeActorRequired: {}, ErrCodeUnpinnedKID: {},
 	// SPEC §14.9 (R91-R95): local split-signing codes.
 	ErrCodeShareLoadFailed: {}, ErrCodeShareSourceReadOnly: {},
 }

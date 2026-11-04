@@ -274,6 +274,12 @@ export type ErrorCode =
   | "invalid_client_id"
   | "tenant_not_member"
   | "device_approval_not_allowed"
+  // Emailed sign-in codes and lockout guards (SPEC §3.1; ADR-123, ADR-124).
+  | "acknowledgement_required"
+  | "email_otp_requires_identifying_email"
+  | "email_otp_rate_limited"
+  | "last_browser_sign_in"
+  | "last_machine_credential"
   // management / generic
   | "unauthorized"
   | "forbidden"
@@ -549,6 +555,8 @@ const KNOWN_CODES = new Set<ErrorCode>([
   "device_code_attempts_exceeded", "subject_suspended", "device_authorization_not_pending",
   "device_authorization_collected", "revoke_existing_sessions_required", "invalid_client_id",
   "tenant_not_member", "device_approval_not_allowed",
+  "acknowledgement_required", "email_otp_requires_identifying_email", "email_otp_rate_limited",
+  "last_browser_sign_in", "last_machine_credential",
 ]);
 
 export function isKnownCode(s: string | undefined): s is ErrorCode {

@@ -52,6 +52,12 @@ public enum ErrorCode {
     TENANT_NOT_MEMBER("tenant_not_member"),
     /** R86: the BFF's 403 when the partner's CanApprove refuses; see {@link DeviceApprovalNotAllowedException}. */
     DEVICE_APPROVAL_NOT_ALLOWED("device_approval_not_allowed"),
+    /** Emailed sign-in codes and lockout guards (SPEC 3.1; issuer ADR-123, ADR-124). */
+    ACKNOWLEDGEMENT_REQUIRED("acknowledgement_required"),
+    EMAIL_OTP_REQUIRES_IDENTIFYING_EMAIL("email_otp_requires_identifying_email"),
+    EMAIL_OTP_RATE_LIMITED("email_otp_rate_limited"),
+    LAST_BROWSER_SIGN_IN("last_browser_sign_in"),
+    LAST_MACHINE_CREDENTIAL("last_machine_credential"),
     TENANT_INVALID("tenant_invalid"),
     ACCOUNT_SUSPENDED("account_suspended"),
     ACCOUNT_DEACTIVATED("account_deactivated"),

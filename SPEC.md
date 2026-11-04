@@ -563,6 +563,18 @@ no ts/java number].
 caller as `bad_request` with `details.server_code` (§3.3). The issuer's unknown-or-ineligible answer is the
 existing `forbidden` (403, message "no device request you can act on matches this code").
 
+**Emailed sign-in codes and lockout guards** (issuer ADR-123 and ADR-124; five codes, registered in
+all three languages, names per language as for the device codes; no typed error). Ships with go
+`0.76.0`, ts `0.63.0`, java `0.60.0`, web-admin `0.28.0`.
+
+| Code | HTTP | Where | Meaning |
+| --- | --- | --- | --- |
+| `acknowledgement_required` | 400 | realm config PATCH | `email_otp_login_enabled: true` without `acknowledge_mailbox_risk: true`. Nothing was written. |
+| `email_otp_requires_identifying_email` | 409 | realm config PATCH | The result would have `email_otp_login_enabled` on while `email` is not in `contacts.unique_kinds`. |
+| `email_otp_rate_limited` | 429 | `auth.sendLoginCode` (`email`) | This address used the realm's `email_otp.max_per_window` within `email_otp.window_seconds`. Wait `Retry-After` seconds. |
+| `last_browser_sign_in` | 409 | config PATCH, identity-provider and source delete/disable | The change would leave the realm with no browser sign-in method. No override. |
+| `last_machine_credential` | 409 | API-key and workload-binding revoke | The credential is the one that minted this request's bearer AND the realm's last active one. Mint the replacement first. |
+
 **Management / generic codes:**
 
 `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`,
@@ -3016,6 +3028,20 @@ Promoted from a nested namespace for ergonomics:
   `sign_in_per_ip_per_hour`; java the same field. Since ADR-116 the per-phone pair is charged on
   two SEPARATE counters with the same numbers: one for sign-in codes and one for codes to signed-in
   users (`otp.issue`, MFA, contact verification), plus a per-USER counter for the latter.
+- `email_otp_login_enabled` and `email_otp` (issuer ADR-123, NOT BUILT at the time of writing; the
+  swagger shapes are final). `email_otp_login_enabled` (bool, default false, independent of
+  `otp_login_enabled`) turns on sign-in by an EMAILED code. Only the realm OWNER (the human in
+  `X-User-Token`) may turn it ON; anyone with `platform:config`, and RealmID staff, may turn it
+  OFF. Turning it on needs `acknowledge_mailbox_risk: true` in the same body (else
+  `400 acknowledgement_required`) and `email` in `contacts.unique_kinds` (else
+  `409 email_otp_requires_identifying_email`). **`acknowledge_mailbox_risk` is a REQUEST-ONLY
+  field of the PATCH body**: it is never stored and never returned, so it is NOT a key of the
+  patch type or the read view. ts web-admin carries it as `updateConfig(…, { acknowledgeMailboxRisk: true })`,
+  which adds it to the sent body. The `email_otp` group `{ max_per_window (1-20, default 5),
+  window_seconds (60-3600, default 900), sign_in_per_ip_per_hour (1-60, default 10) }` limits
+  emailed sign-in codes, separately from `phone_otp`; a PATCH MERGES into it. ts `EmailOtpConfig`
+  mirrors `PhoneOtpConfig`; go reads it through the generic `ConfigValues`/`ConfigPatch` maps.
+  Emailed codes are never available on RealmID's own realm.
 - `realm.config.get()` → `{ id, config, singleTenantPendingReconciliation? }`.
   The count is how many people still hold 2+ active memberships while the
   rule is on — a user who never logs in never resolves, so it is the only
@@ -4543,8 +4569,14 @@ Request:
 
 - `identifier` — the phone number, strict E.164 (`+919999000011`). Not rewritten by the SDK or the
   issuer; anything else is `400 invalid_identifier`.
-- `deliveryMode` — `"sms"` or `"whatsapp"`, required (the §X.1 constants). There is no default and
-  no fallback between them. Offer only what discovery's `phone_channels` lists (§4.1.4a).
+- `deliveryMode` — `"sms"`, `"whatsapp"` or (issuer ADR-123) `"email"`, required (the §X.1
+  constants). There is no default and no fallback between them. Offer only what discovery's
+  `phone_channels` lists (§4.1.4a). For `"email"`, `identifier` is one email address instead of a
+  phone number. `"email"` works only when the realm's owner turned `email_otp_login_enabled` on
+  (§6.5); otherwise `403 method_not_enabled`. It is never available on RealmID's own realm.
+  RealmID has no captcha on this route: the partner's own edge MUST run one before calling it.
+  A known address that is a verified identifying email gets a code; an unknown one gets the same
+  `202` and nothing is sent. Limits are `email_otp` (§6.5), refused as `429 email_otp_rate_limited`.
 - `tenantId` — optional hint about which org to look in; send the same one to `otpLogin`.
 - `onBehalfOfIp` — the END USER's IP as your server saw it, sent as `X-On-Behalf-Of-IP` like every
   other lane that has this field. Strongly recommended: the per-IP limit protects your users only
@@ -4564,11 +4596,12 @@ Errors (§3.1):
 | status | code | what to do |
 |---|---|---|
 | 400 | `invalid_identifier` | ask for the number again, in international form |
-| 400 | `unsupported_delivery_mode` | a caller bug: send `sms` or `whatsapp` |
+| 400 | `unsupported_delivery_mode` | a caller bug: send `sms`, `whatsapp` or `email` |
 | 400 | `invalid_on_behalf_of_ip` | a caller bug: `onBehalfOfIp` is not an IP address; pass the real one or omit it |
 | 403 | `method_not_enabled` | the realm has one-time-code sign-in off; hide the phone option |
 | 429 | `sign_in_ip_rate_limited` | this end user asked for too many codes; wait `Retry-After` seconds |
 | 429 | `phone_otp_rate_limited` | this number was sent too many codes; wait `Retry-After` seconds |
+| 429 | `email_otp_rate_limited` | `email` mode: this address was sent too many codes; wait `Retry-After` seconds |
 | 429 | `rate_limited` | the issuer's burst limiter; back off |
 | 503 | `delivery_unavailable` (`details.channel`) | that channel is not working for the realm; offer the other one if discovery lists it, never switch automatically |
 | 503 | `store_unavailable` | retry later; nothing was sent |

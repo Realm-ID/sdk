@@ -133,6 +133,9 @@ func TestEveryDeclaredCodeIsKnown(t *testing.T) {
 		ErrCodeDeviceAuthorizationNotPending, ErrCodeDeviceAuthorizationCollected,
 		ErrCodeRevokeExistingSessionsReq, ErrCodeInvalidClientID, ErrCodeTenantNotMember,
 		ErrCodeDeviceApprovalNotAllowed,
+		// ADR-123, ADR-124.
+		ErrCodeAcknowledgementRequired, ErrCodeEmailOTPRequiresIdentifyingMail, ErrCodeEmailOTPRateLimited,
+		ErrCodeLastBrowserSignIn, ErrCodeLastMachineCredential,
 	}
 	// This list is hand-written and so could itself rot — but it can only rot
 	// SHORT, and a short list is caught here: taxonomy-parity.py reads the

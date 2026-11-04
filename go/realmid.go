@@ -269,7 +269,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.75.0"
+const Version = "0.76.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {
