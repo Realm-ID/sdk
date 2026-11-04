@@ -265,4 +265,176 @@ class V0510FixesTest {
         assertEquals("R4", tm.refreshToken());
         assertEquals(0, tokenCalls.get());
     }
+
+    // ---- 8. SPEC §4.2 "An error after a hand-over carries the newest token" / §4.2.1 adopting ----
+
+    private static final String HOP1 = "HOP1-SECRET-TOKEN";
+
+    /** Delegates to a memory store; can fail the lock of one token, or run a hook when an outcome is read. */
+    private static final class HopStore implements dev.realmid.sdk.session.SessionStateStore {
+        final dev.realmid.sdk.session.MemorySessionStore inner = new dev.realmid.sdk.session.MemorySessionStore();
+        volatile String failLockOf;
+        volatile String hookOutcomeOf;
+        volatile Runnable hook;
+        public void revokeSession(String k, java.time.Instant u) { inner.revokeSession(k, u); }
+        public void raiseNotBefore(String k, java.time.Instant nb, java.time.Instant u) { inner.raiseNotBefore(k, nb, u); }
+        public List<dev.realmid.sdk.session.SessionState> sessionStates(List<String> k) { return inner.sessionStates(k); }
+        public void evict(String p) { inner.evict(p); }
+        public RefreshLock acquireRefreshLock(String k, Duration t) {
+            if (failLockOf != null && k.equals(SessionKeys.lockKey(failLockOf))) throw new IllegalStateException("store down");
+            return inner.acquireRefreshLock(k, t);
+        }
+        public void putRefreshResult(String k, byte[] r, Duration t) { inner.putRefreshResult(k, r, t); }
+        public java.util.Optional<byte[]> getRefreshResult(String k) {
+            if (hookOutcomeOf != null && k.equals(SessionKeys.outcomeKey(hookOutcomeOf)) && hook != null) hook.run();
+            return inner.getRefreshResult(k);
+        }
+    }
+
+    private HopStore handedOverStore() {
+        HopStore hs = new HopStore();
+        assertTrue(SessionLocks.storeMfaOutcome(hs.inner, new com.fasterxml.jackson.databind.ObjectMapper(), "R1", HOP1));
+        return hs;
+    }
+
+    private Realm realmWith(dev.realmid.sdk.session.SessionStateStore st) {
+        return Realm.builder().sessionStore(st).realmId("01HREALM").apiKey("rk_live_test")
+                .baseUrl(fs.baseUrl).audience("acme.test").build();
+    }
+
+    private void token403() {
+        fs.onJson("POST /auth/token", (body, rec) -> FakeServer.Reply.json(403,
+                Map.of("error", Map.of("code", "forbidden", "message", "not a member of t1"))));
+    }
+
+    @Test
+    void SPEC4_2_handover_lockStoreFailureAfterAHandOverCarriesTheHop1Token() {
+        HopStore hs = handedOverStore();
+        hs.failLockOf = HOP1;
+        RefreshHandedOverException e = assertThrows(RefreshHandedOverException.class,
+                () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
+        assertEquals(HOP1, e.refreshToken());
+        assertEquals(ErrorCode.SERVER_ERROR, e.getCode());
+        assertEquals(0, e.getHttpStatus());
+        assertNotNull(e.getCause());
+    }
+
+    @Test
+    void SPEC4_2_handover_shapeSpecific403AfterAHandOverCarriesTheHop1Token() {
+        HopStore hs = handedOverStore();
+        token403();
+        RefreshHandedOverException e = assertThrows(RefreshHandedOverException.class,
+                () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
+        assertEquals(HOP1, e.refreshToken());
+        assertEquals(403, e.getHttpStatus());
+        assertEquals(ErrorCode.FORBIDDEN, e.getCode());
+        assertEquals("not a member of t1", e.getMessage());
+        assertTrue(e.getCause() instanceof RealmException);
+        assertEquals(403, ((RealmException) e.getCause()).getHttpStatus());
+    }
+
+    @Test
+    void SPEC4_2_handover_interruptAfterAHandOverCarriesTheHop1Token() {
+        HopStore hs = handedOverStore();
+        Thread caller = Thread.currentThread();
+        hs.hookOutcomeOf = "R1";
+        hs.hook = caller::interrupt;
+        try {
+            RefreshHandedOverException e = assertThrows(RefreshHandedOverException.class,
+                    () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
+            assertEquals(HOP1, e.refreshToken());
+            assertEquals(503, e.getHttpStatus());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    void SPEC4_2_handover_aTokenLevelErrorAfterAHandOverCarriesNothing() {
+        HopStore hs = handedOverStore();
+        fs.onJson("POST /auth/token", (body, rec) -> FakeServer.Reply.json(401,
+                Map.of("error", Map.of("code", "refresh_invalid", "message", "dead"))));
+        RealmException e = assertThrows(RealmException.class,
+                () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
+        assertFalse(e instanceof RefreshHandedOverException, "token-level errors carry nothing");
+        assertEquals(401, e.getHttpStatus());
+    }
+
+    @Test
+    void SPEC4_2_handover_theTokenIsInNoMessageToStringOrSerialization() throws Exception {
+        HopStore hs = handedOverStore();
+        token403();
+        RefreshHandedOverException e = assertThrows(RefreshHandedOverException.class,
+                () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
+        assertFalse(String.valueOf(e.getMessage()).contains(HOP1));
+        assertFalse(e.toString().contains(HOP1));
+        assertFalse(e.getDetails().toString().contains(HOP1));
+        var bos = new java.io.ByteArrayOutputStream();
+        try (var oos = new java.io.ObjectOutputStream(bos)) { oos.writeObject(e); }
+        assertFalse(bos.toString(java.nio.charset.StandardCharsets.ISO_8859_1).contains(HOP1));
+    }
+
+    @Test
+    void SPEC4_2_handover_hopZeroErrorsAreUnchanged() {
+        HopStore hs = new HopStore();
+        hs.failLockOf = "R1";
+        RealmException e = assertThrows(RealmException.class,
+                () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
+        assertFalse(e instanceof RefreshHandedOverException);
+        token403();
+        RealmException f = assertThrows(RealmException.class,
+                () -> realmWith(new HopStore()).auth().token(TokenRequest.of("R1", "t1")));
+        assertFalse(f instanceof RefreshHandedOverException);
+        assertEquals(403, f.getHttpStatus());
+    }
+
+    @Test
+    void SPEC4_2_1_adopt_theTokenManagerAdoptsAndPersistsTheHandedOverToken() {
+        HopStore hs = handedOverStore();
+        hs.failLockOf = HOP1;
+        List<String> saved = new ArrayList<>();
+        TokenManager tm = realmWith(hs).auth().newTokenManager("R1",
+                new TokenManagerOptions().tenantId("t1").refreshSink(saved::add));
+        assertThrows(RefreshHandedOverException.class, tm::accessToken);
+        assertEquals(HOP1, tm.refreshToken());
+        assertEquals(List.of(HOP1), saved);
+    }
+
+    @Test
+    void SPEC4_2_1_adopt_aSinkFailureThrowsTheOriginalWithTheSaveFailureSuppressed() {
+        HopStore hs = handedOverStore();
+        hs.failLockOf = HOP1;
+        IllegalStateException boom = new IllegalStateException("disk full");
+        TokenManager tm = realmWith(hs).auth().newTokenManager("R1",
+                new TokenManagerOptions().tenantId("t1").refreshSink(t -> { throw boom; }));
+        RefreshHandedOverException e = assertThrows(RefreshHandedOverException.class, tm::accessToken);
+        assertEquals(HOP1, e.refreshToken());
+        assertEquals(ErrorCode.SERVER_ERROR, e.getCode());
+        assertEquals(List.of(boom), List.of(e.getSuppressed()));
+
+        seedHandOvers();
+        TokenManager tm2 = realm().auth().newTokenManager("R1",
+                new TokenManagerOptions().tenantId("t1").refreshSink(t -> { throw boom; }));
+        RefreshSupersededException e2 = assertThrows(RefreshSupersededException.class, tm2::accessToken);
+        assertEquals("R4", e2.refreshToken());
+        assertEquals(503, e2.getHttpStatus());
+        assertEquals(List.of(boom), List.of(e2.getSuppressed()));
+    }
+
+    @Test
+    void SPEC4_2_1_adopt_suppressedIsNonEmptyAndAnInterruptedSinkReSetsTheInterruptStatus() {
+        HopStore hs = handedOverStore();
+        hs.failLockOf = HOP1;
+        TokenManager tm = realmWith(hs).auth().newTokenManager("R1",
+                new TokenManagerOptions().tenantId("t1").refreshSink(t -> { throw new InterruptedException("sink"); }));
+        try {
+            RefreshHandedOverException e = assertThrows(RefreshHandedOverException.class, tm::accessToken);
+            // guards against a RealmException constructor change making addSuppressed a silent no-op
+            assertNotEquals(0, e.getSuppressed().length, "the save failure must be attached");
+            assertTrue(e.getSuppressed()[0] instanceof InterruptedException);
+            assertTrue(Thread.currentThread().isInterrupted(), "the interrupt status is re-set");
+        } finally {
+            Thread.interrupted();
+        }
+    }
 }
