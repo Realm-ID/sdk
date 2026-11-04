@@ -315,8 +315,9 @@ class V0510FixesTest {
                 () -> realmWith(hs).auth().token(TokenRequest.of("R1", "t1")));
         assertEquals(HOP1, e.refreshToken());
         assertEquals(ErrorCode.SERVER_ERROR, e.getCode());
-        assertEquals(0, e.getHttpStatus());
-        assertNotNull(e.getCause());
+        assertEquals(503, e.getHttpStatus(), "tryOnce reports an unavailable store as 503");
+        assertEquals("session store unavailable", e.getMessage());
+        assertTrue(e.getCause() instanceof RealmException);
     }
 
     @Test

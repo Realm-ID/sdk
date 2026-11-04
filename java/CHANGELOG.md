@@ -4,6 +4,16 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.59.0 — an error after a hand-over carries the newest token (SPEC §4.2, §4.2.1) — unreleased
+
+Once `AuthClient.token` has followed a hand-over (the token it holds differs from the one the caller sent), every error it throws carries the newest token it held, as the new public `RefreshHandedOverException`: lock/store failure, interrupt/cancel, wait timeout, shape-specific 4xx, 5xx, timeout. A token-level error (`refresh_invalid`, any 401) carries nothing. Hop-0 errors and same-token retries are unchanged; the 3-hop give-up stays `RefreshSupersededException`. The exception wraps the original as `getCause()` and copies its code, message, status, details and retry-after (a non-SDK original becomes `server_error`, status 0); the token is in `refreshToken()` only, never in `getMessage()`, `toString()` or serialization.
+
+`TokenManager` now adopts and persists the token from BOTH `RefreshSupersededException` and `RefreshHandedOverException`. A refresh-sink failure is no longer swallowed: the original exception (code and status unchanged, still carrying the token) is rethrown with the save failure attached via `addSuppressed`; an `InterruptedException` from the sink re-sets the thread's interrupt status. Pinned by `V0510FixesTest` (`SPEC4_2_handover`, `SPEC4_2_1_adopt`).
+
+### Breaking
+
+A post-hand-over error is now a `RefreshHandedOverException`, so `catch (XException)` on those failures stops matching (e.g. a typed 403 exception). Read the original through `getCause()`; `getCode()`, `getHttpStatus()`, `getDetails()` and `getRetryAfter()` are copied onto the wrapper.
+
 ## 0.58.0 — `Realm.Builder.issuerUrl` (SPEC §1, §5, §14.4) (2026-11-03)
 
 Optional `issuerUrl`: the host the issuer stamps into `iss` (default `baseUrl`; trailing slash trimmed; blank is unset). `Verifier` gains a constructor overload taking `issuerUrl` and `realmId` (old constructors kept); `CoSigner`'s expected iss is `issuerUrl/realmId`. Every fetch stays on `baseUrl`. The iss check now runs before key resolution and requires the realm segment to equal the configured realm (`wrong_issuer` otherwise). Pinned by `IssuerUrlTest`. See the root CHANGELOG.

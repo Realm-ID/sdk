@@ -197,10 +197,11 @@ public final class TokenManager {
         TokenResponse res;
         try {
             res = auth.token(TokenRequest.of(refresh, tenantId));
-        } catch (RefreshSupersededException e) {
-            // The give-up carries the newest LIVE token: adopt it (and persist it) so the next
-            // attempt does not re-present the spent one.
-            String live = e.refreshToken();
+        } catch (RefreshSupersededException | RefreshHandedOverException e) {
+            // The error carries the newest LIVE token: adopt it (and persist it) so the next
+            // attempt does not re-present the spent one. A sink failure rides along as suppressed.
+            String live = e instanceof RefreshSupersededException s ? s.refreshToken()
+                    : ((RefreshHandedOverException) e).refreshToken();
             if (live != null && !live.isEmpty()) {
                 synchronized (lock) {
                     refreshTokenValue = live;
@@ -208,7 +209,10 @@ public final class TokenManager {
                 if (sink != null) {
                     try {
                         sink.persist(live);
-                    } catch (Exception ignored) { /* the in-memory copy still serves the next attempt */ }
+                    } catch (Exception saveFailure) {
+                        if (saveFailure instanceof InterruptedException) Thread.currentThread().interrupt();
+                        e.addSuppressed(saveFailure);
+                    }
                 }
             }
             throw e;

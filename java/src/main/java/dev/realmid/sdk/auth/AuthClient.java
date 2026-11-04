@@ -545,12 +545,29 @@ public final class AuthClient {
         TokenRequest cur = req;
         for (int hop = 0; hop < TOKEN_MAX_HOPS; hop++) {
             String[] next = new String[1];
-            TokenResponse out = tokenLockedOnce(cur, next);
+            TokenResponse out;
+            try {
+                out = tokenLockedOnce(cur, next);
+            } catch (RuntimeException e) {
+                throw carryAfterHandOver(e, req.refreshToken(), cur.refreshToken());
+            }
             if (out != null) return out;
             cur = new TokenRequest(next[0], cur.tenantId(), cur.customClaims(), cur.origin(),
                     cur.rolePermissions(), cur.scope(), cur.productRoles());
         }
         throw new RefreshSupersededException(cur.refreshToken());
+    }
+
+    /**
+     * SPEC §4.2: once the held token differs from the one the caller sent, every error carries it
+     * ({@link RefreshHandedOverException}), except a token-level one (refresh_invalid, any 401).
+     */
+    private static RuntimeException carryAfterHandOver(RuntimeException e, String sent, String held) {
+        if (held == null || held.isEmpty() || held.equals(sent)) return e;
+        if (e instanceof RefreshSupersededException || e instanceof RefreshHandedOverException) return e;
+        if (e instanceof RealmException r
+                && (r.getCode() == ErrorCode.REFRESH_INVALID || r.getHttpStatus() == 401)) return e;
+        return new RefreshHandedOverException(e, held);
     }
 
     /** Everything in the request that shapes the minted token; its prefix is shared with no middleware outcome. */
