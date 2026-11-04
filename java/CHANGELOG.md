@@ -16,7 +16,7 @@ Once `AuthClient.token` has followed a hand-over (the token it holds differs fro
 
 ### Breaking
 
-A post-hand-over error is now a `RefreshHandedOverException`, so `catch (XException)` on those failures stops matching (e.g. a typed 403 exception). Read the original through `getCause()`; `getCode()`, `getHttpStatus()`, `getDetails()` and `getRetryAfter()` are copied onto the wrapper.
+A post-hand-over error is now a `RefreshHandedOverException`, and the original moves one level down, into `getCause()`; `getCode()`, `getHttpStatus()`, `getDetails()` and `getRetryAfter()` are copied onto the wrapper. (Corrected after release: a `catch` on a specific SDK subclass did not change here. Under a session store, `AuthClient.token` already rebuilt an in-lock error as a plain `RealmException` before 0.59.0. What is new is the `getCause()` level, and that a non-SDK original becomes `server_error`, status 0.)
 
 ## 0.58.0 — `Realm.Builder.issuerUrl` (SPEC §1, §5, §14.4) (2026-11-03)
 
