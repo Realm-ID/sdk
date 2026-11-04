@@ -562,6 +562,83 @@ responses (critic finding #6, unresolved at the issuer). A request without the h
 | `device_authorization_not_pending` | [409] Approve: the request is already approved, denied, collected, failed or expired. | Start a new request. |
 | `device_authorization_collected` | [409] Deny: the device already collected its session, so it is too late to deny. | Sign the session out instead (the whole-account sign-out route). |
 
+## Errors that carry a refresh token (`auth.token`, `TokenManager`; SPEC §4.2, §4.2.1)
+
+A refresh rotates the token, and a `Token` call that loses to a concurrent
+refresh of the same session is *handed over* to the winner's rotated token and
+retries on it (up to three hand-overs). From that point the token you presented
+is SPENT. Two error types therefore carry the newest live token for your next
+call; read it, and never retry with the token you passed in.
+
+| Type (Go · ts · java) | When | Code / status | What to do |
+|---|---|---|---|
+| `*RefreshSupersededError` · `RefreshSupersededError` · `RefreshSupersededException` | The give-up: three hand-overs and still no result. | `server_error`, 503 ("refresh superseded, retry") | Retry with `RefreshToken()` / `refreshToken()`. |
+| `*RefreshHandedOverError` · `RefreshHandedOverError` · `RefreshHandedOverException` (planned go `0.75.0` · ts `0.62.0` · java `0.59.0`) | ANY other error after at least one hand-over to a different token: a session-store failure, "refresh in progress", a cancelled call, a 403 for this request's tenant, a 5xx, a timeout. NOT a token-level error (`refresh_invalid` or any 401): that one is returned as itself and carries nothing, because the newer token is dead too. | The ORIGINAL error's code and status (see below). | Handle the original error as you would have; when you retry, use `RefreshToken()` / `refreshToken()`. |
+
+An error before any hand-over is unchanged: you still hold the token you sent.
+`TokenManager` adopts the carried token from both types itself (it replaces its
+in-memory token and hands it to your `refreshSink`), so a manager user needs no
+code for this. If your sink fails while saving it, you still get the same carrying
+error (same code, status and token), with the save failure attached: Go appends it
+to the error message, ts sets it on `e.persistError`, java adds it to
+`e.getSuppressed()` (planned go `0.75.0` · ts `0.62.0` · java `0.59.0`; before
+that, ts threw a new `server_error` instead and java dropped the save failure).
+A save failure means a restart would present a spent token, so treat it as you
+would any failed sink write.
+
+**The token is redacted.** It is never in the message, `String(e)` / `toString()`,
+`%v` / `%+v` / `%#v`, JSON, `util.inspect` or a stack trace. Only the accessor
+returns it. Do not copy it into a log yourself.
+
+**Reading the original error** from a `RefreshHandedOver…` error:
+
+```go
+_, err := realm.Auth.Token(ctx, req)
+var ho *realmid.RefreshHandedOverError
+if errors.As(err, &ho) {
+    store(ho.RefreshToken()) // the live token for the next call
+}
+// Unwrap() returns the original, so these still match exactly as before:
+var rerr *realmid.RealmError
+_ = errors.As(err, &rerr)                  // the original *RealmError
+_ = realmid.IsCode(err, realmid.ErrCodeServerError)
+_ = errors.Is(err, context.Canceled)        // a cancelled ctx on hop 1+
+```
+
+```ts
+try {
+  await realm.auth.token(req);
+} catch (e) {
+  if (e instanceof RefreshHandedOverError) {
+    store(e.refreshToken());     // the live token for the next call
+    const original = e.cause;    // the error the hop actually hit
+  }
+  if (e instanceof RealmError && e.code === "server_error") { /* still matches */ }
+}
+```
+
+```java
+try {
+    realm.auth().token(req);
+} catch (RefreshHandedOverException e) {
+    store(e.refreshToken());           // the live token for the next call
+    Throwable original = e.getCause(); // the exception the hop actually hit
+    ErrorCode code = e.getCode();      // copied from the original
+}
+```
+
+**Breaking in ts and java (not Go).** On a post-hand-over failure the thrown
+object is the wrapper, not the original. `code`, `message`, `httpStatus`,
+`details` and `retryAfterSeconds` (ts) / `getCode()`, `getMessage()`,
+`getHttpStatus()`, `getDetails()` and `getRetryAfter()` (java) are copied from the
+original, and the wrapper extends `RealmError` / `RealmException`, so a check on
+the base type or on the code keeps working. A check on a SUBCLASS of the base type
+(`e instanceof SomeSpecificError`, `catch (SomeSpecificException e)`) no longer
+matches; test `e.cause` / `getCause()` instead. When the original is not an SDK
+error, the wrapper's code is `server_error` with no HTTP status (ts `undefined`,
+java `0`) and the original's message. Go is unaffected: the wrapper unwraps to
+the original, so `errors.As` and `IsCode` see straight through it.
+
 ## Management / generic codes
 
 These fire from any HTTP-backed call.
