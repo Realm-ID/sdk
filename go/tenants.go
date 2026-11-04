@@ -619,6 +619,10 @@ func (c *UsersClient) BulkUpdateStatus(ctx context.Context, tenantID string, use
 	return &resp, nil
 }
 
+// EnrollMFA starts TOTP enrollment for userID. userID must be the CALLER's own
+// id: from the issuer release after v0.134.1 the route is self-only and answers
+// 403 `forbidden` for any other user. For first-login enrollment use
+// AuthClient.SelfEnrollMFA; to clear another user's MFA use ResetMFA.
 func (c *UsersClient) EnrollMFA(ctx context.Context, tenantID, userID string) (*MFAEnrollResult, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
@@ -635,6 +639,9 @@ func (c *UsersClient) EnrollMFA(ctx context.Context, tenantID, userID string) (*
 	return &out, nil
 }
 
+// ConfirmMFA completes the enrollment EnrollMFA started, with a current code.
+// Like EnrollMFA it is self-only: userID must be the caller's own id, else the
+// issuer (after v0.134.1) answers 403 `forbidden`. For another user, ResetMFA.
 func (c *UsersClient) ConfirmMFA(ctx context.Context, tenantID, userID, code string) error {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {

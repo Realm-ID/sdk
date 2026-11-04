@@ -13,12 +13,13 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go `0.75.0` — an error after a hand-over carries the newest refresh token (SPEC §4.2, §4.2.1) (unreleased)
+## go `0.75.0` — an error after a hand-over carries the newest refresh token (SPEC §4.2, §4.2.1) (2026-11-04)
 
 - Fixed (go `0.75.0`): `AuthClient.Token` dropped the newer rotated refresh token when a hop AFTER a hand-over ended in an error (store failure, "refresh in progress", cancelled context, shape-specific 4xx, 5xx, timeout). The caller kept the token it sent, which a winner had already spent, so its next refresh was `refresh_invalid` (a logout). Now every such error except a token-level one (`refresh_invalid` or any 401) is returned as a `*RefreshHandedOverError` carrying the held token. The 3-hop give-up stays a `*RefreshSupersededError`; hop-0 errors are unchanged.
 - Added (go `0.75.0`): public `*RefreshHandedOverError` with `RefreshToken()`; `Unwrap()` returns the original so `errors.As`, `IsCode` and `errors.Is(err, context.Canceled)` still match. The token is redacted from `Error()`, `%v`/`%+v`/`%#v`, `GoString` and JSON.
 - `TokenManager` adopts the carried token from both types, hands it to the refresh sink, and still fails the call.
-- ts and java: pending.
+- Docs (go `0.75.0`): `UsersClient.EnrollMFA` / `ConfirmMFA` now say they are self-only (issuer after v0.134.1 answers `403 forbidden` for another user; use `AuthClient.SelfEnrollMFA` or `ResetMFA`).
+- ts `0.62.0` and java `0.59.0` ship the same rule (`RefreshHandedOverError` / `RefreshHandedOverException`); for them the thrown type changes after a hand-over (**Breaking**), see `ts/CHANGELOG.md` and `java/CHANGELOG.md`.
 
 ## go `0.74.0` · ts `0.61.0` · java `0.58.0` — `issuerUrl`: a separate expected issuer (SPEC §1, §5, §14.4) (2026-11-03)
 
