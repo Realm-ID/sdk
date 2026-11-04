@@ -151,13 +151,22 @@ func (m *TokenManager) fetch(ctx ctxpkg.Context, refresh string) (string, error)
 		// newest live token, which the next attempt must present, not the spent
 		// one. Committed to memory, then handed to the sink exactly as after a
 		// normal rotation, so a restart does not present the spent token.
+		// The same holds for a RefreshHandedOverError (an error after a
+		// hand-over, SPEC §4.2.1): the token the caller sent is spent.
+		var carried string
 		var se *RefreshSupersededError
-		if errors.As(err, &se) && se.RefreshToken() != "" {
+		var ho *RefreshHandedOverError
+		if errors.As(err, &se) {
+			carried = se.RefreshToken()
+		} else if errors.As(err, &ho) {
+			carried = ho.RefreshToken()
+		}
+		if carried != "" {
 			m.mu.Lock()
-			m.refreshToken = se.RefreshToken()
+			m.refreshToken = carried
 			m.mu.Unlock()
 			if m.sink != nil {
-				if serr := m.sink(ctx, se.RefreshToken()); serr != nil {
+				if serr := m.sink(ctx, carried); serr != nil {
 					return "", fmt.Errorf("%w; realmid token manager: persist rotated refresh token: %v", err, serr)
 				}
 			}
