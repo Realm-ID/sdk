@@ -271,6 +271,8 @@ in the same repo.
       `ts-v0.62.0` (2026-11-04) hit BOTH on one run, publish-npm 41827097996: attempt 1 cancelled in dudect,
       attempt 2 threshold `max|t|=13.12`, attempt 3 cancelled at the cap (10m08s); npm still 0.61.0. A fix on
       main does not reach a re-run of an existing tag (the run uses the tag's workflow file).
+      Hit again 2026-11-05 on main CI (not publish) at `762f721`, run 41877824379 attempt 1: threshold
+      `ctExp max|t|=17.35 >= 10` (leaky control 3588); it blocked `release.py` (ship exit 14) before `go/v0.76.0`.
 
 - [ ] Java dudect `CtExpDudectTest.ctExpIsConstantTime` (limit `max|t| < 10`) is a release-blocking
       FLAKE on hosted runners: the same commit `d1d68b0` scored 1.28 (CI run 41316226067) and 11.19
