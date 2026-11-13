@@ -4403,7 +4403,7 @@ Realm-wide default lives at
    if unspecified).
 4. On miss: respond `412 mfa_required` with the envelope above, with ONE
    exception (ADR-096 D4 amendment, 2026-11-13):
-   > ⚠️ **UNRELEASED (go `0.76.1` pending; ts/java next release), 2026-11-13.** The published go
+   > Since go `0.76.1` / ts `0.63.1` / java `0.60.1` (2026-11-13). go
    > `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required` with an EMPTY
    > `mfa_challenge_token` in every case below; a partner on them never sees
    > `mfa_registration_required` from the middleware.

@@ -4,9 +4,9 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
-## Unreleased — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4) (2026-11-13)
+## 0.60.1 — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4) (2026-11-13)
 
-`RealmFilter` relays the issuer's `412 mfa_registration_required` from `POST /auth/mfa/challenge` with its enroll-scoped `mfa_challenge_token` and `methods`, instead of `mfa_required` with an empty token. Other mint errors keep the fallback; the warning reads "mfa challenge mint failed". No version bump yet. See the root CHANGELOG.
+`RealmFilter` relays the issuer's `412 mfa_registration_required` from `POST /auth/mfa/challenge` with its enroll-scoped `mfa_challenge_token` and `methods`, instead of `mfa_required` with an empty token. Other mint errors keep the fallback; the warning reads "mfa challenge mint failed". See the root CHANGELOG.
 
 ## 0.60.0 — emailed sign-in codes and lockout-guard codes (SPEC §3.1, §X.4a) (2026-11-04)
 

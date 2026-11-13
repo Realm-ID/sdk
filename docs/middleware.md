@@ -112,10 +112,9 @@ calls `realm.verify(token)`, and:
   `mfa_challenge_token`: nothing can answer a challenge, so do not prompt
   and do not assume a token. The middleware logs that refusal at DEBUG;
   a real mint failure is a WARN.
-  > ⚠️ **UNRELEASED (go `0.76.1` pending; ts/java next release).** The
-  > `mfa_registration_required` relay is on `main` only. The published go
-  > `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required`
-  > with an empty token for an unenrolled user, so that branch never fires there.
+  > Since go `0.76.1` / ts `0.63.1` / java `0.60.1`. go `v0.76.0` / ts `0.63.0`
+  > / java `0.60.0` still answer `mfa_required` with an empty token for an
+  > unenrolled user, so that branch never fires there.
 
 ## Configuration
 

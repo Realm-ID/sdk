@@ -13,13 +13,13 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go `0.76.1` (unreleased, untagged; published go is `0.76.0`) · ts / java unreleased (no bump) — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4; issuer ADR-096 D4 amendment) (2026-11-13)
+## go `0.76.1` · ts `0.63.1` · java `0.60.1` — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4; issuer ADR-096 D4 amendment) (2026-11-13)
 
-**UNRELEASED.** The published go `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required` with an empty token.
+go `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required` with an empty token; upgrade to the versions above.
 
 Fixed in all three middlewares. When the issuer's `POST /auth/mfa/challenge` answers `412 mfa_registration_required` (the caller has no usable second factor), the middleware now answers its client `412 mfa_registration_required` carrying the issuer's enroll-scoped `mfa_challenge_token` (and `methods`), instead of `412 mfa_required` with an empty token (a code prompt nobody could pass). That token does not enrol by itself: the client calls `POST /auth/mfa/enroll` first, then confirms on `/auth/mfa/verify`. Any other mint error keeps the best-effort fallback (`mfa_required`, empty token; a client must not assume one) and its WARN says "mint failed". A service principal's `412 mfa_required` refusal is expected, so it is logged at DEBUG, not WARN.
 - go `0.76.1`: `mintMFAChallenge` returns the code too; the device approve gate uses the same call.
-- ts, java: same behaviour in `respondMfaRequired` / `RealmFilter.respondMfaRequired`. Not released: no version bump, see their changelogs.
+- ts, java: same behaviour in `respondMfaRequired` / `RealmFilter.respondMfaRequired`. Released as ts `0.63.1` and java `0.60.1`.
 - Docs: `docs/middleware.md`, `docs/error-reference.md`.
 
 ## go `0.76.0` · ts `0.63.0` · java `0.60.0` · web-admin `0.28.0` — owner opt-in emailed sign-in codes and the lockout-guard codes (SPEC §3.1, §6.5, §X.4a; issuer ADR-123, ADR-124) (2026-11-04)
