@@ -4,7 +4,9 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
-## 0.63.1 — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4) (2026-11-13)
+## 0.64.0 — `RealmError.mfaChallenge()` and a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §3.2, §10.4 step 4) (2026-11-13)
+
+New `RealmError.mfaChallenge()` returns `{ mfaChallengeToken, methods }` from a 412's details (`""` / `[]` when absent or mistyped; never throws). `middleware` reads through it. Additive. The relay below (formerly 0.63.1) was never published and ships here.
 
 `middleware` relays the issuer's `412 mfa_registration_required` from `POST /auth/mfa/challenge` with its enroll-scoped `mfa_challenge_token` and `methods`, instead of `mfa_required` with no token. Other mint errors keep the fallback; the warning reads "mfa challenge mint failed". See the root CHANGELOG.
 

@@ -428,6 +428,27 @@ func (e *RealmError) Error() string {
 // Unwrap exposes the underlying cause for errors.Is / errors.As.
 func (e *RealmError) Unwrap() error { return e.Cause }
 
+// MFAChallenge reads the step-up challenge a 412 carries (SPEC §3.2): the
+// challenge token and the offered methods the issuer put in the error
+// details, as returned by MintMFAChallenge for `mfa_registration_required`
+// (an ENROLL-scoped token) or `mfa_required`. Non-string methods are skipped.
+// A nil receiver, absent or mistyped details yield ("", nil), never a panic.
+func (e *RealmError) MFAChallenge() (string, []string) {
+	if e == nil {
+		return "", nil
+	}
+	tok, _ := e.Details["mfa_challenge_token"].(string)
+	var methods []string
+	if raw, ok := e.Details["methods"].([]any); ok {
+		for _, m := range raw {
+			if s, ok := m.(string); ok {
+				methods = append(methods, s)
+			}
+		}
+	}
+	return tok, methods
+}
+
 // IsCode reports whether err is a *RealmError with the given Code.
 func IsCode(err error, code ErrorCode) bool {
 	var re *RealmError

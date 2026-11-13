@@ -343,15 +343,7 @@ func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (Er
 	if err != nil {
 		var re *RealmError
 		if errors.As(err, &re) && re.Code == ErrCodeMFARegistrationRequired {
-			tok, _ := re.Details["mfa_challenge_token"].(string)
-			var ms []string
-			if raw, ok := re.Details["methods"].([]any); ok {
-				for _, m := range raw {
-					if s, ok := m.(string); ok {
-						ms = append(ms, s)
-					}
-				}
-			}
+			tok, ms := re.MFAChallenge()
 			if len(ms) == 0 {
 				ms = []string{"totp"}
 			}

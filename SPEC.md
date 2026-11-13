@@ -606,6 +606,19 @@ into one flat `details` map. **A nested key wins a name collision** — on the
 shape carrying both, the inner one belongs to the refusal itself. The envelope's
 own three keys (`code`, `message`, `error`) are never copied into `details`.
 
+**A typed accessor reads the step-up challenge (go `0.77.0` · ts `0.64.0` · java `0.61.0`).**
+`AuthClient.MintMFAChallenge` / `mintMfaChallenge` returns the challenge on success but, on
+`412 mfa_registration_required`, throws an error whose enroll-scoped `mfa_challenge_token` and
+`methods` exist only in `details`. Each SDK's error type carries one accessor that returns both,
+so a caller (the BFF, a partner) never reads `details` keys by hand: go
+`func (e *RealmError) MFAChallenge() (token string, methods []string)`; ts
+`RealmError.mfaChallenge(): { mfaChallengeToken: string; methods: string[] }`; java
+`RealmException.getMfaChallenge()` returning `AuthClient.MfaChallengeMint(challengeToken, methods)`.
+It works for any error (`mfa_registration_required` and `mfa_required` alike). A missing or
+mistyped value yields `""` and an empty list, never a panic or a null; non-string `methods`
+entries are skipped. A `412 mfa_required` for a service principal carries no token, so the token
+is `""`. The middlewares (§10.4 step 4) use this same accessor: one read path.
+
 ### 3.3 `details.server_code` — a code the taxonomy does not name
 
 The `code` on `RealmError` is narrowed to the §3.1 taxonomy. A code the server
@@ -4403,7 +4416,7 @@ Realm-wide default lives at
    if unspecified).
 4. On miss: respond `412 mfa_required` with the envelope above, with ONE
    exception (ADR-096 D4 amendment, 2026-11-13):
-   > Since go `0.76.1` / ts `0.63.1` / java `0.60.1` (2026-11-13). go
+   > Since go `0.77.0` / ts `0.64.0` / java `0.61.0` (2026-11-13). go
    > `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required` with an EMPTY
    > `mfa_challenge_token` in every case below; a partner on them never sees
    > `mfa_registration_required` from the middleware.

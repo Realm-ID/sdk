@@ -83,6 +83,21 @@ public class RealmException extends RuntimeException {
     public Map<String, Object> getDetails() { return details; }
 
     /**
+     * The step-up challenge a 412 carries (SPEC 3.2): the challenge token and offered methods the
+     * issuer put in the error details (an ENROLL-scoped token for {@code mfa_registration_required}).
+     * Never null: an absent or mistyped value gives {@code ""} / an empty list; non-string methods
+     * are skipped.
+     */
+    public dev.realmid.sdk.auth.AuthClient.MfaChallengeMint getMfaChallenge() {
+        Object tok = details.get("mfa_challenge_token");
+        java.util.List<String> methods = new java.util.ArrayList<>();
+        if (details.get("methods") instanceof java.util.List<?> ms) {
+            for (Object m : ms) if (m instanceof String s) methods.add(s);
+        }
+        return new dev.realmid.sdk.auth.AuthClient.MfaChallengeMint(tok instanceof String s ? s : "", java.util.List.copyOf(methods));
+    }
+
+    /**
      * R86: true when {@code t}, or anything in its cause chain, is the typed actor-required error
      * ({@link ActorRequiredException}), from the server's 403 or the SDK's local refusal.
      */

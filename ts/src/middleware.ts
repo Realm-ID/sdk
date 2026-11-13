@@ -670,12 +670,8 @@ async function respondMfaRequired(
       // challenge. That refusal is the answer: relay it with its ENROLL token, never an empty-token
       // `mfa_required` (a code prompt nobody can pass).
       code = "mfa_registration_required";
-      const tok = e.details?.["mfa_challenge_token"];
-      const ms = e.details?.["methods"];
-      challenge = {
-        mfaChallengeToken: typeof tok === "string" ? tok : "",
-        methods: Array.isArray(ms) && ms.length > 0 ? (ms as string[]) : ["totp"],
-      };
+      const c = e.mfaChallenge();
+      challenge = { mfaChallengeToken: c.mfaChallengeToken, methods: c.methods.length > 0 ? c.methods : ["totp"] };
     } else if (e instanceof RealmError && e.code === "mfa_required" && e.httpStatus === 412) {
       // A service principal: the issuer's deterministic "no challenge can be answered". Expected on every
       // request, so not a failure.

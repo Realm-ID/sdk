@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-157 entries total — 102 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+158 entries total — 103 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-13 — go 0.77.0 / ts 0.64.0 / java 0.61.0: public accessor for the 412 challenge token (supersedes the 0.76.1 note)](#2026-11-13--go-0770--ts-0640--java-0610-public-accessor-for-the-412-challenge-token-supersedes-the-0761-note)
 - [2026-11-13 — Middleware: a stale-MFA 412 for an unenrolled user relays mfa_registration_required (go 0.76.1, ts/java unreleased; RCA)](#2026-11-13--middleware-a-stale-mfa-412-for-an-unenrolled-user-relays-mfa_registration_required-go-0761-tsjava-unreleased-rca)
 - [2026-11-04 — ts-v0.62.0: raise the TS job cap, then delete and re-cut the tag on the fix commit (owner)](#2026-11-04--ts-v0620-raise-the-ts-job-cap-then-delete-and-re-cut-the-tag-on-the-fix-commit-owner)
 - [2026-11-04 — Token: an error after a hand-over carries the newest refresh token (RefreshHandedOverError; RCA)](#2026-11-04--token-an-error-after-a-hand-over-carries-the-newest-refresh-token-refreshhandedovererror-rca)
@@ -169,6 +170,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-13 — go 0.77.0 / ts 0.64.0 / java 0.61.0: public accessor for the 412 challenge token (supersedes the 0.76.1 note)
+
+**Decision.** Release go 0.77.0 / ts 0.64.0 / java 0.61.0 together, superseding the entry above ("go 0.76.1, ts/java unreleased"): go `0.76.1` was never tagged, so the relay fix ships inside 0.77.0. The release adds a public accessor for the 412's challenge on each error type: go `(*RealmError).MFAChallenge() (string, []string)`, ts `RealmError.mfaChallenge()`, java `RealmException.getMfaChallenge()` (an `AuthClient.MfaChallengeMint`). The three middlewares now read through it (SPEC §3.2).
+
+**Why an accessor and not a signature change.** The BFF's passthrough (`api/internal/middleware/passthrough.go:347`) called the public mint, got the 412 as an error and dropped the enroll token, because the token lives only in `Details` (an untyped map) and nothing said so. Changing `MintMFAChallenge`'s return shape would break every caller; an additive method on the error fixes the discoverability with no break, and the middleware and any partner share one reader. Absent or mistyped values give empty, never panic/null; non-string methods are skipped. The `["totp"]` default stays in the middlewares, not the accessor, because the accessor reports what the wire carried.
+
+**Rule.** Per the root rule "clients reach the issuer only through an SDK", a client needing the challenge from the error uses the accessor, not `Details` by hand.
 
 ## 2026-11-13 — Middleware: a stale-MFA 412 for an unenrolled user relays mfa_registration_required (go 0.76.1, ts/java unreleased; RCA)
 

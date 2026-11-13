@@ -321,6 +321,20 @@ export class RealmError extends Error {
     this.cause = opts.cause;
     this.retryAfterSeconds = opts.retryAfterSeconds;
   }
+
+  /**
+   * The step-up challenge a 412 carries (SPEC §3.2): the challenge token and offered methods the
+   * issuer put in the error details (an ENROLL-scoped token for `mfa_registration_required`).
+   * Empty (`""` / `[]`) when absent or mistyped; non-string methods are skipped. Never throws.
+   */
+  mfaChallenge(): { mfaChallengeToken: string; methods: string[] } {
+    const tok = this.details?.["mfa_challenge_token"];
+    const ms = this.details?.["methods"];
+    return {
+      mfaChallengeToken: typeof tok === "string" ? tok : "",
+      methods: Array.isArray(ms) ? ms.filter((m): m is string => typeof m === "string") : [],
+    };
+  }
 }
 
 /**

@@ -233,14 +233,9 @@ public class RealmFilter implements Filter {
                 // verify challenge. That refusal is the answer: relay it with its ENROLL token, never an
                 // empty-token mfa_required (a code prompt nobody can pass).
                 code = ErrorCode.MFA_REGISTRATION_REQUIRED;
-                Map<String, Object> d = re.getDetails();
-                Object tok = d == null ? null : d.get("mfa_challenge_token");
-                challengeToken = tok instanceof String s ? s : "";
-                if (d != null && d.get("methods") instanceof List<?> ms && !ms.isEmpty()) {
-                    List<String> out = new java.util.ArrayList<>();
-                    for (Object m : ms) out.add(String.valueOf(m));
-                    methods = out;
-                }
+                AuthClient.MfaChallengeMint c = re.getMfaChallenge();
+                challengeToken = c.challengeToken();
+                if (!c.methods().isEmpty()) methods = c.methods();
             } else if (ex instanceof RealmException re && re.getCode() == ErrorCode.MFA_REQUIRED
                     && re.getHttpStatus() == 412) {
                 // A service principal: the issuer's deterministic "no challenge can be answered". Expected
