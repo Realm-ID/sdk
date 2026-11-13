@@ -676,6 +676,10 @@ async function respondMfaRequired(
         mfaChallengeToken: typeof tok === "string" ? tok : "",
         methods: Array.isArray(ms) && ms.length > 0 ? (ms as string[]) : ["totp"],
       };
+    } else if (e instanceof RealmError && e.code === "mfa_required" && e.httpStatus === 412) {
+      // A service principal: the issuer's deterministic "no challenge can be answered". Expected on every
+      // request, so not a failure.
+      logger.debug("realmid: mfa challenge mint refused (412 mfa_required); answering mfa_required without a token");
     } else {
       logger.warn("realmid: mfa challenge mint failed; answering mfa_required without a token", {
         message: (e as Error).message,

@@ -241,6 +241,16 @@ public class RealmFilter implements Filter {
                     for (Object m : ms) out.add(String.valueOf(m));
                     methods = out;
                 }
+            } else if (ex instanceof RealmException re && re.getCode() == ErrorCode.MFA_REQUIRED
+                    && re.getHttpStatus() == 412) {
+                // A service principal: the issuer's deterministic "no challenge can be answered". Expected
+                // on every request, so not a failure.
+                var logger = cfg.realm.logger();
+                if (logger != null && logger.isLoggable(Level.DEBUG)) {
+                    logger.log(Level.DEBUG,
+                            "realmid: mfa challenge mint refused (412 mfa_required); answering mfa_required without a token path={0}",
+                            req.getRequestURI());
+                }
             } else {
                 var logger = cfg.realm.logger();
                 if (logger != null && logger.isLoggable(Level.WARNING)) {

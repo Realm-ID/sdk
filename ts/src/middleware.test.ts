@@ -488,7 +488,7 @@ test("middleware: a stale-MFA 412 relays mfa_registration_required + the enroll 
 
   const logger = { debug() {}, info() {}, error() {}, warn: (m: string) => { warns.push(m); } };
   const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud, logger });
-  const mw = realm.middleware({ mfaProtectedPaths: ["/admin/*"] });
+  const mw = realm.middleware({ mfaProtectedPaths: ["/admin/*"], logger }); // the MIDDLEWARE's logger, not the realm's
   const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
   const res = new MockRes();
   await new Promise<void>((resolve) => {
@@ -503,3 +503,50 @@ test("middleware: a stale-MFA 412 relays mfa_registration_required + the enroll 
   assert.ok(parsed.reason);
   assert.ok(!warns.some((w) => w.includes("unavailable")), `a 412 refusal was logged as unavailable: ${warns.join("|")}`);
 });
+
+// A service principal's 412 mfa_required is expected on every request: DEBUG, never WARN. A real mint
+// failure (the issuer erroring) stays WARN.
+for (const tc of [
+  { name: "service principal 412 mfa_required", status: 412, code: "mfa_required", warn: false },
+  { name: "mint failure 500", status: 500, code: "server_error", warn: true },
+]) {
+  test(`middleware: ${tc.name} on the challenge mint logs at ${tc.warn ? "WARN" : "DEBUG, not WARN"}`, async () => {
+    const realmId = "r1";
+    const baseUrl = "https://auth.test";
+    const aud = "example.com";
+    const { token, publicJwk } = await mintSignedToken({ realmId, baseUrl, aud });
+    const warns: string[] = [];
+    const debugs: string[] = [];
+    const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (isPlatformMint(url, init)) {
+        return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300 }), { status: 200 });
+      }
+      if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
+        return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
+      }
+      if (url.endsWith("/auth/mfa/challenge")) {
+        return new Response(JSON.stringify({ error: { code: tc.code, message: "x" } }), { status: tc.status, headers: { "content-type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+    const logger = { debug: (m: string) => { debugs.push(m); }, info() {}, error() {}, warn: (m: string) => { warns.push(m); } };
+    const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud, logger });
+    const mw = realm.middleware({ mfaProtectedPaths: ["/admin/*"], logger });
+    const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
+    const res = new MockRes();
+    await new Promise<void>((resolve) => {
+      mw(req as never, res as unknown as never, () => resolve());
+      setTimeout(resolve, 200);
+    });
+    assert.equal(res.statusCode, 412);
+    assert.equal(JSON.parse(res.body).error.code, "mfa_required");
+    const mine = (l: string[]) => l.filter((m) => m.includes("mfa challenge mint"));
+    if (tc.warn) {
+      assert.equal(mine(warns).length, 1, `expected one WARN: ${warns.join("|")}`);
+    } else {
+      assert.equal(mine(warns).length, 0, `a service principal's refusal was logged at WARN: ${warns.join("|")}`);
+      assert.equal(mine(debugs).length, 1, `expected one DEBUG: ${debugs.join("|")}`);
+    }
+  });
+}

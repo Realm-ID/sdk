@@ -4402,17 +4402,29 @@ Realm-wide default lives at
 3. Else: require `now - mfa_at ≤ maxAgeSeconds` (or the realm default
    if unspecified).
 4. On miss: respond `412 mfa_required` with the envelope above, with ONE
-   exception (ADR-096 D4 amendment, 2026-11-13): the middleware mints the
+   exception (ADR-096 D4 amendment, 2026-11-13):
+   > ⚠️ **UNRELEASED (go `0.76.1` pending; ts/java next release), 2026-11-13.** The published go
+   > `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required` with an EMPTY
+   > `mfa_challenge_token` in every case below; a partner on them never sees
+   > `mfa_registration_required` from the middleware.
+
+   the middleware mints the
    challenge with `POST /auth/mfa/challenge`, and when the issuer answers
-   `412 mfa_registration_required` (the caller has no confirmed factor) the
+   `412 mfa_registration_required` (the caller has no usable second factor) the
    middleware answers its client `412 mfa_registration_required` carrying the
    issuer's ENROLL-scoped `mfa_challenge_token` (and `methods` if present),
    same envelope otherwise. It never answers `mfa_required` with an empty
-   token for that case: that is a code prompt nobody can pass. The token and
-   `methods` are read from the issuer error's details (§3.2, both levels). Any
-   OTHER mint error stays best-effort (`mfa_required`, empty token,
-   `methods: ["totp"]`) and is logged as a mint FAILURE, never as "mint
-   unavailable" for a 412 refusal. The `reason` field distinguishes:
+   token for that case: that is a code prompt nobody can pass. That token does
+   NOT enrol by itself: the client first calls `POST /auth/mfa/enroll` (refresh-token
+   authed; a BFF-mode browser needs its backend to make that call) to write a secret,
+   then confirms a code on `/auth/mfa/verify`. A user whose second factor is OTP gets a
+   normal verify challenge (`methods` includes `otp`). The token and
+   `methods` are read from the issuer error's details (§3.2, both levels). A
+   service principal gets `412 mfa_required` from the issuer with NO token: the
+   middleware relays `mfa_required` with an empty token (a client must not
+   assume one) and logs that refusal at DEBUG, as it is expected on every request.
+   Any OTHER mint error stays best-effort (`mfa_required`, empty token,
+   `methods: ["totp"]`) and is logged at WARN as a mint FAILURE. The `reason` field distinguishes:
    - `no_mfa` — `mfa_at` missing or `0`.
    - `stale_mfa` — `mfa_at` present but older than `maxAgeSeconds`.
    - `fresh_required` — route demanded a fresh challenge regardless.

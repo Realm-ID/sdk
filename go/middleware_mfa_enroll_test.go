@@ -63,3 +63,60 @@ func TestMiddleware_MFAStale_RelaysRegistrationRequiredFromTheIssuer(t *testing.
 		t.Errorf("a 412 refusal was logged as 'unavailable': %s", logs.String())
 	}
 }
+
+// A service principal's 412 mfa_required is the issuer's deterministic "no challenge can be answered":
+// expected on every request, so DEBUG, never WARN. A real mint failure (the issuer erroring) stays WARN.
+func TestMiddleware_MFAStale_ServicePrincipalRefusalLogsAtDebugNotWarn(t *testing.T) {
+	reply := func(status int, code string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": code, "message": "x"}})
+		}
+	}
+	for _, tc := range []struct {
+		name      string
+		h         http.HandlerFunc
+		wantLevel string
+		notLevel  string
+	}{
+		{"service principal 412", reply(http.StatusPreconditionFailed, "mfa_required"), "level=DEBUG", "level=WARN"},
+		{"mint failure 500", reply(http.StatusInternalServerError, "server_error"), "level=WARN", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sign, pub := mintTestKey(t, "kid-1")
+			srv := mwTestServer(t, []jwk{pub}, testAud, map[string]http.HandlerFunc{"/auth/mfa/challenge": tc.h})
+			defer srv.Close()
+			var logs bytes.Buffer
+			r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL, Logger: newCapturingLogger(&logs)})
+			mw := r.Middleware(MiddlewareOptions{MFAProtectedPaths: []MFARule{{Path: "/admin/*", MaxAge: 15 * time.Minute}}})
+			now := time.Now().Unix()
+			tok := sign(map[string]any{"iss": srv.URL + "/" + testRealmID, "sub": "u1", "aud": testAud, "iat": now, "exp": now + 600, "mfa_at": now - 1800})
+			h := mw(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+			req := httptest.NewRequest("GET", "/admin/users", nil)
+			req.Header.Set("Authorization", "Bearer "+tok)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			var out map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &out)
+			if rec.Code != 412 || errCode(out) != "mfa_required" {
+				t.Fatalf("status %d body %s, want 412 mfa_required", rec.Code, rec.Body.String())
+			}
+			if out["mfa_challenge_token"] != "" && out["mfa_challenge_token"] != nil {
+				t.Errorf("mfa_challenge_token %v, want empty", out["mfa_challenge_token"])
+			}
+			var mint []string // the mint line only: the gate's own "mfa required" WARN is a different record
+			for _, l := range strings.Split(logs.String(), "\n") {
+				if strings.Contains(l, "mfa challenge mint") {
+					mint = append(mint, l)
+				}
+			}
+			if len(mint) != 1 || !strings.Contains(mint[0], tc.wantLevel) {
+				t.Errorf("want one mint line at %s, got: %v", tc.wantLevel, mint)
+			}
+			if tc.notLevel != "" && len(mint) == 1 && strings.Contains(mint[0], tc.notLevel) {
+				t.Errorf("a service principal's refusal was logged at WARN: %s", mint[0])
+			}
+		})
+	}
+}

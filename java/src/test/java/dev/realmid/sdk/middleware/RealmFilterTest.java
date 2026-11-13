@@ -371,6 +371,53 @@ class RealmFilterTest {
         assertTrue(warns.stream().noneMatch(w -> w.contains("unavailable")), "a 412 refusal was logged as unavailable: " + warns);
     }
 
+    /**
+     * A service principal's 412 mfa_required is expected on every request: DEBUG (Level.DEBUG), never WARNING.
+     * A real mint failure (the issuer erroring) stays WARNING.
+     */
+    @Test
+    void mfaProtectedPaths_servicePrincipalRefusalLogsAtDebugNotWarning() throws Exception {
+        for (boolean refusal : new boolean[] {true, false}) {
+            configureMfaApi();
+            api.on("POST /auth/mfa/challenge", (ex, body) -> FakeServer.Reply.json(refusal ? 412 : 500,
+                    Map.of("error", Map.of("code", refusal ? "mfa_required" : "server_error", "message", "x"))));
+            java.util.List<String> warns = new java.util.ArrayList<>();
+            java.util.List<String> debugs = new java.util.ArrayList<>();
+            System.Logger lg = new System.Logger() {
+                @Override public String getName() { return "capture"; }
+                @Override public boolean isLoggable(Level level) { return true; }
+                @Override public void log(Level level, java.util.ResourceBundle bundle, String msg, Throwable thrown) {
+                    (level == Level.WARNING ? warns : level == Level.DEBUG ? debugs : new java.util.ArrayList<String>()).add(msg);
+                }
+                @Override public void log(Level level, java.util.ResourceBundle bundle, String format, Object... params) {
+                    String m = params == null ? format : java.text.MessageFormat.format(format, params);
+                    (level == Level.WARNING ? warns : level == Level.DEBUG ? debugs : new java.util.ArrayList<String>()).add(m);
+                }
+            };
+            Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).logger(lg).build();
+            RealmFilter f = r2.middleware()
+                    .mfaProtectedPaths(List.of(MFARule.of("/admin/*", Duration.ofMinutes(15))))
+                    .buildFilter();
+            Map<String, Object> claims = baseClaims();
+            claims.put("mfa_at", Instant.now().getEpochSecond() - 1800);
+            FakeReq req = new FakeReq("GET", "/admin/things");
+            req.headers.put("Authorization", List.of("Bearer " + signToken(claims, kid)));
+            FakeRes res = new FakeRes();
+            f.doFilter(req, res, (rq, rs) -> { throw new AssertionError(); });
+            assertEquals(412, res.status);
+            Map<?, ?> resp = M.readValue(res.bytes(), Map.class);
+            assertEquals("mfa_required", ((Map<?, ?>) resp.get("error")).get("code"));
+            boolean warned = warns.stream().anyMatch(w -> w.contains("mfa challenge mint"));
+            boolean debugged = debugs.stream().anyMatch(w -> w.contains("mfa challenge mint"));
+            if (refusal) {
+                assertTrue(!warned, "a service principal's refusal was logged at WARNING: " + warns);
+                assertTrue(debugged, "expected a DEBUG line: " + debugs);
+            } else {
+                assertTrue(warned, "a real mint failure must stay WARNING: " + warns);
+            }
+        }
+    }
+
     /** Wire the API fakes used by every MFA-gate test. */
     private void configureMfaApi() {
         api.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,

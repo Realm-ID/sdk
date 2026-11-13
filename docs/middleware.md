@@ -95,12 +95,27 @@ calls `realm.verify(token)`, and:
   `mfa_at` fall back to the legacy marker (`amr` containing `"mfa"`, or
   `acr === "urn:realmid:mfa"`), which satisfies age-based windows but
   never `requireFresh`.
-  **A user with no enrolled factor** is answered
+  **A user with no usable second factor** is answered
   **`412 mfa_registration_required`** instead, with the issuer's
   enroll-scoped `mfa_challenge_token` (and `methods`) in the same
-  sibling position: render an enrolment screen, not a code prompt, and
-  complete it with that token (`POST /auth/mfa/verify`). Branch on
+  sibling position: render an enrolment screen, not a code prompt. The
+  token does NOT enrol by itself and the 412 carries no secret or QR:
+  (1) `POST /auth/mfa/enroll` with the user's refresh token writes the
+  secret and returns it with the QR; (2) `POST /auth/mfa/verify` with the
+  user's code and an enroll-scoped token (this one, or the one step 1
+  returns) confirms it. A browser client without a refresh token (BFF
+  mode) needs its backend to make step 1. A user whose second factor is
+  OTP gets a normal verify challenge (`methods` includes `otp`). Branch on
   `error.code`.
+  **A service principal** (and the middleware's best-effort fallback when
+  the issuer's mint fails) is answered `412 mfa_required` with NO
+  `mfa_challenge_token`: nothing can answer a challenge, so do not prompt
+  and do not assume a token. The middleware logs that refusal at DEBUG;
+  a real mint failure is a WARN.
+  > ⚠️ **UNRELEASED (go `0.76.1` pending; ts/java next release).** The
+  > `mfa_registration_required` relay is on `main` only. The published go
+  > `v0.76.0` / ts `0.63.0` / java `0.60.0` still answer `mfa_required`
+  > with an empty token for an unenrolled user, so that branch never fires there.
 
 ## Configuration
 

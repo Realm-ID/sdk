@@ -357,6 +357,12 @@ func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (Er
 			}
 			return ErrCodeMFARegistrationRequired, tok, ms
 		}
+		if errors.As(err, &re) && re.Code == ErrCodeMFARequired && re.HTTPStatus == http.StatusPreconditionFailed {
+			// A service principal: the issuer's deterministic "no challenge can be answered". Expected on
+			// every request, so not a failure.
+			r.logger.Debug("realmid mfa challenge mint refused (412 mfa_required); answering mfa_required without a token", slog.String("error", err.Error()))
+			return ErrCodeMFARequired, "", []string{"totp"}
+		}
 		r.logger.Warn("realmid mfa challenge mint failed; answering mfa_required without a token", slog.String("error", err.Error()))
 		return ErrCodeMFARequired, "", []string{"totp"}
 	}
