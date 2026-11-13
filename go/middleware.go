@@ -328,19 +328,42 @@ func evaluateMFAFreshness(c *Claims, rule *compiledMFARule, defaultMaxAge time.D
 }
 
 // mintMFAChallenge calls /auth/mfa/challenge to mint a challenge token
-// for the verified access token. Best-effort: if the server doesn't
-// support the endpoint yet, returns ("", ["totp"]) so the 412 envelope
-// still tells the client which methods are available.
-func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (string, []string) {
+// for the verified access token and answers the code the 412 envelope
+// carries. Best-effort: if the server doesn't support the endpoint yet,
+// returns (mfa_required, "", ["totp"]) so the envelope still tells the
+// client which methods are available.
+//
+// A `412 mfa_registration_required` from the endpoint (ADR-096 D4 amendment,
+// 2026-11-13: the caller has no confirmed factor) is NOT a failure to mint: it
+// is the answer. It is relayed as that code with the ENROLL-scoped token the
+// issuer put in the error details, never downgraded to a verify challenge with
+// an empty token, which is a code prompt nobody can pass.
+func (r *Realm) mintMFAChallenge(reqCtx context.Context, accessToken string) (ErrorCode, string, []string) {
 	ct, methods, err := r.Auth.MintMFAChallenge(WithUserToken(reqCtx, accessToken), MFAChallengeRequest{})
 	if err != nil {
-		r.logger.Warn("realmid mfa challenge mint unavailable", slog.String("error", err.Error()))
-		return "", []string{"totp"}
+		var re *RealmError
+		if errors.As(err, &re) && re.Code == ErrCodeMFARegistrationRequired {
+			tok, _ := re.Details["mfa_challenge_token"].(string)
+			var ms []string
+			if raw, ok := re.Details["methods"].([]any); ok {
+				for _, m := range raw {
+					if s, ok := m.(string); ok {
+						ms = append(ms, s)
+					}
+				}
+			}
+			if len(ms) == 0 {
+				ms = []string{"totp"}
+			}
+			return ErrCodeMFARegistrationRequired, tok, ms
+		}
+		r.logger.Warn("realmid mfa challenge mint failed; answering mfa_required without a token", slog.String("error", err.Error()))
+		return ErrCodeMFARequired, "", []string{"totp"}
 	}
 	if len(methods) == 0 {
 		methods = []string{"totp"}
 	}
-	return ct, methods
+	return ErrCodeMFARequired, ct, methods
 }
 
 // Middleware returns an http.Handler middleware implementing SPEC §10.
@@ -487,11 +510,15 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 						slog.String("sub", claims.Subject),
 						slog.String("reason", string(verdict.Reason)),
 					)
-					ct, methods := r.mintMFAChallenge(req.Context(), token)
+					code, ct, methods := r.mintMFAChallenge(req.Context(), token)
+					msg := "MFA required for this resource"
+					if code == ErrCodeMFARegistrationRequired {
+						msg = "mfa registration required"
+					}
 					writeJSON(w, http.StatusPreconditionFailed, map[string]any{
 						"error": map[string]any{
-							"code":    string(ErrCodeMFARequired),
-							"message": "MFA required for this resource",
+							"code":    string(code),
+							"message": msg,
 						},
 						"mfa_challenge_token": ct,
 						"methods":             methods,

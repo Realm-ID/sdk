@@ -4401,8 +4401,18 @@ Realm-wide default lives at
    so the client has time to retry the original op after `mfaVerify`).
 3. Else: require `now - mfa_at ≤ maxAgeSeconds` (or the realm default
    if unspecified).
-4. On miss: respond `412 mfa_required` with the envelope above. The
-   `reason` field distinguishes:
+4. On miss: respond `412 mfa_required` with the envelope above, with ONE
+   exception (ADR-096 D4 amendment, 2026-11-13): the middleware mints the
+   challenge with `POST /auth/mfa/challenge`, and when the issuer answers
+   `412 mfa_registration_required` (the caller has no confirmed factor) the
+   middleware answers its client `412 mfa_registration_required` carrying the
+   issuer's ENROLL-scoped `mfa_challenge_token` (and `methods` if present),
+   same envelope otherwise. It never answers `mfa_required` with an empty
+   token for that case: that is a code prompt nobody can pass. The token and
+   `methods` are read from the issuer error's details (§3.2, both levels). Any
+   OTHER mint error stays best-effort (`mfa_required`, empty token,
+   `methods: ["totp"]`) and is logged as a mint FAILURE, never as "mint
+   unavailable" for a 412 refusal. The `reason` field distinguishes:
    - `no_mfa` — `mfa_at` missing or `0`.
    - `stale_mfa` — `mfa_at` present but older than `maxAgeSeconds`.
    - `fresh_required` — route demanded a fresh challenge regardless.

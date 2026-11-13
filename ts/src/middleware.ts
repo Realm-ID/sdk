@@ -660,16 +660,33 @@ async function respondMfaRequired(
   logger: Logger,
 ): Promise<void> {
   let challenge: { mfaChallengeToken: string; methods: string[] } | undefined;
+  let code: "mfa_required" | "mfa_registration_required" = "mfa_required";
   try {
     // Escort form (R60): the platform token is the bearer, the user's token rides in X-User-Token.
     challenge = await realm.withUserToken(accessToken).auth.mintMfaChallenge();
   } catch (e) {
-    logger.warn("realmid: mfa challenge mint unavailable", {
-      message: (e as Error).message,
-    });
+    if (e instanceof RealmError && e.code === "mfa_registration_required") {
+      // ADR-096 D4 amendment: the caller has no confirmed factor, so the issuer refused to mint a verify
+      // challenge. That refusal is the answer: relay it with its ENROLL token, never an empty-token
+      // `mfa_required` (a code prompt nobody can pass).
+      code = "mfa_registration_required";
+      const tok = e.details?.["mfa_challenge_token"];
+      const ms = e.details?.["methods"];
+      challenge = {
+        mfaChallengeToken: typeof tok === "string" ? tok : "",
+        methods: Array.isArray(ms) && ms.length > 0 ? (ms as string[]) : ["totp"],
+      };
+    } else {
+      logger.warn("realmid: mfa challenge mint failed; answering mfa_required without a token", {
+        message: (e as Error).message,
+      });
+    }
   }
   sendJson(res, 412, {
-    error: { code: "mfa_required", message: "MFA required for this resource" },
+    error: {
+      code,
+      message: code === "mfa_registration_required" ? "mfa registration required" : "MFA required for this resource",
+    },
     mfa_challenge_token: challenge?.mfaChallengeToken,
     methods: challenge?.methods ?? ["totp"],
     max_age_seconds: maxAgeSeconds,

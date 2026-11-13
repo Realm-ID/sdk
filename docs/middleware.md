@@ -95,6 +95,12 @@ calls `realm.verify(token)`, and:
   `mfa_at` fall back to the legacy marker (`amr` containing `"mfa"`, or
   `acr === "urn:realmid:mfa"`), which satisfies age-based windows but
   never `requireFresh`.
+  **A user with no enrolled factor** is answered
+  **`412 mfa_registration_required`** instead, with the issuer's
+  enroll-scoped `mfa_challenge_token` (and `methods`) in the same
+  sibling position: render an enrolment screen, not a code prompt, and
+  complete it with that token (`POST /auth/mfa/verify`). Branch on
+  `error.code`.
 
 ## Configuration
 

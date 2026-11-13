@@ -220,6 +220,7 @@ public class RealmFilter implements Filter {
                                     String accessToken, MfaVerdict verdict) throws IOException {
         String challengeToken = "";
         List<String> methods = List.of("totp");
+        ErrorCode code = ErrorCode.MFA_REQUIRED;
         try {
             AuthClient.MfaChallengeMint ch = cfg.realm.auth().mintMfaChallenge(accessToken);
             if (ch != null) {
@@ -227,10 +228,26 @@ public class RealmFilter implements Filter {
                 if (ch.methods() != null && !ch.methods().isEmpty()) methods = ch.methods();
             }
         } catch (RuntimeException ex) {
-            var logger = cfg.realm.logger();
-            if (logger != null && logger.isLoggable(Level.WARNING)) {
-                logger.log(Level.WARNING, "realmid: mfa challenge mint unavailable path={0} reason={1}",
-                        req.getRequestURI(), ex.getMessage());
+            if (ex instanceof RealmException re && re.getCode() == ErrorCode.MFA_REGISTRATION_REQUIRED) {
+                // ADR-096 D4 amendment: the caller has no confirmed factor, so the issuer refused to mint a
+                // verify challenge. That refusal is the answer: relay it with its ENROLL token, never an
+                // empty-token mfa_required (a code prompt nobody can pass).
+                code = ErrorCode.MFA_REGISTRATION_REQUIRED;
+                Map<String, Object> d = re.getDetails();
+                Object tok = d == null ? null : d.get("mfa_challenge_token");
+                challengeToken = tok instanceof String s ? s : "";
+                if (d != null && d.get("methods") instanceof List<?> ms && !ms.isEmpty()) {
+                    List<String> out = new java.util.ArrayList<>();
+                    for (Object m : ms) out.add(String.valueOf(m));
+                    methods = out;
+                }
+            } else {
+                var logger = cfg.realm.logger();
+                if (logger != null && logger.isLoggable(Level.WARNING)) {
+                    logger.log(Level.WARNING,
+                            "realmid: mfa challenge mint failed; answering mfa_required without a token path={0} reason={1}",
+                            req.getRequestURI(), ex.getMessage());
+                }
             }
         }
         Map<String, Object> sib = new LinkedHashMap<>();
@@ -238,7 +255,8 @@ public class RealmFilter implements Filter {
         sib.put("methods", methods);
         sib.put("max_age_seconds", verdict.maxAgeSeconds());
         sib.put("reason", verdict.reason().wire());
-        sendError(res, 412, ErrorCode.MFA_REQUIRED.wire(), "MFA required for this resource", sib);
+        sendError(res, 412, code.wire(),
+                code == ErrorCode.MFA_REGISTRATION_REQUIRED ? "mfa registration required" : "MFA required for this resource", sib);
     }
 
     private void handleLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {

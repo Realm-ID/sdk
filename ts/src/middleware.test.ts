@@ -459,3 +459,47 @@ test("middleware: requireFresh accepts mfa_at within 30s", async () => {
   });
   assert.equal(nextCalled, true);
 });
+
+// ADR-096 D4 (amendment 2026-11-13): the issuer's /auth/mfa/challenge refuses an unenrolled caller with
+// 412 mfa_registration_required. The wire shape is login's: every key nested INSIDE `error`.
+test("middleware: a stale-MFA 412 relays mfa_registration_required + the enroll token from the issuer", async () => {
+  const realmId = "r1";
+  const baseUrl = "https://auth.test";
+  const aud = "example.com";
+  const { token, publicJwk } = await mintSignedToken({ realmId, baseUrl, aud });
+  const warns: string[] = [];
+
+  const fetch: typeof fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (isPlatformMint(url, init)) {
+      return new Response(JSON.stringify({ status: "ok", subject_type: "platform", refresh_token: "rtok-platform", access_token: "pt_x", expires_in: 300 }), { status: 200 });
+    }
+    if (url.endsWith(`/${realmId}/.well-known/jwks.json`)) {
+      return new Response(JSON.stringify({ keys: [publicJwk] }), { status: 200 });
+    }
+    if (url.endsWith("/auth/mfa/challenge")) {
+      return new Response(JSON.stringify({ error: {
+        code: "mfa_registration_required", message: "mfa registration required",
+        mfa_challenge_token: "enroll-tok-1", tenant_id: "t1", methods: ["totp"],
+      } }), { status: 412, headers: { "content-type": "application/json" } });
+    }
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const logger = { debug() {}, info() {}, error() {}, warn: (m: string) => { warns.push(m); } };
+  const realm = createRealm({ sessionStore: createMemorySessionStore(), realmId, apiKey: "rk_live_x", baseUrl, fetch, audience: aud, logger });
+  const mw = realm.middleware({ mfaProtectedPaths: ["/admin/*"] });
+  const req = mkReq({ url: "/admin/me", headers: { authorization: `Bearer ${token}` } });
+  const res = new MockRes();
+  await new Promise<void>((resolve) => {
+    mw(req as never, res as unknown as never, () => resolve());
+    setTimeout(resolve, 200);
+  });
+  assert.equal(res.statusCode, 412);
+  const parsed = JSON.parse(res.body);
+  assert.equal(parsed.error.code, "mfa_registration_required");
+  assert.equal(parsed.mfa_challenge_token, "enroll-tok-1");
+  assert.deepEqual(parsed.methods, ["totp"]);
+  assert.ok(parsed.reason);
+  assert.ok(!warns.some((w) => w.includes("unavailable")), `a 412 refusal was logged as unavailable: ${warns.join("|")}`);
+});

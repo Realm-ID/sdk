@@ -4,6 +4,10 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## Unreleased — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4) (2026-11-13)
+
+`middleware` relays the issuer's `412 mfa_registration_required` from `POST /auth/mfa/challenge` with its enroll-scoped `mfa_challenge_token` and `methods`, instead of `mfa_required` with no token. Other mint errors keep the fallback; the warning reads "mfa challenge mint failed". No version bump yet. See the root CHANGELOG.
+
 ## 0.63.0 — emailed sign-in codes and lockout-guard codes (SPEC §3.1, §6.5, §X.4a) (2026-11-04)
 
 `ErrorCode` / `ERROR_CODES` register `acknowledgement_required`, `email_otp_requires_identifying_email`, `email_otp_rate_limited`, `last_browser_sign_in` and `last_machine_credential`. `auth.sendLoginCode` accepts `deliveryMode: "email"`. New exported type `EmailOtpConfig`. See the root CHANGELOG. Additive; `0.62.0` is tagged but not yet on npm, and is untouched.

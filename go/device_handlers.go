@@ -656,7 +656,7 @@ func firstNonEmpty(a, b string) string {
 
 // stepUpFresh enforces the ADR-096 operation step-up on approve (Q5) with the evaluator and the 412
 // envelope Realm.Middleware uses. It answers mfa_registration_required, not a verify challenge, for an
-// approver with no confirmed factor (ADR-096 D4): the middleware's own gap is filed in sdk/TODO.md.
+// approver with no confirmed factor (ADR-096 D4); the mint itself relays the same code if the issuer refuses it (mintMFAChallenge).
 func (d *deviceSet) stepUpFresh(w http.ResponseWriter, r *http.Request, b *browserCtx) bool {
 	if d.stepUp == nil {
 		return true
@@ -670,7 +670,7 @@ func (d *deviceSet) stepUpFresh(w http.ResponseWriter, r *http.Request, b *brows
 		// Nothing to verify against: an ENROLL state, never a verify challenge with an empty token.
 		code = ErrCodeMFARegistrationRequired
 	} else {
-		token, methods = d.realm.mintMFAChallenge(b.ctx, b.token)
+		code, token, methods = d.realm.mintMFAChallenge(b.ctx, b.token)
 	}
 	msg := "MFA required for this resource"
 	if code == ErrCodeMFARegistrationRequired {

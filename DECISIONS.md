@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-156 entries total — 101 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+157 entries total — 102 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-13 — Middleware: a stale-MFA 412 for an unenrolled user relays mfa_registration_required (go 0.76.1, ts/java unreleased; RCA)](#2026-11-13--middleware-a-stale-mfa-412-for-an-unenrolled-user-relays-mfa_registration_required-go-0761-tsjava-unreleased-rca)
 - [2026-11-04 — ts-v0.62.0: raise the TS job cap, then delete and re-cut the tag on the fix commit (owner)](#2026-11-04--ts-v0620-raise-the-ts-job-cap-then-delete-and-re-cut-the-tag-on-the-fix-commit-owner)
 - [2026-11-04 — Token: an error after a hand-over carries the newest refresh token (RefreshHandedOverError; RCA)](#2026-11-04--token-an-error-after-a-hand-over-carries-the-newest-refresh-token-refreshhandedovererror-rca)
 - [2026-11-03 — SDK: separate expected issuer (issuerUrl), default baseUrl; iss must start with issuerUrl/realmId](#2026-11-03--sdk-separate-expected-issuer-issuerurl-default-baseurl-iss-must-start-with-issuerurlrealmid)
@@ -168,6 +169,19 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-13 — Middleware: a stale-MFA 412 for an unenrolled user relays mfa_registration_required (go 0.76.1, ts/java unreleased; RCA)
+
+**Problem.** An unenrolled user of a partner app behind the SDK middleware, on an `MFAProtectedPaths` route with a stale or missing `mfa_at`, was answered `412 mfa_required` with an EMPTY `mfa_challenge_token` and `methods: ["totp"]`: a code prompt that cannot work, because there is no factor to answer it. ADR-096 D4 says that person gets `412 mfa_registration_required` (an enroll screen). The device approve gate already did this via `ListAuthenticators`; the general gate did not.
+
+**Decision.** The issuer's `POST /auth/mfa/challenge` now refuses an unenrolled caller with `412 mfa_registration_required` and an enroll-scoped token (ADR-096 amendment 2026-11-13, wire shape = login's 412, keys nested inside `error`). All three middlewares treat that refusal as the ANSWER: they relay `412 mfa_registration_required` with that token and `methods` (default `["totp"]`). Any other mint error keeps the best-effort `mfa_required` fallback, and its WARN now reads "mint failed", not "unavailable". SPEC §10.4 step 4 states it first. No extra `ListAuthenticators` read per 412: the mint is the classifier. Go: `mintMFAChallenge` returns the code; the device gate's mint branch uses the same call (its own `ListAuthenticators` pre-check is untouched). Tests: `go/middleware_mfa_enroll_test.go`, `ts/src/middleware.test.ts`, `RealmFilterTest.mfaProtectedPaths_relaysRegistrationRequiredFromTheIssuer`. Owner ruling 2026-11-13: fix on main now, release separately; go const `0.76.0` was already tagged so it is bumped to `0.76.1` (`tag-hygiene.sh unreleased-go`); ts and java get changelog entries, no bump.
+
+**RCA.**
+- Symptom: an unenrolled user hitting a step-up route behind the SDK middleware got a code prompt that could never succeed, with no way to reach enrollment.
+- Root cause: `mintMFAChallenge` / `respondMfaRequired` treated EVERY mint error as "endpoint unavailable" and fell back to `mfa_required` + empty token. The fallback was written for a server that had not shipped the endpoint (404/501), and a deliberate 412 refusal was swallowed by the same branch. Separately, the issuer minted a verify challenge for an unenrolled caller, so there was no refusal to relay until the amendment.
+- Why it wasn't caught: the fakes only answered 200 (or nothing) on `/auth/mfa/challenge`, so the refusal path had no test in any SDK; the device gate was fixed in isolation and the gap was filed in TODO rather than pinned by a test.
+- Fix: relay `mfa_registration_required` with the issuer's token in go, ts and java; one test per language with a fake answering the login-shaped 412 (red before, green after); SPEC and partner docs updated.
+- Prevention: SPEC §10.4 now names the case, so a mint-error branch that ignores the code is a spec violation; each language's test asserts the code, the token and that no "unavailable" WARN is emitted. A fake for an issuer route must answer every status the issuer handler can emit, read from `issuer/internal/httpapi`.
 
 ## 2026-11-04 — ts-v0.62.0: raise the TS job cap, then delete and re-cut the tag on the fix commit (owner)
 

@@ -13,6 +13,13 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.76.1` · ts / java unreleased (no bump) — a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §10.4 step 4; issuer ADR-096 D4 amendment) (2026-11-13)
+
+Fixed in all three middlewares. When the issuer's `POST /auth/mfa/challenge` answers `412 mfa_registration_required` (the caller has no confirmed factor), the middleware now answers its client `412 mfa_registration_required` carrying the issuer's enroll-scoped `mfa_challenge_token` (and `methods`), instead of `412 mfa_required` with an empty token (a code prompt nobody could pass). Any other mint error keeps the best-effort fallback; its WARN now says "mint failed", and a 412 refusal is no longer logged as "unavailable".
+- go `0.76.1`: `mintMFAChallenge` returns the code too; the device approve gate uses the same call.
+- ts, java: same behaviour in `respondMfaRequired` / `RealmFilter.respondMfaRequired`. Not released: no version bump, see their changelogs.
+- Docs: `docs/middleware.md`, `docs/error-reference.md`.
+
 ## go `0.76.0` · ts `0.63.0` · java `0.60.0` · web-admin `0.28.0` — owner opt-in emailed sign-in codes and the lockout-guard codes (SPEC §3.1, §6.5, §X.4a; issuer ADR-123, ADR-124) (2026-11-04)
 
 Additive. The issuer side (spec above `0.66.0`) is built in parallel; these SDKs only carry its contract. Nothing here changes an existing call.

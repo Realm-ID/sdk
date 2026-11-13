@@ -326,6 +326,51 @@ class RealmFilterTest {
         assertTrue(ran.get(), "legacy amr=[mfa] marker should satisfy MaxAge gate (marker_fallback)");
     }
 
+    /**
+     * ADR-096 D4 (amendment 2026-11-13): the issuer's /auth/mfa/challenge refuses an unenrolled caller with
+     * 412 mfa_registration_required. Wire shape is login's: every key nested INSIDE {@code error}.
+     */
+    @Test
+    void mfaProtectedPaths_relaysRegistrationRequiredFromTheIssuer() throws Exception {
+        configureMfaApi();
+        api.on("POST /auth/mfa/challenge", (ex, body) -> FakeServer.Reply.json(412,
+                Map.of("error", Map.of(
+                        "code", "mfa_registration_required",
+                        "message", "mfa registration required",
+                        "mfa_challenge_token", "enroll-tok-1",
+                        "tenant_id", "t1",
+                        "methods", List.of("totp")))));
+        java.util.List<String> warns = new java.util.ArrayList<>();
+        System.Logger lg = new System.Logger() {
+            @Override public String getName() { return "capture"; }
+            @Override public boolean isLoggable(Level level) { return true; }
+            @Override public void log(Level level, java.util.ResourceBundle bundle, String msg, Throwable thrown) {
+                if (level == Level.WARNING) warns.add(msg);
+            }
+            @Override public void log(Level level, java.util.ResourceBundle bundle, String format, Object... params) {
+                if (level == Level.WARNING) warns.add(params == null ? format : java.text.MessageFormat.format(format, params));
+            }
+        };
+        Realm r2 = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore()).realmId(REALM_ID).apiKey("rk").baseUrl(api.baseUrl).audience(AUDIENCE).logger(lg).build();
+        RealmFilter f = r2.middleware()
+                .mfaProtectedPaths(List.of(MFARule.of("/admin/*", Duration.ofMinutes(15))))
+                .buildFilter();
+
+        Map<String, Object> claims = baseClaims();
+        claims.put("mfa_at", Instant.now().getEpochSecond() - 1800); // stale
+        FakeReq req = new FakeReq("GET", "/admin/things");
+        req.headers.put("Authorization", List.of("Bearer " + signToken(claims, kid)));
+        FakeRes res = new FakeRes();
+        f.doFilter(req, res, (rq, rs) -> { throw new AssertionError(); });
+        assertEquals(412, res.status);
+        Map<?, ?> resp = M.readValue(res.bytes(), Map.class);
+        assertEquals("mfa_registration_required", ((Map<?, ?>) resp.get("error")).get("code"));
+        assertEquals("enroll-tok-1", resp.get("mfa_challenge_token"));
+        assertEquals(List.of("totp"), resp.get("methods"));
+        assertEquals("stale_mfa", resp.get("reason"));
+        assertTrue(warns.stream().noneMatch(w -> w.contains("unavailable")), "a 412 refusal was logged as unavailable: " + warns);
+    }
+
     /** Wire the API fakes used by every MFA-gate test. */
     private void configureMfaApi() {
         api.on("POST /auth/login", (ex, body) -> FakeServer.Reply.json(200,

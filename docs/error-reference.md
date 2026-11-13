@@ -103,7 +103,7 @@ as `code`. HTTP status is in brackets.
 | `reset_token_used` | [410] The reset link was already used. | Ask for a new link if the password still needs resetting. |
 | `reset_token_superseded` | [410] A newer link was sent, or the password changed since. | Use the newest link. |
 | `realm_suspended` | [410] The realm is suspended or deactivated. | Surface a service-unavailable message; do not retry. |
-| `mfa_registration_required` | [412] Sign-in is blocked until the user enrols an authenticator; the envelope carries a challenge token. | Run the first-login enrolment flow with `details.mfa_challenge_token`. |
+| `mfa_registration_required` | [412] Sign-in, or an MFA-protected route behind the SDK middleware or `POST /auth/mfa/challenge`, is blocked until the user enrols an authenticator; the envelope carries an enroll-scoped challenge token. | Run the first-login enrolment flow with `details.mfa_challenge_token`. |
 | `first_login_pending_approval` | [412] First sign-in on a recently vacated contact awaits the tenant owner's approval. | Tell the user to wait for the owner; nothing to retry. |
 | `mfa_too_many_fails` | [429] Too many wrong MFA codes for this challenge. | Back off; the user may need to restart sign-in. |
 | `login_throttled` | [429] Too many attempts for this identifier; counted on the identifier as sent, so unknown and known ones throttle alike. | Wait before retrying. |

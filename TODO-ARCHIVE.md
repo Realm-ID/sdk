@@ -2,6 +2,10 @@
 
 Closed, retired or superseded records, kept for traceability. See [`TODO.md`](TODO.md) for open, actionable items.
 
+## Closed 2026-11-13 — done on main (go 0.76.1; ts / java unreleased)
+
+- **`go/middleware.go` `mintMFAChallenge` — a stale-MFA 412 for a person with NO confirmed factor was `mfa_required` with an EMPTY token** (go/ts/java) — the issuer's `/auth/mfa/challenge` now answers `412 mfa_registration_required` with an enroll token (ADR-096 D4 amendment) and all three middlewares relay it; one red-then-green test per language. SPEC §10.4 step 4; `DECISIONS.md` 2026-11-13. Not released.
+
 ## Closed 2026-11-04 — done in go 0.75.0 / ts 0.62.0 / java 0.59.0
 
 - **`Token()` — a hop that ends in an error drops the newer rotated refresh token** (go/ts/java) — once a hand-over was followed, every error carries the newest token (`RefreshHandedOverError` / `RefreshHandedOverException`) except token-level ones; TokenManager adopts it from both types; sink failure attached, not swallowed. Plan `plans/2026-11-04-token-handover-and-turnstile.md`; SPEC 9e958cc + 8dc6193; ts 48af9d9 (red 5 → 631/631); go 04a98a1 red 5/7 → f1bc5a7 (7/7, -race -count=3 21/21); java 780aa48 red 7/18 → 20cee3a (597/597); `make check` solo PASS 29 gates. Release tags: see `docs/release-ledger.md` (root).
