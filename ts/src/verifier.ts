@@ -8,6 +8,7 @@
 
 import { RealmError, type ErrorCode } from "./errors.js";
 import type { Claims } from "./claims.js";
+import { checkPayloadKeys } from "./custom-claims.js";
 import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
 import { sessionKeyOf } from "./session-store.js";
@@ -349,7 +350,11 @@ function parseToken(token: string) {
   let signature: Uint8Array;
   try {
     header = JSON.parse(decodeUtf8(b64urlDecode(h))) as Header;
-    claims = JSON.parse(decodeUtf8(b64urlDecode(p))) as Record<string, unknown>;
+    const payloadText = decodeUtf8(b64urlDecode(p));
+    claims = JSON.parse(payloadText) as Record<string, unknown>;
+    // SPEC §4.2 SPEC4_2_claim_fold rule 2: read the keys from the raw text, never the decoded map.
+    const bad = checkPayloadKeys(payloadText);
+    if (bad) throw new Error(bad);
     signature = b64urlDecode(s);
   } catch (e) {
     throw rerr("malformed", `could not parse: ${(e as Error).message}`);

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -125,6 +126,13 @@ type MiddlewareOptions struct {
 	// (owner ruling 2026-10-02): empty serves nothing, so a partner that does not
 	// use recovery codes gets no route it never asked for.
 	RecoveryPath string // no default; empty = route off
+
+	// ClientIP returns the end user's IP, forwarded as X-On-Behalf-Of-IP on the
+	// MFA verify and recovery calls (SPEC §10.1 steps 5, 5a) so the issuer's
+	// per-IP limiter counts the user, not this server's egress IP. Nil = host
+	// part of r.RemoteAddr; a partner behind a proxy supplies it (the SDK never
+	// trusts X-Forwarded-For itself, same rule as DeviceIP).
+	ClientIP func(r *http.Request) string
 
 	// TokenDelivery is "cookie" (default) or "body". Cookie mode sets
 	// a HttpOnly cookie carrying the refresh token; body mode returns
@@ -420,7 +428,13 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			path := req.URL.Path
+			// SPEC11_4_1_source: refuse a non-canonical path before any
+			// exemption, ingress route or rule is consulted.
+			path, canonical := matchPathFor(req)
+			if !canonical {
+				writeInvalidPath(w)
+				return
+			}
 
 			// 1. Exempt path?
 			if matchAny(exempt, path) {
@@ -541,6 +555,9 @@ func (r *Realm) handleLogin(w http.ResponseWriter, req *http.Request, opts *Midd
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "bad_request", "message": err.Error()}})
 		return
 	}
+	if refuseClientCustomClaims(w, body) {
+		return
+	}
 	method, _ := body["method"].(string)
 	if method == "" {
 		method = "firebase"
@@ -643,10 +660,26 @@ func (r *Realm) handleLogout(w http.ResponseWriter, req *http.Request, opts *Mid
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+// endUserIP is the IP forwarded as X-On-Behalf-Of-IP on MFA verify/recovery
+// (SPEC §10.1 steps 5, 5a): the ClientIP hook, else the host part of
+// RemoteAddr. Never X-Forwarded-For (the same rule as DeviceIP).
+func (o *MiddlewareOptions) endUserIP(req *http.Request) string {
+	if o.ClientIP != nil {
+		return o.ClientIP(req)
+	}
+	if h, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+		return h
+	}
+	return req.RemoteAddr
+}
+
 func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {
 	body, err := readJSON(req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "bad_request", "message": err.Error()}})
+		return
+	}
+	if refuseClientCustomClaims(w, body) {
 		return
 	}
 	ct, _ := body["challenge_token"].(string)
@@ -662,7 +695,7 @@ func (r *Realm) handleMFAVerify(w http.ResponseWriter, req *http.Request, opts *
 	defer release()
 
 	wctx, wcancel := r.lockedWorkCtx(req.Context())
-	out, err := r.Auth.MFAVerify(wctx, MFAVerifyRequest{ChallengeToken: ct, Code: code})
+	out, err := r.Auth.MFAVerify(wctx, MFAVerifyRequest{ChallengeToken: ct, Code: code, OnBehalfOfIP: opts.endUserIP(req)})
 	wcancel()
 	if lockKey != "" {
 		// A refresh loser waiting on this key is handed the rotated token, also
@@ -709,6 +742,9 @@ func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "bad_request", "message": err.Error()}})
 		return
 	}
+	if refuseClientCustomClaims(w, body) {
+		return
+	}
 	ct, _ := body["challenge_token"].(string)
 	if ct == "" {
 		ct, _ = body["mfa_challenge_token"].(string)
@@ -725,7 +761,7 @@ func (r *Realm) handleMFARecovery(w http.ResponseWriter, req *http.Request, opts
 	defer release()
 
 	wctx, wcancel := r.lockedWorkCtx(req.Context())
-	out, err := r.Auth.RedeemRecoveryCode(wctx, RedeemRecoveryCodeRequest{ChallengeToken: ct, Code: code})
+	out, err := r.Auth.RedeemRecoveryCode(wctx, RedeemRecoveryCodeRequest{ChallengeToken: ct, Code: code, OnBehalfOfIP: opts.endUserIP(req)})
 	wcancel()
 	if lockKey != "" {
 		// A refresh loser waiting on this key is handed the rotated token, also
@@ -1158,6 +1194,13 @@ func asRealmError(err error) *RealmError {
 			return re
 		}
 	}
+	// SPEC4_2_carry_all rule 2: a refused second mint is carried inside a
+	// *RefreshHandedOverError; relay the issuer's code/status (one level, as above).
+	if ho, ok := err.(*RefreshHandedOverError); ok {
+		if re, ok := ho.err.(*RealmError); ok {
+			return re
+		}
+	}
 	return &RealmError{Code: ErrCodeServerError, Message: err.Error(), Cause: err}
 }
 
@@ -1170,12 +1213,13 @@ type globPattern struct {
 func compileGlobs(pats []string) []globPattern {
 	out := make([]globPattern, 0, len(pats))
 	for _, p := range pats {
-		out = append(out, globPattern{re: globToRegex(p)})
+		out = append(out, globPattern{re: canonicalRegex(p, "exempt")})
 	}
 	return out
 }
 
 func matchAny(pats []globPattern, path string) bool {
+	path = canonPath(path)
 	for _, p := range pats {
 		if p.re.MatchString(path) {
 			return true

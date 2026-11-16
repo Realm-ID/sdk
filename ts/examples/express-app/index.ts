@@ -4,7 +4,7 @@
  * Routes:
  *   POST /login      — handled entirely by SDK middleware; sets refresh cookie
  *   POST /logout     — handled entirely by SDK middleware; clears refresh cookie
- *   POST /token      — refresh-token rotation + tenant switch (custom_claims supported)
+ *   POST /token      — refresh-token rotation + tenant switch (custom claims come from the customClaims handler)
  *   POST /mfa/verify — MFA challenge completion
  *   GET  /me         — protected; returns the verified Claims attached by SDK
  *   GET  /admin/me   — protected; requires an MFA-marked access token (412 otherwise)

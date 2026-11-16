@@ -44,6 +44,24 @@ public record RefreshOutcome(String fp, boolean ok, int status, String code, Str
                 0L, 0L, null);
     }
 
+    /**
+     * A failure AFTER the first mint rotated the refresh token (SPEC4_2_rotate_handover): the error
+     * plus the rotated session, so a waiter or a retry presents the live token, never the spent one.
+     */
+    public static RefreshOutcome errorCarrying(String fp, int status, String code, String message,
+                                               Map<String, Object> details, String accessToken,
+                                               String refreshToken, String minted) {
+        return new RefreshOutcome(fp, false, status, code, message, details, accessToken, null, null, null,
+                refreshToken, minted, 0L, 0L, null);
+    }
+
+    /** An error outcome that carries a rotated refresh token (and so is never a token-level failure). */
+    public boolean carriesSession() {
+        // SPEC4_2_carry_all rule 1: no status or code exclusion; an outcome holding a rotated token
+        // is only ever built after the first mint (a first-mint failure carries nothing).
+        return !ok && refreshToken != null && !refreshToken.isEmpty();
+    }
+
     /** The outcome an MFA verify / recovery redeem leaves: only the rotated refresh token matters. */
     public static RefreshOutcome mfaVerify(String rotated, String minted) {
         return new RefreshOutcome(MFA_FINGERPRINT, true, 200, null, null, null, null, null, null, null,

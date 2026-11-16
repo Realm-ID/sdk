@@ -40,7 +40,7 @@
  */
 
 import type { Claims } from "./claims.js";
-import { globMatch } from "./middleware.js";
+import { canonicalMatch } from "./middleware.js";
 import { RealmError } from "./errors.js";
 
 /**
@@ -203,7 +203,7 @@ export function decideScope(
   for (const rule of policy) {
     if (!rule.path) continue;
     if (rule.method && rule.method.toUpperCase() !== m) continue;
-    if (!globMatch(rule.path, path, { braces: true })) continue;
+    if (!canonicalMatch(rule.path, "scope", path)) continue;
 
     const required = rule.scopes ?? [];
     const anyOf = rule.anyOf ?? false;
@@ -352,7 +352,7 @@ const FORBIDDEN_BODY = JSON.stringify({
   },
 });
 
-function pathOf(req: ScopeReqLike): string {
+export function requestPathOf(req: ScopeReqLike): string {
   const raw = req.path ?? req.originalUrl ?? req.url ?? "/";
   const q = raw.indexOf("?");
   return q === -1 ? raw : raw.slice(0, q);
@@ -375,7 +375,7 @@ export function createScopeMiddleware(
   opts: ScopeMiddlewareOptions = {},
 ): (req: ScopeReqLike, res: ScopeResLike, next: (err?: unknown) => void) => void {
   return (req, res, next) => {
-    const decision = decideScope(policy, req.realmid, req.method ?? "GET", pathOf(req));
+    const decision = decideScope(policy, req.realmid, req.method ?? "GET", requestPathOf(req));
     if (decision.allowed) {
       next();
       return;
@@ -411,7 +411,7 @@ export function fastifyScopeHook(
   done: (err?: unknown) => void,
 ) => void {
   return (req, reply, done) => {
-    const decision = decideScope(policy, req.realmid, req.method ?? "GET", pathOf(req));
+    const decision = decideScope(policy, req.realmid, req.method ?? "GET", requestPathOf(req));
     if (decision.allowed) {
       done();
       return;

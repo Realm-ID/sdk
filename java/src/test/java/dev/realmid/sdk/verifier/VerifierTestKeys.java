@@ -41,5 +41,19 @@ public final class VerifierTestKeys {
         return signing + "." + b64(sig.sign());
     }
 
+    /** Signs RAW payload JSON text (a Map cannot hold a duplicate key). */
+    public String signRaw(String payloadJson) throws Exception {
+        Map<String, Object> hdr = new LinkedHashMap<>();
+        hdr.put("alg", "RS256");
+        hdr.put("typ", "JWT");
+        hdr.put("kid", KID);
+        String signing = b64(M.writeValueAsBytes(hdr)) + "."
+                + b64(payloadJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        Signature sig = Signature.getInstance("SHA256withRSA");
+        sig.initSign((RSAPrivateKey) pair.getPrivate());
+        sig.update(signing.getBytes());
+        return signing + "." + b64(sig.sign());
+    }
+
     private static String b64(byte[] b) { return Base64.getUrlEncoder().withoutPadding().encodeToString(b); }
 }

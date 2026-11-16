@@ -363,7 +363,7 @@ class V063MiddlewareTest {
                 post("/token", null, "{\"tenant_id\":\"acme\",\"refresh_token\":\"R1\"}", null)));
         Thread.sleep(60);
         Future<RealmFilterTest.FakeRes> b = ex.submit(() -> call(f,
-                post("/token", null, "{\"tenant_id\":\"acme\",\"refresh_token\":\"R1\",\"custom_claims\":{\"a\":1}}", null)));
+                post("/token", null, "{\"tenant_id\":\"acme\",\"refresh_token\":\"R1\",\"tenant_id\":\"globex\"}", null)));
         assertEquals(200, a.get().status);
         RealmFilterTest.FakeRes loser = b.get();
         assertEquals(503, loser.status);

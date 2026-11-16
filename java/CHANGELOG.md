@@ -4,6 +4,12 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.62.0 — browsers can no longer supply custom claims, one canonical path matcher on the servlet path, every post-rotation failure carries the rotated token (SPEC §4.2, §10.1, §10.2, §11.4.1) (2026-11-14)
+
+Combined release with go `0.78.0` and ts `0.65.0` and issuer `v0.151.0`. The full entry, with the **Breaking** list, is in the root `../CHANGELOG.md`; the java-specific points:
+- **Breaking:** `RealmFilter`'s refresh, login, MFA-verify and recovery routes answer `400 custom_claims_not_accepted` to a body carrying `custom_claims` / `customClaims`; supply claims through the server-side `customClaims` handler (`SPEC10_2_custom_claims`). `Verifier` refuses a token with a non-ASCII or fold-colliding claim key (`malformed`). Exempt, MFA-protected and scope paths match on `getServletPath() + getPathInfo()`, ASCII case-insensitively, ignoring one trailing slash; a raw `%2F %5C %25 %2E` or dot segment answers `400 invalid_path`. A failure of the `OnIdentityResolved` hook, `productRoles`, `scopes` or a refused second mint after the first mint rotated the refresh token carries the rotated token and answers `503` (or the issuer's own non-401 status and code), never `401`; the carried `503` body includes `retry: true`; a carried `escort_suspended` answers `503`.
+- **Deprecated (`SPEC11_4_1_ingress`):** `loginPath`, `logoutPath`, `refreshPath`, `mfaVerifyPath` and `recoveryPath` are compared on the context-relative servlet path. The full request-URI form (`/app/auth/login` under context path `/app`) keeps working in this release with a once-per-route deprecation warning and is removed in `0.63.0`, so configure the context-relative value.
+
 ## 0.61.0 — `RealmException.getMfaChallenge()` and a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §3.2, §10.4 step 4) (2026-11-13)
 
 New `RealmException.getMfaChallenge()` returns an `AuthClient.MfaChallengeMint` (`challengeToken()`, `methods()`) from a 412's details; never null (`""` / empty list when absent or mistyped). `RealmFilter` reads through it. Additive. The relay below (formerly 0.60.1) was never published and ships here.

@@ -44,6 +44,10 @@ func peekSession(jwt string) (sessionPeek, error) {
 	if err != nil {
 		return sessionPeek{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
 	}
+	// SPEC4_2_claim_fold rule 2 (audit e-02): same refusal as verify().
+	if err := checkClaimFold(raw); err != nil {
+		return sessionPeek{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload claim keys malformed"}
+	}
 	var m map[string]any
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return sessionPeek{}, &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not json"}

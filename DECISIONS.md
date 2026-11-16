@@ -10,8 +10,30 @@ Newest first.
 
 ## Index
 
-158 entries total — 103 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+180 entries total — 125 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)](#2026-11-16--web-sdk-keeps-a-refresh-token-carried-by-any-error-reply-device-poll-rfc-8628-codes-rulings-3743-33)
+- [2026-11-16 — Custom-claims rule stated without the history (ruling 39)](#2026-11-16--custom-claims-rule-stated-without-the-history-ruling-39)
+- [2026-11-14 — MFA verify and recovery forward the end user's IP (partner-notice HIGH 1; RCA)](#2026-11-14--mfa-verify-and-recovery-forward-the-end-users-ip-partner-notice-high-1-rca)
+- [2026-11-14 — S13: SDK carry parity (go 401 carried, retry:true, ts code, java escort and changelog)](#2026-11-14--s13-sdk-carry-parity-go-401-carried-retrytrue-ts-code-java-escort-and-changelog)
+- [2026-11-14 — java carry-all, refresh status 503, ingress full-URI compat (S12)](#2026-11-14--java-carry-all-refresh-status-503-ingress-full-uri-compat-s12)
+- [2026-11-14 — go (S10): hook refusal carried, carried refresh failure answers 503 or the issuer's status, asRealmError unwraps the hand-over (SPEC4_2_carry_all; RCA)](#2026-11-14--go-s10-hook-refusal-carried-carried-refresh-failure-answers-503-or-the-issuers-status-asrealmerror-unwraps-the-hand-over-spec4_2_carry_all-rca)
+- [2026-11-14 — S11 (ts): carried refresh failure answers 503, mismatched waiter gets the retry hand-over, canonicalMatch exported (SPEC4_2_carry_all; critic rows 2, 5, 7)](#2026-11-14--s11-ts-carried-refresh-failure-answers-503-mismatched-waiter-gets-the-retry-hand-over-canonicalmatch-exported-spec4_2_carry_all-critic-rows-2-5-7)
+- [2026-11-14 — Carry every post-rotation failure, 503 not 401, java ingress context-path compat (dispatcher decisions)](#2026-11-14--carry-every-post-rotation-failure-503-not-401-java-ingress-context-path-compat-dispatcher-decisions)
+- [2026-11-14 — ts: the custom-claims fill carries the rotated session on failure (SPEC4_2_rotate_handover, S6)](#2026-11-14--ts-the-custom-claims-fill-carries-the-rotated-session-on-failure-spec4_2_rotate_handover-s6)
+- [2026-11-14 — e-01 (ts) leftovers: login, MFA verify and recovery refuse browser custom_claims; handler types exported (S6)](#2026-11-14--e-01-ts-leftovers-login-mfa-verify-and-recovery-refuse-browser-custom_claims-handler-types-exported-s6)
+- [2026-11-14 — e-04 (ts): one canonical path matcher for exemptPaths, mfaProtectedPaths and ScopeRule (S6)](#2026-11-14--e-04-ts-one-canonical-path-matcher-for-exemptpaths-mfaprotectedpaths-and-scoperule-s6)
+- [2026-11-14 — e-01 (java) leftovers: ingress routes refuse custom_claims, SPEC4_2_fill, SPEC4_2_rotate_handover](#2026-11-14--e-01-java-leftovers-ingress-routes-refuse-custom_claims-spec4_2_fill-spec4_2_rotate_handover)
+- [2026-11-14 — go: customClaims fill on Token/TokenManager, rotated session carried on failure, peek readers fold-checked (S9, audit rows 1-3; RCA)](#2026-11-14--go-customclaims-fill-on-tokentokenmanager-rotated-session-carried-on-failure-peek-readers-fold-checked-s9-audit-rows-1-3-rca)
+- [2026-11-14 — e-03/e-04 (java): one canonical path matcher on the servlet path, 400 invalid_path](#2026-11-14--e-03e-04-java-one-canonical-path-matcher-on-the-servlet-path-400-invalid_path)
+- [2026-11-14 — Custom-claims fill: a handler outage never loses the rotated refresh token (SPEC4_2_rotate_handover)](#2026-11-14--custom-claims-fill-a-handler-outage-never-loses-the-rotated-refresh-token-spec4_2_rotate_handover)
+- [2026-11-14 — e-01/e-02 (java): custom claims only from a server handler, claim-key fold in verify](#2026-11-14--e-01e-02-java-custom-claims-only-from-a-server-handler-claim-key-fold-in-verify)
+- [2026-11-14 — e-03/e-04 (go): one canonical path matcher, 400 invalid_path on non-canonical paths](#2026-11-14--e-03e-04-go-one-canonical-path-matcher-400-invalid_path-on-non-canonical-paths)
+- [2026-11-14 — e-01 (go): browser custom_claims refused, server-side customClaims handler](#2026-11-14--e-01-go-browser-custom_claims-refused-server-side-customclaims-handler)
+- [2026-11-14 — e-02: go SDK claim-fold refusal in verify() and ParseClaimsUnverified](#2026-11-14--e-02-go-sdk-claim-fold-refusal-in-verify-and-parseclaimsunverified)
+- [2026-11-14 — Audit fixes e-01..e-04: server-only custom claims, ASCII claim fold, one canonical path matcher (SPEC first)](#2026-11-14--audit-fixes-e-01e-04-server-only-custom-claims-ascii-claim-fold-one-canonical-path-matcher-spec-first)
+- [2026-11-14 — e-01 (ts): browser custom_claims refused, server-side customClaims handler](#2026-11-14--e-01-ts-browser-custom_claims-refused-server-side-customclaims-handler)
+- [2026-11-14 — e-02 (ts): claim-fold refusal in verify() and the unverified reader](#2026-11-14--e-02-ts-claim-fold-refusal-in-verify-and-the-unverified-reader)
 - [2026-11-13 — go 0.77.0 / ts 0.64.0 / java 0.61.0: public accessor for the 412 challenge token (supersedes the 0.76.1 note)](#2026-11-13--go-0770--ts-0640--java-0610-public-accessor-for-the-412-challenge-token-supersedes-the-0761-note)
 - [2026-11-13 — Middleware: a stale-MFA 412 for an unenrolled user relays mfa_registration_required (go 0.76.1, ts/java unreleased; RCA)](#2026-11-13--middleware-a-stale-mfa-412-for-an-unenrolled-user-relays-mfa_registration_required-go-0761-tsjava-unreleased-rca)
 - [2026-11-04 — ts-v0.62.0: raise the TS job cap, then delete and re-cut the tag on the fix commit (owner)](#2026-11-04--ts-v0620-raise-the-ts-job-cap-then-delete-and-re-cut-the-tag-on-the-fix-commit-owner)
@@ -170,6 +192,221 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)
+
+**Context.** Owner rulings 37 (2026-11-15) and 43 (2026-11-16), and ruling 33 with issuer ADR-122 AF-122.4-.6 (issuer `e67835a`). Root `plans/2026-11-14-audit-fixes.md` § Decision summary.
+
+**Decision.**
+1. **SPEC §4.2 `SPEC4_2_carry_all` rule 4 (`SPEC4_2_carry_all_web`).** In body mode, `@realm-id/web`'s token manager holds ONE carried refresh token, replaced by EVERY `/token` error reply whose body carries a string `refresh_token` / `refreshToken`: a `503 retry: true`, a second `503`, and a `400`/`403`/`409` the middleware relays under rule 2. It is presented on every later `/token` request until a success, a sibling tab's adopted result, sign-out or a lost session clears it. Ruling 37 named the second `503`; ruling 43 extends it to every error reply carrying the rotated token, because rule 2 relays the issuer's own status with that token, and dropping it there has the same effect. Retry behaviour is unchanged: one retry, only after a `503 retry: true`.
+2. **Scope and version (dispatcher decisions 2026-11-16, owner may overrule).** Ships as `@realm-id/web` `0.13.1`: no API change, so the five web packages' `^0.13.0` peer ranges stay valid. The carried token stays in the receiving tab's memory and is not posted on the multi-tab bus; a sibling tab that refreshes first presents the app's stored token.
+3. **Device poll codes (ruling 33).** `docs/error-reference.md` and the SPEC code table state that the device-code poll answers `400 expired_token` when the approving session expired or no longer exists, and `400 access_denied` when it was revoked or the approval can no longer be honoured; every later poll repeats the same code. The claude-plugin copy is regenerated by `claude-plugin/scripts/sync-references.py`.
+
+**Rejected.** Broadcasting the carried token to other tabs (puts a live refresh token on the bus, whose messages deliberately carry none); retrying after a relayed `400`/`403`/`409` (the refusal is the issuer's answer for this request, a retry would get the same).
+
+## 2026-11-16 — Custom-claims rule stated without the history (ruling 39)
+
+**Decision.** The public SDK docs, SPEC, changelog and code comments state only the current custom-claims rule: custom claims are set by the partner's server code (the `customClaims` handler, or a direct server-side `token` call), and the middleware refuses them in request bodies (`400 custom_claims_not_accepted`).
+
+**Why general.** Owner ruling 39 (2026-11-15, after ruling 30): this repo is public, so it does not explain how the earlier behaviour could be misused. The detailed history of audit e-01 lives in the private issuer repo's DECISIONS. Normative SPEC rules (what the SDK MUST do) are unchanged; only narrative was removed. The earlier e-01 entries in this file keep their dates, with neutral Symptom/Root cause text.
+
+## 2026-11-14 — MFA verify and recovery forward the end user's IP (partner-notice HIGH 1; RCA)
+
+Finding: doc-review-partner-notice-3 HIGH 1. Go `MiddlewareOptions.ClientIP`, ts `clientIp`, java `clientIp(...)`; red tests `middleware_mfa_clientip_test.go`, `middleware-mfa-clientip.test.ts`, `MfaClientIpTest.java`.
+
+- **Symptom:** the middleware's MFA verify and recovery calls did not yet forward the end user's IP. The issuer's per-IP public-auth limit on `POST /auth/mfa/verify` and `/auth/mfa/recovery` keys on `X-On-Behalf-Of-IP` when a platform-bearer caller sends it, so each end user must be sent as their own address. The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+- **Root cause:** the middleware's verify and recovery handlers called the issuer with only the challenge token and code. Go's `MFAVerifyRequest` / `RedeemRecoveryCodeRequest` already had `OnBehalfOfIP` but the middleware never set it; ts `mfaVerify` / `redeemRecoveryCode` and java `MFAVerifyRequest` / `RedeemRecoveryCodeRequest` had no IP field at all. SPEC named `onBehalfOfIp` only for sendLoginCode and the device routes (`DeviceIP`), so the rule did not reach these two routes.
+- **Why it wasn't caught:** this release's Wave 1 issuer change made the routes rate-limited, and nothing in the SDK suites asserts a header on those issuer calls; the SPEC was silent, so no spec line failed. Found by the partner-notice doc review, not a test.
+- **Fix:** SPEC §10.1 step 5 now states the rule for both routes. Middleware option (go `ClientIP`, ts `clientIp`, java `clientIp`), default the connection's remote address (never `X-Forwarded-For`, the `DeviceIP` rule), forwarded as `X-On-Behalf-Of-IP`; ts and java direct requests gained `onBehalfOfIp` (java via `withOnBehalfOfIp`, old constructors kept).
+- **Prevention:** a per-language test asserts the header on both issuer calls (default and hook). Still open: `mfaVerifyOtp` in ts/java has no IP field (Go's `MFAVerifyOTPRequest` does).
+
+## 2026-11-14 — S13: SDK carry parity (go 401 carried, retry:true, ts code, java escort and changelog)
+
+Final parity review of S10/S11/S12 (findings 1-6 + INFO). Symptom: go answered a carried second-mint 401 as 401 refresh_invalid with no R1 (browser signs out, next refresh reads as reuse); ts kept code refresh_invalid on the carried 503; all three omitted `retry: true` from the carried 503 body (web adopts a body token only on retry === true); java answered a carried escort_suspended as 403; java changelog/SPEC/javadoc put the ingress and carry-all changes under released 0.61.0. Root cause: S10's asRealmError unwrap made the stored status 401, so go's tokenLevelErr guard (meant for a dead held token) fired on a carrier; spec example and retry flag were not asserted in any language. Why it wasn't caught: no go 401 case in s10_carry_status_test.go, ts test asserted status only (and `|| true`), nothing asserted the body retry flag. Fix: go drops tokenLevelErr where Mint is set (a carrier only), maps 401 to 503 server_error; retry:true on the carried 503 in all three; ts code server_error on carried 401; java carriedStatus escort first; changelog Unreleased section, ingress relabelled Deprecated, 0.61.0 -> 0.62.0 in SPEC and javadoc. Prevention: tests per language assert status, code, retry and cookie/body token on the 401 row.
+
+## 2026-11-14 — java carry-all, refresh status 503, ingress full-URI compat (S12)
+
+Java carry-all (SPEC4_2_carry_all, critic rows 1, 2, 9) and ingress paths (SPEC11_4_1_ingress, critic row 4). No version bump.
+
+- Symptom: on the java refresh route a hook refusal, a `productRoles` or `scopes` failure, or an unreadable `sub` after the first mint threw a bare error: the rotated refresh token was dropped, the browser's next refresh presented the spent token, the issuer saw reuse and revoked the whole session. A second mint refused with 401 was excluded from carrying (`carriesSession` skipped 401 and `refresh_invalid`) and answered 401, which the browser SDK reads as sign-out. A partner under context path `/app` with `loginPath="/app/auth/login"` fell through to the bearer check (401 on login, refresh, logout) after the 0.61.0 servlet-path change.
+- Root cause: the carry set was a hand-picked list (customClaims + second mint) written to the narrow wording of rules 1 and 5; the status of a carried failure was never pinned (relayStatus mapped status 0 to 500 and passed 401 through); the ingress compare moved to the servlet path without a transition for the old full-URI form.
+- Why it wasn't caught: every test faked a server whose failure was the case the list already named; `FakeReq.getContextPath()` was always "" and no test used a context path.
+- Fix: `AuthClient.enrichRefreshMint` wraps everything after the first mint in one try and rethrows via `carrySession` (closed under "any"); `RefreshOutcome.carriesSession` drops the 401 / refresh_invalid exclusion; `RealmFilter` answers a carried failure `503 server_error` when the cause has no status or 401, else relays the issuer's status and code, with the rotated cookie set. `RealmFilter.ingressMatch` keeps the servlet-path compare and also accepts the old `getRequestURI()` equality for this release, warning once per route. Old tests that asserted 500 for these failures now assert 503.
+- Prevention: `CarryAllRefreshTest` (hook, productRoles, scopes, second-mint 401, second-mint 403 relay) and `IngressContextPathTest` (context path `/app`, both forms of all five routes). The one-release full-URI form is removed in the next minor.
+- Not changed: `AuthClient.carryAfterHandOver` (the direct `token()` hand-over hop path) still leaves a 401 / refresh_invalid uncarried; SPEC rule 1 names SDK-run mints and this is a different path, left for the owner.
+
+## 2026-11-14 — go (S10): hook refusal carried, carried refresh failure answers 503 or the issuer's status, asRealmError unwraps the hand-over (SPEC4_2_carry_all; RCA)
+
+Unit S10 (go), audit rows 1, 2, 3, 9 (SPEC4_2_carry_all rules 1-3).
+
+- **Symptom:** a refresh-route failure after the first mint rotated the token answered 401 (a SPA treats that as sign-out and drops the carried token, so the next refresh is reuse and revokes the session); an OnIdentityResolved refusal was not carried at all; a refused second mint (400 reserved_claim_key, 403 user_suspended) was flattened to 401 server_error.
+- **Root cause:** `respondAuthFail` maps status 0 to 401; `enrichRefreshMintInner` returned the hook error bare; `asRealmError` was a one-level type check that never looked inside `*RefreshHandedOverError`.
+- **Why it wasn't caught:** the old rule 5 pinned token delivery, not status (spec gap); a TEST comment alone held the "/token writes no cookie for a hook refusal" clause; no test drove a refused second mint through the middleware.
+- **Fix:** the hook refusal is carried (`carrySession`); a carried failure on the refresh route answers the issuer's own status/code when the cause is a `*RealmError`, else 503; `asRealmError` unwraps `*RefreshHandedOverError` one level. `TestSuspendedCodes_PartnerHookRefusal...` /token branch now asserts 503 + rotated cookie (cites SPEC4_2_carry_all rule 1).
+- **Prevention:** `s10_carry_status_test.go` (relay 400/403 with hand-over, 503 in cookie and body mode, one-level unwrap). Row 9 (2nd mint 401) unchanged: a token-level error is never handed over on the route (`tokenLevelErr`), which already matches "never 401 while carried".
+
+## 2026-11-14 — S11 (ts): carried refresh failure answers 503, mismatched waiter gets the retry hand-over, canonicalMatch exported (SPEC4_2_carry_all; critic rows 2, 5, 7)
+
+- **Symptom.** (critic rows 2, 5, 7) A failure after the first rotating mint on the ts middleware refresh route answered a bare 500 (a partner handler or hook error) or the second mint's 401, instead of the 503 `SPEC4_2_carry_all` rule 2 pins; a 401 reads as sign-out to the SPA, which then discards the carried R1. A request for a different tenant that waited on a failing winner received the winner's handler error, naming the other tenant. `globMatch` stayed the only matcher on the root entry, with `canonicalMatch` unexported.
+- **Root cause.** `errorOutcome` stored `httpStatus ?? 500` for a carried failure; `respondOutcome` relayed every `!ok` outcome to every waiter regardless of fingerprint. The ts carrier set (rule 1) was already complete.
+- **Why it wasn't caught.** The existing test asserted `status >= 500`, which a 500 or 503 both satisfy, and no test ran a waiter for a second tenant or a hook / productRoles / scopes / 401-second-mint failure through the middleware.
+- **Fix.** `errorOutcome` stores 503 for a carried failure with no issuer status or a 401 (any other issuer status and code stands, e.g. 400 `reserved_claim_key`). `respondOutcome` sends a different-fingerprint waiter of a carried failure to the `503 refresh superseded, retry` hand-over. `canonicalMatch` is exported from the root entry; `globMatch` is `@deprecated` and still exported. New `src/rotate-carry-all.test.ts` (9 failure kinds plus the mismatched waiter).
+- **Prevention.** One test per failure kind through the middleware asserting the exact status and the carried token; the waiter test pins the hand-over body.
+
+## 2026-11-14 — Carry every post-rotation failure, 503 not 401, java ingress context-path compat (dispatcher decisions)
+
+**Problem.** Wave 2 critic (audit-fixes, `.scratch/af-w2/critic-sdk/REVIEW.md` rows 1-5, 7) found the three SDKs carry the rotated refresh token for different sets of post-rotation failures, answer a carried failure with different statuses (go 401, ts/java 500), flatten a refused second mint in go, relay a failed outcome to a waiter for another tenant in ts, and (java) silently changed how the ingress paths are compared. Any dropped rotated token makes the next refresh present the spent one, which is reuse and revokes the whole session (ADR-031 / ADR-109 D6).
+
+**Decisions (dispatcher decision 2026-11-14, owner away, owner may overrule).** Written into SPEC.md as MUST rules.
+1. `SPEC4_2_carry_all` rule 1: after the first mint rotated, EVERY later failure in the SDK-run mint (hook refusal, productRoles, scopes, customClaims or key check, unreadable `sub`, second mint refused or failed with any status, 401 included) is a `RefreshHandedOverError` carrying the rotated session. Consistent with the 2026-10-12 ruling (go v0.66.0 Amendment item 3: what the SPA is TOLD is separate from what the browser KEEPS; the session survives and only that org is refused). The go test assertion "`/token` writes no cookie for a hook refusal" (`go/suspended_codes_test.go:322-344`) was never in the ruling text and is superseded.
+2. Rule 2: a carried failure on the refresh route answers 503 (retryable, token delivered per rule 5), never 401, because the browser SDK treats any 401 as sign-out and discards storage. An inner issuer refusal with its own non-401 status and code is relayed as is (token still delivered). Go's `asRealmError` unwraps `*RefreshHandedOverError` one level, a type check like `*LoginMintError`.
+3. Rule 3: a waiter whose fingerprint differs from a failed, carrying outcome gets the 503 retry hand-over, never the other tenant's error.
+4. `SPEC11_4_1_ingress`: java compares login/logout/refresh/mfaVerify/recovery on the servlet path; for ONE release (0.61.0) the old full-request-URI form still matches with a once-only deprecation warning, removed next minor, so no 0.61.0 partner under a context path breaks.
+5. `SPEC11_4_1_ts_exports`: ts exports `canonicalMatch`; `globMatch` is `@deprecated` and stays exported this release.
+
+**Not decided.** Critic row 6 (partner error text in the SPA body): filed in `OPEN-QUESTIONS.md`.
+
+**Tradeoffs.** 503 instead of the cause's own status for a refused second mint's 401 hides that the issuer said 401, but the 401 was about a token we already replaced. Carry-all makes the browser hold a session whose org is refused, which the 2026-10-12 ruling already accepted. The Java compat match is deliberate technical debt with a stated expiry.
+
+**Follow-up (builders).** go: carry the hook refusal, answer 503, unwrap in `asRealmError`, flip the `/token` test. ts: waiter fingerprint check, 401 to 503, export `canonicalMatch`, deprecate `globMatch`. java: carry hook/productRoles/scopes and 401, 503, compat match + deprecation log, context-path test, Breaking CHANGELOG line.
+
+## 2026-11-14 — ts: the custom-claims fill carries the rotated session on failure (SPEC4_2_rotate_handover, S6)
+
+- **Symptom:** with a `customClaims` handler configured, a handler outage (or a refused second mint, or an unreadable `sub`) during the SDK's two-mint fill threw an error that dropped the rotated refresh token; the caller then re-presented the spent one, the issuer saw reuse and revoked the whole session (a handler outage became a logout). An unreadable `sub` silently returned a token lacking the partner's claims.
+- **Root cause:** `mintFillingCustomClaims` and `enrichRefreshMint` ran the second mint after the first had already rotated the token, and let any failure propagate bare; the stored middleware outcome carried no token for an error.
+- **Why it wasn't caught:** tests covered the handler failing, never what the caller holds afterwards; the vector in SPEC4_2_rotate_handover did not exist until the Wave 1 review.
+- **Fix:** every post-rotation failure is wrapped in `RefreshHandedOverError(original, rotated, firstAccessToken)` (new `accessToken()` accessor, redacted like the refresh token). `tokenUnderLock` rethrows it unwrapped; error outcomes store the rotated token so losers and a retry adopt it and `respondOutcome` hands it to the browser in cookie or body mode (rule 5); `TokenManager` already adopts a carried token. Decision (c): an unreadable `sub` with a handler configured throws `CustomClaimsError` inside the carrier. Three older tests that asserted the bare error type now assert `cause`.
+- **Prevention:** `src/rotate-handover.test.ts` (direct, refused second mint, unreadable sub, manager and sink, middleware retry in both delivery modes).
+
+## 2026-11-14 — e-01 (ts) leftovers: login, MFA verify and recovery refuse browser custom_claims; handler types exported (S6)
+
+- **Symptom:** the ts middleware's login, MFA verify and recovery routes did not yet answer 400 to a body carrying `custom_claims`, as refresh did (SPEC §10.1 steps 2, 5, 5a); `index.ts` did not export the handler types; two doc/comment lines still told partners to pass claims on `auth.token`.
+- **Root cause:** S4 added the refusal to the refresh route only and left the other minting routes to this unit.
+- **Why it wasn't caught:** the e-01 tests exercised the refresh route; no test iterated the minting routes.
+- **Fix:** one `refuseClientClaims` helper called by `handleLogin`, `handleRefresh` and `handleMfaLike` before any issuer call; `CustomClaimsError`, `CustomClaimKeyError`, `CustomClaimsHandler` exported; `docs/middleware.md` and the `auth.ts` NOTE corrected.
+- **Prevention:** `src/middleware-claims-refusal.test.ts` is route x carrier-shape and asserts zero issuer calls.
+
+## 2026-11-14 — e-04 (ts): one canonical path matcher for exemptPaths, mfaProtectedPaths and ScopeRule (S6)
+
+- **Rule:** a gate must decide the path the router routes. Express folds ASCII case and one trailing slash, so `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths match the same way (SPEC §11.4.1). The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+- **Why it wasn't caught:** the v0.63 matcher tests pinned "no normalisation" as the rule and only ever fed canonical lower-case paths.
+- **Fix:** `canonicalPath` / `canonicalMatch(pattern, kind, path)` in `middleware.ts` (SPEC11_4_1_canon: one trailing slash removed on both sides, ASCII-only lowercase, no regex `i` flag, nothing else normalised) used by `exemptPaths`, `mfaProtectedPaths` and `scope.ts`. The raw path stays the source (owner ruling 9). One v0.63 test row (`/o/42/` against `{id}`, vector m14) changed to the new spec. The vector runner prints 42 matcher + 25 request cases.
+- **Prevention:** `src/path-match-vectors.test.ts` runs the shared vectors and fails on a count mismatch or a skipped case.
+
+## 2026-11-14 — e-01 (java) leftovers: ingress routes refuse custom_claims, SPEC4_2_fill, SPEC4_2_rotate_handover
+
+Java unit S7 (owner ruling 3 and the Wave 1 SDK review decisions; sdk/SPEC.md SPEC10_1_4_no_client_claims, SPEC4_2_fill, SPEC4_2_rotate_handover, SPEC4_2_claim_fold rule 2).
+
+**Symptom.** (1) The Java login, MFA verify and recovery routes did not yet refuse a `custom_claims` body key; only refresh did. (2) A direct `auth.token(req)` that omitted custom claims minted a token with none even with a handler configured, silently under-granting. (3) When the handler failed, or the second mint was refused, AFTER the first mint rotated the refresh token, the error dropped the rotated token: the caller's next call presented the spent one, which the issuer treats as reuse and revokes the whole session (a handler outage became a logout).
+
+**Root cause.** The refusal was written inline in `handleRefresh` only. `AuthClient.token` called `tokenUnlocked` with no fill step, and `enrichRefreshMint` threw the bare handler exception after the rotation, with no carrier and no stored outcome that holds the rotated session.
+
+**Why it wasn't caught.** S5 tested refresh in isolation and the other three mint routes had no adversarial-body test; no test ever made the handler or the second mint fail after a successful first mint.
+
+**Fix.** `RealmFilter.refuseClientClaims` runs on login, refresh, MFA verify and recovery before the issuer call and before the lock. `AuthClient.mintAndFill` (inside the per-session lock, so concurrent adopters share one result and never spend the rotated token twice) mints, reads `sub`, runs the handler and re-mints on the rotated token; the same carrier wraps a handler failure, a key-check failure, a refused or failed second mint, and decision (c) (an unreadable `sub` with a handler configured refuses with `CustomClaimsException` carrying the session). `RefreshHandedOverException` gains `accessToken()`. `RefreshOutcome.errorCarrying` stores the error together with the rotated session, so a waiter or retry presents the live token, and the middleware refresh route answers the error AND sets the rotated cookie (or `refresh_token` in the body). `TokenManager` already adopted a carried token; a test pins it. Only the custom-claims handler and the second mint were given carriers: productRoles / scopes handler failures keep their types (not in this unit's spec text).
+
+**Claim-fold in `JwtPeek` was NOT added (ruling by SPEC4_2_claim_fold rule 2).** `JwtPeek.userFields` reads exact keys with Jackson from a token the issuer just minted, which the spec exempts; the Go reader that binds by Unicode fold is the one that needs it.
+
+**Prevention.** `CustomClaimsIngressRoutesTest` (30 body shapes across three routes, zero issuer calls), `CustomClaimsFillTest` (fill, explicit-as-given, handler failure, key failure, refused second mint, unreadable sub, middleware cookie and body hand-over, TokenManager adoption).
+
+## 2026-11-14 — go: customClaims fill on Token/TokenManager, rotated session carried on failure, peek readers fold-checked (S9, audit rows 1-3; RCA)
+
+**Symptom.** (Row 1) Go `AuthClient.Token` and `TokenManager` minted with no custom claims even when `Config.CustomClaims` was set: a partner with a handler got tokens lacking its claims from the manager (silent under-grant, downstream 403s). (Row 3) `peekJWTUserFields` and `peekJWTIssuer` now apply the claim-fold check (SPEC4_2_claim_fold); the earlier history is in the private issuer repo's DECISIONS (ruling 42). (Handover) On the refresh lane any resolver or re-mint failure after the first mint dropped the rotated refresh token, and the spent one is a reuse that revokes the session.
+
+**Root cause.** The fill (SPEC4_2_fill) existed only in ts; Go's `Token` went straight to the issuer. `enrichRefreshMint` returned the bare handler/mint error.
+
+**Why it wasn't caught.** The e-01 work tested the middleware route only, not the direct call or manager; the peek readers were not in the e-02 site list. No test failed a handler after a rotation.
+
+**Fix.** `Realm.fillCustomClaims` (mint, read sub, handler, re-mint on the rotated token) runs in `Token` under the per-session lock, so a loser adopts the filled mint; empty non-nil map is "none". Failures after the first rotation come back as `*RefreshHandedOverError` (now with `AccessToken()`), wrapping the handler error or the second mint's error; an unreadable or fold-refused sub refuses with `*CustomClaimsError` (decision c). The stored outcome carries the rotated token so a loser hands it over, and the middleware refresh route answers the error and sets the cookie or `refresh_token` body field (rule 5). The existing `TokenManager` carried-token adoption now fires. Both peek readers run `checkClaimFold` first. Scope note: an `OnIdentityResolved` refusal is NOT carried, because owner ruling 2026-10-12 (pinned by `TestSuspendedCodes_PartnerHookRefusal...`) says `/token` writes no cookie for a hook refusal; rule 5 names handler and second-mint failures.
+
+**Prevention.** `token_fill_test.go` (SPEC4_2_fill, SPEC4_2_rotate_handover, SPEC4_2_claim_fold names) covers direct Token, TokenManager, both peek readers, and the middleware hand-over in both delivery modes.
+
+## 2026-11-14 — e-03/e-04 (java): one canonical path matcher on the servlet path, 400 invalid_path
+
+**Rule (e-03/e-04, Java side).** `RealmFilter` and `ScopeFilter` match rules against the path the container and Spring MVC route on (`getServletPath() + getPathInfo()`), through one canonical matcher (SPEC §11.4.1). The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+
+**Why it wasn't caught.** Tests spelled each request exactly as its rule was, through a FakeReq whose servlet path was its raw URI, so the two could never disagree.
+
+**Fix.** `GlobMatcher.canonicalMatch` (SPEC11_4_1_canon: one trailing slash folded on both sides, ASCII-only lowercasing by hand) now backs `match` / `matchPlaceholders`. `GlobMatcher.requestPath` (SPEC11_4_1_source) returns `getServletPath() + getPathInfo()`, or null when the raw URI holds `%2F`, `%5C`, `%25`, `%2E` or a dot segment (judged after `;params`); both filters then answer `400 invalid_path` before any exemption or rule. Two old V063 assertions that encoded the previous trailing-slash rule were rewritten to vectors m14 and m18. `FakeReq` now carries a servlet path and path info.
+
+**Prevention.** `PathMatchVectorsTest` runs the shared `testdata/path-match-vectors` file (42 matcher + 25 request cases) and fails on a partial count; it also drives both filters through the 400.
+
+## 2026-11-14 — Custom-claims fill: a handler outage never loses the rotated refresh token (SPEC4_2_rotate_handover)
+
+A handler outage must never revoke a session. When an SDK-run mint fills custom claims it is two mints: the first rotates the refresh token, and only then can the handler run. If the handler (or the second mint) then fails, the old behaviour dropped the rotated token, so the caller kept the spent one and its next use was refresh-token reuse, which revokes the session (ADR-031). Decision (dispatcher, audit-fixes Wave 1 critic row 2): the failure surfaces as the handler error type, wrapped in the existing RefreshHandedOverError, carrying the rotated refresh token plus the first mint's access token; TokenManager adopts the carried session before failing the acquisition. Applies to go, ts and java; also the middleware refresh route. SPEC.md SPEC4_2_rotate_handover. Rejected: swallowing the handler error and returning the claim-less token (silent under-grant, forbidden by SPEC10_2_custom_claims rule 3), and failing without carrying the token (the bug). Same pass: SPEC4_2_fill makes the Go direct Token/TokenManager fill explicit; peekJWTUserFields (Go, fold-binding) must run checkClaimFold while exact-key ts/java readers are exempt; /orders/* no longer matches /orders/.
+
+## 2026-11-14 — e-01/e-02 (java): custom claims only from a server handler, claim-key fold in verify
+
+Java unit S5 (owner rulings 3 and 8, spec SPEC10_1_4_no_client_claims, SPEC10_2_custom_claims, SPEC4_2_claim_fold).
+
+- Rule: custom claims come only from the server; `Verifier` reads top-level keys from the raw payload and refuses a duplicate or fold-colliding key (SPEC4_2_claim_fold). The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+- Why it wasn't caught: no test asserted who may supply custom claims. No shared vectors existed for key folding and duplicates.
+- Fix: refresh route refuses custom_claims/customClaims with 400 custom_claims_not_accepted before the lock and issuer call; new Realm.Builder.customClaims(CustomClaimsHandler) is the only source, run on the refresh re-mint and the login mint with the 3-attempt policy; handler keys are checked by ClaimFold (CustomClaimKeyException names the key); the single-flight fingerprint is the tenant alone; Verifier.verify refuses non-ASCII, duplicate and fold-colliding top-level payload keys as malformed 401 using a streaming parser; acr is reserved.
+- Prevention: ClaimFoldVectorsTest runs every shared vector (counts and reserved-set drift asserted) and drives refusals through a signed token; CustomClaimsRefreshTest pins the 400, the handler arguments and the key check.
+
+## 2026-11-14 — e-03/e-04 (go): one canonical path matcher, 400 invalid_path on non-canonical paths
+
+**Rule (e-03/e-04, Go side).** One canonical matcher serves the middleware and `ScopePolicy` (SPEC §11.4.1), and a path whose encodings or dot segments two components could read differently is refused (`400 invalid_path`). The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+
+**Why it wasn't caught.** The tests asserted each glob against paths spelled exactly as the rule was. No test spelled the request differently from the rule, and nothing compared the SDK's matched path with a router's.
+
+**Fix.** One canonical matcher (`canonicalMatch`, SPEC11_4_1_canon) for exempt, mfa and scope rules: one trailing slash ignored on both sides, ASCII-only case folding done by hand (never `(?i)`, which folds U+017F and U+212A). A request is answered `400 invalid_path` before any exemption, ingress route or rule when the wire path (`r.RequestURI`, or both `RawPath` and `EscapedPath()` for an in-process request) holds `%2F`, `%5C`, `%25` or a literal `\`, or when `r.URL.Path` has a `.` or `..` segment (owner rulings 9 and 16). The existing `TestSPEC11_4_1_PlaceholderTable` rows for `/orders/{id}` vs `/orders/42/` and `/orders/*` vs `/orders/` changed with the spec (vectors m14, m18).
+
+**Prevention.** `path_match_vectors_test.go` runs the shared `testdata/path-match-vectors` file (42 matcher + 25 request cases, each request twice) and fails on a partial count. The same file is the parity contract for ts and java.
+
+## 2026-11-14 — e-01 (go): browser custom_claims refused, server-side customClaims handler
+
+**Symptom.** The Go middleware routes did not yet enforce that custom claims are set by the partner's server code only.
+
+**Rule.** `handleRefresh` (`go/refresh_flight.go`) takes the claims from the server handler alone; the refresh fingerprint is the tenant alone.
+
+**Why it wasn't caught.** No test asked who may supply custom claims.
+
+**Fix.** Owner ruling 3: a body with either key (any value) is refused `400 custom_claims_not_accepted` before the lock and the issuer. New `Config.CustomClaims` handler (`custom_claims_handler.go`, SPEC10_2): 3 attempts then refuse with `*CustomClaimsError`, key check (printable ASCII, ASCII-fold vs reserved names), no request data, runs on the refresh lane (`derived_claims_refresh.go`) and the login lanes (`mintProductRoles`). Refresh fingerprint is now the tenant alone (SPEC10_1_4a_fingerprint).
+
+**Prevention.** `custom_claims_handler_test.go` pins the refusal for every spelling/value, that the issuer is never called, that the token is not consumed, and the handler contract. Follow-up (S8): `handleLogin`, `handleMFAVerify` and `handleMFARecovery` call `refuseClientCustomClaims` right after `readJSON`, so the same 400 answers before any issuer call (`custom_claims_routes_test.go`, 18 route x body cases; red run showed 501, i.e. the issuer was reached). The same pass collapsed duplicate helpers: `asciiFold`/`canonLower`/`foldClaimName` are the one `asciiLower`, and the handler's own reserved-name set is the one `checkCustomClaimKey` (no behaviour change; the two reserved sets were equal).
+
+## 2026-11-14 — e-02: go SDK claim-fold refusal in verify() and ParseClaimsUnverified
+
+- **Rule:** a token carrying `Sub`, `ACR`, `ſub` (U+017F), `toKen_class` (U+212A) or a duplicate key is `malformed` (SPEC4_2_claim_fold). The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+- **Why it wasn't caught:** no test fed a fold-variant or duplicate key; the only key tests used exact reserved spellings.
+- **Fix:** `checkClaimFold` (claims.go) walks top-level keys with `json.Decoder.Token` and refuses a non-printable-ASCII key, a fold pair or exact duplicate, and a non-byte-equal fold of the 18-name reserved set (`acr` included); wired into `Verify()` before any decode and into `ParseClaimsUnverified` as `malformed`. Fold is ASCII-only per SPEC4_2_claim_fold rule 3 (the charset rule runs first), not Unicode as the unit brief worded it.
+- **Follow-up (S8):** `peekSession` (`session_peek.go`, the §6.7 session checks) applies the same key check as `Verify`: it calls `checkClaimFold` after the base64 decode and answers a fold-colliding or non-ASCII-key payload as malformed (`custom_claims_peek_test.go`, 7 bad payloads + a clean control).
+- **Prevention:** `TestClaimFoldVectors` runs the shared vectors, asserts the reserved-set drift and the case counts (27 key + 22 payload), and `TestVerify_RefusesFoldCollisionsEndToEnd` drives signed tokens.
+
+## 2026-11-14 — Audit fixes e-01..e-04: server-only custom claims, ASCII claim fold, one canonical path matcher (SPEC first)
+
+**Context.** Audit 2026-11-13 (`auth/.scratch/audit/2026-11-13/e-sdks*.md`) confirmed e-01 (custom claims must be set by the partner's server code only, go/ts/java), e-02 (reserved claim names are compared by ASCII fold; `Sub`, `ſub`, `toKen_class` are refused), e-03 (java filters match the servlet path) and e-04 (ts matchers fold ASCII case and one trailing slash like Express). Per-finding history: private issuer DECISIONS (ruling 42). Owner rulings and adopted designer recommendations: root `plans/2026-11-14-audit-fixes.md` § Decision summary. SPEC text written first (Wave 0, unit D-sdk); code follows in go `0.78.0` · ts `0.65.0` · java `0.62.0`.
+
+**Decision.**
+1. **e-01 (SPEC §4.2, §10.1 step 4 `SPEC10_1_4_no_client_claims`, §10.2 `SPEC10_2_custom_claims`).** Custom claims on an SDK-run mint come only from a new server-side `customClaims(tenantId, userId)` handler, wired like `productRoles` (§4.1.2) and with its retry/refuse rules. The refresh route answers `400 custom_claims_not_accepted` to a body carrying the key; it never forwards client claims. A direct `auth.token` call from partner server code keeps its `customClaims` field. The step 4a fingerprint drops `custom_claims`.
+2. **e-02 (SPEC §4.2 `SPEC4_2_claim_fold`, `testdata/claim-fold-vectors/`).** The fold is **ASCII-only**, made sufficient by a printable-ASCII (`%x20-7E`) key rule applied FIRST, at allowlist write, at mint, on the handler's output and on every verified or unverified token read. Chosen over Unicode simple fold because Go folds with `unicode.SimpleFold` (verified `encoding/json/fold.go`, go 1.27.2) while Java and JS have no identical primitive (U+0130 splits `toLowerCase` from `SimpleFold`), so a Unicode rule would mean three hand-rolled tables that drift. Once non-ASCII keys are refused, the two folds agree on every surviving key, so the readings do not differ in what they let through. Only cost: a token carrying a non-ASCII top-level key is refused; no issuer from `v0.151.0` mints one.
+3. **e-03/e-04 (SPEC §11.4.1 `SPEC11_4_1_canon` / `SPEC11_4_1_source`, §10.4 `SPEC10_4_match`, `testdata/path-match-vectors/`).** One canonical matcher, no options: ASCII case-insensitive literals, one trailing slash ignored, nothing else normalised, implemented by ASCII-lowercasing (never a regex case flag). Java matches `getServletPath()+getPathInfo()` and answers `400 invalid_path` to a raw `%2F %5C %25 %2E` or dot segment; `;` is allowed. Go and ts keep their path sources.
+
+**Supersedes.** SPEC §11.4.1 "Path normalisation — there is none, in any language" (v0.63.0, 2026-10-01): its rationale (the gate must see the path the router routes on) is kept and now argues for the change. SPEC §10.1 step 4's "`custom_claims` is the documented place for partner-supplied access-token claims".
+
+**Consequences.** BREAKING for a SPA that sent claims through the refresh route, for a token with a fold-colliding key, and in java for a context-path-prefixed rule. More requests are step-up gated. Two v0.63 table rows change (m14, m18). Partner notice: root `PARTNER-NOTICE-SECURITY-2026-11.md` (Wave 5, R1).
+
+**Owner rulings 8-9 (2026-11-14, same day, after this entry was drafted; root `plans/2026-11-14-audit-fixes.md`).**
+- **8: `acr` is reserved from issuer `v0.151.0`.** The SDKs read `amr`/`acr` as an MFA marker, so `acr` is reserved. Added to the SPEC §4.2 set, the claim-fold vectors (`k25`, `k26`, `p21`) and the docs' reserved lists. The issuer's drift test against the vectors stays red until I4 adds it.
+- **9: Go answers `400 invalid_path` when the raw path holds `%2F`, `%5C` or `%25`; ts keeps raw-path matching.** `r.URL.Path` decodes `%2F` into `/`, so the check cannot rest on it. The Go check reads the wire text, `r.RequestURI` (query and any absolute-form scheme/authority removed); only when that is empty does it scan BOTH `RawPath` and `EscapedPath()`, because `net/url` leaves `RawPath` empty whenever the raw text equals its default escaping and `EscapedPath()` re-escapes the decoded path when `RawPath` holds a character that fails `validEncoded`. A literal `\` is refused explicitly so the two branches agree (vectors r23-r25). Request vectors r07-r10, r22-r25 are `400` in Go. The reasoning history is in the private issuer repo's DECISIONS (ruling 42).
+- **Owner ruling 16: Go also refuses a `.`/`..` segment** (after `;params` are removed, as in Java). The test runs on the decoded `r.URL.Path`, so `%2e%2e` counts too. This is my reading of "in the raw request path": it refuses everything a raw-text test would, plus the encoded form, which Java already refuses as `%2E`. Go vectors r11-r14 are now `400`. Reason: a router that cleans the path must not see a different path from the gate, so a dot segment is never matched.
+- **Doc-review row 1: `custom_claims_not_accepted` is the SDK middleware's alone** (issuer ADR-097 AF-097.1); the issuer does not repeat the refusal, and SPEC §4.2 and the partner guide now say so. The refusal now covers every route that mints (§10.1 steps 2, 4, 5, 5a), not logout.
+
+## 2026-11-14 — e-01 (ts): browser custom_claims refused, server-side customClaims handler
+
+- **Symptom:** the ts middleware's refresh route did not yet enforce that custom claims are set by the partner's server code only.
+- **Rule:** `handleRefresh` takes the claims from the server handler alone, and the fingerprint is the tenant alone.
+- **Why it wasn't caught:** no test asked who may supply claims.
+- **Fix:** `RealmConfig.customClaims` (`custom-claims.ts`, SPEC §10.2: 3 attempts, key check, refuses the mint on failure) is the only source on login lanes, the refresh enrichment re-mint and a direct `token()` that omits claims; the refresh route answers `400 custom_claims_not_accepted` before the lock; the fingerprint is the tenant alone.
+- **Prevention:** `custom-claims.test.ts` (body refusal for five value shapes with zero mints, handler args, retry, login lane, direct token()).
+
+## 2026-11-14 — e-02 (ts): claim-fold refusal in verify() and the unverified reader
+
+- **Rule:** a token with `Sub`, `ſub` or a duplicate key is `malformed`, so every language reads the same principal (SPEC4_2_claim_fold). The earlier history is in the private issuer repo's DECISIONS (ruling 42).
+- **Why it wasn't caught:** no shared vectors existed for key fold and duplicates.
+- **Fix:** `checkPayloadKeys` (duplicate-preserving tokenizer over the raw payload) runs in `parseToken` (`malformed`) and in the refresh lane's unverified subject reader; `checkClaimKey` guards handler output; `RESERVED_CLAIMS` includes `acr` (ruling 8). The vector runner asserts the reserved set, both case counts and prints the SPEC line.
+- **Prevention:** `claim-fold-vectors ts: ran 27 key + 22 payload cases, 0 failed`, plus signed-token end-to-end refusals per reason.
 
 ## 2026-11-13 — go 0.77.0 / ts 0.64.0 / java 0.61.0: public accessor for the 412 challenge token (supersedes the 0.76.1 note)
 

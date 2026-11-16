@@ -167,7 +167,7 @@ func compileMFARules(rules []MFARule) []compiledMFARule {
 // lifted from swagger.yaml matches the same requests here — and everything else
 // is handed to the middleware's existing glob compiler.
 func mfaPathToRegex(pat string) *regexp.Regexp {
-	return placeholderGlobRegex(pat)
+	return canonicalRegex(pat, "mfa")
 }
 
 // mfaRulesNeedBody reports whether any compiled rule declares a JSON condition.
@@ -187,6 +187,7 @@ func findMFARule(rules []compiledMFARule, method, path string, body []byte) *com
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
 	}
+	path = canonPath(path)
 	for i := range rules {
 		r := &rules[i]
 		if r.method != "" && !strings.EqualFold(r.method, method) {

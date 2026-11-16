@@ -10,9 +10,12 @@ package dev.realmid.sdk.auth;
  * and revokes it). It is NEVER sent on the wire. Empty means no lock (a
  * first-login MFA has no session). The middleware leaves it unset because it
  * already holds the lock, which is not re-entrant.
+ *
+ * <p>{@code onBehalfOfIp} is the END USER's IP as your server saw it, sent as
+ * {@code X-On-Behalf-Of-IP} so the issuer's per-IP limit counts the user, not your server.
  */
 public record MFAVerifyRequest(String challengeToken, String code, String method, String origin,
-                               String refreshToken) {
+                               String refreshToken, String onBehalfOfIp) {
 
     /** Never prints a credential. */
     @Override
@@ -22,15 +25,24 @@ public record MFAVerifyRequest(String challengeToken, String code, String method
 
 
     public MFAVerifyRequest(String challengeToken, String code, String method, String origin) {
-        this(challengeToken, code, method, origin, null);
+        this(challengeToken, code, method, origin, null, null);
+    }
+
+    public MFAVerifyRequest(String challengeToken, String code, String method, String origin, String refreshToken) {
+        this(challengeToken, code, method, origin, refreshToken, null);
     }
 
     public static MFAVerifyRequest of(String challengeToken, String code) {
-        return new MFAVerifyRequest(challengeToken, code, "totp", null, null);
+        return new MFAVerifyRequest(challengeToken, code, "totp", null, null, null);
     }
 
     /** A copy that runs under the per-session lock keyed on {@code refreshToken}. */
     public MFAVerifyRequest withRefreshToken(String refreshToken) {
-        return new MFAVerifyRequest(challengeToken, code, method, origin, refreshToken);
+        return new MFAVerifyRequest(challengeToken, code, method, origin, refreshToken, onBehalfOfIp);
+    }
+
+    /** A copy carrying the END USER's IP, sent as {@code X-On-Behalf-Of-IP} (SPEC 4.3, 10.1 step 5). */
+    public MFAVerifyRequest withOnBehalfOfIp(String onBehalfOfIp) {
+        return new MFAVerifyRequest(challengeToken, code, method, origin, refreshToken, onBehalfOfIp);
     }
 }

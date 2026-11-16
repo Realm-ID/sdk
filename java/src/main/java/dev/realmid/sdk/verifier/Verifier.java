@@ -147,6 +147,16 @@ public final class Verifier {
         // SPEC 5.1.1: only an ACCESS token verifies. Checked before the kid
         // lookup so a wrongly typed token never triggers a JWKS fetch.
         checkTyp(header);
+        // SPEC 4.2 SPEC4_2_claim_fold rule 2 (audit e-02): refuse non-ASCII, duplicate and
+        // fold-colliding top-level keys, read from the RAW payload (a decoded map hides duplicates).
+        try {
+            if (!ClaimFold.payloadAcceptable(b64urlDecode(parts[1]))) {
+                throw new RealmException(ErrorCode.MALFORMED,
+                        "payload carries a non-ASCII, duplicate or reserved-fold claim key", 401, null);
+            }
+        } catch (IllegalArgumentException e) {
+            throw new RealmException(ErrorCode.MALFORMED, "could not parse: " + e.getMessage(), e);
+        }
         String kid = strOrNull(header, "kid");
         if (kid == null || kid.isEmpty()) {
             throw new RealmException(ErrorCode.MALFORMED, "kid missing from header");

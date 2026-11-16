@@ -501,9 +501,19 @@ class RealmFilterTest {
         final Map<String, Object> attrs = new HashMap<>();
         byte[] body = new byte[0];
 
+        /** What a container hands over (SPEC11_4_1_source, java): servlet path + path info. */
+        final String servletPath;
+        final String pathInfo;
+
         FakeReq(String method, String uri) {
+            this(method, uri, uri, null);
+        }
+
+        FakeReq(String method, String uri, String servletPath, String pathInfo) {
             this.method = method;
             this.uri = uri;
+            this.servletPath = servletPath;
+            this.pathInfo = pathInfo;
         }
 
         @Override public String getMethod() { return method; }
@@ -555,7 +565,7 @@ class RealmFilterTest {
         @Override public String getAuthType() { return null; }
         @Override public long getDateHeader(String name) { return -1; }
         @Override public int getIntHeader(String name) { return -1; }
-        @Override public String getPathInfo() { return null; }
+        @Override public String getPathInfo() { return pathInfo; }
         @Override public String getPathTranslated() { return null; }
         @Override public String getContextPath() { return ""; }
         @Override public String getQueryString() { return null; }
@@ -564,7 +574,7 @@ class RealmFilterTest {
         @Override public java.security.Principal getUserPrincipal() { return null; }
         @Override public String getRequestedSessionId() { return null; }
         @Override public StringBuffer getRequestURL() { return new StringBuffer(uri); }
-        @Override public String getServletPath() { return uri; }
+        @Override public String getServletPath() { return servletPath; }
         @Override public jakarta.servlet.http.HttpSession getSession(boolean create) { return null; }
         @Override public jakarta.servlet.http.HttpSession getSession() { return null; }
         @Override public String changeSessionId() { return null; }

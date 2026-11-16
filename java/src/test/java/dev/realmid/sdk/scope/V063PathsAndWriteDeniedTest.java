@@ -50,12 +50,13 @@ class V063PathsAndWriteDeniedTest {
     @Test
     void SPEC11_4_1_placeholderMatchesOneNonEmptySegment() {
         assertTrue(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders/42"));
-        assertFalse(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders/42/"));
+        // SPEC11_4_1_canon rule 1 (vectors m14, m18): one trailing slash is ignored on both sides.
+        assertTrue(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders/42/"));
         assertFalse(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders/"));
         assertFalse(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders"));
         assertFalse(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders//42"));
         assertFalse(GlobMatcher.matchPlaceholders("/orders/{id}", "/orders/42/items"));
-        assertTrue(GlobMatcher.matchPlaceholders("/orders/*", "/orders/"));
+        assertFalse(GlobMatcher.matchPlaceholders("/orders/*", "/orders/"));
         assertFalse(GlobMatcher.matchPlaceholders("/orders/*", "/orders//42"));
         assertTrue(GlobMatcher.matchPlaceholders("/orders/**", "/orders/42/"));
         assertTrue(GlobMatcher.matchPlaceholders("/orders/**", "/orders"));
@@ -135,7 +136,7 @@ class V063PathsAndWriteDeniedTest {
                 new Class<?>[]{HttpServletRequest.class}, (px, m, a) -> switch (m.getName()) {
                     case "getAttribute" -> RealmFilter.CLAIMS_ATTR.equals(a[0]) ? claims("other") : null;
                     case "getMethod" -> "GET";
-                    case "getRequestURI" -> path;
+                    case "getRequestURI", "getServletPath" -> path;
                     default -> null;
                 });
         HttpServletResponse res = (HttpServletResponse) Proxy.newProxyInstance(getClass().getClassLoader(),

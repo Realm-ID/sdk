@@ -1,5 +1,92 @@
 package realmid
 
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+)
+
+// foldReservedNames is the SPEC §4.2 (SPEC4_2_claim_fold) reserved set: the
+// issuer's reservedClaims plus `acr` (owner ruling 8, 2026-11-14). A drift test
+// holds it to testdata/claim-fold-vectors/vectors.json.
+var foldReservedNames = []string{
+	"iss", "sub", "aud", "iat", "nbf", "exp", "jti", "azp", "tenant_id", "role",
+	"mfa_at", "amr", "token_class", "scope", "product_roles", "sid", "events", "acr",
+}
+
+func isPrintableASCIIKey(k string) bool {
+	if k == "" {
+		return false
+	}
+	for i := 0; i < len(k); i++ {
+		if k[i] < 0x20 || k[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func foldReservedOf(k string) (string, bool) {
+	f := asciiLower(k)
+	for _, r := range foldReservedNames {
+		if f == r {
+			return r, true
+		}
+	}
+	return "", false
+}
+
+// checkCustomClaimKey is SPEC §4.2 rule 1: a custom-claim key is non-empty,
+// printable ASCII, and folds to no reserved name.
+func checkCustomClaimKey(k string) error {
+	if !isPrintableASCIIKey(k) {
+		return fmt.Errorf("claim key %q is not non-empty printable ASCII", k)
+	}
+	if r, ok := foldReservedOf(k); ok {
+		return fmt.Errorf("claim key %q collides with reserved claim %q", k, r)
+	}
+	return nil
+}
+
+// checkClaimFold is SPEC §4.2 rule 2 on a JWT payload: among the TOP-LEVEL
+// keys (after JSON unescaping, read with a duplicate-preserving tokenizer,
+// never a decoded map) refuse a non-printable-ASCII key, two keys with equal
+// folds (exact duplicates included), and a key that is not byte-equal to a
+// reserved name but folds to one.
+func checkClaimFold(payload []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return fmt.Errorf("payload is not a JSON object")
+	}
+	seen := map[string]string{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		k, ok := t.(string)
+		if !ok {
+			return fmt.Errorf("payload key is not a string")
+		}
+		if !isPrintableASCIIKey(k) {
+			return fmt.Errorf("claim key %q is not non-empty printable ASCII", k)
+		}
+		f := asciiLower(k)
+		if prev, dup := seen[f]; dup {
+			return fmt.Errorf("claim keys %q and %q fold together", prev, k)
+		}
+		seen[f] = k
+		if r, res := foldReservedOf(k); res && k != r {
+			return fmt.Errorf("claim key %q folds to reserved claim %q", k, r)
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Claims is the verified token payload. Standard JWT fields plus the
 // RealmID-specific extras (azp, tenant_id, role). Unknown fields land in
 // Extra.

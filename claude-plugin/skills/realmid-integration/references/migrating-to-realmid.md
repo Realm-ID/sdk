@@ -417,6 +417,12 @@ Example: your backend adds `"plan": "pro"` when it exchanges a refresh token. Fi
 later it refreshes again; if that call omits `custom_claims`, the new token has no `plan`. Your
 backend builds the same object each time.
 
+**Your backend, never the browser.** If you run the SDK middleware, configure the
+`customClaims(tenantId, userId)` handler on the realm (SPEC §10.2) and it builds the object on
+every refresh for you. From go `0.78.0` · ts `0.65.0` · java `0.62.0` (UNRELEASED) the
+middleware's login, refresh, MFA-verify and recovery routes refuse a request body that
+carries `custom_claims` or `customClaims` (`400 custom_claims_not_accepted`): custom claims are set by your server code.
+
 The limits, all enforced with a `400` that names the problem (nothing is trimmed silently):
 
 - A claim name must be on the realm's allowlist, `access_token_custom_claim_keys`, otherwise
@@ -424,7 +430,9 @@ The limits, all enforced with a `400` that names the problem (nothing is trimmed
 - The `custom_claims` object may serialize to at most **4096 bytes** (`custom_claims_too_large`).
 - These names are reserved and answer `reserved_claim_key`: `iss`, `sub`, `aud`, `iat`, `nbf`,
   `exp`, `jti`, `azp`, `tenant_id`, `role`, `mfa_at`, `amr`, `token_class`, `scope`,
-  `product_roles`, `sid`, `events`. They also cannot be put on the allowlist.
+  `product_roles`, `sid`, `events`, and from issuer `v0.151.0` `acr`. They also cannot be put
+  on the allowlist, in ANY letter case (`Sub`, `TOKEN_CLASS`), from issuer `v0.151.0`.
+- A claim name must be printable ASCII (from issuer `v0.151.0`); `ſub` and `région` are refused.
 
 - [Error reference](https://github.com/Realm-ID/sdk/blob/main/docs/error-reference.md).
 - Spec: `POST /auth/token`, `custom_claims`.

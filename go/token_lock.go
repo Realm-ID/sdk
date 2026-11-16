@@ -51,7 +51,11 @@ func tokenFingerprint(req TokenRequest) string {
 // call to the issuer is not covered.
 func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, error) {
 	if req.RefreshToken == "" {
-		return a.token(ctx, req)
+		mr, err := a.token(ctx, req)
+		if err == nil && req.CustomClaims == nil {
+			return a.realm.fillCustomClaims(ctx, mr, req)
+		}
+		return mr, err
 	}
 	// A bad request never spends (and so never rotates away) the token: refuse
 	// it before taking the lock.
@@ -64,6 +68,10 @@ func (a *AuthClient) Token(ctx ctxpkg.Context, req TokenRequest) (*MintResult, e
 		if err != nil {
 			// SPEC §4.2: once the held token differs from the presented one
 			// (it is spent), every error except a token-level one carries it.
+			var carried *RefreshHandedOverError
+			if errors.As(err, &carried) {
+				return nil, err // the fill already carries the rotated session
+			}
 			if req.RefreshToken != presented && !tokenLevelRealmErr(err) {
 				return nil, &RefreshHandedOverError{err: err, refreshToken: req.RefreshToken}
 			}
@@ -123,14 +131,25 @@ func (a *AuthClient) tokenLockedOnce(ctx ctxpkg.Context, req TokenRequest) (mr *
 		if oc == nil {
 			wctx, cancel := r.lockedWorkCtx(ctx)
 			res, terr := a.token(wctx, req)
+			if terr == nil && req.CustomClaims == nil {
+				// SPEC4_2_fill, under the lock so a loser adopts the filled mint.
+				res, terr = r.fillCustomClaims(wctx, res, req)
+			}
 			cancel()
 			oc = &refreshOutcome{Fingerprint: fp}
+			var carried *RefreshHandedOverError
 			if terr != nil {
 				oc.Err = toStoredErr(asRealmError(terr))
+				if errors.As(terr, &carried) {
+					oc.Mint = &MintResult{AccessToken: carried.accessToken, RefreshToken: carried.refreshToken}
+				}
 			} else {
 				oc.Mint = res
 			}
 			r.storeOutcome(ctx, key, oc) // errors too: a retry of a consumed token is a reuse
+			if carried != nil {
+				return nil, "", terr
+			}
 		}
 	} else if oc = r.waitOutcome(ctx, key); oc == nil {
 		if cerr := ctx.Err(); cerr != nil {
@@ -139,6 +158,14 @@ func (a *AuthClient) tokenLockedOnce(ctx ctxpkg.Context, req TokenRequest) (mr *
 		return nil, "", &RealmError{Code: ErrCodeServerError, Message: "refresh in progress", HTTPStatus: http.StatusServiceUnavailable}
 	}
 	if oc.Err != nil {
+		if oc.Mint != nil && oc.Mint.RefreshToken != "" {
+			// A failure AFTER the rotation (the fill): the session lives on in
+			// the carried token (SPEC4_2_rotate_handover).
+			if oc.Fingerprint == fp {
+				return nil, "", &RefreshHandedOverError{err: oc.Err.realmError(), refreshToken: oc.Mint.RefreshToken, accessToken: oc.Mint.AccessToken}
+			}
+			return nil, oc.Mint.RefreshToken, nil
+		}
 		if oc.Fingerprint == fp || tokenLevelErr(oc.Err) {
 			return nil, "", oc.Err.realmError()
 		}
@@ -204,10 +231,20 @@ func (e *RefreshSupersededError) MarshalJSON() ([]byte, error) {
 type RefreshHandedOverError struct {
 	err          error
 	refreshToken string
+	// accessToken is the access token of the mint that rotated refreshToken, set
+	// only by the customClaims fill (SPEC4_2_rotate_handover): it verifies but
+	// lacks the handler's claims. Empty for a plain hand-over hop. Redacted.
+	accessToken string
 }
 
 // RefreshToken returns the newest live refresh token; present it on the next call.
 func (e *RefreshHandedOverError) RefreshToken() string { return e.refreshToken }
+
+// AccessToken returns the first mint's access token when the error carries a
+// rotated session from the customClaims fill ("" otherwise). It is valid and
+// may serve the request in flight, but lacks the handler's claims: never cache
+// it as the fully claimed session (SPEC4_2_rotate_handover rule 4).
+func (e *RefreshHandedOverError) AccessToken() string { return e.accessToken }
 
 func (e *RefreshHandedOverError) Error() string { return e.err.Error() }
 
@@ -248,6 +285,9 @@ func tokenLevelRealmErr(err error) bool {
 
 func tokenOutcomeUsable(oc *refreshOutcome, fp, key string) bool {
 	if oc.Err != nil {
+		if oc.Mint != nil && oc.Mint.RefreshToken != "" {
+			return true // a post-rotation failure carrying the live session
+		}
 		return oc.Fingerprint == fp || tokenLevelErr(oc.Err)
 	}
 	if oc.Fingerprint == fp {

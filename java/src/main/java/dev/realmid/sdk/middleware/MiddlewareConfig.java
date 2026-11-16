@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Function;
 
 /** SPEC §10.2 configuration. */
 public final class MiddlewareConfig {
@@ -21,6 +22,8 @@ public final class MiddlewareConfig {
     final String mfaVerifyPath;
     /** SPEC 10.1 step 5a: the recovery-code route. NO default; null or empty = route off. */
     final String recoveryPath;
+    /** The end user's IP for X-On-Behalf-Of-IP on MFA verify/recovery (SPEC 10.1 steps 5, 5a); null = getRemoteAddr(). */
+    final Function<jakarta.servlet.http.HttpServletRequest, String> clientIp;
     final TokenDelivery tokenDelivery;
     final String cookieName;
     /**
@@ -63,6 +66,7 @@ public final class MiddlewareConfig {
         this.refreshPath = b.refreshPath;
         this.mfaVerifyPath = b.mfaVerifyPath;
         this.recoveryPath = b.recoveryPath;
+        this.clientIp = b.clientIp;
         this.tokenDelivery = b.tokenDelivery;
         this.cookieName = b.cookieName;
         this.cookieDomain = b.cookieDomain;
@@ -82,6 +86,8 @@ public final class MiddlewareConfig {
     public String mfaVerifyPath() { return mfaVerifyPath; }
     /** The recovery-code route, or null when it is off (the default). */
     public String recoveryPath() { return recoveryPath; }
+    /** The end-user IP hook, or null for the container's {@code getRemoteAddr()}. */
+    public Function<jakarta.servlet.http.HttpServletRequest, String> clientIp() { return clientIp; }
     public TokenDelivery tokenDelivery() { return tokenDelivery; }
     public String cookieName() { return cookieName; }
     public String cookieDomain() { return cookieDomain; }
@@ -99,6 +105,7 @@ public final class MiddlewareConfig {
         private String refreshPath = "/token";
         private String mfaVerifyPath = "/mfa/verify";
         private String recoveryPath;
+        private Function<jakarta.servlet.http.HttpServletRequest, String> clientIp;
         private TokenDelivery tokenDelivery = TokenDelivery.COOKIE;
         private String cookieName = "realmid_refresh";
         private String cookieDomain;
@@ -162,6 +169,13 @@ public final class MiddlewareConfig {
          * route it never asked for. Takes the same per-session lock as the MFA-verify route.
          */
         public Builder recoveryPath(String v) { this.recoveryPath = v; return this; }
+        /**
+         * The END USER's IP, forwarded as {@code X-On-Behalf-Of-IP} on the MFA verify and recovery
+         * calls (SPEC 10.1 steps 5, 5a) so the issuer's per-IP limiter counts the user, not this
+         * server's egress IP. Default {@code getRemoteAddr()}. Behind a proxy, supply it: the SDK
+         * never trusts {@code X-Forwarded-For} itself.
+         */
+        public Builder clientIp(Function<jakarta.servlet.http.HttpServletRequest, String> v) { this.clientIp = v; return this; }
         public Builder tokenDelivery(TokenDelivery v) { this.tokenDelivery = v; return this; }
         public Builder cookieName(String v) { this.cookieName = v; return this; }
         public Builder cookieDomain(String v) { this.cookieDomain = v; return this; }

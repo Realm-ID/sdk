@@ -729,7 +729,7 @@ func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, flow AuthF
 	}); err != nil {
 		return err
 	}
-	if a.realm.cfg.ProductRoles == nil && a.realm.cfg.Scopes == nil && s.AccessToken != "" {
+	if a.realm.cfg.ProductRoles == nil && a.realm.cfg.Scopes == nil && a.realm.cfg.CustomClaims == nil && s.AccessToken != "" {
 		return nil
 	}
 	roles, err := a.realm.resolveProductRoles(ctx, tenantID, s.User.ID)
@@ -747,11 +747,16 @@ func (a *AuthClient) mintProductRoles(ctx ctxpkg.Context, s *Session, flow AuthF
 	if err != nil {
 		return err
 	}
+	custom, err := a.realm.resolveCustomClaims(ctx, tenantID, s.User.ID)
+	if err != nil {
+		return err
+	}
 	mint, err := a.token(ctx, TokenRequest{
 		RefreshToken:    s.RefreshToken,
 		TenantID:        tenantID,
 		ProductRoles:    roles,
 		Scope:           scopes,
+		CustomClaims:    custom,
 		RolePermissions: rolePermissions,
 	})
 	if err != nil {

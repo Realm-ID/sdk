@@ -411,6 +411,13 @@ in the same repo.
 - [ ] `java/src/main/java/dev/realmid/sdk/integrations/IntegrationsClient.java` — `mintToken` still POSTs `grant_type=integration_installation` with an `rk_live_` key to `/auth/login`, which R34 removed; the replacement is the pass mint (`POST /integrations/installations/{id}/pass`, platform token, no actor) then the pass in `X-User-Token` to `POST /auth/token`, a two-call two-realm change; Go has the same gap (the `go/integrations.go` line under Go SDK only), so this is the java half (split-signing S7b)
 - [ ] `java/src/test/java/dev/realmid/sdk/FakeServer.java` — R44 login-echo shim answers an unstubbed user mint at /auth/token with the last login 200; replace with explicit /auth/token stubs in the ~20 legacy login tests (test-quality, accepted 2026-10-28)
 
+## Tracked privately
+
+Some items for this repo are tracked in a private tracker.
+
+- [ ] `ts/src/` — the public `globMatch` export is deprecated (S6 canonicalMatch replaces it); remove it in the next minor and drop it from the docs.
+- [ ] `java/src/main/java/dev/realmid/sdk/middleware/RealmFilter.java` — the ingress full-URI fallback (matching the context path in the raw URI) is kept for one release only; remove it in 0.63.0 (breaking for context-path deployments; note under `### Breaking`).
+
 ## Go SDK only
 
 Items that exist only in `go/`. They live here, not in `go/TODO.md`: a file
@@ -456,3 +463,4 @@ module hash and demands a version bump (see the note at the top of this file).
   survives revocation, and it looks fine until the day it does not.
 
 - [ ] `ts/src/rotation.ts` (`splitExponent`, :38-46) — d_ri is drawn from `[0, lambda)` with no zero redraw; SPEC §14.14 wants uniform `[1, lambda)` and a redraw on a zero half. Held back (a constant-time measurement is queued against that file); also expose the pure split so check 1 can run in ts.
+- [ ] `ts/src/auth.ts`, `java/src/main/java/dev/realmid/sdk/auth/MfaVerifyOtpRequest.java` — `mfaVerifyOtp` has no `onBehalfOfIp` (Go `MFAVerifyOTPRequest` does); a direct OTP-MFA verify from a partner server shares its per-IP bucket on the issuer.

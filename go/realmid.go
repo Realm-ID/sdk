@@ -141,6 +141,15 @@ type Config struct {
 	// per-call field never reaches the lane humans actually use.
 	Scopes ScopesHandler
 
+	// CustomClaims resolves the PARTNER's custom access-token claims for a
+	// principal in one org (SPEC §10.2) — the ONLY source of custom claims on a
+	// mint the SDK runs. The middleware refresh route REFUSES a browser body
+	// carrying `custom_claims` (400 custom_claims_not_accepted) and never
+	// forwards one. Optional; nil means no custom claims. See
+	// CustomClaimsHandler for the contract (side-effect free, retried, keys
+	// checked, a failure refuses the mint).
+	CustomClaims CustomClaimsHandler
+
 	// OnIdentityResolved runs once per derived-claims resolution, with the
 	// authenticated identity and the settled tenant, immediately BEFORE
 	// ProductRoles and Scopes are resolved.
@@ -269,7 +278,7 @@ type Realm struct {
 // version-by-version narrative this comment used to carry was removed in
 // the same change that added the check: duplicating release notes at the
 // declaration is what made the stale value look maintained.
-const Version = "0.77.0"
+const Version = "0.78.0"
 
 // NewRealm constructs a *Realm from cfg.
 func NewRealm(cfg Config) (*Realm, error) {

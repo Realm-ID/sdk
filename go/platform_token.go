@@ -285,6 +285,11 @@ func peekJWTIssuer(jwt string) (string, error) {
 	if err != nil {
 		return "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
 	}
+	// SPEC4_2_claim_fold rule 2: encoding/json binds by Unicode fold, so a
+	// fold-colliding payload is refused as "no issuer".
+	if ferr := checkClaimFold(raw); ferr != nil {
+		return "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload refused: " + ferr.Error()}
+	}
 	var c struct {
 		Iss string `json:"iss"`
 	}
@@ -306,6 +311,10 @@ func peekJWTUserFields(jwt string) (sub, email, name string, err error) {
 	raw, derr := base64.RawURLEncoding.DecodeString(parts[1])
 	if derr != nil {
 		return "", "", "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload not base64url"}
+	}
+	// SPEC4_2_claim_fold rule 2: a fold-colliding payload yields "no subject".
+	if ferr := checkClaimFold(raw); ferr != nil {
+		return "", "", "", &RealmError{Code: ErrCodeBadRequest, Message: "jwt: payload refused: " + ferr.Error()}
 	}
 	var c struct {
 		Sub   string `json:"sub"`

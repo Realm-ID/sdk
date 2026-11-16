@@ -44,6 +44,7 @@ import type { Logger } from "./logger.js";
 import { NOOP_LOGGER } from "./logger.js";
 import type { ProductRolesHandler } from "./product-roles.js";
 import type { ScopesHandler } from "./scopes-handler.js";
+import type { CustomClaimsHandler } from "./custom-claims.js";
 import type { IdentityResolvedHandler } from "./identity-resolved.js";
 import type { RevocationCache } from "./revocation.js";
 import { isMemorySessionStore, type SessionStateStore } from "./session-store.js";
@@ -165,6 +166,15 @@ export interface RealmConfig {
    * a config hook; that is a management resource.
    */
   scopes?: ScopesHandler;
+
+  /**
+   * SPEC §10.2 (owner ruling 2026-11-14, audit e-01) — resolves the custom claims
+   * minted onto the access token, SERVER-SIDE. The ONLY source of custom claims on
+   * an SDK-run mint: the middleware refuses a browser body carrying `custom_claims`
+   * (`400 custom_claims_not_accepted`). Unset = no custom claims. See
+   * {@link CustomClaimsHandler}.
+   */
+  customClaims?: CustomClaimsHandler;
 
   /**
    * The post-identity, pre-derived-claims hook (design doc:
@@ -437,6 +447,7 @@ export function createRealm(cfg: RealmConfig, internals?: RealmInternals): Realm
       cfg.scopes,
       cfg.onIdentityResolved,
       { tokens, verify: (t) => verifier.verify(t), now: nowMs, store: cfg.sessionStore, logger, split: internals?.split },
+      cfg.customClaims,
     );
     const handle: Realm = {
       realmId: cfg.realmId,

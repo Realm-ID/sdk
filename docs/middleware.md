@@ -23,6 +23,16 @@ If the path matches `exemptPaths` (glob list, default
 `["/health", "/public/*"]`), pass through. No auth header read, no
 verification, no claims attached.
 
+**How a path matches (go `0.78.0` · ts `0.65.0` · java `0.62.0`, UNRELEASED; SPEC §11.4.1).**
+`exemptPaths`, `mfaProtectedPaths` and scope rules share ONE matcher with no options: letters
+match in any ASCII case (`/Admin/users` matches `/admin/*`) and one trailing slash is ignored
+(`/billing/charge/` matches `/billing/charge`), because Express routes those spellings to the
+same handler. Nothing else is normalised. In Java the matched path is `getServletPath()` +
+`getPathInfo()` (no context path, no `;params`), and a request whose raw URI contains `%2F`,
+`%5C`, `%25`, `%2E` or a `.`/`..` segment is answered `400 invalid_path` before any rule runs.
+In Go, a request whose raw path contains `%2F`, `%5C` or `%25`, a literal `\`, or a `.`/`..`
+segment (encoded or not) gets the same `400`.
+
 Globbing is intentionally tiny: `*` matches one path segment, `**`
 matches any. No braces or alternation. If you need richer matching,
 do it before invoking the middleware.
@@ -44,8 +54,11 @@ to a `200` response with body
 that don't reject 4xx in the success path can still branch on
 `status`.
 
-Custom claims are **not** accepted on login. They belong on the
-access token; pass them on `auth.token` (refresh) instead.
+Custom claims are **not** accepted from the browser on login, MFA verify,
+recovery or refresh: a body carrying `custom_claims` / `customClaims` (any
+value) gets `400 custom_claims_not_accepted` before the issuer is called. The
+claims on the access token come from the server-side `customClaims(tenantId,
+userId)` handler configured on the realm (SPEC §10.2).
 
 ### 3. Logout route
 
@@ -60,7 +73,11 @@ If `method + path` matches `logoutPath` (default `POST /logout`):
 
 If `method + path` matches `refreshPath` (default `POST /token`):
 
-- Reads the refresh token (cookie or body) and `{ tenant_id, custom_claims? }` from the body.
+- Reads the refresh token (cookie or body) and `{ tenant_id }` from the body.
+- **Refuses a body that carries `custom_claims`** with `400 custom_claims_not_accepted`
+  (from go `0.78.0` · ts `0.65.0` · java `0.62.0`, UNRELEASED). Custom claims come only from
+  the `customClaims(tenantId, userId)` handler you configure on the realm, server-side
+  (SPEC §10.2). The middleware refuses custom claims in request bodies.
 - Calls `realm.auth.token(...)`.
 - Rotates the refresh token via cookie or body.
 - Returns the new access token.

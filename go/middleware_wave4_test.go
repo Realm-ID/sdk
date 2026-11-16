@@ -194,14 +194,15 @@ func TestSPEC10_1_4a_OutcomeIsStoredEvenWhenTheMintBoundExpired(t *testing.T) {
 	}
 }
 
-func TestSPEC10_1_4a_CamelCaseCustomClaimsAreForwarded(t *testing.T) {
+// SPEC10_1_4_no_client_claims: the camelCase key is refused and never reaches
+// the issuer.
+func TestSPEC10_1_4a_CamelCaseCustomClaimsAreRefusedNotForwarded(t *testing.T) {
 	e := newRFEnv(t, rfOpts{})
 	var got map[string]any
 	e.onToken = func(body map[string]any) { got = body }
-	e.post("/token", "rt-old", `{"tenant_id":"t1","customClaims":{"k":"v"}}`)
-	cc, _ := got["custom_claims"].(map[string]any)
-	if cc["k"] != "v" {
-		t.Fatalf("customClaims must reach the issuer as custom_claims: %v", got)
+	w := e.post("/token", "rt-old", `{"tenant_id":"t1","customClaims":{"k":"v"}}`)
+	if w.Code != 400 || got != nil {
+		t.Fatalf("customClaims must be refused, not forwarded: %d %v", w.Code, got)
 	}
 }
 

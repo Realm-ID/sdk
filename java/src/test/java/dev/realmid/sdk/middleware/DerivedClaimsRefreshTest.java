@@ -239,7 +239,7 @@ class DerivedClaimsRefreshTest {
 
         RealmFilterTest.FakeRes res = driveRefresh(realm);
 
-        assertEquals(500, res.status,
+        assertEquals(503, res.status,
                 "a failing scopes handler must refuse the refresh, not mint without the claim");
         Map<?, ?> body = FakeServer.M.readValue(res.bytes(), Map.class);
         assertEquals("server_error", ((Map<?, ?>) body.get("error")).get("code"));

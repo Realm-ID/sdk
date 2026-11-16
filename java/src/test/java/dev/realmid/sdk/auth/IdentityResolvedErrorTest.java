@@ -117,8 +117,11 @@ class IdentityResolvedErrorTest {
         TokenResponse minted = new TokenResponse("not-a-jwt", "rtok-rotated", 900, 0, 0,
                 "user", "t1", null);
 
-        assertThrows(IdentityResolvedException.class,
+        // SPEC4_2_carry_all rule 1: an unreadable sub after the first mint carries the rotated session.
+        RefreshHandedOverException ho = assertThrows(RefreshHandedOverException.class,
                 () -> realm.auth().enrichRefreshMint(minted, "t1"));
+        assertEquals("rtok-rotated", ho.refreshToken());
+        assertTrue(ho.getCause() instanceof IdentityResolvedException);
     }
 
     /** Unchanged for everyone else: no hook configured still degrades silently. */

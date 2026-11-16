@@ -13,6 +13,7 @@ import dev.realmid.sdk.auth.LogoutRequest;
 import dev.realmid.sdk.auth.LoginMintException;
 import dev.realmid.sdk.auth.MFAVerifyRequest;
 import dev.realmid.sdk.auth.RedeemRecoveryCodeRequest;
+import dev.realmid.sdk.auth.RefreshHandedOverException;
 import dev.realmid.sdk.session.RefreshOutcome;
 import dev.realmid.sdk.auth.Session;
 import dev.realmid.sdk.auth.TokenRequest;
@@ -81,7 +82,13 @@ public class RealmFilter implements Filter {
     /** Public entry point so non-servlet wrappers can reuse the routing logic. */
     public void handle(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws IOException, ServletException {
-        String path = req.getRequestURI();
+        // SPEC11_4_1_source (java, audit e-03): match the path the router routes on, and refuse a
+        // non-canonical raw path BEFORE any exemption or rule is consulted.
+        String path = GlobMatcher.requestPath(req);
+        if (path == null) {
+            sendError(res, 400, "invalid_path", "request path is not canonical", null);
+            return;
+        }
         String method = req.getMethod() == null ? "GET" : req.getMethod().toUpperCase();
 
         // 1. Exempt path?
@@ -93,13 +100,13 @@ public class RealmFilter implements Filter {
         }
 
         // 2-5. Auth ingress.
-        if ("POST".equals(method) && path.equals(cfg.loginPath)) { handleLogin(req, res); return; }
-        if ("POST".equals(method) && path.equals(cfg.logoutPath)) { handleLogout(req, res); return; }
-        if ("POST".equals(method) && path.equals(cfg.refreshPath)) { handleRefresh(req, res); return; }
-        if ("POST".equals(method) && path.equals(cfg.mfaVerifyPath)) { handleMfaVerify(req, res); return; }
+        if ("POST".equals(method) && ingressMatch(req, path, "loginPath", cfg.loginPath)) { handleLogin(req, res); return; }
+        if ("POST".equals(method) && ingressMatch(req, path, "logoutPath", cfg.logoutPath)) { handleLogout(req, res); return; }
+        if ("POST".equals(method) && ingressMatch(req, path, "refreshPath", cfg.refreshPath)) { handleRefresh(req, res); return; }
+        if ("POST".equals(method) && ingressMatch(req, path, "mfaVerifyPath", cfg.mfaVerifyPath)) { handleMfaVerify(req, res); return; }
         // Opt-in (SPEC 10.1 step 5a): an unset recoveryPath matches nothing, not the empty path.
         if ("POST".equals(method) && cfg.recoveryPath != null && !cfg.recoveryPath.isEmpty()
-                && path.equals(cfg.recoveryPath)) { handleMfaRecovery(req, res); return; }
+                && ingressMatch(req, path, "recoveryPath", cfg.recoveryPath)) { handleMfaRecovery(req, res); return; }
 
         // 6. Bearer fall-through.
         String auth = req.getHeader("Authorization");
@@ -266,6 +273,7 @@ public class RealmFilter implements Filter {
 
     private void handleLogin(HttpServletRequest req, HttpServletResponse res) throws IOException {
         Map<String, Object> body = readJson(req);
+        if (refuseClientClaims(body, res)) return;
         String method = String.valueOf(body.getOrDefault("method", "firebase"));
         String providerToken = String.valueOf(body.getOrDefault("provider_token",
                 body.getOrDefault("providerToken", "")));
@@ -351,17 +359,28 @@ public class RealmFilter implements Filter {
     private static final long MINT_BOUND_SECONDS = 10;
     private static final String MFA_FINGERPRINT = "mfa-verify";
 
-    private String fingerprint(String tenantId, Map<String, Object> custom) {
-        try {
-            return tenantId + "|" + (custom == null ? "" : canon.writeValueAsString(custom));
-        } catch (IOException e) {
-            return tenantId + "|" + custom;
-        }
+    /** SPEC 10.1 step 4a: the fingerprint is the tenant alone; a request carries no custom claims (step 4). */
+    private String fingerprint(String tenantId) {
+        return tenantId + "|";
+    }
+
+    /**
+     * SPEC10_1_4_no_client_claims: login (step 2), refresh (4), MFA verify (5) and recovery (5a)
+     * refuse a body naming custom claims, any value; answered before the issuer call and the lock.
+     */
+    private boolean refuseClientClaims(Map<String, Object> body, HttpServletResponse res) throws IOException {
+        if (!body.containsKey("custom_claims") && !body.containsKey("customClaims")) return false;
+        sendError(res, 400, "custom_claims_not_accepted",
+                "custom claims are set by the server's customClaims handler, not by the client", null);
+        return true;
     }
 
     private void handleRefresh(HttpServletRequest req, HttpServletResponse res) throws IOException {
         List<String> candidates = readRefreshCandidates(req);
         Map<String, Object> body = readJson(req);
+        // SPEC 10.1 step 4 (audit e-01): a client never names custom claims, any value. Refused
+        // before the lock and the issuer call, so the refresh token is not consumed.
+        if (refuseClientClaims(body, res)) return;
         if (cfg.tokenDelivery == TokenDelivery.BODY) {
             Object br = body.get("refresh_token");
             if (br == null) br = body.get("refreshToken");
@@ -379,10 +398,7 @@ public class RealmFilter implements Filter {
             return;
         }
         String tenantId = String.valueOf(tenantObj);
-        @SuppressWarnings("unchecked")
-        Map<String, Object> custom = (Map<String, Object>) (body.get("custom_claims") != null
-                ? body.get("custom_claims") : body.get("customClaims"));
-        String fp = fingerprint(tenantId, custom);
+        String fp = fingerprint(tenantId);
         String lockKey = SessionKeys.lockKey(refresh);
         String outKey = SessionKeys.outcomeKey(refresh);
         SessionStateStore store = cfg.realm.sessionStore();
@@ -421,7 +437,7 @@ public class RealmFilter implements Filter {
                 respondToOutcome(res, prior, fp);
                 return;
             }
-            RefreshOutcome o = mintBounded(candidates, tenantId, custom, fp);
+            RefreshOutcome o = mintBounded(candidates, tenantId, fp);
             try {
                 // Detached from the request thread: a hang-up must not drop the outcome of a
                 // rotation that already happened (Go: a fresh context).
@@ -446,15 +462,15 @@ public class RealmFilter implements Filter {
      * (a hang-up must not abandon a rotation in flight). A hook cannot be cancelled, so the budget
      * is checked before each issuer call.
      */
-    private RefreshOutcome mintBounded(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
+    private RefreshOutcome mintBounded(List<String> candidates, String tenantId, String fp) {
         try {
-            return Detached.bounded(Duration.ofSeconds(MINT_BOUND_SECONDS), () -> mint(candidates, tenantId, custom, fp));
+            return Detached.bounded(Duration.ofSeconds(MINT_BOUND_SECONDS), () -> mint(candidates, tenantId, fp));
         } catch (RuntimeException e) {
             return RefreshOutcome.error(fp, 500, ErrorCode.SERVER_ERROR.wire(), String.valueOf(e.getMessage()), null);
         }
     }
 
-    private RefreshOutcome mint(List<String> candidates, String tenantId, Map<String, Object> custom, String fp) {
+    private RefreshOutcome mint(List<String> candidates, String tenantId, String fp) {
         // Try each candidate until one mints. With the ordinary single cookie
         // this is exactly the old behaviour, including which error surfaces;
         // with a shadowed jar it is the difference between a working session
@@ -465,7 +481,7 @@ public class RealmFilter implements Filter {
         RealmException firstErr = null;
         for (String candidate : candidates) {
             try {
-                t = cfg.realm.auth().tokenUnlocked(new TokenRequest(candidate, tenantId, custom, null));
+                t = cfg.realm.auth().tokenUnlocked(new TokenRequest(candidate, tenantId, null, null));
                 minted = candidate;
                 break;
             } catch (RealmException e) {
@@ -483,6 +499,13 @@ public class RealmFilter implements Filter {
         // as "denied".
         try {
             t = cfg.realm.auth().enrichRefreshMint(t, tenantId);
+        } catch (RefreshHandedOverException e) {
+            // SPEC4_2_rotate_handover rule 5: the first mint rotated the token, so the stored
+            // outcome carries the rotated session and the response hands it to the browser.
+            // A 401 cause is answered as 503 server_error (example: second mint 401 refresh_invalid).
+            String carriedCode = e.getHttpStatus() == 401 ? ErrorCode.SERVER_ERROR.wire() : e.getCode().wire();
+            return RefreshOutcome.errorCarrying(fp, carriedStatus(e), carriedCode, e.getMessage(),
+                    e.getDetails(), e.accessToken(), e.refreshToken(), minted);
         } catch (RealmException e) {
             return RefreshOutcome.error(fp, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
@@ -531,7 +554,11 @@ public class RealmFilter implements Filter {
 
     /** Same fingerprint: the winner's response. Different: its error, or a 503 retry carrying its rotated token. */
     private void respondToOutcome(HttpServletResponse res, RefreshOutcome o, String myFp) throws IOException {
-        if (!o.ok() || myFp.equals(o.fp())) {
+        if (!o.carriesSession() && (!o.ok() || myFp.equals(o.fp()))) {
+            respond(res, o);
+            return;
+        }
+        if (o.carriesSession() && myFp.equals(o.fp())) {
             respond(res, o);
             return;
         }
@@ -549,6 +576,21 @@ public class RealmFilter implements Filter {
     }
 
     private void respond(HttpServletResponse res, RefreshOutcome o) throws IOException {
+        if (o.carriesSession()) {
+            // SPEC4_2_rotate_handover rule 5: answer the error AND hand over the rotated token,
+            // exactly as the step 4a 503 retry does (cookie, or refresh_token in the body).
+            Map<String, Object> sib = new LinkedHashMap<>();
+            if (o.details() != null) sib.putAll(o.details());
+            // SPEC.md:1447-1449: the carried 503 body says retry: true.
+            if (o.status() == 503) sib.put("retry", Boolean.TRUE);
+            if (cfg.tokenDelivery == TokenDelivery.BODY) {
+                sib.put("refresh_token", o.refreshToken());
+            } else {
+                setRefreshCookie(res, o.refreshToken());
+            }
+            sendError(res, o.status(), o.code(), o.message(), sib);
+            return;
+        }
         if (!o.ok()) {
             sendError(res, o.status(), o.code(), o.message(), o.details());
             return;
@@ -584,6 +626,7 @@ public class RealmFilter implements Filter {
      */
     private void handleMfaLocked(HttpServletRequest req, HttpServletResponse res, boolean recovery) throws IOException {
         Map<String, Object> body = readJson(req);
+        if (refuseClientClaims(body, res)) return;
         Object ct = body.get("challenge_token");
         if (ct == null && recovery) ct = body.get("mfa_challenge_token");
         if (ct == null) ct = body.get("challengeToken");
@@ -595,6 +638,8 @@ public class RealmFilter implements Filter {
             if (br == null) br = body.get("refreshToken");
             if (br instanceof String s && !s.isEmpty()) candidates = List.of(s);
         }
+        // The END USER's IP, so the issuer's per-IP limiter does not bucket every user as this server.
+        final String ip = cfg.clientIp != null ? cfg.clientIp.apply(req) : req.getRemoteAddr();
         SessionStateStore store = cfg.realm.sessionStore();
         Runnable release = null;
         String first = candidates.isEmpty() ? null : candidates.get(0);
@@ -615,8 +660,8 @@ public class RealmFilter implements Filter {
                 // thread (a hang-up must not abandon it before the outcome is stored), under the
                 // same 10 s budget as refresh. Partner hooks still run on this thread.
                 s = Detached.bounded(Duration.ofSeconds(MINT_BOUND_SECONDS), () -> recovery
-                        ? cfg.realm.auth().redeemRecoveryCode(RedeemRecoveryCodeRequest.of(challenge, code))
-                        : cfg.realm.auth().mfaVerify(MFAVerifyRequest.of(challenge, code)));
+                        ? cfg.realm.auth().redeemRecoveryCode(RedeemRecoveryCodeRequest.of(challenge, code).withOnBehalfOfIp(ip))
+                        : cfg.realm.auth().mfaVerify(MFAVerifyRequest.of(challenge, code).withOnBehalfOfIp(ip)));
             } catch (LoginMintException e) {
                 // The issuer rotated, then the derived-claims mint failed: the rotation already
                 // happened, so a waiting refresh must adopt the new token, and the client keeps it.
@@ -824,6 +869,13 @@ public class RealmFilter implements Filter {
      * sdk/go {@code relayStatus}. {@code user_suspended} is relayed as-is and
      * never tears the session down.
      */
+    /** SPEC4_2_carry_all rule 2: a carried failure never answers 401; no issuer status means 503. */
+    private static int carriedStatus(RealmException e) {
+        if (e.getCode() == ErrorCode.ESCORT_SUSPENDED) return 503;
+        int st = e.getHttpStatus();
+        return st <= 0 || st == 401 ? 503 : st;
+    }
+
     private static int relayStatus(RealmException e) {
         if (e.getCode() == ErrorCode.ESCORT_SUSPENDED) return 503;
         return e.getHttpStatus() > 0 ? e.getHttpStatus() : 500;
@@ -843,6 +895,37 @@ public class RealmFilter implements Filter {
         }
         sendJson(res, status, body);
     }
+
+    /**
+     * SPEC11_4_1_ingress: an ingress route matches on the context-relative servlet path; for ONE
+     * release (java 0.62.0, removed in the next minor) the old full {@code getRequestURI()} form
+     * (query removed, no folding) also matches, with a deprecation warning once per route.
+     */
+    private boolean ingressMatch(HttpServletRequest req, String path, String name, String configured) {
+        if (configured == null) return false;
+        if (path.equals(configured)) return true;
+        String uri = req.getRequestURI();
+        if (uri == null) return false;
+        int q = uri.indexOf('?');
+        if (q >= 0) uri = uri.substring(0, q);
+        if (!uri.equals(configured)) return false;
+        if (INGRESS_DEPRECATED.add(name)) {
+            var logger = cfg.realm.logger();
+            if (logger != null && logger.isLoggable(Level.WARNING)) {
+                logger.log(Level.WARNING, name + " '" + configured + "' matched the full request URI; use '"
+                        + path + "' (context-path relative); the full-URI form is removed in the next minor");
+            }
+        }
+        return true;
+    }
+
+    // SPEC11_4_1_ingress: routes that matched only through the old full-request-URI form (one release).
+    private static final java.util.Set<String> INGRESS_DEPRECATED =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    static java.util.Set<String> ingressDeprecationsForTest() { return INGRESS_DEPRECATED; }
+
+    static void resetIngressDeprecationsForTest() { INGRESS_DEPRECATED.clear(); }
 
     private void warnAuth(HttpServletRequest req, String msg) {
         var logger = cfg.realm.logger();

@@ -4,6 +4,14 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.65.0 — browsers can no longer supply custom claims, one canonical path matcher, every post-rotation failure carries the rotated token (SPEC §4.2, §10.1, §10.2, §11.4.1) (2026-11-14)
+
+Combined release with go `0.78.0` and java `0.62.0` and issuer `v0.151.0`. The full entry, with the **Breaking** list, is in the root `../CHANGELOG.md`; the ts-specific points:
+- **Breaking:** `middleware`'s refresh, login, MFA-verify and recovery routes answer `400 custom_claims_not_accepted` to a body carrying `custom_claims` / `customClaims`; supply claims through the new server-side `customClaims(tenantId, userId)` handler (`SPEC10_2_custom_claims`). `verify()` refuses a token with a non-ASCII or fold-colliding claim key (`malformed`). `exemptPaths`, `mfaProtectedPaths` and scope paths match ASCII case-insensitively and ignore one trailing slash. Every failure after the first mint rotated the refresh token carries the rotated session and answers `503` (never `401`) on the refresh route, with `retry: true`; a carried second-mint `401 refresh_invalid` answers `503 server_error`.
+- Fixed: the custom-claims fill carries the rotated session when the handler fails.
+- Added: `canonicalMatch` is exported.
+- **Deprecated:** `globMatch`; use `canonicalMatch`. It stays exported and unchanged.
+
 ## 0.64.0 — `RealmError.mfaChallenge()` and a stale-MFA 412 for an unenrolled user is `mfa_registration_required` (SPEC §3.2, §10.4 step 4) (2026-11-13)
 
 New `RealmError.mfaChallenge()` returns `{ mfaChallengeToken, methods }` from a 412's details (`""` / `[]` when absent or mistyped; never throws). `middleware` reads through it. Additive. The relay below (formerly 0.63.1) was never published and ships here.

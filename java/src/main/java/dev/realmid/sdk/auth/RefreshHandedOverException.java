@@ -22,11 +22,26 @@ public final class RefreshHandedOverException extends RealmException {
 
     private final transient String refreshToken;
 
+    /** The access token the first mint returned (SPEC4_2_rotate_handover rule 2); null when none. */
+    private final transient String accessToken;
+
     public RefreshHandedOverException(Throwable original, String refreshToken) {
+        this(original, refreshToken, null);
+    }
+
+    /**
+     * @param accessToken the first mint's access token, valid but lacking the handler's claims; it
+     *                    MUST NOT be cached or treated as the fully claimed session (rule 4)
+     */
+    public RefreshHandedOverException(Throwable original, String refreshToken, String accessToken) {
         super(codeOf(original), original.getMessage(), statusOf(original), detailsOf(original),
                 original, retryAfterOf(original));
         this.refreshToken = refreshToken;
+        this.accessToken = accessToken;
     }
+
+    /** The access token the first mint returned, or null where a hand-over hop never had one. */
+    public String accessToken() { return accessToken; }
 
     private static ErrorCode codeOf(Throwable t) {
         return t instanceof RealmException r ? r.getCode() : ErrorCode.SERVER_ERROR;

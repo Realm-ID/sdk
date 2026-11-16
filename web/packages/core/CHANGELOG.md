@@ -14,6 +14,10 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.13.1 — keep the newest carried refresh token from any `/token` error reply (SPEC §4.2 `SPEC4_2_carry_all_web`) (2026-11-16)
+
+- Fix: in body mode the token manager now keeps the newest refresh token carried by ANY `/token` error reply (a second `503 retry:true`, or a relayed `400`/`403`/`409`) and presents it on the next refresh, instead of only the first `503`'s. A relayed `400`/`403`/`409` is kept and never retried; the single retry still follows only a `503 retry:true`. A success, a lost session, sign-out or an adopted sibling result clears it. Held in the receiving tab's memory only, not posted to other tabs.
+
 ## 0.13.0 — `realm.device.*` (SPEC §15.8) (2026-11-03)
 
 - `realm.device.inspect/approve/deny/signOut/completeStepUp`; paths from four new `Endpoints` keys.

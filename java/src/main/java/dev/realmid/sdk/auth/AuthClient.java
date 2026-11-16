@@ -38,6 +38,11 @@ public final class AuthClient {
      * resolve. null means the seam is simply not consulted.
      */
     private final IdentityResolvedHandler onIdentityResolved;
+    /** SPEC 10.2 (audit e-01): the ONLY source of custom claims on an SDK-run mint. null = none. */
+    private CustomClaimsHandler customClaims;
+
+    /** Wired by {@code Realm}; partners configure it through {@code Realm.builder().customClaims(...)}. */
+    public void setCustomClaimsHandler(CustomClaimsHandler h) { this.customClaims = h; }
     /** ADR-041: where logout pushes the access token's jti. Null → no push. */
     private dev.realmid.sdk.revocation.RevocationCache revocation;
     /** SPEC 6.7 / 10.1 step 3a: where logout records the revoked session. Null on a bare AuthClient. */
@@ -354,8 +359,10 @@ public final class AuthClient {
         // the mirror of the bug this whole seam exists to close, and would be
         // found the same way: by a partner, in production.
         java.util.List<String> grantedScopes = ScopeClaims.resolve(scopes, tenantId, userId);
+        // SPEC 10.2: the handler is the only source of custom claims on this mint too.
+        Map<String, Object> custom = CustomClaims.resolve(customClaims, tenantId, userId);
         TokenResponse mint = tokenUnlocked(new TokenRequest(
-                session.refreshToken(), tenantId, null, origin, rolePermissions,
+                session.refreshToken(), tenantId, custom, origin, rolePermissions,
                 grantedScopes, roles));
         return session.withMint(mint, tenantId);
     }
@@ -465,7 +472,7 @@ public final class AuthClient {
         // HERE too, alongside the two resolvers — a hook-only consumer must
         // fire on refresh exactly as a resolver-only one does, or it would
         // silently never see a refresh-lane (user, tenant) pair at all.
-        if (productRoles == null && scopes == null && onIdentityResolved == null) return minted;
+        if (productRoles == null && scopes == null && onIdentityResolved == null && customClaims == null) return minted;
         if (minted == null
                 || minted.refreshToken() == null || minted.refreshToken().isEmpty()) {
             // Nothing to re-mint against. A credential-bootstrapped session gets
@@ -478,8 +485,27 @@ public final class AuthClient {
         // tenant while the token is minted for another is a silent wrong answer.
         String tenant = minted.tenantId() != null && !minted.tenantId().isEmpty()
                 ? minted.tenantId() : tenantId;
+        // SPEC4_2_carry_all rule 1: the first mint rotated the refresh token, so EVERY later failure
+        // (hook refusal, productRoles, scopes, customClaims, unreadable sub, second mint of any
+        // status, 401 included) carries the rotated session.
+        try {
+            return enrichRotated(minted, tenant);
+        } catch (RuntimeException e) {
+            throw carrySession(e, minted);
+        }
+    }
+
+    private TokenResponse enrichRotated(TokenResponse minted, String tenant) {
         JwtPeek.UserFields uf = JwtPeek.userFields(minted.accessToken());
         String userId = uf.sub();
+        if (userId == null && customClaims != null) {
+            // SPEC4_2_rotate_handover decision (c): the handler needs the subject; never return a
+            // token silently lacking the partner's claims. Refuse with the handler error type and
+            // carry the rotated session.
+            throw carrySession(new CustomClaimsException(tenant, null, 0,
+                    new IllegalStateException("customClaims: could not read the subject from the minted access token")),
+                    minted);
+        }
         if (userId == null) {
             // Deliberately NOT an error for a resolver-only consumer. The peek
             // is a convenience over a token the issuer signed; if its shape
@@ -503,12 +529,15 @@ public final class AuthClient {
         // token the issuer just signed and handed back.
         fireIdentityResolved(AuthFlow.REFRESH, tenant, userId, "", uf.email(), uf.name());
 
-        if (productRoles == null && scopes == null) return minted;
+        if (productRoles == null && scopes == null && customClaims == null) return minted;
 
         java.util.List<String> roles = ProductRoles.resolve(productRoles, tenant, userId);
+        // SPEC 10.2 (audit e-01): the handler, never request data, is the source of custom claims.
+        Map<String, Object> custom = resolveCarrying(minted, tenant, userId);
         java.util.List<String> grantedScopes = ScopeClaims.resolve(scopes, tenant, userId);
         boolean nothingToCarry = (roles == null || roles.isEmpty())
-                && (grantedScopes == null || grantedScopes.isEmpty());
+                && (grantedScopes == null || grantedScopes.isEmpty())
+                && custom == null;
         if (nothingToCarry) {
             // Both empty means both claims would be omitted, so the re-mint could
             // only reproduce the token we are already holding. Skipping it also
@@ -519,8 +548,55 @@ public final class AuthClient {
 
         // Re-mint against the ROTATED refresh token. The first mint already
         // spent the one the caller presented; re-using it would fail as a replay.
-        return tokenUnlocked(new TokenRequest(minted.refreshToken(), tenant, null, null,
-                null, grantedScopes, roles));
+        try {
+            return tokenUnlocked(new TokenRequest(minted.refreshToken(), tenant, custom, null,
+                    null, grantedScopes, roles));
+        } catch (RuntimeException e) {
+            // SPEC4_2_rotate_handover rule 1: the first mint rotated the token; a refused or failed
+            // second mint must not drop it.
+            throw carrySession(e, minted);
+        }
+    }
+
+    /** The §10.2 handler's output; its failure after a rotation carries the rotated session (rule 1). */
+    private Map<String, Object> resolveCarrying(TokenResponse first, String tenant, String userId) {
+        try {
+            return CustomClaims.resolve(customClaims, tenant, userId);
+        } catch (CustomClaimsException | CustomClaimKeyException e) {
+            throw carrySession(e, first);
+        }
+    }
+
+    /** Wraps {@code e} in the carrier holding the first mint's rotated refresh token and access token. */
+    private static RefreshHandedOverException carrySession(RuntimeException e, TokenResponse first) {
+        if (e instanceof RefreshHandedOverException ho) return ho;
+        return new RefreshHandedOverException(e, first.refreshToken(), first.accessToken());
+    }
+
+    /**
+     * SPEC4_2_fill: a direct {@link #token} call that omits customClaims (null) with a handler
+     * configured is mint, read sub, handler, re-mint on the ROTATED refresh token. An explicit map,
+     * even empty, is sent as given; a tokenless rotation is returned as minted.
+     */
+    private TokenResponse mintAndFill(TokenRequest req) {
+        TokenResponse first = tokenUnlocked(req);
+        if (customClaims == null || req.customClaims() != null) return first;
+        if (first == null || first.refreshToken() == null || first.refreshToken().isEmpty()) return first;
+        String tenant = first.tenantId() != null && !first.tenantId().isEmpty() ? first.tenantId() : req.tenantId();
+        String userId = JwtPeek.userFields(first.accessToken()).sub();
+        if (userId == null) {
+            throw carrySession(new CustomClaimsException(tenant, null, 0,
+                    new IllegalStateException("customClaims: could not read the subject from the minted access token")),
+                    first);
+        }
+        Map<String, Object> custom = resolveCarrying(first, tenant, userId);
+        if (custom == null || custom.isEmpty()) return first;
+        try {
+            return tokenUnlocked(new TokenRequest(first.refreshToken(), tenant, custom, req.origin(),
+                    req.rolePermissions(), req.scope(), req.productRoles()));
+        } catch (RuntimeException e) {
+            throw carrySession(e, first);
+        }
     }
 
     /** How many times {@link #token} follows a rotated token handed over by a winner whose request differed. */
@@ -538,7 +614,7 @@ public final class AuthClient {
      */
     public TokenResponse token(TokenRequest req) {
         if (sessionStore == null || req.refreshToken() == null || req.refreshToken().isEmpty()) {
-            return tokenUnlocked(req);
+            return mintAndFill(req);
         }
         // A bad request never spends (and so never rotates away) the token: refuse it before the lock.
         Scopes.wireValue(req.scope());
@@ -592,6 +668,7 @@ public final class AuthClient {
     }
 
     private static boolean tokenOutcomeUsable(dev.realmid.sdk.session.RefreshOutcome oc, String fp, String key) {
+        if (oc.carriesSession()) return true;
         if (!oc.ok()) return fp.equals(oc.fp()) || tokenLevel(oc);
         if (fp.equals(oc.fp())) return true;
         return oc.refreshToken() != null && !oc.refreshToken().isEmpty() && !oc.refreshToken().equals(key);
@@ -617,6 +694,7 @@ public final class AuthClient {
         String fp = tokenFingerprint(req);
         dev.realmid.sdk.session.RefreshOutcome oc;
         dev.realmid.sdk.session.SessionStateStore.RefreshLock lock;
+        RefreshHandedOverException winnerErr = null;
         if (Thread.currentThread().isInterrupted()) {
             throw new RealmException(ErrorCode.SERVER_ERROR, "cancelled before the session lock", 503, null);
         }
@@ -633,7 +711,14 @@ public final class AuthClient {
                 if (oc == null) {
                     try {
                         oc = dev.realmid.sdk.session.RefreshOutcome.success(fp,
-                                dev.realmid.sdk.session.Detached.call(() -> tokenUnlocked(req), WORK_BOUND), key);
+                                dev.realmid.sdk.session.Detached.call(() -> mintAndFill(req), WORK_BOUND), key);
+                    } catch (RefreshHandedOverException e) {
+                        // SPEC4_2_rotate_handover: store the rotated session with the error, and
+                        // rethrow this very exception to the winner (its cause is the handler's).
+                        winnerErr = e;
+                        oc = dev.realmid.sdk.session.RefreshOutcome.errorCarrying(fp,
+                                e.getHttpStatus() > 0 ? e.getHttpStatus() : 500, e.getCode().wire(),
+                                e.getMessage(), e.getDetails(), e.accessToken(), e.refreshToken(), key);
                     } catch (RealmException e) {
                         oc = dev.realmid.sdk.session.RefreshOutcome.error(fp, e.getHttpStatus(),
                                 e.getCode().wire(), e.getMessage(), e.getDetails());
@@ -678,6 +763,19 @@ public final class AuthClient {
             if (oc == null) {
                 throw new RealmException(ErrorCode.SERVER_ERROR, "refresh in progress", 503, null);
             }
+        }
+        if (winnerErr != null) throw winnerErr;
+        if (oc.carriesSession()) {
+            // SPEC4_2_rotate_handover: a stored failure that carries the rotated session. The same
+            // request gets the error WITH the token; another request retries on the live token.
+            if (fp.equals(oc.fp())) {
+                ErrorCode code = ErrorCode.fromWire(oc.code());
+                throw new RefreshHandedOverException(new RealmException(
+                        code == null ? ErrorCode.SERVER_ERROR : code, oc.message(), oc.status(), oc.details()),
+                        oc.refreshToken(), oc.accessToken());
+            }
+            next[0] = oc.refreshToken();
+            return null;
         }
         if (!oc.ok()) {
             if (fp.equals(oc.fp()) || tokenLevel(oc)) {
@@ -816,6 +914,7 @@ public final class AuthClient {
         body.put("code", req.code());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/recovery").body(body);
         attachOrigin(r, req.origin());
+        if (req.onBehalfOfIp() != null && !req.onBehalfOfIp().isEmpty()) r.header("x-on-behalf-of-ip", req.onBehalfOfIp());
         Session session = loginSession(issuer(r));
         return finishMfaSession(session, req.origin(), AuthFlow.MFA_RECOVERY);
     }
@@ -844,6 +943,7 @@ public final class AuthClient {
         body.put("method", req.method() == null ? "totp" : req.method());
         HttpTransport.Request r = HttpTransport.Request.of("POST", "/auth/mfa/verify").body(body);
         attachOrigin(r, req.origin());
+        if (req.onBehalfOfIp() != null && !req.onBehalfOfIp().isEmpty()) r.header("x-on-behalf-of-ip", req.onBehalfOfIp());
         JsonNode raw = issuer(r);
         Session session = loginSession(raw);
         return finishMfaSession(session, req.origin(), AuthFlow.MFA_VERIFY);

@@ -327,14 +327,21 @@ func TestSuspendedCodes_PartnerHookRefusalIsNotRelayedButKeepsPriorSession(t *te
 	for _, path := range []string{"/login", "/mfa/verify", "/mfa/recovery", "/token"} {
 		t.Run(path, func(t *testing.T) {
 			w := driveWith(hookHarness(t, ""), path, true, mfaReqBody)
-			if w.Code != 401 || !strings.Contains(w.Body.String(), `"code":"server_error"`) {
-				t.Fatalf("status %d body %s, want 401 server_error", w.Code, w.Body.String())
+			// SPEC4_2_carry_all rule 1 (supersedes the 2026-10-12 "/token writes no
+			// cookie" assertion): a hook refusal after rotation is carried, so the
+			// refresh route answers a 503 hand-over; /login (no rotation) stays 401.
+			wantStatus := 401
+			if path == "/token" {
+				wantStatus = 503
+			}
+			if w.Code != wantStatus || !strings.Contains(w.Body.String(), `"code":"server_error"`) {
+				t.Fatalf("status %d body %s, want %d server_error", w.Code, w.Body.String(), wantStatus)
 			}
 			if strings.Contains(w.Body.String(), "leak") || strings.Contains(w.Body.String(), `"code":"forbidden"`) {
 				t.Errorf("partner hook internals leaked to the SPA: %s", w.Body.String())
 			}
 			c, ok := refreshCookie(w)
-			if strings.HasPrefix(path, "/mfa") {
+			if strings.HasPrefix(path, "/mfa") || path == "/token" {
 				if !ok || c.Value != "rt-rotated" {
 					t.Errorf("prior session + hook refusal: cookie = %+v (present %v), want rotated rt-rotated", c, ok)
 				}

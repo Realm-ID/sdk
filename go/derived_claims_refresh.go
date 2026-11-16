@@ -49,12 +49,24 @@ import (
 // store into an authorization outage that our own logs record as a clean 200.
 // The same rule ProductRolesError already states, and the same rule the issuer
 // applies to an undelivered OTP.
+//
+// Every failure of a resolver (product roles, scopes, customClaims), of the
+// subject read, or of the re-mint, after the first mint rotated the refresh
+// token, is returned carrying the rotated session (SPEC4_2_rotate_handover):
+// the presented token is spent, so dropping the new one is a logout. The
+// middleware hands it to the browser (rule 5). An OnIdentityResolved refusal is
+// carried too (SPEC4_2_carry_all rule 1: every failure after the first mint
+// rotated); this supersedes the 2026-10-12 "/token writes no cookie" assertion.
 func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID string) error {
+	return r.enrichRefreshMintInner(ctx, out, tenantID)
+}
+
+func (r *Realm) enrichRefreshMintInner(ctx ctxpkg.Context, out *MintResult, tenantID string) error {
 	// The short-circuit CONSULTS THE HOOK as well as the two resolvers. A
 	// hook-only consumer configures neither resolver, and the old guard would
 	// have made this lane silently dead for exactly them — the same rule that
 	// already applies to a scopes-only consumer.
-	if r.cfg.ProductRoles == nil && r.cfg.Scopes == nil && r.cfg.OnIdentityResolved == nil {
+	if r.cfg.ProductRoles == nil && r.cfg.Scopes == nil && r.cfg.OnIdentityResolved == nil && r.cfg.CustomClaims == nil {
 		return nil
 	}
 	if out == nil || out.RefreshToken == "" {
@@ -70,6 +82,12 @@ func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID 
 		tenantID = out.TenantID
 	}
 	userID, email, displayName, err := peekJWTUserFields(out.AccessToken)
+	if (err != nil || userID == "") && r.cfg.CustomClaims != nil {
+		// SPEC4_2_rotate_handover decision (c): a configured customClaims handler
+		// cannot be asked without a subject, and returning the token would
+		// silently lack the partner's claims. Refuse with the handler error type.
+		return carrySession(out, subjectUnreadable(tenantID, err))
+	}
 	if err != nil || userID == "" {
 		// WITHOUT OnIdentityResolved this is deliberately NOT an error. peek is
 		// a convenience over a token the issuer signed; if its shape ever
@@ -83,9 +101,9 @@ func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID 
 		// and a hook that silently does not fire is precisely the failure the
 		// partner brought us. It reaches zero existing consumers — nobody can
 		// have configured a handler that did not exist yet.
-		return r.fireIdentityResolved(ctx, IdentityResolvedEvent{
+		return carrySession(out, r.fireIdentityResolved(ctx, IdentityResolvedEvent{
 			Flow: FlowRefresh, TenantID: tenantID,
-		})
+		}))
 	}
 
 	// Role is "" on this lane: a refresh carries no membership list, and
@@ -94,18 +112,23 @@ func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID 
 		Flow: FlowRefresh, TenantID: tenantID, UserID: userID,
 		Email: email, DisplayName: displayName,
 	}); err != nil {
-		return err
+		return carrySession(out, err)
 	}
 
 	roles, err := r.resolveProductRoles(ctx, tenantID, userID)
 	if err != nil {
-		return err
+		return carrySession(out, err)
 	}
 	scopes, err := r.resolveScopes(ctx, tenantID, userID)
 	if err != nil {
-		return err
+		return carrySession(out, err)
 	}
-	if len(roles) == 0 && len(scopes) == 0 {
+	// SPEC10_2: the ONLY source of custom claims on an SDK-run mint.
+	custom, err := r.resolveCustomClaims(ctx, tenantID, userID)
+	if err != nil {
+		return carrySession(out, err)
+	}
+	if len(roles) == 0 && len(scopes) == 0 && len(custom) == 0 {
 		// Both empty means both claims would be omitted, so the re-mint could
 		// only reproduce the token we are already holding. Skipping it also
 		// keeps a handler that legitimately returns nothing from costing a round
@@ -120,9 +143,10 @@ func (r *Realm) enrichRefreshMint(ctx ctxpkg.Context, out *MintResult, tenantID 
 		TenantID:     tenantID,
 		ProductRoles: roles,
 		Scope:        scopes,
+		CustomClaims: custom,
 	})
 	if err != nil {
-		return err
+		return carrySession(out, err)
 	}
 	out.AccessToken = mint.AccessToken
 	out.RefreshToken = mint.RefreshToken

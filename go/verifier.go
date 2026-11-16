@@ -120,6 +120,10 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 	if err := json.Unmarshal(payload, &raw); err != nil {
 		return nil, v.fail(ErrCodeMalformed, "payload json: %v", err)
 	}
+	// SPEC4_2_claim_fold: refuse fold collisions before any decode binds a key.
+	if err := checkClaimFold(payload); err != nil {
+		return nil, v.fail(ErrCodeMalformed, "claim fold: %v", err)
+	}
 	claims := &Claims{}
 	if err := json.Unmarshal(payload, claims); err != nil {
 		return nil, v.fail(ErrCodeMalformed, "claims json: %v", err)

@@ -41,6 +41,10 @@ func ParseClaimsUnverified(token string) (*Claims, error) {
 	if err := json.Unmarshal(payload, &raw); err != nil {
 		return nil, newErr(ErrCodeMalformed, "payload json: %v", err)
 	}
+	// SPEC4_2_claim_fold: one token must never read as two principals.
+	if err := checkClaimFold(payload); err != nil {
+		return nil, newErr(ErrCodeMalformed, "claim fold: %v", err)
+	}
 	claims := &Claims{}
 	if err := json.Unmarshal(payload, claims); err != nil {
 		return nil, newErr(ErrCodeMalformed, "claims json: %v", err)

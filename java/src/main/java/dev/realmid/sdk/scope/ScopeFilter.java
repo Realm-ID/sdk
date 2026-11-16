@@ -1,6 +1,7 @@
 package dev.realmid.sdk.scope;
 
 import dev.realmid.sdk.Claims;
+import dev.realmid.sdk.middleware.GlobMatcher;
 import dev.realmid.sdk.middleware.RealmFilter;
 
 import jakarta.servlet.Filter;
@@ -85,12 +86,23 @@ public class ScopeFilter implements Filter {
         Object raw = hreq.getAttribute(RealmFilter.CLAIMS_ATTR);
         Claims claims = raw instanceof Claims c ? c : null;
 
+        // SPEC11_4_1_source (java, audit e-03): decide on the path the router routes on; a
+        // non-canonical raw path is refused before any rule is consulted.
+        String path = GlobMatcher.requestPath(hreq);
+        if (path == null) {
+            hres.setStatus(400);
+            hres.setContentType("application/json");
+            java.io.PrintWriter w = hres.getWriter();
+            w.write(GlobMatcher.INVALID_PATH_BODY);
+            w.flush();
+            return;
+        }
         ScopeDecision d = policy == null
                 // A null policy denies. An SDK treating "no policy" as "allow
                 // everything" would make a wiring mistake indistinguishable from
                 // a deliberately open service.
                 ? ScopeDecision.denied()
-                : policy.decide(claims, hreq.getMethod(), hreq.getRequestURI());
+                : policy.decide(claims, hreq.getMethod(), path);
 
         if (d.allowed()) {
             chain.doFilter(req, res);

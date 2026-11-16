@@ -160,5 +160,5 @@ test("SPEC10_2_paths + SPEC11_4_1 through the middleware: mfa {name}, /x/** bare
   assert.equal(await through("/x", "z:z"), 403);
   assert.equal(await through("/o/42", "a:a"), 200);
   assert.equal(await through("/o/", "a:a"), 403, "{id} never matches an empty segment");
-  assert.equal(await through("/o/42/", "a:a"), 403);
+  assert.equal(await through("/o/42/", "a:a"), 200, "one trailing slash is ignored (SPEC11_4_1_canon rule 1, vector m14)");
 });

@@ -17,14 +17,79 @@ import java.util.regex.Pattern;
 public final class GlobMatcher {
     private GlobMatcher() {}
 
-    /** Literal-brace mode ({@code exemptPaths}). */
-    public static boolean match(String pattern, String path) {
-        return toRegex(pattern).matcher(path).matches();
+    /** The {@code 400} body for a request path the SDK refuses to decide (SPEC11_4_1_source). */
+    public static final String INVALID_PATH_BODY =
+            "{\"error\":{\"code\":\"invalid_path\",\"message\":\"request path is not canonical\"}}";
+
+    /**
+     * SPEC11_4_1_canon: the ONE matcher for {@code exemptPaths},
+     * {@code mfaProtectedPaths} and {@code ScopeRule} paths. One trailing slash is
+     * ignored on both sides; literals compare ASCII case-insensitively (by ASCII
+     * lowercasing both sides, never a regex flag); nothing else is normalised.
+     * {@code kind} is {@code exempt} (braces literal), {@code mfa} or {@code scope}.
+     */
+    public static boolean canonicalMatch(String pattern, String kind, String path) {
+        boolean placeholders = !"exempt".equals(kind);
+        if (placeholders && validateBraces(pattern) != null) return false;
+        Pattern re = toRegex(asciiLower(foldSlash(pattern)), placeholders);
+        return re.matcher(asciiLower(foldSlash(path))).matches();
     }
 
-    /** Placeholder mode ({@code mfaProtectedPaths}, {@code ScopeRule}). */
+    /** Literal-brace mode ({@code exemptPaths}); canonical (SPEC11_4_1_canon). */
+    public static boolean match(String pattern, String path) {
+        return canonicalMatch(pattern, "exempt", path);
+    }
+
+    /** Placeholder mode ({@code mfaProtectedPaths}, {@code ScopeRule}); canonical. */
     public static boolean matchPlaceholders(String pattern, String path) {
-        return toRegex(pattern, true).matcher(path).matches();
+        return canonicalMatch(pattern, "mfa", path);
+    }
+
+    private static String foldSlash(String s) {
+        return s.length() > 1 && s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
+    }
+
+    private static String asciiLower(String s) {
+        StringBuilder b = null;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 'A' && c <= 'Z') {
+                if (b == null) b = new StringBuilder(s);
+                b.setCharAt(i, (char) (c + 32));
+            }
+        }
+        return b == null ? s : b.toString();
+    }
+
+    /**
+     * SPEC11_4_1_source (java): the path the container and Spring MVC route on,
+     * {@code getServletPath() + getPathInfo()} (decoded, {@code ;params} removed,
+     * context path excluded). Returns {@code null} when the request must be
+     * refused with {@code 400 invalid_path}: the RAW request URI holds
+     * {@code %2F}, {@code %5C}, {@code %25} or {@code %2E} (hex case-insensitive),
+     * or a dot segment ({@code .} or {@code ..}, judged after the segment's
+     * {@code ;params} are removed, so {@code ..;} counts).
+     */
+    public static String requestPath(jakarta.servlet.http.HttpServletRequest req) {
+        String raw = req.getRequestURI() == null ? "" : req.getRequestURI();
+        int n = raw.length();
+        for (int i = 0; i + 2 < n; i++) {
+            if (raw.charAt(i) != '%') continue;
+            String h = raw.substring(i + 1, i + 3).toUpperCase(java.util.Locale.ROOT);
+            if (h.equals("2F") || h.equals("5C") || h.equals("25") || h.equals("2E")) return null;
+        }
+        for (String seg : raw.split("/", -1)) {
+            int semi = seg.indexOf(';');
+            String s = semi >= 0 ? seg.substring(0, semi) : seg;
+            if (s.equals(".") || s.equals("..")) return null;
+        }
+        // A non-servlet wrapper that fills neither accessor has no servlet path to hand over: the raw
+        // URI (already refused above when non-canonical) is the only path there is, and matching ""
+        // instead would let every protected route skip its rule.
+        if (req.getServletPath() == null && req.getPathInfo() == null) return raw;
+        String sp = req.getServletPath() == null ? "" : req.getServletPath();
+        String pi = req.getPathInfo() == null ? "" : req.getPathInfo();
+        return sp + pi;
     }
 
     public static Pattern toRegex(String pat) {

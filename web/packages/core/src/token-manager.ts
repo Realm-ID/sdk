@@ -41,6 +41,8 @@ export function readOrgSessionMode(raw: unknown): OrgSessionMode | undefined {
 export class TokenManager {
   private tokens = new Map<string, TokenEntry>();
   private inflight = new Map<string, Promise<string>>();
+  /** Newest refresh token carried by a /token error reply (body mode); in-tab memory only. */
+  private carriedRefresh: string | undefined;
   private currentTenantId: string | null = null;
   /**
    * Per tenant, the access token the LAST forced (token_stale) refresh
@@ -169,6 +171,7 @@ export class TokenManager {
   clear(): void {
     this.tokens.clear();
     this.inflight.clear();
+    this.carriedRefresh = undefined;
     this.currentTenantId = null;
   }
 
@@ -205,37 +208,52 @@ export class TokenManager {
     const sib = this.sibling.get(tenantId);
     if (sib && Date.now() - sib.at <= SIBLING_RESULT_WINDOW_MS && sib.expiresAt > heldExpiryAtRequest) {
       const adopted = this.tokens.get(tenantId);
-      if (adopted) return adopted.accessToken;
+      if (adopted) {
+        this.carriedRefresh = undefined;
+        return adopted.accessToken;
+      }
     }
     const current = this.tokens.get(tenantId);
     try {
-      const wireBody = this.opts.requestAdapters.token
+      const baseBody = this.opts.requestAdapters.token
         ? this.opts.requestAdapters.token({ tenantId })
         : { tenantId };
+      // Body mode: a refresh token carried by an earlier error reply is the live
+      // one (the spent token would be reuse). Set BOTH spellings: the SDK
+      // middleware reads `refresh_token` first, so an adapter-built snake_case
+      // body would otherwise re-present the spent token.
+      const withRt = (rt: string | undefined): unknown =>
+        rt === undefined ? baseBody : { ...(baseBody as object), refresh_token: rt, refreshToken: rt };
       const send = (body: unknown) =>
         this.transport.request<unknown>("POST", this.transport.endpoints.token, {
           body,
           accessToken: this.opts.refresh.sendBearer ? current?.accessToken : undefined,
           gates: this.opts.gates,
         });
+      // SPEC4_2_carry_all_web (rulings 37/43): keep the newest refresh token from
+      // ANY error reply, in this tab's memory only (never on the tab bus).
+      const keep = (err: unknown): Record<string, unknown> | undefined => {
+        if (!(err instanceof RealmError)) return undefined;
+        const eb = err.body as Record<string, unknown> | undefined;
+        const rt = eb?.refresh_token ?? eb?.refreshToken;
+        if (typeof rt === "string" && rt) this.carriedRefresh = rt;
+        return eb;
+      };
       let res;
       try {
-        res = await send(wireBody);
+        res = await send(withRt(this.carriedRefresh));
       } catch (err) {
-        // `503 retry:true` is a superseded refresh, not a lost session: adopt
-        // the rotated refresh token it carries (body mode; cookie mode needs
-        // nothing) and retry ONCE inside this same lock. A second 503 throws.
-        const rb =
-          err instanceof RealmError && err.status === 503
-            ? (err.body as Record<string, unknown> | undefined)
-            : undefined;
-        if (!rb || rb.retry !== true) throw err;
-        const rt = rb.refresh_token ?? rb.refreshToken;
-        // Set BOTH spellings: the SDK middleware reads `refresh_token` first, so an
-        // adapter-built snake_case body would otherwise re-present the spent token.
-        res = await send(
-          typeof rt === "string" ? { ...(wireBody as object), refresh_token: rt, refreshToken: rt } : wireBody,
-        );
+        const eb = keep(err);
+        // `503 retry:true` is a superseded refresh, not a lost session: retry
+        // ONCE inside this same lock with the rotated token it carried. Any other
+        // error (a relayed 400/403/409 included) is kept, never retried.
+        if (!(err instanceof RealmError) || err.status !== 503 || !eb || eb.retry !== true) throw err;
+        try {
+          res = await send(withRt(this.carriedRefresh));
+        } catch (err2) {
+          keep(err2);
+          throw err2;
+        }
       }
       const adapted: TokenResponse = this.opts.adapters.token
         ? this.opts.adapters.token(res.body, {
@@ -265,6 +283,7 @@ export class TokenManager {
       }
 
       this.set(tenantId, nextToken, expiresIn);
+      this.carriedRefresh = undefined;
       this.orgMode = readOrgSessionMode(res.body) ?? readOrgSessionMode(adapted) ?? "concurrent";
       const expiresAt = this.tokens.get(tenantId)!.expiresAt;
       this.opts.bus?.post({
@@ -291,6 +310,7 @@ export class TokenManager {
           err.code === "unauthorized"
         ) {
           this.tokens.delete(tenantId);
+          this.carriedRefresh = undefined;
           const reason =
             err.code === "session_replaced"
               ? "replaced"

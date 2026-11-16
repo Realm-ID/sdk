@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { createMemorySessionStore } from "./session-store.js";
 import { test } from "node:test";
+import { RefreshHandedOverError } from "./errors.js";
 import { AuthClient, type LoginResponse } from "./auth.js";
 import { createRealm } from "./realm.js";
 import { LoginMintError, type ProductRolesHandler } from "./product-roles.js";
@@ -338,7 +339,8 @@ test("refresh lane: a failing hook refuses the re-mint", async () => {
     scopes: () => ["should-never-be-reached"],
   });
 
-  await assert.rejects(() => rig.drive(), IdentityResolvedError);
+  // SPEC4_2_rotate_handover: the hook error rides the carrier (the first mint already rotated the token).
+  await assert.rejects(() => rig.drive(), (e: unknown) => e instanceof RefreshHandedOverError && e.cause instanceof IdentityResolvedError);
   // rig.mints already carries the FIRST /auth/token call `drive()` makes
   // before `enrichRefresh` ever runs; the assertion is that the hook's
   // failure prevents a SECOND one (the re-mint), not that the count is zero.

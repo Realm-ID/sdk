@@ -91,6 +91,7 @@ as `code`. HTTP status is in brackets.
 | `x_user_token_realm_mismatch` | [401] `X-User-Token` belongs to a different realm than the bearer. | Pair tokens from the same realm. |
 | `insufficient_scope` | [401] A revocation token was presented where it may not bulk-revoke sessions. | Use the user's access token. |
 | `not_a_member` | [403] The user is not a member of the requested tenant. | Offer only tenants the user belongs to. |
+| `login_confined_to_tenant` | [403] This sign-in is confined to one organisation (a device approval, or a sign-in proven through one organisation's identity provider) and the request reaches another. | Tell the user to sign in again (for the CLI, `realm-id auth login`) to reach the other organisation. |
 | `no_permissions_in_org` | [403] A key's permission cap and the holder's role in the key's org have nothing in common. | Re-issue the key with a cap the holder's role covers. |
 | `user_not_invited` | [403] Sign-in by someone with no membership anywhere, in a realm that does not allow open sign-up. | Ask an org owner for an invitation. |
 | `signup_domain_not_allowed` | [403] The email domain is not allowed to sign up. | Use an address on an allowed domain. |
@@ -99,15 +100,20 @@ as `code`. HTTP status is in brackets.
 | `contact_admin_required` | [409] The identifier is managed by the user's organization and is bound to a different provider. | Tell the user to contact their organization's admin. |
 | `no_verified_email` | [409] A reset link was requested for a member with no verified email. | Have the member verify an address first. |
 | `reset_token_invalid` | [400] The password-reset link is not valid. | Ask for a new link. |
+| `realm_unresolved` | [400] The realm of the request could not be resolved (the session names no tenant the issuer can place in a realm). | Sign in again; if it repeats, report the request id to support. |
+| `custom_claims_not_accepted` | [400] The SDK middleware refused a request on `/auth/login`, `/auth/refresh` or the other routes it mounts because the body carried `custom_claims`. Claims come only from the server-side `customClaims` handler, never from a browser. | Remove `custom_claims` from the client request; supply claims in the `customClaims` handler. |
+| `invalid_path` | [400] (go, java) The request path contains a raw `%2F`, `%5C` or `%25` escape, or a dot segment, so the middleware cannot match it to a route rule safely. | Send the canonical path; do not percent-encode separators or use `.` / `..` segments. |
 | `reset_token_expired` | [410] The reset link has expired. | Ask for a new link. |
 | `reset_token_used` | [410] The reset link was already used. | Ask for a new link if the password still needs resetting. |
 | `reset_token_superseded` | [410] A newer link was sent, or the password changed since. | Use the newest link. |
 | `realm_suspended` | [410] The realm is suspended or deactivated. | Surface a service-unavailable message; do not retry. |
 | `mfa_registration_required` | [412] Sign-in, or an MFA-protected route behind the SDK middleware or `POST /auth/mfa/challenge`, is blocked until the user has a usable second factor; the envelope carries an enroll-scoped challenge token. **From the SDK middleware since go `0.77.0` / ts `0.64.0` / java `0.61.0`; read the token with the error's `MFAChallenge()` / `mfaChallenge()` / `getMfaChallenge()` accessor (SPEC §3.2):** go `v0.76.0` / ts `0.63.0` / java `0.60.0` middlewares still answer `mfa_required` with an empty token. | The token does not enrol by itself: `POST /auth/mfa/enroll` (refresh-token authed) writes the secret, then confirm a code on `/auth/mfa/verify` with an enroll-scoped token. |
 | `first_login_pending_approval` | [412] First sign-in on a recently vacated contact awaits the tenant owner's approval. | Tell the user to wait for the owner; nothing to retry. |
-| `mfa_too_many_fails` | [429] Too many wrong MFA codes for this challenge. | Back off; the user may need to restart sign-in. |
+| `mfa_too_many_fails` | [429] This user's MFA is locked: 10 wrong codes (verify, recovery-code redeem, or `DELETE /auth/mfa`) within a rolling 24 hours lock the membership for 15 minutes, doubling on each repeat up to 24 hours. A correct code clears the count. The lock spans sessions, so restarting sign-in does not lift it. | Back off until the lock expires; do not retry in a loop and do not restart sign-in. |
 | `login_throttled` | [429] Too many attempts for this identifier; counted on the identifier as sent, so unknown and known ones throttle alike. | Wait before retrying. |
 | `reset_throttled` | [429] Too many reset links were sent for this member in the last hour. | Wait before sending another. |
+| `store_unavailable` | [503] The issuer could not count the realm's sign-in methods, so it changed nothing (fail closed). | Retry shortly; nothing was written. |
+| `internal_key_unavailable` | [503] The issuer's internal signing key (used for the MFA challenge and session revoke) is unavailable; it never falls back to a realm key. | Retry shortly. |
 
 ## One-time-code (OTP) codes (`/auth/otp/*`)
 
@@ -542,8 +548,8 @@ responses (critic finding #6, unresolved at the issuer). A request without the h
 | --- | --- | --- |
 | `authorization_pending` | [400] The request is not approved yet, or an approve attempt was refused (the request stays pending). | Keep polling at the current interval. Not a failure. |
 | `slow_down` | [400] The device polled sooner than the interval (RFC 8628 section 3.5). The request's interval grows by 5 seconds. | Add 5 seconds to your poll interval and continue. |
-| `access_denied` | [400] The request was denied, or the bot became suspended or deactivated after approval and before collection. | Stop polling and tell the user the sign-in was refused. Start a new request to try again. |
-| `expired_token` | [400] One answer for three cases: the device code is unknown, it was already collected, or the request expired (10 minutes). | Stop polling. Start a new request if the user still wants to sign in. |
+| `access_denied` | [400] The request was denied; the bot became suspended or deactivated after approval and before collection; the session of the person who approved it was signed out or revoked before the device collected (the approval was withdrawn); or the approval can no longer be honoured (for example, the approved account is gone). Every later poll answers the same. | Stop polling and tell the user the sign-in was refused. Start a new request to try again. |
+| `expired_token` | [400] The device code is unknown, it was already collected, or the request expired (10 minutes); or the approval lapsed because the session of the person who approved it expired or no longer exists before the device collected. Every later poll answers the same. | Stop polling. Start a new request if the user still wants to sign in. |
 
 ### Starting and acting on a request
 

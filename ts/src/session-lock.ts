@@ -99,7 +99,17 @@ export function outcomeRelayStatus(o: RefreshOutcome): number {
 export function errorOutcome(fp: string, e: unknown): RefreshOutcome {
   if (e instanceof RealmError) {
     // The ISSUER's status is stored; the relay remap (escort -> 503) happens on the wire only.
-    return { fp, ok: false, status: e.httpStatus ?? 500, body: { ...(e.details ?? {}), error: { code: e.code, message: e.message } } };
+    // SPEC4_2_carry_all rule 2: a CARRIED failure never answers 401 and never a bare 500 of our own:
+    // no issuer status (a partner handler / hook error) or a 401 becomes 503; any other issuer status stands.
+    const carried = e instanceof RefreshHandedOverError && e.refreshToken() !== "";
+    const status = carried && (e.httpStatus === undefined || e.httpStatus === 401) ? 503 : (e.httpStatus ?? 500);
+    // A carried 401 keeps no `refresh_invalid`: the held token is live, a SPA must not sign out (parity review finding 3).
+    const code = carried && e.httpStatus === 401 ? "server_error" : e.code;
+    const o: RefreshOutcome = { fp, ok: false, status, body: { ...(e.details ?? {}), error: { code, message: e.message } } };
+    // SPEC4_2_rotate_handover rule 5: a failure AFTER the rotation stores the rotated token, so a retry
+    // within the window and every loser presents it, never the spent one.
+    if (e instanceof RefreshHandedOverError && e.refreshToken() !== "") o.refreshToken = e.refreshToken();
+    return o;
   }
   return { fp, ok: false, status: 500, body: { error: { code: "server_error", message: (e as Error).message ?? "unknown" } } };
 }
@@ -107,12 +117,13 @@ export function errorOutcome(fp: string, e: unknown): RefreshOutcome {
 /** Rebuilds the RealmError a stored error outcome describes. */
 function errorOfOutcome(o: RefreshOutcome): RealmError {
   const { error, ...details } = (o.body ?? {}) as { error?: { code?: string; message?: string } } & Record<string, unknown>;
-  return new RealmError({
+  const e = new RealmError({
     code: (error?.code ?? "server_error") as RealmError["code"],
     message: error?.message ?? "refresh failed",
     httpStatus: o.status,
     details: Object.keys(details).length > 0 ? details : undefined,
   });
+  return o.refreshToken ? new RefreshHandedOverError(e, o.refreshToken) : e;
 }
 
 const unavailable = (cause?: unknown): RealmError =>
@@ -268,7 +279,7 @@ function tokenLevelThrown(e: unknown): boolean {
 }
 
 function tokenOutcomeUsable(o: RefreshOutcome, fp: string, key: string): boolean {
-  if (!o.ok) return o.fp === fp || tokenLevelErr(o);
+  if (!o.ok) return o.fp === fp || tokenLevelErr(o) || (!!o.refreshToken && o.refreshToken !== key); // a failure AFTER the rotation hands the new token on
   if (o.fp === fp) return true;
   return !!o.refreshToken && o.refreshToken !== key;
 }
@@ -297,6 +308,7 @@ export async function tokenUnderLock(
       once = await tokenLockedOnce(deps, cur, mint);
     } catch (e) {
       // SPEC §4.2: after a hand-over the caller's token is spent, so every error but a token-level one carries the newest.
+      if (e instanceof RefreshHandedOverError) throw e; // already carries the newest (SPEC4_2_rotate_handover)
       if (cur.refreshToken !== req.refreshToken && !tokenLevelThrown(e)) throw new RefreshHandedOverError(e, cur.refreshToken);
       throw e;
     }
@@ -367,7 +379,7 @@ async function tokenLockedOnce(
     if (oc.fp === fp || tokenLevelErr(oc)) throw errorOfOutcome(oc);
     // Another request's shape-specific failure says nothing about this one. Every issuer 4xx on /auth/token is
     // returned before the rotation is written, so the token is still live: go round again on it.
-    return { next: key };
+    return { next: oc.refreshToken || key };
   }
   if (oc.fp !== fp) {
     // Minted for a different request or by an MFA verify: hand over the rotated token; the caller retries on it.

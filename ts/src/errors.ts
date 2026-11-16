@@ -355,7 +355,10 @@ export class RefreshHandedOverError extends RealmError {
   /** Set by `TokenManager` when persisting the carried token to `refreshSink` failed: the sink's error. */
   persistError?: unknown;
 
-  constructor(original: unknown, refreshToken: string) {
+  readonly #accessToken: string;
+
+  /** `accessToken` is the first mint's access token (SPEC4_2_rotate_handover rule 2); `""` where a hop never had one. */
+  constructor(original: unknown, refreshToken: string, accessToken = "") {
     const o = original instanceof RealmError ? original : undefined;
     super({
       code: o?.code ?? "server_error",
@@ -367,7 +370,17 @@ export class RefreshHandedOverError extends RealmError {
     });
     this.name = "RefreshHandedOverError";
     this.#refreshToken = refreshToken;
+    this.#accessToken = accessToken;
     Object.defineProperty(this, "persistError", { value: undefined, writable: true, enumerable: false });
+  }
+
+  /**
+   * The access token the rotating mint returned before the failure: valid, but it LACKS the
+   * handler's claims, so serve the request in flight with it at most; never cache it as the
+   * fully claimed session (SPEC4_2_rotate_handover rule 4). A live credential: redacted like the refresh token.
+   */
+  accessToken(): string {
+    return this.#accessToken;
   }
 
   /** The newest live refresh token; present it on the next call. */

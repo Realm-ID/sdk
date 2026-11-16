@@ -272,7 +272,7 @@ func (p ScopePolicy) Compile() *CompiledScopePolicy {
 			continue
 		}
 		out.rules = append(out.rules, compiledScopeRule{
-			re:     placeholderGlobRegex(r.Path),
+			re:     canonicalRegex(r.Path, "scope"),
 			method: strings.ToUpper(strings.TrimSpace(r.Method)),
 			rule:   r,
 		})
@@ -289,6 +289,7 @@ func (c *CompiledScopePolicy) Decide(claims *Claims, method, path string) ScopeD
 		return ScopeDecision{}
 	}
 	method = strings.ToUpper(method)
+	path = canonPath(path)
 	for i := range c.rules {
 		cr := &c.rules[i]
 		if cr.method != "" && cr.method != method {
@@ -366,7 +367,12 @@ func (c *CompiledScopePolicy) Middleware(opts ScopeMiddlewareOptions) func(http.
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			claims, _ := ClaimsFrom(req.Context())
-			d := c.Decide(claims, req.Method, req.URL.Path)
+			path, canonical := matchPathFor(req)
+			if !canonical {
+				writeInvalidPath(w)
+				return
+			}
+			d := c.Decide(claims, req.Method, path)
 			if d.Allowed {
 				next.ServeHTTP(w, req)
 				return

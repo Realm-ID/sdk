@@ -72,3 +72,7 @@ tenant-choice route would let the two concerns separate.
       `web/BFF-SPEC.md` § Reference implementation.
       *(Filed 2026-08-30, W5 docs — REVIEW.md item C3.)*
 
+## Partner handler and hook error text reaches the SPA body (filed 2026-11-14, audit-fixes wave 2 critic row 6)
+
+The text of a partner's `customClaims` / `productRoles` / `scopes` handler error or `OnIdentityResolved` hook error reaches the browser as `error.message` of the middleware's `server_error` body (e.g. "...failed after 3 attempts for tenant t1: handler down"). Pre-existing in go, ts and java. SPEC `SPEC4_2_rotate_handover` rule 2 redacts the TOKEN only and §10.2 rule 3 is about partner logs; the spec is silent on the SPA body. Owner ruling needed: send a generic message for a `server_error` built from a partner error and keep the full text in the log only? Not decided by the dispatcher.
+

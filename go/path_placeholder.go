@@ -10,6 +10,115 @@ import (
 	"strings"
 )
 
+// SPEC §11.4.1 SPEC11_4_1_canon — ONE canonical matcher for exemptPaths,
+// mfaProtectedPaths and ScopeRule paths: one trailing slash is ignored on both
+// sides and literals compare ASCII case-insensitively. Case is folded by
+// lowercasing BOTH sides by hand, never with a regex (?i) flag: Go's (?i) folds
+// U+017F to 's' and U+212A to 'k', which the other two languages do not.
+
+// canonPath is the form both a pattern and a request path are compared in.
+func canonPath(s string) string {
+	if len(s) > 1 && s[len(s)-1] == '/' {
+		s = s[:len(s)-1]
+	}
+	return asciiLower(s)
+}
+
+// canonicalRegex compiles pat for kind ("exempt" keeps braces literal; "mfa"
+// and "scope" understand `{name}`). Match it against canonPath(path).
+func canonicalRegex(pat, kind string) *regexp.Regexp {
+	if kind == "exempt" {
+		return globToRegex(canonPath(pat))
+	}
+	return placeholderGlobRegex(canonPath(pat))
+}
+
+// canonicalMatch is the single matcher of SPEC11_4_1_canon.
+func canonicalMatch(pattern, kind, path string) bool {
+	return canonicalRegex(pattern, kind).MatchString(canonPath(path))
+}
+
+// SPEC11_4_1_source (Go) — the path handed to the matcher is r.URL.Path. A
+// request is refused (400 invalid_path) first when the raw path text holds
+// %2F, %5C or %25 (hex case-insensitive) or a literal backslash, or when
+// r.URL.Path has a dot segment (owner rulings 9 and 16, 2026-11-14).
+
+// rawPathRefused reports whether raw (percent-encoded path text) holds an
+// encoded slash, backslash or percent, or a literal backslash.
+func rawPathRefused(raw string) bool {
+	if strings.IndexByte(raw, '\\') >= 0 {
+		return true
+	}
+	for i := 0; i+2 < len(raw); i++ {
+		if raw[i] != '%' {
+			continue
+		}
+		switch strings.ToUpper(raw[i+1 : i+3]) {
+		case "2F", "5C", "25":
+			return true
+		}
+	}
+	return false
+}
+
+// hasDotSegment reports a "." or ".." segment, judged after the segment's
+// ;params are removed (so "..;" counts).
+func hasDotSegment(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if i := strings.IndexByte(seg, ';'); i >= 0 {
+			seg = seg[:i]
+		}
+		if seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// wirePath extracts the path text from r.RequestURI: query removed and, in
+// absolute form, scheme and authority removed.
+func wirePath(uri string) string {
+	if i := strings.IndexByte(uri, '?'); i >= 0 {
+		uri = uri[:i]
+	}
+	if uri != "" && uri[0] != '/' {
+		if i := strings.Index(uri, "://"); i >= 0 {
+			rest := uri[i+3:]
+			if j := strings.IndexByte(rest, '/'); j >= 0 {
+				return rest[j:]
+			}
+			return ""
+		}
+	}
+	return uri
+}
+
+// matchPathFor returns the path the gates match, or ok=false when the request
+// must be answered 400 invalid_path.
+func matchPathFor(req *http.Request) (string, bool) {
+	if uri := req.RequestURI; uri != "" && uri != "*" {
+		if rawPathRefused(wirePath(uri)) {
+			return "", false
+		}
+	} else if rawPathRefused(req.URL.RawPath) || rawPathRefused(req.URL.EscapedPath()) {
+		// In-process request: net/url leaves RawPath empty when the raw text
+		// equals its default escaping, and EscapedPath() re-escapes the decoded
+		// path when RawPath holds a character it will not keep, so scan both.
+		return "", false
+	}
+	if hasDotSegment(req.URL.Path) {
+		return "", false
+	}
+	return req.URL.Path, true
+}
+
+// writeInvalidPath answers the refusal of matchPathFor.
+func writeInvalidPath(w http.ResponseWriter) {
+	writeJSON(w, http.StatusBadRequest, map[string]any{
+		"error": map[string]any{"code": "invalid_path", "message": "request path is not canonical"},
+	})
+}
+
 // inertRegexp matches no string at all.
 var inertRegexp = regexp.MustCompile(`[^\s\S]`)
 

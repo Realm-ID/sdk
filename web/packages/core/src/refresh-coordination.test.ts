@@ -527,6 +527,188 @@ test("88c 503 retry overrides a snake-case refresh_token already in an adapter-b
   });
 });
 
+// ---- SPEC4_2_carry_all_web (SPEC §4.2 `SPEC4_2_carry_all` rule 4; rulings 37/43) ----
+// Body mode: the newest refresh token carried by ANY /token error reply is kept in
+// this tab's memory and presented on the next refresh.
+const carryErr = (status: number, code: string, rt: unknown, retry = false) => ({
+  status,
+  body: { error: { code, message: code }, ...(retry ? { retry: true } : {}), ...(rt !== undefined ? { refresh_token: rt } : {}) },
+});
+const carryMgr = (fetchImpl: typeof fetch, lost: { n: number }) =>
+  new TokenManager(new Transport({ baseUrl: "https://bff.test", fetch: fetchImpl }), {
+    refreshSkewMs: 60_000,
+    onRefreshed: () => {},
+    onLost: () => lost.n++,
+    adapters: {},
+    requestAdapters: { token: () => ({ refresh_token: "R0" }) },
+    gates: [],
+    refresh: {},
+    bus: hub().make(),
+    channelName: CHANNEL,
+  } as unknown as ConstructorParameters<typeof TokenManager>[1]);
+const presented = (c: { body: any }) => [c.body.refresh_token, c.body.refreshToken];
+
+test("SPEC4_2_carry_all_web a/b: a second 503 keeps R2 (e.body, no onLost, 2 calls); the next refresh, same or other tenant, presents R2", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    for (const next of ["t1", "t2"]) {
+      const lost = { n: 0 };
+      let k = 0;
+      const srv = bff(() => {
+        k++;
+        if (k === 1) return carryErr(503, "server_error", "R1", true);
+        if (k === 2) return carryErr(503, "server_error", "R2", true);
+        return okToken(9);
+      });
+      const a = carryMgr(srv.fetch, lost);
+      await assert.rejects(
+        a.refresh("t1"),
+        (e: unknown) => e instanceof RealmError && e.code === "server_error" && (e.body as any)?.refresh_token === "R2",
+      );
+      assert.equal(srv.tokenCalls().length, 2);
+      assert.equal(lost.n, 0);
+      assert.deepEqual(presented(srv.tokenCalls()[1]), ["R1", "R1"]);
+      await a.refresh(next);
+      assert.deepEqual(presented(srv.tokenCalls()[2]), ["R2", "R2"], `next refresh (${next}) did not present R2`);
+    }
+  });
+});
+
+test("SPEC4_2_carry_all_web c: a 200 clears the carried token (next request is the adapter body)", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    const lost = { n: 0 };
+    let k = 0;
+    const srv = bff(() => {
+      k++;
+      if (k === 1) return carryErr(503, "server_error", "R1", true);
+      if (k === 2) return carryErr(503, "server_error", "R2", true);
+      return okToken(k);
+    });
+    const a = carryMgr(srv.fetch, lost);
+    await assert.rejects(a.refresh("t1"));
+    await a.refresh("t1"); // presents R2, 200
+    assert.deepEqual(presented(srv.tokenCalls()[2]), ["R2", "R2"]);
+    await a.refresh("t1");
+    const b = srv.tokenCalls()[3].body;
+    assert.equal(b.refresh_token, "R0");
+    assert.equal(b.refreshToken, undefined);
+  });
+});
+
+test("SPEC4_2_carry_all_web d: a 503 retry:true with no token keeps the held R2", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    const lost = { n: 0 };
+    let k = 0;
+    const srv = bff(() => {
+      k++;
+      if (k <= 2) return carryErr(503, "server_error", k === 1 ? "R1" : "R2", true);
+      if (k <= 4) return carryErr(503, "server_error", undefined, true);
+      return okToken(k);
+    });
+    const a = carryMgr(srv.fetch, lost);
+    await assert.rejects(a.refresh("t1")); // holds R2
+    await assert.rejects(a.refresh("t1")); // presents R2, tokenless 503 x2
+    assert.deepEqual(presented(srv.tokenCalls()[2]), ["R2", "R2"]);
+    await a.refresh("t1");
+    assert.deepEqual(presented(srv.tokenCalls()[4]), ["R2", "R2"], "R2 was dropped by a tokenless 503");
+  });
+});
+
+for (const [status, code] of [
+  [400, "reserved_claim_key"],
+  [403, "user_suspended"],
+  [409, "session_limit_reached"],
+] as const) {
+  test(`SPEC4_2_carry_all_web e: relayed ${status} ${code} carrying R1 -> one call, no retry, onLost 0, next refresh presents R1`, async () => {
+    await withNavigator({ locks: mockLocks() }, async () => {
+      const lost = { n: 0 };
+      let k = 0;
+      const srv = bff(() => {
+        k++;
+        return k === 1 ? carryErr(status, code, "R1") : okToken(k);
+      });
+      const a = carryMgr(srv.fetch, lost);
+      await assert.rejects(a.refresh("t1"), (e: unknown) => e instanceof RealmError && e.status === status && e.message === code);
+      assert.equal(srv.tokenCalls().length, 1, "a relayed error was retried");
+      assert.equal(lost.n, 0);
+      await a.refresh("t1");
+      assert.deepEqual(presented(srv.tokenCalls()[1]), ["R1", "R1"]);
+    });
+  });
+}
+
+test("SPEC4_2_carry_all_web f: 503 carrying R1, retry answers 403 carrying R2 -> newest (R2) wins", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    const lost = { n: 0 };
+    let k = 0;
+    const srv = bff(() => {
+      k++;
+      if (k === 1) return carryErr(503, "server_error", "R1", true);
+      if (k === 2) return carryErr(403, "user_suspended", "R2");
+      return okToken(k);
+    });
+    const a = carryMgr(srv.fetch, lost);
+    await assert.rejects(a.refresh("t1"), (e: unknown) => e instanceof RealmError && e.status === 403 && e.message === "user_suspended");
+    assert.equal(srv.tokenCalls().length, 2);
+    await a.refresh("t1");
+    assert.deepEqual(presented(srv.tokenCalls()[2]), ["R2", "R2"]);
+  });
+});
+
+test("SPEC4_2_carry_all_web g: no token (or a non-string token) in an error body holds nothing", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    for (const rt of [undefined, 42, { x: 1 }]) {
+      const lost = { n: 0 };
+      let k = 0;
+      const srv = bff(() => {
+        k++;
+        return k === 1 ? carryErr(403, "user_suspended", rt) : okToken(k);
+      });
+      const a = carryMgr(srv.fetch, lost);
+      await assert.rejects(a.refresh("t1"), (e: unknown) => e instanceof RealmError && e.status === 403 && e.message === "user_suspended");
+      await a.refresh("t1");
+      const b = srv.tokenCalls()[1].body;
+      assert.equal(b.refresh_token, "R0");
+      assert.equal(b.refreshToken, undefined);
+    }
+  });
+});
+
+test("SPEC4_2_carry_all_web: a session-ending error carrying a token clears the carry (onLost fires, next request is the adapter body)", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    const lost = { n: 0 };
+    let k = 0;
+    const srv = bff(() => {
+      k++;
+      if (k === 1) return carryErr(503, "server_error", "R1", true);
+      if (k === 2) return carryErr(401, "session_revoked", "R2");
+      return okToken(k);
+    });
+    const a = carryMgr(srv.fetch, lost);
+    await assert.rejects(a.refresh("t1"));
+    assert.equal(lost.n, 1);
+    await a.refresh("t1");
+    assert.equal(srv.tokenCalls()[2].body.refresh_token, "R0");
+    assert.equal(srv.tokenCalls()[2].body.refreshToken, undefined);
+  });
+});
+
+test("SPEC4_2_carry_all_web: clear() (sign-out) drops the carried token", async () => {
+  await withNavigator({ locks: mockLocks() }, async () => {
+    const lost = { n: 0 };
+    let k = 0;
+    const srv = bff(() => {
+      k++;
+      return k === 1 ? carryErr(403, "user_suspended", "R1") : okToken(k);
+    });
+    const a = carryMgr(srv.fetch, lost);
+    await assert.rejects(a.refresh("t1"));
+    a.clear();
+    await a.refresh("t1");
+    assert.equal(srv.tokenCalls()[1].body.refresh_token, "R0");
+    assert.equal(srv.tokenCalls()[1].body.refreshToken, undefined);
+  });
+});
+
 test("89 logout({all:true}) sends all:true; plain logout() still sends {} (old BFF unaffected)", async () => {
   const srv = bff((c) => (c.url.endsWith("/logout") ? { status: 200 } : { status: 404 }));
   const realm = createRealm({ baseUrl: "https://bff.test", fetch: srv.fetch, autoRestore: false });

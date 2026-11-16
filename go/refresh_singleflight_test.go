@@ -290,13 +290,9 @@ func TestSPEC10_1_4a_BodyMode503CarriesRefreshToken(t *testing.T) {
 	}
 }
 
-func TestSPEC10_1_4a_DifferentCustomClaimsIsTheSameBranch(t *testing.T) {
-	e := newRFEnv(t, rfOpts{})
-	rs := e.race(t, []string{`{"tenant_id":"t1","custom_claims":{"a":1}}`, `{"tenant_id":"t1","custom_claims":{"a":2}}`}, "rt-old")
-	if rs[0].Code != 200 || rs[1].Code != 503 || e.issuerCalls() != 1 {
-		t.Fatalf("%d %d calls=%d", rs[0].Code, rs[1].Code, e.issuerCalls())
-	}
-}
+// (DifferentCustomClaimsIsTheSameBranch removed 2026-11-14: a request can no
+// longer carry custom_claims, SPEC10_1_4a_fingerprint; the tenant-differs
+// branch is covered by the t1/t2 cases above.)
 
 func TestSPEC10_1_4a_SequentialRepeatWithinWindowReusesOutcome_ThenWindowCloses(t *testing.T) {
 	e := newRFEnv(t, rfOpts{})

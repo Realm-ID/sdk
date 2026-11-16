@@ -8,7 +8,8 @@ package dev.realmid.sdk.auth;
  * minted; the code alone is useless without it. {@code refreshToken} is optional
  * and has the meaning documented on {@link MFAVerifyRequest}.
  */
-public record RedeemRecoveryCodeRequest(String challengeToken, String code, String origin, String refreshToken) {
+public record RedeemRecoveryCodeRequest(String challengeToken, String code, String origin, String refreshToken,
+                                      String onBehalfOfIp) {
 
     /** Never prints a credential. */
     @Override
@@ -18,11 +19,20 @@ public record RedeemRecoveryCodeRequest(String challengeToken, String code, Stri
 
 
     public static RedeemRecoveryCodeRequest of(String challengeToken, String code) {
-        return new RedeemRecoveryCodeRequest(challengeToken, code, null, null);
+        return new RedeemRecoveryCodeRequest(challengeToken, code, null, null, null);
+    }
+
+    public RedeemRecoveryCodeRequest(String challengeToken, String code, String origin, String refreshToken) {
+        this(challengeToken, code, origin, refreshToken, null);
+    }
+
+    /** A copy carrying the END USER's IP, sent as {@code X-On-Behalf-Of-IP} (SPEC 4.3a, 10.1 step 5a). */
+    public RedeemRecoveryCodeRequest withOnBehalfOfIp(String onBehalfOfIp) {
+        return new RedeemRecoveryCodeRequest(challengeToken, code, origin, refreshToken, onBehalfOfIp);
     }
 
     /** A copy that runs under the per-session lock keyed on {@code refreshToken}. */
     public RedeemRecoveryCodeRequest withRefreshToken(String refreshToken) {
-        return new RedeemRecoveryCodeRequest(challengeToken, code, origin, refreshToken);
+        return new RedeemRecoveryCodeRequest(challengeToken, code, origin, refreshToken, onBehalfOfIp);
     }
 }

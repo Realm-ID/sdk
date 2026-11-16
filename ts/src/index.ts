@@ -42,6 +42,8 @@ export { ActorRequiredError, isActorRequired } from "./actor-required.js";
 export { DeviceApprovalNotAllowedError, isDeviceApprovalNotAllowed } from "./device-approval-not-allowed.js";
 export { RealmError, RefreshSupersededError, RefreshHandedOverError, isTokenStale, isKnownCode, ERROR_CODES, isUserSuspended, isEscortSuspended, isTenantDisabled, isRealmSuspended, isTenantSuspended, isInvalidChannelConfig, isChannelValidationFailed, isChannelNotConfigured, isPhoneOtpRateLimited, isSignInIpRateLimited, isDeliveryUnavailable } from "./errors.js";
 export type { ErrorCode } from "./errors.js";
+export { CustomClaimsError, CustomClaimKeyError } from "./custom-claims.js";
+export type { CustomClaimsHandler } from "./custom-claims.js";
 
 export type { Claims } from "./claims.js";
 
@@ -285,7 +287,7 @@ export type {
   IntegrationListOpts,
 } from "./integrations.js";
 
-export { createMiddleware, globMatch } from "./middleware.js";
+export { createMiddleware, globMatch, canonicalMatch } from "./middleware.js";
 // ADR-097: SDK-enforced route authorization. Layer 1 (predicate), layer 2
 // (route map, default DENY), layer 3 (Express + Fastify adapters).
 export {

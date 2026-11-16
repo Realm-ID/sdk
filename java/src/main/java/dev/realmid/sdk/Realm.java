@@ -60,6 +60,8 @@ public final class Realm {
      * exactly the BFF lane the claim exists for.
      */
     private final dev.realmid.sdk.auth.ProductRolesHandler productRoles;
+    /** SPEC 10.2 (audit e-01): kept so a withUserToken copy keeps minting custom claims. */
+    private final dev.realmid.sdk.auth.CustomClaimsHandler customClaims;
     /**
      * ADR-097 — the partner scope resolver, carried for the same reason
      * productRoles is: a withUserToken copy that dropped it would stop minting
@@ -131,6 +133,7 @@ public final class Realm {
         this.origin = b.origin;
         this.logger = b.logger == null ? Logging.NOOP : b.logger;
         this.productRoles = b.productRoles;
+        this.customClaims = b.customClaims;
         this.scopes = b.scopes;
         this.onIdentityResolved = b.onIdentityResolved;
         ObjectMapper mapper = b.mapper == null ? new ObjectMapper() : b.mapper;
@@ -176,6 +179,7 @@ public final class Realm {
                 this.baseUrl, this.realmId, httpClient, mapper, clock, this.logger);
         this.tokens = new TokensClient(this.sessionStore, clock, this.logger, this.orgSessionModes::mode);
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
+        this.auth.setCustomClaimsHandler(this.customClaims);
         this.auth.setSplitState(this.splitState);
         this.auth.setRevocationCache(this.revocation);
         this.auth.setLogoutSupport(this.tokens, this.verifier, clock);
@@ -220,6 +224,7 @@ public final class Realm {
         this.origin = parent.origin;
         this.logger = parent.logger;
         this.productRoles = parent.productRoles;
+        this.customClaims = parent.customClaims;
         this.scopes = parent.scopes;
         this.onIdentityResolved = parent.onIdentityResolved;
         this.clock = parent.clock;
@@ -237,6 +242,7 @@ public final class Realm {
 
         this.splitState = parent.splitState;
         this.auth = new AuthClient(this.http, this.realmId, this::resolveOrigin, this.productRoles, this.scopes, this.onIdentityResolved);
+        this.auth.setCustomClaimsHandler(this.customClaims);
         this.auth.setSplitState(this.splitState);
         this.auth.setRevocationCache(this.revocation);
         this.auth.setLogoutSupport(this.tokens, this.verifier, this.clock);
@@ -488,6 +494,7 @@ public final class Realm {
         private dev.realmid.sdk.authority.AuthorityCache authority;
         private dev.realmid.sdk.revocation.RevocationCache revocation;
         private dev.realmid.sdk.auth.ProductRolesHandler productRoles;
+        private dev.realmid.sdk.auth.CustomClaimsHandler customClaims;
         private dev.realmid.sdk.auth.ScopesHandler scopes;
         private dev.realmid.sdk.auth.IdentityResolvedHandler onIdentityResolved;
         private dev.realmid.sdk.session.SessionStateStore sessionStore;
@@ -588,6 +595,15 @@ public final class Realm {
          * contract, including the side-effect freedom that makes the D11 retry
          * policy legal.
          */
+        /**
+         * SPEC 10.2 (audit e-01): the ONLY source of custom claims on a mint the SDK runs. See
+         * {@link dev.realmid.sdk.auth.CustomClaimsHandler}. Unset means no custom claims.
+         */
+        public Builder customClaims(dev.realmid.sdk.auth.CustomClaimsHandler v) {
+            this.customClaims = v;
+            return this;
+        }
+
         public Builder productRoles(dev.realmid.sdk.auth.ProductRolesHandler v) {
             this.productRoles = v;
             return this;

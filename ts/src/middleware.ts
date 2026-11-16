@@ -25,7 +25,7 @@ import { NOOP_LOGGER } from "./logger.js";
 import { lockKey, outKey } from "./session-store.js";
 import {
   LOCK_TTL_MS, OUTCOME_TTL_MS, POLL_MS, POLL_TRIES, MFA_VERIFY_FP, sleepMs,
-  boundedOutcome, boundedStore, outcomeRelayStatus, readOutcome, relayStatus, rotatedRefreshToken, stableJson, withSessionLock,
+  boundedOutcome, boundedStore, outcomeRelayStatus, readOutcome, relayStatus, rotatedRefreshToken, withSessionLock,
   type RefreshOutcome,
 } from "./session-lock.js";
 
@@ -75,6 +75,13 @@ export interface MiddlewareConfig {
    * answers the verify body plus `"reenroll_required": true`.
    */
   recoveryPath?: string;
+  /**
+   * The end user's IP, forwarded as `X-On-Behalf-Of-IP` on the MFA verify and recovery calls
+   * (SPEC §10.1 steps 5, 5a) so the issuer's per-IP limiter counts the user, not this server's
+   * egress IP. Default: `req.socket.remoteAddress`. Behind a proxy, supply it; the SDK never
+   * trusts `X-Forwarded-For` itself.
+   */
+  clientIp?: (req: ConnectReq) => string | undefined;
   /** "cookie" (default, browser SPAs) or "body" (native/mobile clients). */
   tokenDelivery?: "cookie" | "body";
   cookieName?: string;
@@ -110,6 +117,7 @@ interface IncomingMessageLike {
   headers: Record<string, string | string[] | undefined>;
   on?(event: string, listener: (...args: unknown[]) => void): unknown;
   body?: unknown;
+  socket?: { remoteAddress?: string | undefined } | undefined;
 }
 
 interface ServerResponseLike {
@@ -140,6 +148,7 @@ interface Resolved {
   refreshPath: string;
   mfaVerifyPath: string;
   recoveryPath: string | undefined;
+  clientIp: (req: ConnectReq) => string | undefined;
   logger: Logger;
   tokenDelivery: "cookie" | "body";
   cookieName: string;
@@ -164,7 +173,7 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
   const merged: Resolved = {
     exemptPaths: cfg.exemptPaths ?? ["/health", "/public/*"],
     mfaRules: (cfg.mfaProtectedPaths ?? []).map(normalizeMfaRule).map((r) => {
-      globMatch(r.path, "/", { braces: true }); // refuse a malformed `{...}` at construction
+      canonicalMatch(r.path, "mfa", "/"); // refuse a malformed `{...}` at construction
       return r;
     }),
     mfaDefaultMaxAgeSeconds: cfg.mfaDefaultMaxAgeSeconds ?? DEFAULT_MFA_MAX_AGE_SECONDS,
@@ -173,6 +182,7 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
     refreshPath: cfg.refreshPath ?? "/token",
     mfaVerifyPath: cfg.mfaVerifyPath ?? "/mfa/verify",
     recoveryPath: cfg.recoveryPath || undefined,
+    clientIp: cfg.clientIp ?? ((r) => r.socket?.remoteAddress),
     logger: cfg.logger ?? NOOP_LOGGER,
     tokenDelivery: cfg.tokenDelivery ?? realm.tokenDelivery,
     cookieName: cfg.cookieName ?? "realmid_refresh",
@@ -191,7 +201,7 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
 
       // 1. Exempt path?
       for (const pat of merged.exemptPaths) {
-        if (globMatch(pat, path)) {
+        if (canonicalMatch(pat, "exempt", path)) {
           return next();
         }
       }
@@ -269,8 +279,19 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
 
 // ---- route handlers ----
 
+/**
+ * SPEC10_1_4_no_client_claims (§10.1 steps 2, 4, 5, 5a): a body carrying `custom_claims` or
+ * `customClaims` with ANY value is answered 400 before any issuer call. Returns true when it answered.
+ */
+function refuseClientClaims(res: ConnectRes, body: Record<string, unknown>): boolean {
+  if (!Object.prototype.hasOwnProperty.call(body, "custom_claims") && !Object.prototype.hasOwnProperty.call(body, "customClaims")) return false;
+  sendJson(res, 400, { error: { code: "custom_claims_not_accepted", message: "custom claims are set by the server's customClaims handler, not by the client" } });
+  return true;
+}
+
 async function handleLogin(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const body = await readJsonBody(req);
+  if (refuseClientClaims(res, body)) return;
   const loginReq: LoginRequest = {
     method: (body["method"] as LoginRequest["method"]) ?? "firebase",
     providerToken: String(body["provider_token"] ?? body["providerToken"] ?? ""),
@@ -344,8 +365,20 @@ function handOver(res: ConnectRes, cfg: Resolved, refreshToken: string | undefin
 }
 
 function respondOutcome(res: ConnectRes, cfg: Resolved, fp: string, o: RefreshOutcome): void {
+  if (!o.ok && o.refreshToken && o.fp !== fp) {
+    // SPEC4_2_carry_all rule 3: a waiter for a DIFFERENT request never sees the winner's handler error
+    // (it names the other tenant); it takes the same 503 retry hand-over as a success would.
+    send503(res, "refresh superseded, retry", { retry: true, ...handOver(res, cfg, o.refreshToken) });
+    return;
+  }
   if (!o.ok) {
-    sendJson(res, outcomeRelayStatus(o), o.body);
+    // SPEC4_2_rotate_handover rule 5: a failure after the rotation answers the error AND hands over the
+    // rotated token exactly like the 503 retry below (Set-Cookie, or `refresh_token` in the body).
+    const handed = handOver(res, cfg, o.refreshToken);
+    const status = outcomeRelayStatus(o);
+    // SPEC.md:1447-1449: the carried 503 body says `retry: true`.
+    const retry = o.refreshToken && status === 503 ? { retry: true } : {};
+    sendJson(res, status, { ...((o.body ?? {}) as Record<string, unknown>), ...retry, ...handed });
     return;
   }
   if (o.fp !== fp) {
@@ -369,6 +402,9 @@ function respondOutcome(res: ConnectRes, cfg: Resolved, fp: string, o: RefreshOu
 
 async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
   const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>));
+  // SPEC10_1_4_no_client_claims (owner ruling 2026-11-14, audit e-01): refuse, do not ignore, a
+  // browser-sent custom_claims of ANY value — before the lock, before the issuer is called.
+  if (refuseClientClaims(res, body)) return;
   const candidates = readRefreshCandidates(req, cfg, body);
   const refreshToken = candidates[0];
   if (!refreshToken) {
@@ -384,8 +420,7 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
     sendError(res, new RealmError({ code: "tenant_required", message: "tenant_id required", httpStatus: 400 }));
     return;
   }
-  const customClaims = (body["custom_claims"] ?? body["customClaims"]) as Record<string, unknown> | undefined;
-  const fp = tenantId + "\u0000" + stableJson(customClaims ?? null);
+  const fp = tenantId; // SPEC10_1_4a_fingerprint: no custom_claims in it; the handler's output is a function of (tenant, user)
   const store = realm.sessionStore;
   const lk = await lockKey(refreshToken);
   const ok = await outKey(refreshToken);
@@ -429,7 +464,7 @@ async function handleRefresh(realm: Realm, req: ConnectReq, res: ConnectRes, cfg
         await realm.tokens.recordRefresh(o.mint.accessToken);
       }
     };
-    const outcome = await mintBounded(realm, candidates, tenantId, customClaims, fp, settle);
+    const outcome = await mintBounded(realm, candidates, tenantId, fp, settle);
     await settle(outcome);
     respondOutcome(res, cfg, fp, outcome);
   } finally {
@@ -442,7 +477,6 @@ async function mintBounded(
   realm: Realm,
   candidates: string[],
   tenantId: string,
-  customClaims: Record<string, unknown> | undefined,
   fp: string,
   onLate: (o: RefreshOutcome) => Promise<void>,
 ): Promise<RefreshOutcome> {
@@ -454,7 +488,7 @@ async function mintBounded(
     for (const refreshToken of candidates) {
       try {
         // The UNLOCKED mint: this handler already holds the per-session lock (not re-entrant).
-        out = await realm.auth.tokenUnlocked({ refreshToken, tenantId, customClaims });
+        out = await realm.auth.tokenUnlocked({ refreshToken, tenantId });
         minter = refreshToken;
         break;
       } catch (e) {
@@ -485,6 +519,7 @@ async function handleMfaLike(
   extra: (out: { reenrollRequired?: boolean }) => Record<string, unknown>,
 ) {
   const body = await readJsonBody(req);
+  if (refuseClientClaims(res, body)) return;
   const challengeToken = String(body["mfa_challenge_token"] ?? body["challenge_token"] ?? body["challengeToken"] ?? "");
   const code = String(body["code"] ?? "");
   const candidate = readRefreshToken(req, cfg, body);
@@ -508,12 +543,12 @@ async function handleMfaLike(
 }
 
 async function handleMfaVerify(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
-  return handleMfaLike(realm, req, res, cfg, (challengeToken, code) => realm.auth.mfaVerify({ challengeToken, code }), () => ({}));
+  return handleMfaLike(realm, req, res, cfg, (challengeToken, code) => realm.auth.mfaVerify({ challengeToken, code, onBehalfOfIp: cfg.clientIp(req) }), () => ({}));
 }
 
 /** Recovery route (SPEC §10.1 step 5a): the verify body plus `reenroll_required`. */
 async function handleMfaRecovery(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
-  return handleMfaLike(realm, req, res, cfg, (challengeToken, code) => realm.auth.redeemRecoveryCode({ challengeToken, code }),
+  return handleMfaLike(realm, req, res, cfg, (challengeToken, code) => realm.auth.redeemRecoveryCode({ challengeToken, code, onBehalfOfIp: cfg.clientIp(req) }),
     (out) => ({ reenroll_required: out.reenrollRequired === true }));
 }
 
@@ -569,7 +604,7 @@ function readRefreshToken(req: ConnectReq, cfg: Resolved, body?: Record<string, 
 
 function findMfaRule(rules: NormalizedMFARule[], path: string): NormalizedMFARule | undefined {
   for (const r of rules) {
-    if (globMatch(r.path, path, { braces: true })) return r;
+    if (canonicalMatch(r.path, "mfa", path)) return r;
   }
   return undefined;
 }
@@ -850,17 +885,42 @@ function headerStr(v: string | string[] | undefined): string | undefined {
   return v;
 }
 
-function pathOnly(url: string): string {
+export function pathOnly(url: string): string {
   const q = url.indexOf("?");
   return q < 0 ? url : url.slice(0, q);
 }
 
 // ---- glob matcher ----
 
+export type MatchKind = "exempt" | "mfa" | "scope";
+
+/**
+ * SPEC §11.4.1 `SPEC11_4_1_canon` rules 1-3, shared by the pattern and the path: ONE trailing
+ * slash is removed (when longer than `/`), then ASCII `A-Z` is lowercased. Never a regex `i`
+ * flag (JS `/i` without `/u` folds non-ASCII), never decoding, collapsing or dot-segment work.
+ */
+export function canonicalPath(s: string): string {
+  const t = s.length > 1 && s.endsWith("/") ? s.slice(0, -1) : s;
+  return t.replace(/[A-Z]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 32));
+}
+
+/**
+ * The ONE matcher for `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths (SPEC11_4_1_canon).
+ * `{name}` is a placeholder for `mfa` and `scope`; `exempt` keeps braces literal.
+ */
+export function canonicalMatch(pattern: string, kind: MatchKind, path: string): boolean {
+  const braces = kind !== "exempt";
+  return globToRegex(canonicalPath(pattern), braces).test(canonicalPath(path));
+}
+
 /**
  * Tiny glob matcher. Supports `*` (one segment), `**` (zero or more
  * segments). No braces, no character classes — partners can use multiple
  * patterns if they need an alternation.
+ *
+ * @deprecated Use {@link canonicalMatch}: this one is case-sensitive and does not fold a trailing
+ * slash, so a gate built on it leaves `/Admin/x` and `/admin/x/` open where the SDK gates them
+ * (SPEC11_4_1_ts_exports). Still exported; removing it would be breaking.
  */
 export function globMatch(pattern: string, path: string, opts: { braces?: boolean } = {}): boolean {
   return globToRegex(pattern, opts.braces === true).test(path);

@@ -36,6 +36,8 @@
 
 import { resolveProductRoles, type ProductRolesHandler } from "./product-roles.js";
 import { resolveScopes, type ScopesHandler } from "./scopes-handler.js";
+import { CustomClaimsError, resolveCustomClaims, checkPayloadKeys, type CustomClaimsHandler } from "./custom-claims.js";
+import { RefreshHandedOverError } from "./errors.js";
 import { fireIdentityResolved, type IdentityResolvedHandler } from "./identity-resolved.js";
 
 /** The subset of a minted token this module reads and rewrites in place. */
@@ -53,6 +55,8 @@ export interface RefreshMintResult {
 export interface RefreshMintDeps {
   productRoles?: ProductRolesHandler;
   scopes?: ScopesHandler;
+  /** SPEC §10.2: the ONLY source of custom claims on an SDK-run mint. */
+  customClaims?: CustomClaimsHandler;
   /**
    * The post-identity, pre-derived-claims hook (design doc:
    * `../docs/design/pre-mint-hook.md`, OQ-1). Fires on this lane too — a
@@ -68,6 +72,7 @@ export interface RefreshMintDeps {
     tenantId: string;
     productRoles?: string[];
     scope?: string[];
+    customClaims?: Record<string, unknown>;
   }): Promise<RefreshMintResult>;
 }
 
@@ -93,7 +98,7 @@ export async function enrichRefreshMint(
 ): Promise<void> {
   // The hook must be consulted here too — a hook-only consumer (no
   // productRoles, no scopes) would otherwise never fire on refresh at all.
-  if (!deps.productRoles && !deps.scopes && !deps.onIdentityResolved) return;
+  if (!deps.productRoles && !deps.scopes && !deps.customClaims && !deps.onIdentityResolved) return;
   if (!out || !out.refreshToken) {
     // Nothing to re-mint against. A credential-bootstrapped session gets no
     // refresh token at all (ADR-089), so this is a legitimate shape and not an
@@ -104,8 +109,26 @@ export async function enrichRefreshMint(
   // on a tenant switch they differ, and resolving for the requested tenant while
   // the token is minted for another is a silent wrong answer.
   const effectiveTenant = out.tenantId || tenantId;
+  // SPEC4_2_rotate_handover: the first mint ROTATED the caller's token, so EVERY failure from here
+  // carries the rotated session (`out` is updated in place only after the second mint succeeds, so
+  // these two values are the first mint's).
+  const rotated = out.refreshToken;
+  const firstAccess = out.accessToken;
+  try {
+    await enrichAfterRotation(deps, out, effectiveTenant);
+  } catch (e) {
+    throw e instanceof RefreshHandedOverError ? e : new RefreshHandedOverError(e, rotated, firstAccess);
+  }
+}
+
+async function enrichAfterRotation(deps: RefreshMintDeps, out: RefreshMintResult, effectiveTenant: string): Promise<void> {
   const fields = peekJwtUserFields(out.accessToken);
   if (!fields.sub) {
+    // Decision (c): with a customClaims handler configured, an unreadable (or fold-refused) `sub`
+    // refuses with the handler error type rather than returning a token silently lacking its claims.
+    if (deps.customClaims) {
+      throw new CustomClaimsError(effectiveTenant, "", 0, new Error("the refreshed token's subject could not be read"));
+    }
     // Deliberately NOT an error for everyone else. The peek is a convenience
     // over a token the issuer signed; if its shape ever changes we degrade to
     // the old behaviour (the claim is omitted) rather than breaking every
@@ -139,7 +162,8 @@ export async function enrichRefreshMint(
 
   const roles = await resolveProductRoles(deps.productRoles, effectiveTenant, userId);
   const scopes = await resolveScopes(deps.scopes, effectiveTenant, userId);
-  if (!roles?.length && !scopes?.length) {
+  const customClaims = await resolveCustomClaims(deps.customClaims, effectiveTenant, userId);
+  if (!roles?.length && !scopes?.length && !customClaims) {
     // Both empty means both claims would be omitted, so the re-mint could only
     // reproduce the token we are already holding. Skipping it also keeps a
     // handler that legitimately returns nothing from costing a round trip on
@@ -154,6 +178,7 @@ export async function enrichRefreshMint(
     tenantId: effectiveTenant,
     productRoles: roles,
     scope: scopes,
+    customClaims,
   });
   out.accessToken = again.accessToken;
   out.refreshToken = again.refreshToken;
@@ -198,6 +223,8 @@ function decodeJwtPayload(jwt: string): { sub?: string; email?: string; name?: s
   try {
     const padded = payload.replace(/-/g, "+").replace(/_/g, "/");
     const json = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+    // SPEC §4.2 rule 2 applies to the unverified readers too: one token never reads as two principals.
+    if (checkPayloadKeys(json) !== undefined) return undefined;
     const c = JSON.parse(json) as { sub?: unknown; email?: unknown; name?: unknown };
     return {
       sub: typeof c.sub === "string" ? c.sub : undefined,

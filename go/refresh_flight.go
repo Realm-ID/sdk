@@ -47,11 +47,11 @@ func (s *storedErr) realmError() *RealmError {
 	return &RealmError{Code: ErrorCode(s.Code), Message: s.Message, HTTPStatus: s.Status, Details: s.Details}
 }
 
-// refreshFingerprint is tenant_id plus the canonical JSON of custom_claims
-// (encoding/json sorts map keys).
-func refreshFingerprint(tenantID string, custom map[string]any) string {
-	cc, _ := json.Marshal(custom)
-	return tenantID + "\x00" + string(cc)
+// refreshFingerprint is tenant_id alone (SPEC10_1_4a_fingerprint): a request
+// can no longer carry custom_claims, and the handler's output is a function of
+// (tenantId, userId), the user being fixed by the refresh token.
+func refreshFingerprint(tenantID string) string {
+	return tenantID
 }
 
 func (r *Realm) sleepFor(d time.Duration) {
@@ -148,7 +148,7 @@ func writeServerError(w http.ResponseWriter, message string, retry bool) {
 // context DETACHED from the request and bounded at 10 s, so a client
 // disconnect cannot abort a rotation the issuer already performed. It stores
 // the outcome (errors too: a loser retrying a consumed refresh would be reuse).
-func (r *Realm) mintRefresh(req *http.Request, candidates []string, tenantID string, custom map[string]any, fp string) *refreshOutcome {
+func (r *Realm) mintRefresh(req *http.Request, candidates []string, tenantID string, fp string) *refreshOutcome {
 	ctx, cancel := ctxpkg.WithTimeout(ctxpkg.WithoutCancel(req.Context()), r.mintTimeout())
 	defer cancel()
 	var (
@@ -160,7 +160,7 @@ func (r *Realm) mintRefresh(req *http.Request, candidates []string, tenantID str
 	// shadowed jar it is the difference between a working session and a
 	// permanent logout. The FIRST failure is the one reported.
 	for _, refresh := range candidates {
-		res, err := r.Auth.token(ctx, TokenRequest{RefreshToken: refresh, TenantID: tenantID, CustomClaims: custom})
+		res, err := r.Auth.token(ctx, TokenRequest{RefreshToken: refresh, TenantID: tenantID})
 		if err == nil {
 			out, minter = res, refresh
 			break
@@ -176,6 +176,12 @@ func (r *Realm) mintRefresh(req *http.Request, candidates []string, tenantID str
 	default:
 		if err := r.enrichRefreshMint(ctx, out, tenantID); err != nil {
 			oc.Err = toStoredErr(asRealmError(err))
+			var ho *RefreshHandedOverError
+			if errors.As(err, &ho) {
+				// SPEC4_2_rotate_handover rule 5: the stored outcome carries the
+				// rotated token, so the response and any retry hand it over.
+				oc.Mint = &MintResult{AccessToken: ho.accessToken, RefreshToken: ho.refreshToken}
+			}
 			break
 		}
 		oc.Mint = out
@@ -201,6 +207,15 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		return
 	}
 	body, _ := readJSON(req)
+	// SPEC10_1_4_no_client_claims (audit e-01): refused, not ignored, before the
+	// lock and before the issuer; the refresh token is not consumed.
+	if bodyCarriesCustomClaims(body) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
+			"code":    "custom_claims_not_accepted",
+			"message": "custom claims are set by the server's customClaims handler, not by the client",
+		}})
+		return
+	}
 	tenantID, _ := body["tenant_id"].(string)
 	if tenantID == "" {
 		tenantID, _ = body["tenantId"].(string)
@@ -209,11 +224,7 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{"code": "tenant_required", "message": "tenant_id required"}})
 		return
 	}
-	custom, _ := body["custom_claims"].(map[string]any)
-	if custom == nil {
-		custom, _ = body["customClaims"].(map[string]any)
-	}
-	fp := refreshFingerprint(tenantID, custom)
+	fp := refreshFingerprint(tenantID)
 	key := candidates[0]
 
 	acquired, release, err := r.cfg.SessionStore.AcquireRefreshLock(req.Context(), refreshLockKey(key), refreshLockTTL)
@@ -236,7 +247,7 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 			return
 		}
 		if oc == nil {
-			oc = r.mintRefresh(req, candidates, tenantID, custom, fp)
+			oc = r.mintRefresh(req, candidates, tenantID, fp)
 		}
 	} else if oc = r.waitOutcome(req.Context(), key); oc == nil {
 		writeServerError(w, "refresh in progress", false)
@@ -249,8 +260,34 @@ func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *Mi
 // late presenter adopted. OnAuthSuccess runs on every successful response.
 func (r *Realm) respondRefresh(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions, oc *refreshOutcome, fp string) {
 	if oc.Err != nil {
-		r.respondAuthFail(w, req, opts, stageRefresh, oc.Err.realmError())
-		return
+		carries := oc.Mint != nil && oc.Mint.RefreshToken != ""
+		if !carries {
+			r.respondAuthFail(w, req, opts, stageRefresh, oc.Err.realmError())
+			return
+		}
+		if oc.Fingerprint == fp {
+			// SPEC4_2_rotate_handover rule 5: answer the error AND hand the rotated
+			// token to the browser, as the step 4a 503 retry hand-over does. The
+			// status is the issuer's own when the cause is an issuer refusal, else
+			// 503; never 401 while a token is carried (SPEC4_2_carry_all).
+			re := oc.Err.realmError()
+			if re.HTTPStatus == 0 || re.HTTPStatus == http.StatusUnauthorized {
+				if re.HTTPStatus == http.StatusUnauthorized {
+					re.Code = ErrCodeServerError
+				}
+				re.HTTPStatus = http.StatusServiceUnavailable
+			}
+			// SPEC.md:1447-1449: the carried body says `retry: true`.
+			if opts.TokenDelivery == "body" {
+				r.respondAuthFail(w, req, opts, stageRefresh, re, map[string]any{"refresh_token": oc.Mint.RefreshToken, "retry": true})
+			} else {
+				setRefreshCookie(w, opts, oc.Mint.RefreshToken)
+				r.respondAuthFail(w, req, opts, stageRefresh, re, map[string]any{"retry": true})
+			}
+			return
+		}
+		// Another tenant's failed enrichment: fall through to the superseded
+		// hand-over below (it hands the rotated token over).
 	}
 	out := oc.Mint
 	if out == nil {
@@ -258,7 +295,7 @@ func (r *Realm) respondRefresh(w http.ResponseWriter, req *http.Request, opts *M
 		return
 	}
 	if oc.Fingerprint != fp {
-		// Another tenant, other custom_claims, or an MFA-verify winner: this
+		// Another tenant or an MFA-verify winner: this
 		// request does not mint. It hands over the winner's ROTATED token so the
 		// client's retry is an ordinary winner on that token.
 		resp := map[string]any{

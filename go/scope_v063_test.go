@@ -38,12 +38,14 @@ func TestSPEC11_4_1_PlaceholderTable(t *testing.T) {
 		want      bool
 	}{
 		{"/orders/{id}", "/orders/42", true},
-		{"/orders/{id}", "/orders/42/", false},
+		// SPEC11_4_1_canon (2026-11-14, vectors m14/m18): one trailing slash is
+		// ignored, so these two rows CHANGED from the v0.63 table.
+		{"/orders/{id}", "/orders/42/", true},
 		{"/orders/{id}", "/orders/", false},
 		{"/orders/{id}", "/orders", false},
 		{"/orders/{id}", "/orders//42", false},
 		{"/orders/{id}", "/orders/42/items", false},
-		{"/orders/*", "/orders/", true},
+		{"/orders/*", "/orders/", false},
 		{"/orders/*", "/orders//42", false},
 		{"/orders/**", "/orders/42/", true},
 		{"/orders/**", "/orders", true},

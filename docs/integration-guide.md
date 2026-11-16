@@ -485,17 +485,28 @@ the token is the truth.
 > **Custom claims — who supplies values, when.** RealmID does not
 > compute or persist custom-claim *values*. The allowlist
 > (`access_token_custom_claim_keys`, §8.4) names the keys you are
-> *permitted* to pass; values are supplied **per-call** by the BFF
+> *permitted* to pass; values are supplied **per-call** by YOUR SERVER
 > in the `custom_claims` field of the `/auth/token` request body,
 > and the issuer copies them verbatim into the minted access token.
+> **Never from the browser.** From go `0.78.0` · ts `0.65.0` · java `0.62.0`
+> (UNRELEASED) the SDK middleware's login, refresh, MFA-verify and recovery routes refuse a request body carrying
+> `custom_claims` or `customClaims` (`400 custom_claims_not_accepted`) and fills the claims
+> from the `customClaims(tenantId, userId)` handler you configure on the
+> realm (SPEC §10.2); a direct `Auth.Token` call from your server code, as
+> below, still passes them itself. Keys must be printable ASCII and must
+> not equal a reserved name in ANY letter case (`Sub`, `Token_class` are
+> refused too; SPEC §4.2 `SPEC4_2_claim_fold`).
 > Unknown keys (not in the allowlist) reject with `400 bad_request` at
 > mint time. Reserved JWT names used to be silently dropped; since
 > ADR-097 they are **refused** with `400 reserved_claim_key` — a
 > dropped claim is indistinguishable from an honoured one, and once
 > `scope` carries authority that difference matters. The reserved set
 > is the token's own claim set: `iss`, `sub`, `aud`, `iat`, `nbf`,
-> `exp`, `jti`, `azp`, `tenant_id`, `role`, `amr`, `acr`, `mfa_at`,
-> `scope`, `token_class`.
+> `exp`, `jti`, `azp`, `tenant_id`, `role`, `amr`, `mfa_at`,
+> `scope`, `token_class`, `product_roles`, `sid`, `events`, and from
+> issuer `v0.151.0` `acr` (`issuer/internal/tokens/tokens.go`
+> `reservedClaims`; corrected 2026-11-14: this list named `acr` before the
+> issuer reserved it, and missed `product_roles`, `sid`, `events`).
 >
 > Worked example — BFF carries derived authz context:
 >

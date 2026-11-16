@@ -15,7 +15,7 @@
  */
 
 import type { HttpClient } from "./http.js";
-import { RealmError } from "./errors.js";
+import { RealmError, RefreshHandedOverError } from "./errors.js";
 import { unwrapData } from "./envelope.js";
 import { scopeWireValue } from "./scope.js";
 import {
@@ -25,7 +25,8 @@ import {
 } from "./product-roles.js";
 import { resolveScopes, type ScopesHandler } from "./scopes-handler.js";
 import { fireIdentityResolved, type AuthFlow, type IdentityResolvedHandler } from "./identity-resolved.js";
-import { enrichRefreshMint } from "./derived-claims-refresh.js";
+import { enrichRefreshMint, peekJwtSubject } from "./derived-claims-refresh.js";
+import { CustomClaimsError, resolveCustomClaims, type CustomClaimsHandler } from "./custom-claims.js";
 import { NOOP_LOGGER } from "./logger.js";
 import { tokenUnderLock, withSessionLock, type LockDeps } from "./session-lock.js";
 import { TokenManager, type TokenManagerOptions } from "./token-manager.js";
@@ -73,8 +74,9 @@ export interface LoginRequest {
    */
   rolePermissions?: string[];
   // NOTE: customClaims intentionally NOT accepted here. Per SPEC §4.1 the
-  // refresh token carries identity only; access-token claims are minted via
-  // `auth.token({ customClaims })`.
+  // refresh token carries identity only; access-token claims come from the
+  // realm's server-side `customClaims(tenantId, userId)` handler (SPEC §10.2),
+  // which the SDK calls on every mint it runs (login tenant mint, refresh).
 }
 
 export interface TenantRef {
@@ -345,6 +347,11 @@ export interface MfaVerifyRequest {
   /** Optional Origin header override. */
   origin?: string;
   /**
+   * The END USER's IP as your server saw it, sent as `X-On-Behalf-Of-IP` so the issuer's per-IP
+   * limit on `/auth/mfa/verify` counts the user, not your server (SPEC §4.3, §10.1 step 5).
+   */
+  onBehalfOfIp?: string;
+  /**
    * The session's CURRENT refresh token (SPEC §4.3, go `0.64.2`). Under issuer
    * ADR-109 Issuer B this call ROTATES that session's refresh token, so one that
    * races a refresh of the same session is a reuse and revokes the session. When
@@ -365,6 +372,8 @@ export interface RedeemRecoveryCodeRequest {
   code: string;
   /** Optional Origin header override. */
   origin?: string;
+  /** The END USER's IP, sent as `X-On-Behalf-Of-IP`; same meaning as {@link MfaVerifyRequest.onBehalfOfIp}. */
+  onBehalfOfIp?: string;
   /** The session's current refresh token: takes the per-session lock exactly as {@link MfaVerifyRequest.refreshToken}. */
   refreshToken?: string;
 }
@@ -638,6 +647,11 @@ export class AuthClient {
       /** Set by `createSplitRealm` only: user mints go to /auth/token/partial and are finished locally. */
       split?: import("./realm-internals.js").SplitHooks;
     },
+    /**
+     * SPEC §10.2 — the server-side `customClaims(tenant, user)` handler, the ONLY
+     * source of custom claims on an SDK-run mint (owner ruling 2026-11-14, e-01).
+     */
+    private readonly customClaims?: CustomClaimsHandler,
   ) {}
 
   private lockDeps(): LockDeps | undefined {
@@ -816,7 +830,7 @@ export class AuthClient {
       email: session.user?.email ?? "",
       displayName: session.user?.displayName ?? "",
     });
-    if (!this.productRoles && !this.scopes && session.accessToken) return;
+    if (!this.productRoles && !this.scopes && !this.customClaims && session.accessToken) return;
     // The handler's error surfaces as a ProductRolesError and is NOT mapped
     // into a RealmError. The session stays intact so the caller can recover.
     const roles = await resolveProductRoles(this.productRoles, tenantId, session.user?.id ?? "");
@@ -825,11 +839,13 @@ export class AuthClient {
     // the mirror of the bug this whole seam exists to close, and would be found
     // the same way: by a partner, in production.
     const scopes = await resolveScopes(this.scopes, tenantId, session.user?.id ?? "");
+    const customClaims = await resolveCustomClaims(this.customClaims, tenantId, session.user?.id ?? "");
     const mint = await this.tokenUnlocked({
       refreshToken: session.refreshToken,
       tenantId,
       productRoles: roles,
       scope: scopes,
+      customClaims,
       rolePermissions,
     });
     session.accessToken = mint.accessToken;
@@ -863,6 +879,7 @@ export class AuthClient {
       {
         productRoles: this.productRoles,
         scopes: this.scopes,
+        customClaims: this.customClaims,
         onIdentityResolved: this.onIdentityResolved,
         realmId: this.realmId,
         mint: (req) => this.tokenUnlocked(req),
@@ -889,7 +906,33 @@ export class AuthClient {
    */
   async token(req: TokenRequest): Promise<TokenResponse> {
     const deps = this.lockDeps();
-    return deps ? tokenUnderLock(deps, req, (r) => this.tokenUnlocked(r)) : this.tokenUnlocked(req);
+    const mint = (r: TokenRequest) => this.mintFillingCustomClaims(r);
+    return deps ? tokenUnderLock(deps, req, mint) : mint(req);
+  }
+
+  /**
+   * SPEC §4.2 / §10.2: a direct `token()` call passes `customClaims` as given
+   * (partner SERVER code); if it omits them and a handler is configured, the SDK
+   * fills them from the handler, which needs the subject the mint resolves — so
+   * mint, read the subject, resolve, re-mint on the rotated token.
+   */
+  private async mintFillingCustomClaims(req: TokenRequest): Promise<TokenResponse> {
+    const first = await this.tokenUnlocked(req);
+    if (!this.customClaims || req.customClaims !== undefined || !req.refreshToken || !first.refreshToken) return first;
+    const tenantId = first.tenantId || req.tenantId;
+    // SPEC4_2_rotate_handover: the first mint ROTATED the token the caller sent, so every failure
+    // from here on carries the rotated session (R1 + the first access token) instead of dropping it.
+    const carry = (e: unknown) => e instanceof RefreshHandedOverError ? e : new RefreshHandedOverError(e, first.refreshToken, first.accessToken);
+    try {
+      const sub = peekJwtSubject(first.accessToken);
+      // Decision (c): an unreadable (or fold-refused) `sub` never returns a token silently lacking the partner's claims.
+      if (!sub) throw new CustomClaimsError(tenantId, "", 0, new Error("the minted access token's subject could not be read"));
+      const claims = await resolveCustomClaims(this.customClaims, tenantId, sub);
+      if (!claims) return first;
+      return await this.tokenUnlocked({ ...req, refreshToken: first.refreshToken, tenantId, customClaims: claims });
+    } catch (e) {
+      throw carry(e);
+    }
   }
 
   /**
@@ -1273,6 +1316,7 @@ export class AuthClient {
   async mfaVerify(req: MfaVerifyRequest): Promise<LoginResponse> {
     return this.underSessionLock(req.refreshToken, async () => {
       const headers = await this.originHeaders(req.origin);
+      if (req.onBehalfOfIp) headers["X-On-Behalf-Of-IP"] = req.onBehalfOfIp;
       const raw = await this.http.request<RawAuthResponse>({
         method: "POST",
         path: "/auth/mfa/verify",
@@ -1300,6 +1344,7 @@ export class AuthClient {
   async redeemRecoveryCode(req: RedeemRecoveryCodeRequest): Promise<LoginResponse> {
     return this.underSessionLock(req.refreshToken, async () => {
       const headers = await this.originHeaders(req.origin);
+      if (req.onBehalfOfIp) headers["X-On-Behalf-Of-IP"] = req.onBehalfOfIp;
       const raw = await this.http.request<RawAuthResponse>({
         method: "POST",
         path: "/auth/mfa/recovery",

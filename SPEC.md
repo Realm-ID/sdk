@@ -3,6 +3,27 @@
 **Current as of 2026-10-17 — go `0.68.0` · ts `0.56.0` · java `0.52.0` · web `0.11.0` · web-admin `0.23.0` · web-bff-realmid `0.8.0`
 (tagged 2026-10-17: go/v0.68.0, ts-v0.56.0, java-v0.52.0; all three languages implement the ADR-115 phone-delivery surface and the v0.63 surface below)** (see §13 for the tag matrix).
 
+> ⚠️ **UNRELEASED, 2026-11-14 — audit fixes e-01..e-04 (go `0.78.0` · ts `0.65.0` · java `0.62.0`,
+> one combined release with issuer `v0.151.0`; owner rulings 2026-11-14, plan
+> `auth/plans/2026-11-14-audit-fixes.md`; why in `DECISIONS.md` 2026-11-14).** Specified ahead
+> of code. None of these tags exists yet; this note is deleted in the commit that releases them.
+>
+> | § | Surface | Visible to an existing partner? |
+> |---|---|---|
+> | **§10.1 step 4** | The middleware login, refresh, MFA-verify and recovery routes REFUSE a body carrying `custom_claims` / `customClaims` (`400 custom_claims_not_accepted`) and never forwards client-supplied claims. | **Yes, BREAKING** — a SPA that sends claims through any of those routes gets a `400`. Move the values into the §10.2 handler. |
+> | **§10.2 handler** | New `customClaims(tenantId, userId)` handler, the ONLY source of custom claims on an SDK-run mint. | No — additive; unset = no custom claims, as for a refresh that sent none. |
+> | **§4.2 claim fold** | Reserved claim names are compared by ASCII fold; custom-claim keys must be printable ASCII; `verify()` refuses a token with a non-ASCII top-level key or two keys that fold together. | **Yes** — a token carrying `Sub`, `Token_class`, `ſub` or a duplicate key that verified before is now `malformed`. The issuer from `v0.151.0` mints none. |
+> | **§11.4.1 canonical matcher** | `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths match ASCII case-insensitively and ignore ONE trailing slash; java matches `getServletPath()+getPathInfo()` and answers `400 invalid_path` to a raw `%2F %5C %25 %2E` or dot segment; go answers `400 invalid_path` to a raw `%2F %5C %25`, a literal `\`, or a dot segment. | **Yes** — more requests are gated (`/Admin/x`, `/admin/x/`); in java, a context path no longer prefixes the matched path; in go and java, encoded separators (`%2F %5C %25`, plus `%2E` in java) and dot segments get `400`, and in go so does a literal `\`. |
+> | **§4.2 `SPEC4_2_carry_all`** (dispatcher decision 2026-11-14) | EVERY failure after the first mint rotated the refresh token (hook refusal, productRoles, scopes, customClaims, unreadable `sub`, a second mint refused with any status) surfaces as `RefreshHandedOverError` carrying the rotated session; on the middleware refresh route it answers `503` (or the issuer's own non-401 status and code), never `401`. | **Yes** — a hook refusal on the refresh route now answers `503` with the rotated token delivered (before: a bare error and no token in java, `401` in go); a refused second mint's `401` becomes `503`. |
+> | **§11.4.1 `SPEC11_4_1_ingress`** (java, dispatcher decision 2026-11-14) | `loginPath`/`logoutPath`/`refreshPath`/`mfaVerifyPath`/`recoveryPath` are compared on the servlet path; the old full-request-URI form still matches for one release with a deprecation warning. | **Yes, java under a context path** — `0.62.0` config written as the full URI keeps working, with a warning, until the next minor. |
+> | **§4.2 `SPEC4_2_carry_all` rule 4** (web, owner rulings 37 and 43, 2026-11-15/16; ships in web `0.13.1`, dispatcher decision 2026-11-16: no API change, so the five web packages' `^0.13.0` peer ranges stay valid) | `@realm-id/web` body mode keeps the newest refresh token carried by ANY `/token` error reply (a `503 retry`, a second `503`, or a `400`/`403`/`409` relayed under rule 2), presents it on the next refresh, and clears it on success. The token stays in the receiving tab's memory. | **Yes, as a fix** — a second `503`, or a relayed `400`/`403`/`409`, no longer leaves the next refresh re-presenting a spent token (reuse, session revoked). Cookie mode unchanged. |
+> | **§11.4.1 `SPEC11_4_1_ts_exports`** (ts) | `canonicalMatch` is exported; `globMatch` is `@deprecated`. | No — additive; `globMatch` stays exported. |
+>
+> **Cite as** `SPEC4_2_carry_all`, `SPEC4_2_carry_all_web`, `SPEC11_4_1_ingress`, `SPEC11_4_1_ts_exports`, `SPEC4_2_claim_fold`, `SPEC10_1_4_no_client_claims`, `SPEC10_1_4a_fingerprint`,
+> `SPEC10_2_custom_claims`, `SPEC10_4_match`, `SPEC11_4_1_canon`, `SPEC11_4_1_source`. Shared
+> cases: `testdata/path-match-vectors/` and `testdata/claim-fold-vectors/`; a runner states how
+> many cases it ran and fails at zero (each README).
+
 > ⚠️ **UNRELEASED (ts/java), 2026-10-16 — password reset links and change at sign-in (issuer ADR-111 +
 > ADR-104 § Amendment 2026-10-09 and R-e `revoked_sids`, issuer spec `0.53.0`).** go `0.65.0` is
 > shipped; ts `0.55.0` and java `0.51.0` implement the same surface at Go parity and are being
@@ -547,8 +568,8 @@ no ts/java number].
 | --- | --- | --- | --- |
 | `authorization_pending` | 400 | device-code grant (poll) | Not approved yet, or an approve was refused (the refusal's code is on the request, R-CLI2). Poll again after `interval`. |
 | `slow_down` | 400 | device-code grant | Polled sooner than `interval`; the request's interval grew by 5 s (RFC 8628 § 3.5). |
-| `access_denied` | 400 | device-code grant | Denied (also after approve, before collection, Q7), or the bot was suspended or deactivated before collection (DQ2). Terminal. |
-| `expired_token` | 400 | device-code grant | Unknown, already collected, or expired: ONE answer for all three. Terminal. |
+| `access_denied` | 400 | device-code grant | Denied (also after approve, before collection, Q7), or the bot was suspended or deactivated before collection (DQ2), or the approving session was revoked before collection (the approval was withdrawn), or the approval can no longer be honoured (issuer ADR-122 AF-122.4/.6). Terminal; later polls answer the same (AF-122.5). |
+| `expired_token` | 400 | device-code grant | Unknown, already collected, or expired: ONE answer for all three. Also: the approving session expired or no longer exists before collection (the approval lapsed, AF-122.4). Terminal; later polls answer the same (AF-122.5). |
 | `device_code_attempts_exceeded` | 429 | inspect, approve, deny | 10 wrong codes by this actor in a fixed 15-minute window (Q2). `Retry-After` = seconds left in the window. |
 | `subject_suspended` | 409 | approve | The service account is suspended or deactivated (DQ2). The request STAYS pending; unsuspend and approve within the 10 minutes. Approving never reactivates a bot. |
 | `device_authorization_not_pending` | 409 | approve | Already approved, denied, collected, failed or expired. |
@@ -1031,8 +1052,10 @@ Four rules:
      failed 3 times" and "RealmID refused your mint" are different incidents and
      must not look alike in your logs.
 4. **It runs on EVERY mint, refresh included.** No caching. That freshness is the
-   entire advantage this claim has over `customClaims`, and it only holds if
-   nothing caches.
+   whole point of a handler, and it only holds if nothing caches. Since
+   2026-11-14 `customClaims` is filled the same way, by the §10.2 handler on
+   every SDK-run mint; the contrast that remains is with a value a client sent,
+   which the middleware now refuses (§10.1 step 4).
 
 ⚠️ **Side-effect freedom is a CONTRACT, not a suggestion.** Retrying is only
 legal because the handler is a pure read. It is called an unspecified number of
@@ -1284,7 +1307,7 @@ identical request with `newPassword` added.
 
 ### 4.2 `token(req)`
 
-Refresh-token rotation, tenant switch, and **custom claim injection on
+Refresh-token rotation, tenant switch, and **custom claims on
 the minted access token**. Wire: `POST /auth/token` with the refresh
 token presented as `Authorization: Bearer ...` (or in the body as
 `refresh_token`).
@@ -1299,6 +1322,290 @@ Request: `{ refreshToken, tenantId, customClaims?, scope?, productRoles?, rolePe
   **access token**, subject to a per-realm server-side allowlist. Use
   this to carry app-state fields (e.g. `outlet_ids`) that downstream
   services need to authorize without a database lookup.
+
+  **The values come from the partner's SERVER, never from a browser (owner
+  ruling 2026-11-14, audit e-01).** So:
+  - On every mint the SDK runs for you (the §10 middleware's refresh and
+    MFA-verify routes, the §4.1.1 enrichment re-mint, the §4.2.1 token manager),
+    `customClaims` is whatever the §10.2 **`customClaims` handler** returns, and
+    nothing else. No handler configured means no custom claims.
+  - A direct `auth.token(req)` call is partner SERVER code: the `customClaims`
+    it passes are sent as given. If the call omits them and a handler is
+    configured, the SDK fills them from the handler. Never copy a value from an
+    inbound request body into this field.
+  - The SDK never forwards a client-supplied `custom_claims`; the middleware
+    refuses one outright (§10.1 steps 2, 4, 5 and 5a). **That refusal is the
+    SDK middleware's ALONE** (the issuer does not repeat it). A partner BFF
+    that does not use the middleware must never copy a value from a request
+    body into `custom_claims`.
+
+  **`SPEC4_2_fill` — the fill is required on the Go direct `Token` call and on
+  the `TokenManager`, not only in ts (audit row 1, 2026-11-14).** "Omits" means
+  Go `TokenRequest.CustomClaims == nil`, ts `customClaims === undefined`, java
+  `null`; an EMPTY non-nil map is a caller's explicit "none" and is sent as
+  given. With a handler configured, Go `AuthClient.Token` (and so
+  `TokenManager`, which calls it), ts `auth.token()` (and so its
+  `TokenManager`) and java `AuthClient.token(...)` (and so its manager) MUST
+  fill an omitted `customClaims` from the §10.2 handler. The handler needs the
+  subject, which only the mint resolves, so the fill is: mint, read `sub` from
+  the minted access token (the unverified reader, rule 2 of `SPEC4_2_claim_fold`
+  below), call the handler with `(tenantId, sub)`, and re-mint on the ROTATED
+  refresh token when the handler returned a non-empty map. A tokenless-rotation
+  response (no refresh token in the first mint, e.g. a service class that does
+  not rotate) is returned as minted. An implementation that mints with no custom
+  claims where a handler is configured under-grants silently, which §10.2 rule 3
+  forbids.
+
+  **`SPEC4_2_rotate_handover` — the fill MUST NOT lose the rotated refresh token
+  (audit row 2; owner decision 2026-11-14, applies to go, ts and java alike).**
+  The fill is two mints: the first ROTATES the refresh token (the one the caller
+  presented is now spent; presenting it again is reuse, and the issuer then
+  revokes the whole session, ADR-031), and only then can the handler run. So:
+  1. If the handler fails (the §10.2 handler error after its 3 attempts, or the
+     key-check error of `SPEC4_2_claim_fold` rule 1), or the second mint is
+     refused or fails for any reason (a key the realm allowlist does not hold, a
+     5xx, a network error, the caller's cancellation), AFTER the first mint
+     returned a rotated refresh token, the SDK MUST NOT return or throw an error
+     that drops it. The failure surfaces as the §10.2 handler error type (Go
+     `*CustomClaimsError` (a key-check failure is wrapped in it as `Err`; Go has
+     no separate key-error type), ts `CustomClaimsError` /
+     `CustomClaimKeyError`, java `CustomClaimsException` /
+     `CustomClaimKeyException`), or, for a refused or failed second mint, as that
+     mint's own error, and in both cases it CARRIES THE ROTATED SESSION: the
+     rotated refresh token and the access token the first mint returned (that
+     token verifies but lacks the handler's claims).
+  2. The carrier is the §4.2 *An error after a hand-over* mechanism, unchanged:
+     the error is wrapped in `RefreshHandedOverError` /
+     `RefreshHandedOverException` with the rotated token as its held token, the
+     original error stays reachable (Go `errors.As` through `Unwrap`, ts
+     `cause`, java `getCause()`), and the same redaction applies (the token is a
+     live credential). The carrier additionally exposes the first mint's access
+     token (Go `AccessToken()`, ts and java `accessToken()`), empty where a
+     hand-over hop never had one. The exceptions are the same: a token-level
+     error (`refresh_invalid`, any 401) from the FIRST mint carries nothing,
+     because nothing was rotated.
+  3. `TokenManager` adopts the carried session before it gives up the
+     acquisition, exactly as §4.2.1 *Adopting a carried token* says: replace its
+     in-memory refresh token, hand it to `refreshSink` and wait, then fail this
+     acquisition. The next acquisition presents the rotated token, so a handler
+     outage costs one failed acquisition and never a refresh-token reuse. A
+     caller of a direct `Token` call presents the carried token on its next
+     call, never the one it sent.
+  4. A caller MAY use the carried access token to serve the request in flight;
+     it is valid and merely lacks the handler's claims, so it MUST NOT be
+     cached or treated as the fully claimed session.
+  5. The same holds on the middleware's refresh route, where the same re-mint
+     runs (`enrichRefreshMint`, §10.1 step 4): a handler or second-mint failure
+     after the rotation answers the error AND hands the rotated refresh token to
+     the browser exactly as the §10.1 step 4a `503 retry` hand-over does (the
+     same `Set-Cookie` in cookie mode, `refresh_token` in the body in body
+     mode); the stored step 4a outcome carries it, so a retry within the window
+     presents the rotated token, not the spent one. **Rules 1 and 5 name the
+     handler and the second mint; `SPEC4_2_carry_all` below widens the set to
+     EVERY failure after the rotation and pins the status. Read them together.**
+
+  **`SPEC4_2_carry_all` — every failure after the first mint rotated carries the
+  session (dispatcher decision 2026-11-14, owner may overrule; applies to go, ts
+  and java alike; supersedes the narrow failure list of rules 1 and 5 above).**
+  Why the list had to widen: the three SDKs had each carried a different subset
+  (ts: hook, productRoles, scopes, customClaims, second mint; go: the same minus
+  the hook; java: customClaims and second mint only; critic row 1, audit-fixes
+  wave 2). Any failure that does not carry the rotated token R1 sends the
+  browser back with the spent R0 on its next refresh, which is reuse, and the
+  issuer revokes the whole session (ADR-031 / ADR-109 D6).
+  1. **Carry-all (MUST).** After the first mint of an SDK-run mint (the §4.2
+     fill, the §4.2.1 token manager, the §10.1 step 4 refresh route's
+     `enrichRefreshMint`) has returned a rotated refresh token, EVERY later
+     failure in that same SDK-run mint surfaces as `RefreshHandedOverError` /
+     `RefreshHandedOverException` carrying the rotated session (refresh token and
+     the first mint's access token, redaction as rule 2). The set is closed under
+     "any": the `OnIdentityResolved` hook refusing (§10.2), the `productRoles`
+     handler, the `scopes` handler, the `customClaims` handler or its key check
+     (`SPEC4_2_claim_fold` rule 1), a `sub` the SDK cannot read from the first
+     access token, and the second mint refused or failed with ANY status,
+     **including 401** (a token-level error from the SECOND mint carries; the
+     "token-level error carries nothing" exception of rule 2 is the FIRST mint
+     only, because only there is nothing rotated). Go's and Java's `carriesSession`
+     style status exclusions are removed; ts's unconditional carry is the rule.
+     *Example.* `R0` presented on the refresh route, the first mint answers
+     `A1`/`R1`, the partner's `OnIdentityResolved` hook then returns an error
+     refusing this org: the SDK throws the carrier holding `R1`, the middleware
+     hands `R1` to the browser (rule 5) and answers per rule 2 below. The next
+     refresh presents `R1`, the session lives, and only this org is refused.
+     **Relation to the 2026-10-12 ruling** (sdk `DECISIONS.md`, "2026-10-12 (Go
+     v0.66.0, ADR-104 R-d)", Amendment item 3): "what the SPA is TOLD is separate
+     from what the browser KEEPS, so a hook refusal is still `server_error`
+     while the session survives and only that org is refused". This rule applies
+     that principle to the refresh route and the direct/manager fill as well; it
+     does not contradict it. **The go test assertion "`/token` writes no cookie
+     for a hook refusal" (`go/suspended_codes_test.go:322-344`) is SUPERSEDED** by
+     this rule: that clause exists only in a test comment and assertion, never in
+     the 2026-10-12 ruling text, and it would drop `R1`. Go flips the `/token`
+     branch of that test to assert the rotated token IS delivered.
+  2. **Status on the refresh route (MUST).** A carried failure on the middleware
+     refresh route (§10.1 step 4) answers **`503`** with
+     `{ error: { code: "server_error", message: … }, retry: true }`, the rotated
+     token delivered per rule 5, and NEVER `401`: the browser SDK treats any
+     `401` as a sign-out and discards its storage, which would lose `R1` in body
+     mode and show a signed-out user holding a live cookie in cookie mode. Where
+     the inner cause is an issuer refusal that carries its own status and code
+     (e.g. `400 reserved_claim_key`, `403 user_suspended`, `409
+     session_limit_reached`), the middleware relays THAT status and code, as the
+     2026-10-12 R2 relay rule says, with the rotated token still delivered. Where
+     the cause's status is `401` (a refused second mint, or any other 401), or
+     the cause has no issuer status (partner handler or hook error, network,
+     unreadable `sub`), the answer is `503`. `escort_suspended` keeps its `503`.
+     *Examples.* Handler down after 3 attempts: `503 server_error`, `R1` set.
+     Second mint `403 user_suspended`: `403 user_suspended`, `R1` set. Second mint
+     `401 refresh_invalid`: `503 server_error`, `R1` set. **Go:** `asRealmError`
+     MUST unwrap a `*RefreshHandedOverError` exactly ONE level, as it does for
+     `*LoginMintError` (a type check, NOT `errors.As`, so a partner hook's own
+     wrapped error never leaks its code to the SPA), so the inner `*RealmError`'s
+     code and status are relayed instead of flattening to `401 server_error`.
+     ts (`errors.ts` constructor copies code and status) and java (`codeOf` /
+     `statusOf`) already keep the inner code; the 401-to-503 mapping is new in all
+     three. The carrier's `message`, `String(e)` and JSON stay token-free.
+  3. **A waiter for another tenant (MUST).** On the step 4a path, a request
+     whose fingerprint (tenant) differs from the stored failed outcome of the
+     winner, and whose stored outcome carries a rotated token, answers the
+     `503 { error: { code: "server_error", message: "refresh superseded, retry" },
+     retry: true }` hand-over of that token (step 4a, loser bullet), NEVER the
+     other tenant's handler or hook error, whose message names that tenant. A
+     same-fingerprint waiter still receives the winner's outcome, including the
+     status and code of rule 2. ts previously relayed every failed outcome to
+     every waiter and MUST change; go and java already take this path.
+     *Example.* Tab 1 refreshes for tenant `t1`, the `t1` handler fails; tab 2,
+     same cookie, asks for `t2`: tab 2 gets `503 refresh superseded, retry` with
+     `R1`, and its retry mints for `t2`.
+  4. **`@realm-id/web` body mode keeps the newest carried token (MUST; owner
+     rulings 37 and 43, 2026-11-15/16; ships in `@realm-id/web` `0.13.1`).**
+     Rules 1 to 3 hand the rotated token to the browser in the body of an ERROR
+     reply; the browser SDK must not then drop it. The app's
+     `requestAdapters.token` body still holds the spent token, so a dropped
+     carried token makes the next refresh present the spent one: reuse, and the
+     issuer revokes the session.
+     - The token manager holds ONE carried refresh token, session-wide (the
+       refresh token belongs to the session, not to a tenant). EVERY `/token`
+       error reply whose body has a string `refresh_token` (or `refreshToken`)
+       replaces it, whatever its status: a `503 retry: true` (the first answer
+       or the retry's), a second `503`, and an issuer status rule 2 relays with
+       the rotated token (`400`, `403`, `409`). Newest wins.
+     - An error reply with no string token leaves it as it was. A failure is
+       never what clears it, except one that ends the session (below).
+     - While it is held, EVERY `/token` request the manager sends sets it in both
+       spellings over the app-built body, as the retry already does: the first
+       request of a later refresh too, for any tenant.
+     - It is cleared by a successful `/token` answer (the app's `adapters.token`
+       persists that answer's token, so the app-built body is current again), by
+       adopting a sibling tab's newer result inside the lock (same reason), and
+       by sign-out or a lost session (an error the manager treats as ending the
+       session, with or without a token in its body).
+     - Unchanged: ONE retry inside the lock, and only after a `503 retry: true`;
+       a relayed `400`/`403`/`409` is not retried. The second `503` still
+       rejects as `server_error`, and a relayed status rejects with its own code;
+       both are a failed refresh, not a lost session (`onLost` silent). The
+       thrown `RealmError` keeps the response `body`, so an app with its own
+       storage can persist `body.refresh_token` from it.
+     - Cookie mode needs nothing: the `Set-Cookie` already moved the token.
+     - The carried token lives in the memory of the tab that received it
+       (dispatcher decision 2026-11-16): it is not written to storage and not
+       posted on the multi-tab bus, whose messages carry no refresh token. A
+       sibling tab that refreshes before this tab next succeeds presents the
+       app's stored token.
+     *Vector (web, body mode; prose like the vector below: the `testdata/` sets
+     do not cover carry-all).* The app's adapter builds `{ refresh_token: "R0" }`.
+     a) `/token` with `R0` answers `503 retry:true` carrying `R1`; the retry
+        presents `R1` and answers `503 retry:true` carrying `R2`; `refresh()`
+        rejects `server_error` with `body.refresh_token == "R2"`, after exactly
+        two requests, `onLost` not called.
+     b) The next `refresh()`, for the same or another tenant, presents `R2` in
+        both spellings, not `R0`, and answers `200` carrying `R3`.
+     c) The refresh after that sends the adapter-built body unchanged (cleared).
+     d) Held `R2`, a `503 retry:true` with no token: `R2` is still held and the
+        following refresh presents it.
+     e) For each of `400 reserved_claim_key`, `403 user_suspended` and `409
+        session_limit_reached`: `/token` with `R0` answers that status carrying
+        `R1`; `refresh()` rejects with that code after exactly ONE request,
+        `onLost` not called; the next `refresh()` presents `R1` in both
+        spellings.
+     f) The retry after a `503 retry:true` carrying `R1` answers `403
+        user_suspended` carrying `R2`: the next `refresh()` presents `R2`.
+     g) A `400`/`403`/`409` with no token in its body: nothing is held, or the
+        held token is kept; the adapter-built body or the held token is
+        presented next.
+     Cite as `SPEC4_2_carry_all_web` in test names.
+
+  *Test vector.* A handler that always fails; a refresh token `R0` presented to
+  `token({refreshToken: "R0", tenantId: "t1"})` with no `customClaims`.
+  1. The issuer rotates: the first mint returns access token `A1` and refresh
+     token `R1`. `R0` is now spent.
+  2. The handler is called with `("t1", sub-of-A1)`, fails three times (50 ms,
+     150 ms backoff).
+  3. `token()` returns/throws a `RefreshHandedOverError` whose original is the
+     handler error (`errors.As(err, &*CustomClaimsError)` true in Go, `cause
+     instanceof CustomClaimsError` in ts, `getCause() instanceof
+     CustomClaimsException` in java), with `refreshToken() == "R1"` and
+     `accessToken() == "A1"`. `R1` appears nowhere in `message`, `String(e)`,
+     `toString()` or JSON.
+  4. A `TokenManager` over `R0` set `R1` as its in-memory token and passed `R1`
+     to `refreshSink` before failing. When the handler recovers, its next
+     acquisition presents `R1`, the issuer rotates it to `R2`, and the session
+     is intact. Without this rule the manager presents `R0` again and gets
+     `refresh_invalid`: a handler outage became a logout.
+  Same vector with the second mint refused (`400 reserved_claim_key` from the
+  issuer) instead of the handler failing: the carried original is that
+  `RealmError`, the token and the manager's behaviour identical.
+  Cite as `SPEC4_2_fill` and `SPEC4_2_rotate_handover` in test names.
+
+  **`SPEC4_2_claim_fold` — reserved names are compared by fold, and keys are
+  printable ASCII (owner ruling 2026-11-14, audit e-02).** Normative cases:
+  `testdata/claim-fold-vectors/`. `fold(k)` maps ASCII `A`-`Z` to `a`-`z` and
+  nothing else. The reserved set is the issuer's `reservedClaims` from
+  `v0.151.0`: `iss sub aud iat nbf exp jti azp tenant_id role mfa_at amr
+  token_class scope product_roles sid events acr`. **`acr` joins it in this
+  release (owner ruling 8, 2026-11-14):** the SDKs read `amr`/`acr` as an MFA
+  marker, so `acr` is reserved. The vectors' drift check holds the issuer to
+  this set.
+  1. **A custom-claim key** is valid only when it is non-empty, every character
+     is printable ASCII (`%x20-7E`), and its fold equals the fold of no reserved
+     name. The issuer applies this at the allowlist write and at the mint
+     (`400 reserved_claim_key` / `400 bad_request`; issuer ADR-097 AF-097.3),
+     so a key stored before `v0.151.0` that fails it (`région`) is refused at
+     the mint rather than minted into a token every SDK refuses; the SDK applies it to the
+     `customClaims` handler's output BEFORE sending and refuses the mint with a
+     distinct SDK error naming the key (the handler is yours, so the failure
+     is too, as in §4.1.2 rule 3).
+  2. **A token** is refused by `verify()` as `malformed` (401) when, among its
+     TOP-LEVEL payload keys taken after JSON unescaping, any key is not
+     printable ASCII, any two keys have equal folds (exact duplicates
+     included), or a key not byte-equal to a reserved name folds to one. Keys
+     are read with a duplicate-preserving tokenizer, never from a decoded map.
+     The same check runs on the unverified readers (`parseClaimsUnverified`,
+     `peekSession`), so one token never reads as two principals. **Go's
+     `peekJWTUserFields` (`go/platform_token.go`) is named explicitly, and so is
+     `peekJWTIssuer` beside it:** each decodes the unverified payload with
+     `encoding/json` into a struct, which binds a key by Unicode simple fold
+     (rule 3). Each MUST run `checkClaimFold` on the raw payload first and
+     treat a refusal as "no subject" / "no issuer".
+     **Exempt:** the ts and java unverified readers (`JSON.parse` and Jackson
+     read exact keys, so no fold binds), when their input is an issuer-minted
+     token or a bearer that already passed `verify()` (which refuses). Duplicate
+     keys resolve last-wins there, the way the verifier would have seen them
+     before refusing. They MAY apply the check for consistency (the ts derived-claims reader does); the
+     rationale is the mechanism, not the language: a reader that binds by fold
+     must check, a reader that matches exact keys of a token this SDK or the
+     issuer produced need not.
+  3. **Why ASCII fold is enough.** Go's `encoding/json` binds a struct field to
+     any key equal under Unicode SIMPLE folding (`encoding/json/fold.go`,
+     `foldRune` over `unicode.SimpleFold`), so `ſub` (U+017F) and `toKen_class`
+     (U+212A) bind to `sub` and `token_class`. The charset rule refuses every
+     non-ASCII key first, and on ASCII text ASCII folding and Unicode simple
+     folding are the same relation. A Unicode fold was rejected because Java and
+     JavaScript have no primitive identical to `unicode.SimpleFold` (U+0130 is
+     the known split), so three hand-rolled tables would drift.
+  4. ts and java read exact keys, and their `verify()` applies the same rule so that one token is never two
+     different users depending on the language reading it. Their unverified
+     readers are governed by the exemption in rule 2.
 - `scope` (wire `scope`, ADR-097): **granted authority** — your OWN scope
   strings, minted into the access token's `scope` claim and read back by the
   SDK's enforcement layer (`scopesFrom` / `scopeAllows` / `ScopePolicy`).
@@ -3866,7 +4173,9 @@ For every inbound request, the middleware:
 2. **Login route?** If `method + path` matches the configured login
    endpoint (default `POST /login`), the middleware **handles the
    request** — it reads `{ method, providerToken }` from the body
-   (custom claims are NOT accepted on login; see §4.1), calls
+   (custom claims are NOT accepted on login; see §4.1 — since 2026-11-14 a body
+   carrying `custom_claims` / `customClaims` gets `400 custom_claims_not_accepted`,
+   `SPEC10_1_4_no_client_claims`), calls
    `realm.auth.login(...)`, returns the refresh token per
    `tokenDelivery` (cookie or body — see §10.2), and the access token
    in the JSON body along with `{ expires_in, user, tenants }`.
@@ -3934,10 +4243,27 @@ For every inbound request, the middleware:
 
 4. **Refresh route?** If `method + path` matches the refresh endpoint
    (default `POST /token`), middleware reads the refresh token + body
-   `{ tenant_id, custom_claims? }`, calls `realm.auth.token(...)`, and
+   `{ tenant_id }`, calls `realm.auth.token(...)`, and
    returns `{ access_token, expires_in, tenant_id, role }` (refresh
-   rotated via cookie or body per `tokenDelivery`). `custom_claims` is
-   the documented place for partner-supplied access-token claims.
+   rotated via cookie or body per `tokenDelivery`).
+
+   **`SPEC10_1_4_no_client_claims` (owner ruling 2026-11-14, audit e-01).** A
+   request body that carries a `custom_claims` or `customClaims` key, with ANY
+   value (`null`, `{}` and a non-object included), is answered
+   `400 { error: { code: "custom_claims_not_accepted", message: "custom claims are
+   set by the server's customClaims handler, not by the client" } }` before the
+   issuer is called and before the step 4a lock is taken; the refresh token is
+   not consumed. **The same refusal applies on every middleware route that
+   mints: login (step 2), refresh (step 4), MFA verify (step 5) and recovery
+   (step 5a)** — issuer ADR-065 AF-065.2's "browser-facing middleware route",
+   read as the routes that can mint. Logout (step 3) ignores the key: it mints
+   nothing, and a logout must never fail. The
+   claims minted are those of the §10.2 `customClaims` handler, called with the
+   `(tenantId, userId)` the refresh resolves, on the same lane that fills
+   `productRoles` and `scope` (`go/derived_claims_refresh.go`,
+   `ts/src/derived-claims-refresh.ts`), so custom claims and derived claims
+   ride ONE token. Refusing rather than ignoring is deliberate: a silently dropped claim reads
+   as "honoured" to the client that sent it.
 
    **4a. One refresh per refresh token at a time; a loser receives the
    winner's outcome (owner ruling 2026-10-01, v0.63.0).** Refresh
@@ -3950,14 +4276,19 @@ For every inbound request, the middleware:
    - **Key** = `hex(sha256(first refresh-token candidate))`, in the order the
      route already reads candidates. Two tabs sharing a cookie jar produce the
      same key.
-   - **Fingerprint** = `tenant_id` + canonical JSON of `custom_claims`. Stored
-     with the outcome.
+   - **Fingerprint** = `tenant_id`. Stored with the outcome.
+     **`SPEC10_1_4a_fingerprint` (2026-11-14):** it no longer includes
+     `custom_claims`, because a request can no longer carry any (step 4); the
+     handler's output is a function of `(tenantId, userId)`, and the user is
+     fixed by the refresh token the key is derived from. A "different
+     fingerprint" below therefore means another tenant or an MFA-verify winner.
    - **Winner** (`AcquireRefreshLock(key, 15s)` returns acquired):
      1. If `GetRefreshResult(key)` holds an outcome (a request that lost the
         previous winner's response, e.g. a reload), answer from it exactly as a
         loser would (below): an error outcome -> that error; same fingerprint ->
         the stored outcome; a different fingerprint -> the `503 retry` hand-over
-        of its rotated token. A winner never returns tokens minted for a
+        of its rotated token (a CARRIED failure, `SPEC4_2_carry_all` rule 3, is
+        such a hand-over too, never the other tenant's error). A winner never returns tokens minted for a
         different fingerprint, and never mints while an outcome for the key is
         stored. **A store ERROR on this read answers `503` "session store
         unavailable" and never mints** (go `0.64.2`; before it, any read error was
@@ -3977,9 +4308,11 @@ For every inbound request, the middleware:
      most **60** tries (3 s). Then:
      - **same fingerprint** → *Respond* with the winner's outcome (same tokens,
        same `Set-Cookie`, or the same error);
-     - **different fingerprint** (another tenant, other `custom_claims`, or an
+     - **different fingerprint** (another tenant, or an
        MFA-verify winner — below) → the loser **does not mint**. If the
-       winner's outcome was an error, the loser responds with it. Otherwise it
+       winner's outcome was an error that carries no rotated token, the loser
+       responds with it; an error that CARRIES one (`SPEC4_2_carry_all` rule 3,
+       2026-11-14) takes the same hand-over as a success. Otherwise it
        answers **`503 { error: { code: "server_error", message: "refresh
        superseded, retry" }, retry: true }`** and hands over the winner's
        ROTATED refresh token exactly as the winner's response did — the same
@@ -4072,12 +4405,29 @@ For every inbound request, the middleware:
    could not be read it reports `concurrent`.
 
 5. **MFA verify route?** Default `POST /mfa/verify`. Body
-   `{ challenge_token, code }`; behaves like login on success. **From v0.63.0
+   `{ challenge_token, code }`; behaves like login on success. A body that
+   also carries `custom_claims` / `customClaims` gets
+   `400 custom_claims_not_accepted` before the issuer is called
+   (`SPEC10_1_4_no_client_claims`, 2026-11-14); the same holds on the login
+   route (step 2) and the recovery route (step 5a). **The route forwards the
+   end user's IP as `X-On-Behalf-Of-IP` on its issuer call, and so does the
+   recovery route (step 5a):** the issuer rate-limits `POST /auth/mfa/verify` and
+   `/auth/mfa/recovery` per IP, keyed on that header when a platform-bearer caller
+   supplies it (issuer `internal/middleware/middleware.go`), so without it every
+   user of one partner server shares that server's bucket and gets `429
+   rate_limited`. The IP is the middleware option's value (Go
+   `MiddlewareOptions.ClientIP`, ts `clientIp`, java `clientIp(...)`), default the
+   connection's remote address, never `X-Forwarded-For` (the `DeviceIP` rule); the
+   direct `MFAVerify` / `RedeemRecoveryCode` calls take `OnBehalfOfIP` /
+   `onBehalfOfIp`. **From v0.63.0
    it runs under the step 4a lock when a refresh-token candidate is present**
    (step 4a, "The MFA-verify route takes the same lock").
 
 5a. **Recovery route? (go `0.64.0`, opt-in from `0.64.1`)** `POST` on
    `recoveryPath` (Go `MiddlewareOptions.RecoveryPath`), which has **NO default**.
+   A body carrying `custom_claims` / `customClaims` gets
+   `400 custom_claims_not_accepted` before the issuer is called
+   (`SPEC10_1_4_no_client_claims`, 2026-11-14).
    Owner ruling 2026-10-02: the middleware recovery route is OFF unless the
    partner sets `MiddlewareOptions.RecoveryPath`; an empty RecoveryPath serves
    nothing (a partner that does not use recovery codes must not get a route it
@@ -4245,6 +4595,40 @@ Same fields exist in the Go and Java configurations using
 language-idiomatic types (`time.Duration` for `MaxAge`,
 `Predicate<Request>`, etc.).
 
+#### `SPEC10_2_custom_claims` — the `customClaims` handler (owner ruling 2026-11-14, audit e-01)
+
+The ONLY source of custom claims on a mint the SDK runs (§4.2). A
+caller-supplied resolver, wired at construction exactly where §4.1.2's
+`productRoles` handler is — Go a **`Config` field** (`CustomClaims`), TS a
+field on **`RealmConfig`** (`customClaims`), Java a `Realm.Builder` method
+(`customClaims(...)`):
+
+```
+(tenantId, userId) -> map<string, JSON value>
+```
+
+Rules — §4.1.2's four, verbatim in effect, plus two:
+
+1. **No handler configured -> no custom claims, no error.**
+2. **Empty or nil map -> no custom claims.**
+3. **An error -> 3 attempts (~50 ms, then ~150 ms backoff), abort on a cancelled
+   context, then REFUSE to mint** with a distinct SDK error wrapping the
+   handler's last error. Minting without the claims would under-grant silently.
+4. **It runs on EVERY SDK-run mint, refresh included.** No caching. It MUST be
+   side-effect free (it is called an unspecified number of times).
+5. **Its output is checked before it is sent** (`SPEC4_2_claim_fold` rule 1):
+   a key that is not printable ASCII or that folds to a reserved name refuses
+   the mint with the SDK error naming the key. The issuer would refuse it too;
+   the SDK says whose bug it is first.
+6. **Its inputs are never request data.** The SDK passes the `tenantId` the mint
+   is for and the `userId` (`sub`) the refresh token resolves. A handler that
+   wants request context reads the partner's own session state, not the body
+   of the request that triggered the refresh.
+
+This replaces reading `custom_claims` from the refresh-route body (§10.1 step
+4). A partner who sent values from the SPA moves the lookup that produced them
+into this handler, server-side; the partner notice for the release says so.
+
 #### Cookie vs body — when to pick which
 
 - **`"cookie"` (default).** Refresh token is set as `HttpOnly; Secure;
@@ -4410,6 +4794,13 @@ Realm-wide default lives at
 
 **Gate logic** (run after `realm.verify(token)` succeeds):
 1. Find the matching `mfaProtectedPaths` entry. If none, pass.
+   **`SPEC10_4_match` (2026-11-14):** "matching" is the §11.4.1 canonical
+   matcher (`SPEC11_4_1_canon`) over the language's path source
+   (`SPEC11_4_1_source`) — ASCII case-insensitive, one trailing slash ignored,
+   first match in declared order. In java a request refused there with
+   `400 invalid_path` never reaches this gate. The same matcher decides
+   `exemptPaths` (§10.1 step 1) and `ScopeRule` paths (§11.4); there is no
+   second matcher and no option to make any of them case- or slash-strict.
 2. If `requireFresh: true`: require `now - mfa_at ≤ 30 s` (small grace
    so the client has time to retry the original op after `mfaVerify`).
 3. Else: require `now - mfa_at ≤ maxAgeSeconds` (or the realm default
@@ -4895,14 +5286,19 @@ name        = 1*( ALPHA / DIGIT / "_" / "-" )
   exposed on `ScopeDecision`, and need not be unique (`/{id}/{id}` is valid).
 - It mixes freely with `*` and `**` in the same pattern.
 
-**`{name}` is NOT `*`, on exactly one point:** `*` compiles to `[^/]*` and so
-matches an EMPTY segment (`/orders/*` matches `/orders/`); `{name}` does not
-(`/orders/{id}` does not match `/orders/`). gorilla/mux's own default for a
-`{name}` variable is `[^/]+`, so the SDK agrees with the router the route string
-came from; and an empty segment is not a resource id, so `/orders/` falls to a
-later rule or to the default deny rather than being decided by a per-id rule.
-`*` keeps its existing behaviour — it is shared with `exemptPaths` and
-`mfaProtectedPaths`, and matching an empty segment there is not a defect.
+**`{name}` is NOT `*`, on exactly one point (revised 2026-11-14, audit row 4,
+to agree with `SPEC11_4_1_canon` rule 1 and vector m18):** `*` compiles to
+`[^/]*` and so matches an EMPTY segment, but only MID-PATH
+(`/orders/*/items` matches `/orders//items`); `{name}` never does
+(`/orders/{id}` does not match `/orders//42`). A TRAILING empty segment cannot
+reach the glob at all: the matcher first folds one trailing slash, so `/orders/`
+is `/orders`, which `/orders/*` does NOT match (vector m18, `match: false`; it
+was `true` before this release). gorilla/mux's own default for a `{name}`
+variable is `[^/]+`, so the SDK agrees with the router the route string came
+from; and an empty segment is not a resource id, so `/orders/` falls to a later
+rule or to the default deny rather than being decided by a per-id rule.
+`*` otherwise keeps its behaviour — it is shared with `exemptPaths` and
+`mfaProtectedPaths`, and matching a mid-path empty segment there is not a defect.
 
 **Every other use of `{` or `}` in a `ScopeRule` path is a `Validate()` error**,
 one per offending rule, each naming the rule's index and path:
@@ -4940,39 +5336,146 @@ imported by `scope.ts:43`; java `GlobMatcher.toRegex`, used by
 `exemptPaths` caller does not enable, rather than a change to the shared
 default.
 
-**Path normalisation — there is none, in any language.** Stated here because a
-partner porting a matcher that strips slashes will otherwise see different
-verdicts. The pattern is an anchored regex over the path exactly as the
-framework hands it over:
+**`SPEC11_4_1_canon` — ONE canonical matcher, no options (owner ruling
+2026-11-14, audit e-03/e-04).** `exemptPaths`, `mfaProtectedPaths` and
+`ScopeRule` paths are all decided by the same function
+`canonicalMatch(pattern, kind, path)`, identical in go, ts and java. Normative
+cases: `testdata/path-match-vectors/vectors.json` § `matcher` (42 cases); each
+language runs all of them and reports the count (its README).
 
-| | path the matcher sees |
-|---|---|
-| Go | `r.URL.Path` — percent-decoded by `net/url` |
-| TS | `req.path ?? req.originalUrl ?? req.url`, query string removed — whatever the framework supplies (Express: not decoded) |
-| Java | `getRequestURI()` — not decoded, and includes the servlet context path |
+**`SPEC11_4_1_ts_exports` — ts exports `canonicalMatch` and deprecates
+`globMatch` (dispatcher decision 2026-11-14, owner may overrule; critic row 7).**
+The root entry of `@realm-id/sdk` exports `canonicalMatch(pattern, kind, path)`
+(a partner building its own gate MUST use it, so its gate agrees with the SDK's).
+`globMatch` stays exported for this release (removing it is breaking) with a JSDoc
+`@deprecated` tag pointing at `canonicalMatch`, and is removed in a later release.
+Reason: `globMatch` is case-sensitive and does not fold a trailing slash, so a
+partner gate built on it leaves `/Admin/x` and `/admin/x/` ungated where the SDK
+gates them. *Example.* `globMatch("/admin/*", "/Admin/x")` is `false`;
+`canonicalMatch("/admin/*", "mfa", "/Admin/x")` is `true`.
 
-No trailing-slash stripping, no `//` collapsing, no case folding, no
-dot-segment resolution. Consequences, identical in all three (and test cases
-for each):
+1. **One trailing slash is ignored, on both sides.** If `path` is longer than
+   `/` and ends in `/`, exactly one `/` is removed; the same for `pattern`.
+   `/orders/42/` is `/orders/42`; `/orders/42//` is `/orders/42/`, which still
+   ends in an empty segment.
+2. **Literals compare ASCII case-insensitively, and only ASCII.** `A`-`Z` and
+   `a`-`z` are equal; every other character, non-ASCII letters included, is
+   compared exactly. **Implement it by ASCII-lowercasing both sides, never with
+   a regex case flag:** Go's `(?i)` folds `ſ` to `s` and `K` (U+212A) to `k`,
+   and JavaScript's `/i` without `/u` folds `É` to `é` — each would disagree
+   with the other two languages.
+3. **Nothing else is normalised.** No percent-decoding, no `//` collapsing, no
+   dot-segment resolution, no `;` stripping. Those belong to the path SOURCE
+   (below), which hands the matcher the path its router routes on.
+   *Planned, not current:* the step-up gate release (go `0.79.0` · ts `0.66.0`
+   · java `0.63.0`, root `plans/2026-11-13-stepup-gate-dedup.md` DR-1) cleans
+   `//` and dot segments in the gate's input and supersedes this rule for the
+   gate only, from that release; vector r15 (and r12/r13 in ts) changes then.
+   The `matcher` cases do not: the gate cleans its input BEFORE calling
+   `canonicalMatch`, which stays unchanged.
+4. The glob forms are unchanged: `*` one segment (empty included), `**` zero or
+   more whole segments with its boundaries kept, `{name}` one non-empty segment
+   (`mfa` and `scope` only; `exempt` keeps braces literal).
 
-| Rule | Request | Matches? |
+Why case and slash are folded in the matcher and not made options: Express —
+the named ts target adapter (§10) — routes case-insensitively and ignores a
+trailing slash by default, so the gate must decide the same path the router
+serves: `/Admin/users` and `/billing/charge/` are gated by the rules for
+`/admin/users` and `/billing/charge`, and `/orders/Export` by the precedence
+example above.
+
+On a case-sensitive or strict router, folding usually gates MORE requests,
+but NOT always, because the first match in declared order still wins: with
+`[/orders/{id} → orders:read, /Orders/export → orders:admin]`, a request to
+`/Orders/export` used to match only the second rule and now matches the first,
+so `orders:read` is enough. The same holds for two `mfaProtectedPaths` entries
+with different freshness. So, for ALL THREE lists: **write every rule as if
+the router folded case and ignored a trailing slash.** Do not register two
+routes that differ only in case or a trailing slash, and put the specific rule
+before the general one by the folded spelling. For `exemptPaths`, folding
+exempts more (`/PUBLIC/x` under `/public/*`).
+
+**`SPEC11_4_1_source` — the path each language hands the matcher.** Cases:
+`vectors.json` § `request` (25 cases), with per-language expectations where
+the languages differ.
+
+| | path source | before matching |
 |---|---|---|
-| `/orders/{id}` | `/orders/42` | yes |
-| `/orders/{id}` | `/orders/42/` | **no** — a trailing slash is one more (empty) segment |
-| `/orders/{id}` | `/orders/` | **no** — `{name}` never matches an empty segment |
-| `/orders/{id}` | `/orders` | no |
-| `/orders/{id}` | `/orders//42` | **no** — an empty segment then `42` |
-| `/orders/{id}` | `/orders/42/items` | no |
-| `/orders/*` | `/orders/` | yes — `*` matches an empty segment (unchanged) |
-| `/orders/*` | `/orders//42` | no |
-| `/orders/**` | `/orders/42/` | yes |
-| `/orders/**` | `/orders` | **yes, in all three languages from v0.63.0** — ts and java matched only `/orders/` and deeper before (BREAKING there, §10.2) |
-| `/orders/{id}/` | `/orders/42/` | yes — write the slash if the route has one |
+| Go | `r.URL.Path` (percent-decoded by `net/url`) | `400 invalid_path` if the raw path text (`r.RequestURI`, see below) contains `%2F`, `%5C` or `%25` (hex case-insensitive) or a literal `\`, or `r.URL.Path` has a dot segment (owner rulings 9 and 16, 2026-11-14) |
+| TS | `req.url` (middleware) / `req.path ?? req.originalUrl ?? req.url` (scope adapter), query removed; not decoded, as Express routes it | — |
+| Java | `getServletPath() + (getPathInfo() ?? "")` — decoded, `;params` removed, context path excluded: the path the container and Spring MVC route on | `400 invalid_path` if the RAW `getRequestURI()` contains `%2F`, `%5C`, `%25` or `%2E` (hex case-insensitive), or a dot segment (`.` or `..`, judged after the segment's `;params` are removed, so `..;` counts) |
 
-None of this is changed by the 2026-10-01 revision except the `{name}` rows,
-which did not exist before, and the bare-prefix `/orders/**` row (ts/java). Not normalising is deliberate: a gate that
-normalises a path the router does not would decide a request the router routes
-somewhere else.
+- **Java answers the refusal itself**, in `RealmFilter` and `ScopeFilter` both,
+  before any rule or exemption is consulted:
+  `400 { error: { code: "invalid_path", message: "request path is not canonical" } }`.
+  A raw `;` is allowed: the servlet path already strips it, so the gate and the
+  router see the same path. Both filters match the
+  servlet path, never the raw `getRequestURI()`, so `;params`, percent-decoding
+  and the context path cannot make the gate and the router disagree.
+- **`SPEC11_4_1_ingress` — Java compares the INGRESS routes on the same servlet
+  path (dispatcher decision 2026-11-14, owner may overrule; critic row 4).** The
+  middleware's own routes (`loginPath`, `logoutPath`, `refreshPath`,
+  `mfaVerifyPath`, `recoveryPath`, §10.2) are compared in `RealmFilter` on
+  `getServletPath() + (getPathInfo() ?? "")`, context-path relative, the path the
+  gate rules above use, so the DEFAULTS (`/login`, `/token`, ...) work under a
+  context path. This was unspecified for the ingress routes (the table above and
+  the breaking table named only exempt, mfa and scope matching), and a java
+  `0.62.0` change moved them without saying so: a partner under context path
+  `/app` who had configured `loginPath="/app/auth/login"` (the only form that
+  matched before) would see login, refresh and logout fall through to the bearer
+  check and answer `401`. So, for ONE release (java `0.62.0`; removed in the next
+  minor): when the servlet-path comparison does not match, `RealmFilter` ALSO
+  accepts the old form, a `getRequestURI()` that equals the configured path
+  (query removed, no folding), and logs a deprecation warning ONCE per route per
+  process naming the configured value and the context-relative value to use.
+  The compat match changes nothing else: it is subject to the same `invalid_path`
+  refusal and the same rule ordering. *Example.* Context path `/app`, request
+  `POST /app/auth/login`: the servlet path is `/auth/login`. A config of
+  `loginPath="/auth/login"` matches. A config of `loginPath="/app/auth/login"`
+  also matches this release, with one warning "loginPath '/app/auth/login' matched
+  the full request URI; use '/auth/login' (context-path relative); the full-URI
+  form is removed in the next minor". Go and ts are unaffected (neither has a
+  context path). Java gets a context-path test (`getContextPath()` non-empty) and
+  a **Breaking** CHANGELOG line naming the ingress paths.
+- **Go refuses, in the middleware and the `ScopePolicy` adapter, with the same
+  `400 invalid_path` body, before any rule or exemption (owner rulings 9 and
+  16, 2026-11-14):**
+  1. the raw path text contains `%2F`, `%5C` or `%25` (hex case-insensitive),
+     or a literal `\`;
+  2. `r.URL.Path` has a dot segment (`.` or `..`, judged after the segment's
+     `;params` are removed, as in Java). The test runs on the DECODED path, so
+     an encoded `%2e%2e` segment is refused like a literal one (r11-r14).
+
+  Rule: the gate judges the same path the router serves. `r.URL.Path` is
+  decoded, and a router may resolve a dot segment, so neither an encoded
+  separator nor a dot segment can be matched safely: both are refused. Go keeps `r.URL.Path` as the matched path and does not refuse `%2E` on its
+  own (`/admin/%2Eenv`, r20).
+
+  **The raw path text is the WIRE text: `r.RequestURI`**, with any `?query`
+  removed and, in absolute form (`http://host/p`), the scheme and authority
+  removed (dispatcher decision 2026-11-14, doc-review row 3). Only when
+  `r.RequestURI` is empty or `*` (a request built in-process) does Go scan
+  BOTH `r.URL.RawPath` and `r.URL.EscapedPath()`. Neither field is enough
+  alone, verified on go 1.27.2 (`auth/.scratch/dsdk-goprobe2/out.txt`):
+  `net/url` leaves `RawPath` EMPTY when the raw text equals its default
+  escaping (r09 `/admin%5Cusers`, r10 `/%2561dmin/users`), and
+  `EscapedPath()` re-escapes the DECODED path whenever `RawPath` holds a
+  character such as `|`, `{`, `}`, `^` or `"`, which turns `%2F` back into a
+  real `/` (r24 `/files/a%2Fb|` gives `EscapedPath()` = `/files/a/b%7C`).
+  The literal `\` is refused explicitly so the two branches agree (r23):
+  `EscapedPath()` renders it `%5C`. No browser sends one (it converts `\` to
+  `/` in http(s) URLs). The Go request runner checks every case in both
+  branches.
+- **ts keeps raw-path matching** (owner ruling 9): its raw path is what Express
+  routes on, so `%61` stays encoded and simply matches no rule (r03, r04).
+
+Changed rows of the v0.63.0 table (now `matcher` cases): `/orders/{id}` matches
+`/orders/42/` (**m14**, was no); `/orders/*` no longer matches `/orders/`
+(**m18**, was yes — it is `/orders`); `/orders/{id}/` matches `/orders/42`
+(**m15**). Unchanged: `/orders//42` against `/orders/{id}` is no (**m25**);
+`/orders/**` matches `/orders` and `/orders/`. The earlier "no normalisation"
+rationale — a gate must not decide a path the router routes elsewhere — is the
+reason for THIS rule.
 
 > **Aligned in v0.63.0 (owner ruling 2026-10-01):** `/x/**` matches
 > the bare `/x` in all three languages — ts and java move to Go's behaviour
