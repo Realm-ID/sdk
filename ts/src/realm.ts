@@ -375,7 +375,7 @@ export function createRealm(cfg: RealmConfig, internals?: RealmInternals): Realm
     logger,
   });
 
-  const info = new InfoClient(http, cfg.realmId);
+  const info = new InfoClient(http, cfg.realmId, () => (cfg.clock ? cfg.clock().getTime() : Date.now()));
 
   // Origin resolver shared by auth + middleware (SPEC §8).
   const originResolver = async (perCall?: string): Promise<string | undefined> => {

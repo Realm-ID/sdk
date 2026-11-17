@@ -296,3 +296,54 @@ func mineServerWithOrigin(t *testing.T, audience, originEnforcement string, logi
 	})
 	return httptest.NewServer(mux)
 }
+
+// A FAILED discovery is not cached: inside the 30 s retry window no second
+// attempt is made, a later call sees the policy, and a success stays cached.
+func TestInfo_FailedDiscoveryIsNotCached_RetriesAfterWindow(t *testing.T) {
+	var mineCalls int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/token", platformMintThen(userMintHandler("atok")))
+	mux.HandleFunc("/auth/login", platformMintThen(userMintHandler("atok")))
+	mux.HandleFunc("/platforms/mine", func(w http.ResponseWriter, _ *http.Request) {
+		mineCalls++
+		switch mineCalls {
+		case 1:
+			w.WriteHeader(http.StatusInternalServerError)
+		case 2:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "other"}}})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{
+				"id": testRealmID, "audience": testAud, "origin_enforcement": "required",
+			}}})
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	now := time.Unix(1_800_000_000, 0)
+	r, err := NewRealm(Config{SessionStore: NewMemorySessionStore(), RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL, Clock: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.info.Info(context.Background()); err == nil {
+		t.Fatal("first discovery should fail")
+	}
+	now = now.Add(10 * time.Second)
+	_, _ = r.info.Info(context.Background())
+	if mineCalls != 1 {
+		t.Fatalf("inside the 30 s window no second attempt is made, got %d calls", mineCalls)
+	}
+	now = now.Add(21 * time.Second)
+	if got, err := r.info.Info(context.Background()); err != nil || got.OriginEnforcement != "" {
+		t.Fatalf("a response without the realm is a failure and yields the stub, got %+v err %v", got, err)
+	}
+	now = now.Add(31 * time.Second)
+	got, err := r.info.Info(context.Background())
+	if err != nil || got.OriginEnforcement != "required" {
+		t.Fatalf("a later call must see the policy, got %+v err %v", got, err)
+	}
+	now = now.Add(time.Hour)
+	_, _ = r.info.Info(context.Background())
+	if mineCalls != 3 {
+		t.Fatalf("a success stays cached, got %d calls", mineCalls)
+	}
+}

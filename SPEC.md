@@ -3364,7 +3364,14 @@ Promoted from a nested namespace for ergonomics:
 
 - `realm.info()` — cached metadata (id, domain/audience, signing key
   rotation status). Backs §1's audience auto-discovery; callers can
-  read it for diagnostics.
+  read it for diagnostics. A successful result is cached for the life of
+  the handle. A FAILED discovery (transport error, non-2xx, or a response
+  that does not contain the configured realm) is never cached: the call
+  that hit it gets the empty stub (audience unknown, no
+  `origin_enforcement`), and a later call retries discovery, at most once
+  per 30 seconds so an outage is not hammered. In `originEnforcement:
+  "auto"` an outage therefore fails open only while discovery keeps
+  failing, never for the life of the process.
 - `realm.apiKeys.{create, list, revoke}` — manage the realm's own API
   keys. The list/row DTO mirrors the issuer's `APIKeyListItem` (code
   wins — the issuer response is authoritative):

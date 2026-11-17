@@ -3,6 +3,7 @@ package realmid
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // RealmInfo is realm metadata returned by realm.Info(). Audience is the
@@ -21,12 +22,20 @@ type RealmInfo struct {
 	Extra             map[string]any `json:"-"`
 }
 
-// infoClient implements realm.Info() with per-handle caching.
+// infoRetryWindow is the minimum gap between two FAILED discovery attempts.
+const infoRetryWindow = 30 * time.Second
+
+// infoClient implements realm.Info(). A successful result is cached for the
+// life of the handle; a failed discovery is never cached, and is retried at
+// most once per infoRetryWindow so an outage does not hammer the issuer.
 type infoClient struct {
 	realm *Realm
 
-	mu     sync.Mutex
-	cached *RealmInfo
+	mu        sync.Mutex
+	cached    *RealmInfo
+	failed    bool
+	failedAt  time.Time
+	failedErr error // nil when the response simply did not contain the realm
 }
 
 // Info returns cached realm metadata. Discovers via GET /platforms/mine
@@ -34,17 +43,41 @@ type infoClient struct {
 // caller's key belongs to) and picks out the matching realm.
 func (c *infoClient) Info(ctx context.Context) (*RealmInfo, error) {
 	c.mu.Lock()
-	cached := c.cached
-	c.mu.Unlock()
-	if cached != nil {
+	if c.cached != nil {
+		cached := c.cached
+		c.mu.Unlock()
 		return cached, nil
 	}
+	if c.failed && c.realm.clock().Sub(c.failedAt) < infoRetryWindow {
+		err := c.failedErr
+		c.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return &RealmInfo{ID: c.realm.realmID}, nil
+	}
+	c.mu.Unlock()
 
+	found, err := c.discover(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err != nil || found == nil {
+		c.failed, c.failedAt, c.failedErr = true, c.realm.clock(), err
+		if err != nil {
+			return nil, err
+		}
+		// Stub so callers without platform metadata still get the id; not cached.
+		return &RealmInfo{ID: c.realm.realmID}, nil
+	}
+	c.cached, c.failed, c.failedErr = found, false, nil
+	return found, nil
+}
+
+func (c *infoClient) discover(ctx context.Context) (*RealmInfo, error) {
 	tok, err := c.realm.platformToken.get(ctx)
 	if err != nil {
 		return nil, err
 	}
-
 	var raw any
 	if err := c.realm.http.do(ctx, requestOptions{
 		Method: "GET",
@@ -53,23 +86,14 @@ func (c *infoClient) Info(ctx context.Context) (*RealmInfo, error) {
 	}, &raw); err != nil {
 		return nil, err
 	}
-
-	found := findRealmIn(raw, c.realm.realmID)
-	if found == nil {
-		// Fallback stub so callers without platform metadata still get the id.
-		found = &RealmInfo{ID: c.realm.realmID}
-	}
-
-	c.mu.Lock()
-	c.cached = found
-	c.mu.Unlock()
-	return found, nil
+	return findRealmIn(raw, c.realm.realmID), nil
 }
 
-// invalidate clears the cached info; useful after a config update.
+// invalidate clears the cached info and any failure memory; useful after a
+// config update.
 func (c *infoClient) invalidate() {
 	c.mu.Lock()
-	c.cached = nil
+	c.cached, c.failed, c.failedErr = nil, false, nil
 	c.mu.Unlock()
 }
 

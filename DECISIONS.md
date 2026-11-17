@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-181 entries total — 126 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+182 entries total — 127 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-17 — a failed realm discovery is not cached; auto origin enforcement retries (ts, go; RCA)](#2026-11-17--a-failed-realm-discovery-is-not-cached-auto-origin-enforcement-retries-ts-go-rca)
 - [2026-11-17 — sdk unit tier runs Go on the host (owner ruling Q2)](#2026-11-17--sdk-unit-tier-runs-go-on-the-host-owner-ruling-q2)
 - [2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)](#2026-11-16--web-sdk-keeps-a-refresh-token-carried-by-any-error-reply-device-poll-rfc-8628-codes-rulings-3743-33)
 - [2026-11-16 — Custom-claims rule stated without the history (ruling 39)](#2026-11-16--custom-claims-rule-stated-without-the-history-ruling-39)
@@ -193,6 +194,16 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-17 — a failed realm discovery is not cached; auto origin enforcement retries (ts, go; RCA)
+
+**Rule (SPEC §6.5).** A successful realm discovery is cached for the life of the handle. A FAILED discovery is never cached: the call that hit it gets the empty stub and fails open, and a later call retries, at most once per 30 s. "Failed" covers a transport error, a non-2xx, and a response that does not contain the configured realm.
+
+- **Symptom:** with `originEnforcement: "auto"`, one issuer error on the first guarded request switched the Origin guard off for the rest of the process, even for a realm whose policy is `required`. Nothing logged that enforcement had been lost after that first warning.
+- **Root cause:** the ts `fetchInfo` caught every error and returned a stub `{ id, audience: "" }` instead of throwing, so the `.catch` in `get()` that was written to "not poison the cache" never ran; the stub was cached as if it were a success. Go cached the stub for a response that did not contain the realm (transport errors were not cached, but were retried with no limit). Java's `RealmInfoClient.info()` caches its stub the same way.
+- **Why it wasn't caught:** the existing "auto fails open on discovery error" test replaced `info()` with a function that throws, which the real client never does, and no test drove the real client through a failure followed by a success. The comments claimed "failures don't poison the cache", and were believed.
+- **Fix:** ts `InfoClient` and go `infoClient` remember the failure time instead of caching the stub, serve the stub inside a 30 s window without a new attempt, and retry after it; a success is still cached. ts test: `ts/src/info.test.ts` (real client, a fetch that fails then succeeds, an injected clock). go test: `TestInfo_FailedDiscoveryIsNotCached_RetriesAfterWindow`. SPEC §6.5 states the rule.
+- **Prevention:** a fail-open path is tested through the real client with a controlled clock, never by stubbing the call that is supposed to fail. A comment that states a caching guarantee has a test that exercises it.
 
 ## 2026-11-17 — sdk unit tier runs Go on the host (owner ruling Q2)
 

@@ -7,12 +7,16 @@
  * `GET /realm` self-endpoint, swap the implementation here without
  * touching callers.
  *
- * The result is cached per-handle for the lifetime of the realm handle —
- * the audience auto-discovery path (verifier + auth Origin) reads it
- * once and reuses. Failures don't poison the cache.
+ * A SUCCESSFUL result is cached per-handle for the lifetime of the realm
+ * handle — the audience auto-discovery path (verifier + auth Origin) reads
+ * it once and reuses. A FAILED discovery is never cached: the call that hit
+ * it gets the empty stub (so it fails open), and a later call retries, at
+ * most once per RETRY_MS so an outage does not hammer the issuer.
  */
 
 import type { HttpClient } from "./http.js";
+
+const RETRY_MS = 30_000;
 
 export interface RealmInfo {
   id: string;
@@ -26,40 +30,49 @@ export interface RealmInfo {
 
 export class InfoClient {
   private cached?: Promise<RealmInfo>;
+  private lastFailureMs?: number;
 
   constructor(
     private readonly http: HttpClient,
     private readonly realmId: string,
+    private readonly nowMs: () => number = () => Date.now(),
   ) {}
 
-  /** Cached for the lifetime of the handle. */
+  /** A success is cached for the lifetime of the handle; a failure is retried after RETRY_MS. */
   get(): Promise<RealmInfo> {
-    if (!this.cached) {
-      this.cached = this.fetchInfo().catch((e) => {
-        // Don't poison the cache on failure; allow next call to retry.
-        this.cached = undefined;
-        throw e;
-      });
+    if (this.cached) return this.cached;
+    if (this.lastFailureMs !== undefined && this.nowMs() - this.lastFailureMs < RETRY_MS) {
+      return Promise.resolve(this.stub());
     }
-    return this.cached;
+    const attempt: Promise<RealmInfo> = this.fetchInfo().then((found) => {
+      if (found) return found;
+      this.lastFailureMs = this.nowMs();
+      if (this.cached === attempt) this.cached = undefined;
+      return this.stub();
+    });
+    this.cached = attempt;
+    return attempt;
   }
 
   invalidate(): void {
     this.cached = undefined;
+    this.lastFailureMs = undefined;
   }
 
-  private async fetchInfo(): Promise<RealmInfo> {
+  private stub(): RealmInfo {
+    return { id: this.realmId, audience: "" };
+  }
+
+  private async fetchInfo(): Promise<RealmInfo | undefined> {
     try {
       const raw = await this.http.request<unknown>({
         method: "GET",
         path: "/platforms/mine",
       });
-      const found = findRealmIn(raw, this.realmId);
-      if (found) return found;
+      return findRealmIn(raw, this.realmId);
     } catch {
-      // fall through to stub
+      return undefined;
     }
-    return { id: this.realmId, audience: "" };
   }
 }
 
