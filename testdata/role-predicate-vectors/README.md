@@ -65,4 +65,4 @@ into `go/`):
 |---|---|
 | go | `go/roles_drift_test.go` (reads `../testdata/role-predicate-vectors/vectors.json`) |
 | ts | `ts/src/roles-drift.test.ts` |
-| java | `java/src/test/java/dev/realmid/sdk/roles/RolePredicatesDriftTest.java` |
+| java | `java/src/test/java/dev/realmid/sdk/roles/RolePredicateVectorsTest.java` |
