@@ -13,6 +13,13 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
+## go `0.79.0` · ts (unreleased, no version bump yet) — the refresh cookie is Secure by default; a failed realm discovery is not cached (SPEC §6.5, §10.5) (UNRELEASED, 2026-11-17)
+
+Minor, because a default changes. Pending: no `go/v0.79.0` tag exists yet.
+
+- **Changed (go): the refresh cookie is `Secure` by default.** A deployment that serves the middleware over plain `http` (local development) sets `CookieInsecure` to opt out. The stale-token cut-off is a plain `iat < notBefore`, and the revocation marker lives 24 h by default.
+- **Fixed (go, ts): a FAILED realm discovery is no longer cached.** `realm.Info()` / `realm.info()` cached the empty stub for the life of the handle, so with `originEnforcement: "auto"` one issuer error on the first guarded request switched the Origin guard off until the process restarted, even for a realm that requires it. A success is still cached for the life of the handle. A failure is not: the call that hit it still fails open, and a later call retries discovery, at most once per 30 s. Java's `RealmInfoClient` caches its stub the same way and is not yet fixed.
+
 ## web `0.13.1` — the browser core keeps the newest refresh token carried by any `/token` error reply (SPEC §4.2 `SPEC4_2_carry_all_web`) (2026-11-16)
 
 Fixed (web): in body mode a second `503 retry:true`, or a relayed `400`/`403`/`409`, that carries the rotated refresh token is no longer dropped; the next refresh presents it. Detail: `web/packages/core/CHANGELOG.md`. Why: `DECISIONS.md` 2026-11-16.
