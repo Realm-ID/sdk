@@ -1,0 +1,52 @@
+{
+  "spec": "sdk/SPEC.md §6.3 'Role predicates — one vector file'",
+  "version": 1,
+  "confers_case_count": 15,
+  "assignable_case_count": 14,
+  "catalogs": {
+    "served": [
+      {"key": "users:read",   "action": "read"},
+      {"key": "users:manage", "action": "manage"}
+    ]
+  },
+  "notes": [
+    "confers: catalog null -> the PARSE form (go ConfersAuthority(perms); ts confersAuthority({permissions}); java RolePredicates.confersAuthority(perms)).",
+    "confers: catalog [] or a named catalog -> the CATALOG form (go ConfersAuthorityWithCatalog(perms, catalog); ts confersAuthority({permissions}, {catalog}); java RolePredicates.confersAuthority(perms, catalog)). An EMPTY catalog gives the parse-form answer.",
+    "confers: permission strings are used exactly as given. No language trims, lowercases or otherwise rewrites them.",
+    "assignable: go IsRoleAssignableTo(role, kind); ts isRoleSeatable(role, kind); java RolePredicates.isRoleAssignableTo(role, kind). 'role' uses the wire field names; an absent field takes the wire default (assignable_to absent = null).",
+    "assignable: an empty or absent assignable_to admits ANY kind, as the issuer's realmrole.AssignableToKind does; a non-empty list admits only the kinds it names."
+  ],
+  "confers": [
+    {"id": "rp01", "permissions": [],                       "catalog": null,     "confers": false, "why": "no grants"},
+    {"id": "rp02", "permissions": [""],                     "catalog": null,     "confers": false, "why": "an empty string is not a grant"},
+    {"id": "rp03", "permissions": ["users:read"],           "catalog": null,     "confers": false, "why": "action is read"},
+    {"id": "rp04", "permissions": ["users:manage"],         "catalog": null,     "confers": true,  "why": "action is not read"},
+    {"id": "rp05", "permissions": ["users"],                "catalog": null,     "confers": true,  "why": "malformed (no colon) confers"},
+    {"id": "rp06", "permissions": ["users:"],               "catalog": null,     "confers": true,  "why": "malformed (empty action) confers"},
+    {"id": "rp07", "permissions": [" users:read "],         "catalog": null,     "confers": true,  "why": "used as given: the action is 'read ', not 'read'"},
+    {"id": "rp08", "permissions": ["   "],                  "catalog": null,     "confers": true,  "why": "used as given: not empty, and malformed"},
+    {"id": "rp09", "permissions": ["users:read"],           "catalog": [],       "confers": false, "why": "empty catalog gives the parse-form answer"},
+    {"id": "rp10", "permissions": ["users:manage"],         "catalog": [],       "confers": true,  "why": "empty catalog gives the parse-form answer"},
+    {"id": "rp11", "permissions": ["users:read"],           "catalog": "served", "confers": false, "why": "in the catalog with action read"},
+    {"id": "rp12", "permissions": ["widgets:read"],         "catalog": "served", "confers": true,  "why": "absent from a non-empty catalog confers"},
+    {"id": "rp13", "permissions": ["users:manage"],         "catalog": "served", "confers": true,  "why": "in the catalog with action manage"},
+    {"id": "rp14", "permissions": [" users:read "],         "catalog": "served", "confers": true,  "why": "used as given: absent from the catalog"},
+    {"id": "rp15", "permissions": ["", "users:read"],       "catalog": "served", "confers": false, "why": "blank skipped, the rest is read-only"}
+  ],
+  "assignable": [
+    {"id": "ra01", "role": {"name": "member",    "assignable_to": ["human", "service"], "permissions": ["users:read"]},     "kind": "human",   "assignable": true,  "why": "declared kind"},
+    {"id": "ra02", "role": {"name": "member",    "assignable_to": ["human", "service"], "permissions": ["users:read"]},     "kind": "service", "assignable": true,  "why": "declared kind, no human-only grant"},
+    {"id": "ra03", "role": {"name": "member",    "assignable_to": ["human"],            "permissions": ["users:read"]},     "kind": "service", "assignable": false, "why": "kind not declared"},
+    {"id": "ra04", "role": {"name": "member",    "assignable_to": [],                   "permissions": ["users:read"]},     "kind": "human",   "assignable": true,  "why": "empty assignable_to admits any kind"},
+    {"id": "ra05", "role": {"name": "member",    "assignable_to": [],                   "permissions": ["users:read"]},     "kind": "service", "assignable": true,  "why": "empty assignable_to admits any kind"},
+    {"id": "ra06", "role": {"name": "member",    "assignable_to": [],                   "permissions": ["users:read"]},     "kind": "bot",     "assignable": true,  "why": "empty assignable_to admits any kind, an unlisted one included; the human-only floor binds service only"},
+    {"id": "ra07", "role": {"name": "member",    "assignable_to": ["human", "service"], "permissions": ["users:read"]},     "kind": "bot",     "assignable": false, "why": "kind not declared"},
+    {"id": "ra08", "role": {"name": "member",                                           "permissions": ["users:read"]},     "kind": "human",   "assignable": true,  "why": "absent assignable_to admits any kind"},
+    {"id": "ra09", "role": {"name": "owner",     "assignable_to": ["human"],            "permissions": ["users:manage"]},   "kind": "human",   "assignable": false, "why": "system-unassignable name"},
+    {"id": "ra10", "role": {"name": "platform_api", "is_system": true, "assignable_to": ["service"], "permissions": ["users:read"]}, "kind": "service", "assignable": false, "why": "system-unassignable name"},
+    {"id": "ra11", "role": {"name": "member",    "disabled": true, "assignable_to": ["human"], "permissions": ["users:read"]}, "kind": "human",   "assignable": false, "why": "disabled"},
+    {"id": "ra12", "role": {"name": "ops",       "assignable_to": ["human", "service"], "permissions": ["domains:manage"]}, "kind": "service", "assignable": false, "why": "human-only grant on a non-system role"},
+    {"id": "ra13", "role": {"name": "ops",       "assignable_to": ["human", "service"], "permissions": ["domains:manage"]}, "kind": "human",   "assignable": true,  "why": "the human-only floor applies to service principals only"},
+    {"id": "ra14", "role": {"name": "realm_bot", "is_system": true, "assignable_to": ["service"], "permissions": ["domains:manage"]}, "kind": "service", "assignable": true,  "why": "is_system exempts the human-only floor"}
+  ]
+}

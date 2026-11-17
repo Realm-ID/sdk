@@ -193,7 +193,10 @@ const realm = createRealm({ realmId: "01HXYZ...", apiKey: "rk_live_..." });
 > domain so it cannot collide on domain reuse or move on domain transfer.
 > At first use of `verify()`, the SDK learns it from `GET /platforms/mine`
 > (`audience` field) and caches it for the lifetime of the handle. There is
-> **no fallback to the domain** (removed) — a realm always has an audience.
+> **no fallback to the domain** — a realm always has an audience. In every
+> language, a `/platforms/mine` row whose `audience` is absent, `null` or `""`
+> MUST be an error from discovery, never an audience derived from `domain` or
+> any other field.
 > The token also carries an informational `domain` claim (display/routing
 > only, **never** an isolation key). Override the expected audience per-call
 > via `verify(token, { audience })`.
@@ -802,7 +805,11 @@ semantics) → mapped role/scope. v1 issuers are RI-known and RI-pinned
 so the partner never supplies a JWKS URL. A binding **must** constrain at
 least the provider's mandatory claim — GCP `sub` (the SA's immutable
 numeric `uniqueId`, never the reassignable email); GitHub `repository` —
-and the `(issuer, match_claims)` tuple must be unambiguous.
+and the `(issuer, match_claims)` tuple must be unambiguous. **A new GitHub
+binding must also pin `repository_id` and `repository_owner_id`** (the
+numeric ids from the Actions token, as strings), whatever its target — the
+default `platform` target included; creating one without both answers `400`.
+Look them up with `gh api repos/OWNER/REPO --jq '.id, .owner.id'`.
 
 **Security / replay.** The issuer verifies the assertion against the
 RI-pinned JWKS (RS256, `exp`/`nbf`), enforces `aud` == the binding's
@@ -1324,7 +1331,7 @@ Request: `{ refreshToken, tenantId, customClaims?, scope?, productRoles?, rolePe
   services need to authorize without a database lookup.
 
   **The values come from the partner's SERVER, never from a browser (owner
-  ruling 2026-11-14, audit e-01).** So:
+  ruling 2026-11-14).** So:
   - On every mint the SDK runs for you (the §10 middleware's refresh and
     MFA-verify routes, the §4.1.1 enrichment re-mint, the §4.2.1 token manager),
     `customClaims` is whatever the §10.2 **`customClaims` handler** returns, and
@@ -1558,7 +1565,7 @@ Request: `{ refreshToken, tenantId, customClaims?, scope?, productRoles?, rolePe
   Cite as `SPEC4_2_fill` and `SPEC4_2_rotate_handover` in test names.
 
   **`SPEC4_2_claim_fold` — reserved names are compared by fold, and keys are
-  printable ASCII (owner ruling 2026-11-14, audit e-02).** Normative cases:
+  printable ASCII (owner ruling 2026-11-14).** Normative cases:
   `testdata/claim-fold-vectors/`. `fold(k)` maps ASCII `A`-`Z` to `a`-`z` and
   nothing else. The reserved set is the issuer's `reservedClaims` from
   `v0.151.0`: `iss sub aud iat nbf exp jti azp tenant_id role mfa_at amr
@@ -2521,7 +2528,12 @@ Wired through the realm config (`Config.Authority` / `authority` /
 
 **The check**, immediately after the jti denylist, same fail-closed posture:
 
-> reject as `token_stale` iff a marker exists and `iat + leeway < notBefore`.
+> reject as `token_stale` iff a marker exists and `iat < notBefore`.
+
+`notBefore` is the partner host's clock at the moment of the notify, minus the
+30 s clock-skew allowance (below). The comparison uses `notBefore` as stamped:
+the verifier's `leeway` applies to `exp` and `nbf` only and never enters this
+check, so raising `leeway` does not move the stale cut-off.
 
 `iat` is compared, never `exp` — `exp` moves with the realm's
 `access_ttl_seconds`, so a realm that changed its token lifetime would have the
@@ -2553,12 +2565,36 @@ with a different consequence. Calling this with **no cache configured is an
 error, not a no-op**: silence there means a partner believes demotion is
 propagating while nothing is stored.
 
-The marker is stamped at `now − 30s`, never at bare `now`. Erring early
-over-rejects a handful of very recently minted tokens — one harmless extra
-refresh each — and can never place the marker in the ISSUER's future, which is
-the only way the refresh loop starts. The entry's TTL is the access-token
-lifetime plus that same allowance, after which no token minted before the change
-can still verify.
+**The clock-skew allowance is applied when the marker is stamped.**
+`notifyAuthorityChanged` stamps `notBefore` as the partner host's now minus
+30 s, a fixed SDK constant that does not depend on `leeway`; the comparison is a plain `iat < notBefore`. Stamping early keeps the
+marker out of the ISSUER's future, which is the only way the refresh loop
+starts: a token minted by the refresh carries an `iat` at or after the notify,
+so it is refused only when the issuer's clock lags the partner host's by more
+than 30 s, and the once-only refresh (ADR-107 D13, the `token_stale` note in
+the error-code list) makes that a hard failure, not a loop.
+
+**The residual window, stated plainly.** A token whose `iat` is more than
+30 s before `notifyAuthorityChanged` (as the partner host's clock reads it) is
+refused as `token_stale`. A token minted within those 30 s is not: it keeps the
+authority it was minted with until it is refreshed or expires. The window also
+moves by the clock difference between the issuer and the partner host (an
+issuer clock AHEAD of the partner's widens it by that much) and by under one
+second for whole-second `iat`. So the number to quote for a notified demotion
+or promotion is **up to 30 s before the notify, plus the clock difference**.
+A partner that needs a demotion to bite at once ends the session
+instead (`sessions.revokeUser`).
+
+**The marker's lifetime defaults to the access-TTL ceiling.** Unless the caller
+names a lifetime, the entry lives **86400 s** (24 h, the issuer's
+`access_ttl_seconds` ceiling and the §6.7.2 `H`) **plus the 30 s allowance**,
+so it outlives every token minted before
+the change on ANY realm, whatever its `access_ttl_seconds`. The per-call
+lifetime (go `AuthorityChange.AccessTokenTTL`, ts `accessTokenTtlMs`, java
+`AuthorityChange.accessTokenTtl`) stays as an option for a shared cache that
+wants shorter entries; it MUST be at least the realm's `access_ttl_seconds`,
+because a marker that expires first lets a token minted before the change
+verify again for the rest of its life.
 
 **Multi-replica partners MUST supply a shared backend.** The bundled
 `MemAuthorityCache` is single-process: a marker written on one replica is
@@ -2572,7 +2608,7 @@ the RealmID console, the CLI, or a partner back-office that does not call
 `access_ttl_seconds` (**900s** when unset — `0` from
 `GET /platforms/{id}/config` means unset, not zero). That is the accepted cost
 of a partner-local cache, and **it is the number to quote publicly**, not the
-~0 on notified paths.
+30 s (plus clock difference) on notified paths.
 
 Nothing in the issuer changes. This is entirely an SDK-side contract.
 
@@ -2861,6 +2897,27 @@ These four ship as **system roles** by default, but you may add any others
 > claim; partners doing offline authz gate on role *name* until the
 > claim lands (additive, non-breaking). See §11.
 
+#### Role predicates — one vector file
+
+`confersAuthority` (parse form and catalog form), `isRoleAssignableTo` and the
+helpers built on them MUST give the issuer's answer in every language. The
+normative cases are `testdata/role-predicate-vectors/vectors.json`; each
+language's drift test MUST run every case in it and report the count (its
+README). Three rules the cases pin:
+
+1. **A permission string is used exactly as given.** No language trims,
+   lowercases or rewrites it: `" users:read "` and `"   "` confer, as they do
+   on the issuer.
+2. **An empty or absent catalog gives the parse-form answer** (any grant whose
+   action is not `read` confers; a malformed entry confers; an empty string
+   does not). A non-empty catalog decides by key, and a key absent from it
+   confers.
+3. **An empty or absent `assignable_to` admits any kind**, as the issuer's
+   `realmrole.AssignableToKind` does; a non-empty list admits only the kinds it
+   names. The vector file calls go `IsRoleAssignableTo`, ts `isRoleSeatable`
+   and java `RolePredicates.isRoleAssignableTo`, the three that carry the
+   name and disabled guards as well.
+
 ### 6.4 Domains — `realm.domains.*`
 
 `claim({ hostname })`, `verify({ claimToken })`. `claim` is
@@ -2950,7 +3007,7 @@ is present, `jti` is ignored for keying.
 
 **One lifetime rule for every revoked entry and every mark: `H` = 24 h, the
 issuer's access-TTL ceiling** (`access_ttl_seconds must be 1..86400`,
-`issuer/internal/httpapi/tenants.go:759`). Any access token a session has
+`issuer/internal/httpapi/tenants.go:790`). Any access token a session has
 minted up to now expires no later than `now + H`, whatever the realm's TTL is
 or was, so an entry written at `now` is kept until `now + H` — extended, never
 shortened, by a later write (§6.7.5). This replaces the draft's
@@ -3268,6 +3325,14 @@ describing the denylist; their wording is updated to "session key" with R2/R3.
 `api/` (the reference BFF), `ui/` and `cli/` read no `jti` through the SDK
 (ADR-109 § Blast radius). Traide's bridge is outside this workspace and is
 ADR-109 D8 precondition (b).
+
+**R3: two lookups, either one denies.** In every language, `verify()` MUST
+ask `Config.Revocation` for the session key (`sid`, else `jti`) AND, when the
+token's `jti` differs from that key, for the `jti` itself. An entry written
+under a token's `jti` (`Revoke(claims.jti, …)`, the documented use) therefore
+refuses that token for as long as the entry stands, exactly like an entry
+written under its session. Each language's tests MUST cover both keys with a
+token whose `sid` and `jti` differ.
 
 ### 6.5 Realm self — top-level
 
@@ -4190,6 +4255,10 @@ For every inbound request, the middleware:
    middleware logout route reads `all` from the request body (both cookie and
    body mode; boolean `true` only) and passes it to the issuer logout for every
    candidate. An issuer older than Issuer A ignores it and ends only one session.
+   On `all: true`, every middleware's logout route MUST send `all: true` to
+   the issuer for every candidate and answer with the issuer's result, so
+   "sign out everywhere" ends every session of the user. Any other
+   value of `all` (absent, `false`, `"true"`, `1`) is treated as not set.
 
    **3a. The logout revokes the SESSION, keyed by the refresh-token holder
    (owner rulings 2026-10-01, v0.63.0).** The session to revoke is
@@ -4247,7 +4316,7 @@ For every inbound request, the middleware:
    returns `{ access_token, expires_in, tenant_id, role }` (refresh
    rotated via cookie or body per `tokenDelivery`).
 
-   **`SPEC10_1_4_no_client_claims` (owner ruling 2026-11-14, audit e-01).** A
+   **`SPEC10_1_4_no_client_claims` (owner ruling 2026-11-14).** A
    request body that carries a `custom_claims` or `customClaims` key, with ANY
    value (`null`, `{}` and a non-object included), is answered
    `400 { error: { code: "custom_claims_not_accepted", message: "custom claims are
@@ -4545,7 +4614,7 @@ const middleware = realm.middleware({
   cookieName: "realmid_refresh",                    // when tokenDelivery="cookie"
   cookieDomain?: ".acme.com",                       // optional — see the migration warning below
   cookieDomainMigrateFrom?: [""],                   // scopes previously written; "" = host-only
-  cookieSecure: true,                               // default true in prod
+  cookieSecure: true,                               // default true (ts, java); Go: see below
   cookieSameSite: "lax",                            // "lax" | "strict" | "none"
 
   // Origin enforcement (ADR-065). "auto" (default) follows the realm
@@ -4591,11 +4660,43 @@ const middleware = realm.middleware({
   stays a literal match for braces** (owner ruling 2026-10-01): a placeholder
   there would widen an exemption, the fail-open direction.
 
+- **Patterns where `**` meets a literal.** The rule above decides them too:
+  a `**` never drops a `/` written in the pattern. A pattern that starts with
+  `**/` is read as `/**/`; a `**` that shares its segment with a literal
+  matches any run of characters, `/` included, and the `/` before it stays.
+
+  | Pattern | Matches | Does NOT match |
+  |---|---|---|
+  | `**/health` | `/health`, `/api/health`, `/a/b/health` | `/api/nothealth`, `/users/42health`, `/healthz` |
+  | `/a/**b` | `/a/b`, `/a/xb`, `/a/x/yb` | `/ab` |
+  | `/static/**.js` | `/static/app.js`, `/static/js/app.js` | `/static.js`, `/staticapp.js` |
+
+  Normative cases: `testdata/glob-boundary-vectors/vectors.json` (25 cases, in
+  the `path-match-vectors` matcher format); each language's drift test MUST
+  run every case in it and report the count (its README).
+
 Same fields exist in the Go and Java configurations using
 language-idiomatic types (`time.Duration` for `MaxAge`,
 `Predicate<Request>`, etc.).
 
-#### `SPEC10_2_custom_claims` — the `customClaims` handler (owner ruling 2026-11-14, audit e-01)
+**`SPEC10_2_cookie_secure` — the refresh cookie is `Secure` by default, in
+every language.** ts and java: `cookieSecure` defaults to `true`. **Go (owner
+ruling 2026-11-16):** the Go SDK's session cookie is Secure by default.
+`CookieInsecure bool` (zero value = Secure) is the only switch; `CookieSecure`
+is deprecated and has no effect, so existing code compiles. All three
+Set-Cookie sites follow it — the refresh cookie, the host-only and
+`cookieDomainMigrateFrom` deletions, and the logout clearing cookie. Set
+`CookieInsecure: true` only for local development over plain `http`.
+
+```go
+// Production: nothing to set — the cookie carries Secure.
+mw := realm.Middleware(realmid.MiddlewareOptions{})
+
+// Local development over http only:
+mw := realm.Middleware(realmid.MiddlewareOptions{CookieInsecure: true})
+```
+
+#### `SPEC10_2_custom_claims` — the `customClaims` handler (owner ruling 2026-11-14)
 
 The ONLY source of custom claims on a mint the SDK runs (§4.2). A
 caller-supplied resolver, wired at construction exactly where §4.1.2's
@@ -4715,6 +4816,26 @@ realm allowlist (`origins.validate`) before dispatch and rejects with
 `missing_origin` (blank Origin) or `realm_origin_mismatch`
 (present-but-unlisted).
 
+**`SPEC10_5_origin_all` — every middleware enforces it.** Go
+(`OriginEnforcement`: `OriginEnforcementAuto` | `On` | `Off`), ts
+(`originEnforcement: "auto" | "on" | "off"`) and java
+(`MiddlewareConfig.Builder.originEnforcement(OriginEnforcement.AUTO | ON |
+OFF)`) MUST carry this setting with the default `auto`, and MUST enforce it
+on the login, refresh and MFA-verify routes, and on the recovery route when
+one is configured. Logout is not guarded. Every language MUST give these
+outcomes:
+
+| Situation (guard active) | Response | `onAuthFailure` stage |
+|---|---|---|
+| `Origin` header absent or blank | `403 missing_origin` | `origin` |
+| `Origin` not on the realm allowlist | `403 realm_origin_mismatch` | `origin` |
+| The allowlist could not be read | `502 server_error` | `origin` |
+| `Origin` on the allowlist | dispatched to the route | — |
+
+A realm whose `origin_enforcement` is `required` is therefore enforced on
+every SDK middleware in its default setting; a deployment opts out only by
+setting the mode to `off` itself.
+
 **`beforeLogin(ctx, loginRequest)`** — runs after the login body is
 parsed and before `auth.login`. May mutate the request in place (e.g.
 substitute a server-held API key, pin `tenant_id`). Failure aborts the
@@ -4744,6 +4865,14 @@ canonical `{error:{code,message}}` envelope; the hook cannot alter the
 response. The event carries a `stage` discriminator (`origin` |
 `before_login` | `login` | `refresh` | `mfa_verify` | `on_success` |
 `verify`).
+
+**`SPEC10_5_observe_only` — the hook only observes.** On every auth failure
+the middleware calls the hook (when one is set), then writes the error
+envelope and ends the request — the same status and body as with no hook set.
+The hook's return value is ignored, and an error it throws does not change
+the response. Each language's tests MUST cover a bearer failure with a hook
+registered and assert both that the hook ran and that the `401` envelope was
+written.
 
 > **Breaking change (ADR-065).** `onAuthFailure` was previously a
 > response-**owning** callback (`(req, err) => Response`). It is now
@@ -5337,7 +5466,7 @@ imported by `scope.ts:43`; java `GlobMatcher.toRegex`, used by
 default.
 
 **`SPEC11_4_1_canon` — ONE canonical matcher, no options (owner ruling
-2026-11-14, audit e-03/e-04).** `exemptPaths`, `mfaProtectedPaths` and
+2026-11-14).** `exemptPaths`, `mfaProtectedPaths` and
 `ScopeRule` paths are all decided by the same function
 `canonicalMatch(pattern, kind, path)`, identical in go, ts and java. Normative
 cases: `testdata/path-match-vectors/vectors.json` § `matcher` (42 cases); each

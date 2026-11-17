@@ -1,0 +1,38 @@
+{
+  "spec": "sdk/SPEC.md §10.2 (path syntax, the boundary table) and §11.4.1 (SPEC11_4_1_canon)",
+  "version": 1,
+  "matcher_case_count": 25,
+  "notes": [
+    "matcher: canonicalMatch(pattern, kind, path) -> bool, the same function and argument order as testdata/path-match-vectors. Every SDK MUST give exactly 'match'; there are no per-language columns.",
+    "The rule under test: a '**' never drops a '/' written in the pattern. A '**' that fills a whole segment stands for zero or more whole segments; a '**' that shares its segment with a literal matches any run of characters, '/' included, and the '/' before it stays.",
+    "A pattern that starts with '**/' is read as if it started with '/**/': zero or more whole segments, then the rest.",
+    "These cases add to testdata/path-match-vectors § matcher; they do not replace any case there."
+  ],
+  "matcher": [
+    {"id": "gb01", "kind": "exempt", "pattern": "**/health",        "path": "/health",            "match": true,  "why": "leading **/ matches zero segments"},
+    {"id": "gb02", "kind": "exempt", "pattern": "**/health",        "path": "/api/health",        "match": true,  "why": "leading **/ matches one segment"},
+    {"id": "gb03", "kind": "exempt", "pattern": "**/health",        "path": "/a/b/health",        "match": true,  "why": "leading **/ matches several segments"},
+    {"id": "gb04", "kind": "exempt", "pattern": "**/health",        "path": "/api/nothealth",     "match": false, "why": "the / before 'health' stays"},
+    {"id": "gb05", "kind": "exempt", "pattern": "**/health",        "path": "/users/42health",    "match": false, "why": "the / before 'health' stays"},
+    {"id": "gb06", "kind": "exempt", "pattern": "**/health",        "path": "/healthz",           "match": false, "why": "the last segment is a whole literal"},
+    {"id": "gb07", "kind": "exempt", "pattern": "**/health",        "path": "/Api/Health",        "match": true,  "why": "ASCII case-insensitive literal (SPEC11_4_1_canon rule 2)"},
+    {"id": "gb08", "kind": "exempt", "pattern": "/**/health",       "path": "/health",            "match": true,  "why": "mid-pattern ** matches zero segments"},
+    {"id": "gb09", "kind": "exempt", "pattern": "/**/health",       "path": "/api/nothealth",     "match": false, "why": "the / before 'health' stays"},
+    {"id": "gb10", "kind": "exempt", "pattern": "/a/**b",           "path": "/ab",                "match": false, "why": "the / before ** stays"},
+    {"id": "gb11", "kind": "exempt", "pattern": "/a/**b",           "path": "/a/b",               "match": true,  "why": "** matches the empty run"},
+    {"id": "gb12", "kind": "exempt", "pattern": "/a/**b",           "path": "/a/xb",              "match": true,  "why": "** shares its segment with 'b'"},
+    {"id": "gb13", "kind": "exempt", "pattern": "/a/**b",           "path": "/a/x/yb",            "match": true,  "why": "** in a shared segment crosses '/'"},
+    {"id": "gb14", "kind": "exempt", "pattern": "/static/**.js",    "path": "/static.js",         "match": false, "why": "the / before ** stays"},
+    {"id": "gb15", "kind": "exempt", "pattern": "/static/**.js",    "path": "/staticapp.js",      "match": false, "why": "the / before ** stays"},
+    {"id": "gb16", "kind": "exempt", "pattern": "/static/**.js",    "path": "/static/app.js",     "match": true,  "why": "one segment"},
+    {"id": "gb17", "kind": "exempt", "pattern": "/static/**.js",    "path": "/static/js/app.js",  "match": true,  "why": "** in a shared segment crosses '/'"},
+    {"id": "gb18", "kind": "exempt", "pattern": "/public/**assets", "path": "/publicassets",      "match": false, "why": "the / before ** stays"},
+    {"id": "gb19", "kind": "exempt", "pattern": "/public/**assets", "path": "/public/assets",     "match": true,  "why": "** matches the empty run"},
+    {"id": "gb20", "kind": "exempt", "pattern": "/public/**assets", "path": "/public/x/assets",   "match": true,  "why": "** in a shared segment crosses '/'"},
+    {"id": "gb21", "kind": "exempt", "pattern": "/public/**assets", "path": "/public/oldassets",   "match": true,  "why": "** in a shared segment matches characters inside the segment, as written"},
+    {"id": "gb22", "kind": "mfa",    "pattern": "**/health",        "path": "/api/nothealth",     "match": false, "why": "same answer for every kind"},
+    {"id": "gb23", "kind": "scope",  "pattern": "/a/**b",           "path": "/ab",                "match": false, "why": "same answer for every kind"},
+    {"id": "gb24", "kind": "exempt", "pattern": "/a/**/b",          "path": "/ab",                "match": false, "why": "control: the whole-segment rule"},
+    {"id": "gb25", "kind": "exempt", "pattern": "/x/**",            "path": "/xy",                "match": false, "why": "control: a trailing /** keeps its boundary"}
+  ]
+}

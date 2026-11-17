@@ -242,6 +242,7 @@ Inviting people, accepting or leaving an organization, and transferring ownershi
 | `recipient_contact_unproven` | [400] The address given as new owner is not a proven contact in this organization. | Name the recipient with `owner_user_id`, or have them verify the address first. |
 | `recipient_not_member` | [400] The new owner is not a member of this organization. | Add them as a member first. |
 | `recipient_not_active` | [400] The new owner is a member but not active. | Pick an active member. |
+| `recipient_not_human` | [400] The new owner is not a person: a `kind=service` account, the realm's `platform_api` bot included. Only a person may own an organization, on both transfer paths (the owner's own and the parent organization's). Nothing is written. Added after spec 0.68.0 (unreleased). | Name a human member as the new owner. |
 | `conflicting_outgoing_disposition` | [400] `leave_entirely` and `suspend_outgoing_owner` were both set. | Send only one. |
 | `owner_transfer_requires_human` | [403] An owner-initiated transfer was attempted with a platform-scoped or tenant-less token. | Make the call with the current owner's own user session. |
 | `tenant_deleted` | [409] Patching an organization that has been deleted. | A deleted organization cannot be revived this way. |
@@ -402,7 +403,7 @@ HTTP status is in brackets.
 
 | Code | When | What to do |
 | --- | --- | --- |
-| `wrong_scope` | [401] A route that needs a platform token was called with a token that is not a platform-class token. | Use the platform token (exchange the platform API key). |
+| `platform_bearer_required` | [401] A route that needs a platform token was called with an `Authorization` bearer that is not a platform token (a user, key, service-account or integration token). Also listed under the split-signing codes below. | Send your platform token in `Authorization` (exchange the platform API key); the user's token goes in `X-User-Token`. |
 | `realm_mismatch` | [403] The platform token's realm is not the realm in the path; or a platform token tried to mint or manage user API keys for a realm other than its own. | Call with the right realm's token. |
 | `tenantless_principal` | [403] The credential carries no tenant, so it cannot be authorized for a tenant-scoped decision. | Use a credential bound to a tenant. |
 | `role_owner_only` | [403] Seating a member at a role that confers administrative authority, by someone who is not the organization owner. | Ask the owner. |

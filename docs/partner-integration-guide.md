@@ -1018,7 +1018,12 @@ your realm's `access_ttl_seconds`, **900 seconds** unless you set it. Inside
 that window a just-demoted admin can still call the admin routes, including the
 one that re-promotes them.
 
-The SDK closes this. **You call one method; the SDK owns the rest.**
+The SDK narrows this to 30 seconds, plus any clock difference between RealmID
+and your server. **You call one method; the SDK owns the rest.** After you call
+it, a token minted more than 30 s earlier (by your server's clock) is refused;
+a token minted within those 30 s keeps its old authority until it is refreshed
+or expires. If a demotion must take effect at once, end the session instead
+(`sessions.revokeUser`, point 4 below). See *The limit, stated plainly* below.
 
 ### Wire a cache, then announce the change
 
@@ -1035,7 +1040,7 @@ await realm.notifyAuthorityChanged({ subject: theirSub, intent: "demoted" });
 That is the whole partner-side surface. There is no index to build, no jti to
 capture, no `OnAuthSuccess` hook to wire — and nothing in the issuer changes.
 
-### Four things you have to get right
+### Five things you have to get right
 
 **1. `subject` is the `sub` claim, and on this platform `sub` is a MEMBERSHIP,
 not a person.** Every org a human belongs to gives them a different `sub`.
@@ -1072,6 +1077,16 @@ into a narrower token. If you want them signed out, that is
 `sessions.revokeUser` — a different call, on purpose, so a routine role edit
 can never end someone's session by accident.
 
+**5. Leave the marker's lifetime at its default.** The SDK keeps each marker
+for 86400 s (24 hours, the issuer's access-token ceiling) plus the 30 s
+allowance, so it
+outlives every token minted before the change whatever your realm's
+`access_ttl_seconds`. You may pass a shorter lifetime per call (Go
+`AccessTokenTTL`, TS `accessTokenTtlMs`, Java `accessTokenTtl`) to keep a
+shared cache smaller, but never shorter than your realm's
+`access_ttl_seconds`: once the marker expires, a token minted before the
+change verifies again with its old authority for the rest of its life.
+
 ### The limit, stated plainly
 
 **A change made anywhere that does not call `notifyAuthorityChanged` stays
@@ -1080,8 +1095,10 @@ console, the CLI, a database edit, and any of your own back-office tooling that
 skips the call. This is the accepted cost of a cache that lives in your process
 rather than behind an issuer round-trip on every request.
 
-**900 seconds is the number to plan against**, not the ~0 you get on the paths
-you do instrument. To check your realm's actual value, read
+**900 seconds is the number to plan against**, not the 30 s (plus the clock
+difference between RealmID and your server) you get on the paths you do
+instrument (a token minted within 30 s before the call keeps its authority
+until it is refreshed or expires). To check your realm's actual value, read
 `access_ttl_seconds` from `GET /platforms/{id}/config` — **`0` there means
 "never set", so the 900s default applies; it does not mean zero.**
 
@@ -1349,7 +1366,7 @@ yours, and renaming there would rewrite an enforced permission.
 `POST /tenants/{tid}/users/{uid}/user-api-keys` requires a **platform bearer**
 in `Authorization` carrying the user's access JWT in `X-User-Token` — the same
 ADR-050 shape as the rest of the partner-mediated surface. A bare user token
-answers `401 wrong_scope`, and a platform bearer from a different realm answers
+answers `401 platform_bearer_required`, and a platform bearer from a different realm answers
 `403 realm_mismatch`.
 
 `GET` and `DELETE` on that collection are **unchanged**. Creating a long-lived
@@ -1478,7 +1495,7 @@ client and the verifier.
 | `RealmID` | Required. `BaseURL` defaults to the hosted issuer. |
 | `Leeway`, `Clock` | Clock-skew tolerance for `exp`/`nbf` (default 30s); time hook for tests. |
 | `SessionStore SessionStateStore` | **Required from v0.63.0** — `NewRealm` fails without it. `realmid.NewMemorySessionStore()` for ONE replica; a shared (Redis) implementation across replicas, or refresh is not serialized and a logout on one pod is invisible to the others (SPEC §6.7.5). |
-| `Revocation RevocationCache` | Optional denylist — keyed on `jti` through v0.62, on the SESSION (`sid`, else `jti`) from v0.63.0 (SPEC §6.7.6) — consulted after the stateless checks — stops the bleed on a stolen access token between logout and natural expiry. `NewMemRevocationCache(nil)` for one process; back it with Redis across replicas. There is **no issuer-side introspection endpoint** — tighter-than-TTL revocation is this cache plus your own logout wiring. |
+| `Revocation RevocationCache` | Optional denylist — keyed on `jti` through v0.62, on the SESSION (`sid`, else `jti`) from v0.63.0 (SPEC §6.7.6) — consulted after the stateless checks, under BOTH the session key and the token's `jti` (an entry under either refuses the token) — stops the bleed on a stolen access token between logout and natural expiry. `NewMemRevocationCache(nil)` for one process; back it with Redis across replicas. There is **no issuer-side introspection endpoint** — tighter-than-TTL revocation is this cache plus your own logout wiring. |
 
 > **Audience auto-discovery (ADR-064, issuer v0.14.0+).** If you call
 > `Verify(ctx, token, nil)` without an explicit audience, the verifier reads the
@@ -2072,8 +2089,10 @@ any of this (R71); the CLI is BFF-only.
 > catalog (`invalid_mapped_role` on a typo, a disabled role, or a role a service
 > principal may not hold). `platform_mgmt_api` holds only
 > `platform_api_keys:read|manage`. Still constrain the **claim** side too — pin
-> `repository`, and additionally `workflow_ref`, `environment` or `ref` so only
-> one workflow on one branch can present it.
+> `repository_id` and `repository_owner_id` (required on every new GitHub
+> binding, see § GitHub Actions below) and `repository`, and additionally
+> `workflow_ref`, `environment` or `ref` so only one workflow on one branch can
+> present it.
 
 > **Migration.** Before R66 the binding was registered in YOUR realm with
 > `mapped_role: "platform_mgmt_api"` and bore the platform token directly
@@ -2158,7 +2177,8 @@ workload assertion is accepted for your realm **iff**:
 
 `match_claims` is the tenant boundary — it is an AND of exact-string
 equalities and **must** constrain at least the provider's mandatory
-claim. There is no get-by-id route; you `list`, `create`, and
+claim; a new GitHub binding must also carry `repository_id` and
+`repository_owner_id` (§ GitHub Actions). There is no get-by-id route; you `list`, `create`, and
 `delete` (revoke). Revoke is a soft-delete: the binding flips to
 `status:"revoked"` and immediately stops authenticating workloads, but
 the row is retained for audit.
@@ -2231,9 +2251,25 @@ IS the session's authority (§6.4.1) — and `scope`.
 
 ### GitHub Actions
 
-The mandatory match claim for GitHub is **`repository`** (the
-`owner/repo` string). You may add further claims to narrow the trust
-(e.g. `environment`, `ref`):
+A GitHub binding matches on the repository's **numeric ids**, which stay the
+same when a repository or its owner is renamed and belong to that one
+repository only. **Every new GitHub binding must carry
+`repository_id` and `repository_owner_id`**, whatever its target — the default
+`platform` target included; creating one without both answers `400`.
+`repository` (the `owner/repo` string) is required too, so a GitHub binding
+constrains all three; add further claims to narrow the trust (e.g.
+`environment`, `ref`).
+
+Find the two ids with the GitHub CLI:
+
+```bash
+gh api repos/OWNER/REPO --jq '.id, .owner.id'
+# 712345678    <- repository_id
+# 98765432     <- repository_owner_id
+```
+
+Put them in `match_claims` as **strings**: the Actions token carries them as
+strings, and every `match_claims` entry is an exact string equality.
 
 ```http
 POST /platforms/{id}/federation-bindings
@@ -2243,7 +2279,12 @@ Content-Type: application/json
 
 {
   "issuer": "https://token.actions.githubusercontent.com",
-  "match_claims": { "repository": "acme/billing", "environment": "prod" }
+  "match_claims": {
+    "repository_id": "712345678",
+    "repository_owner_id": "98765432",
+    "repository": "acme/billing",
+    "environment": "prod"
+  }
 }
 ```
 
@@ -2539,6 +2580,34 @@ runtimes and the RealmID console consumes them through the same packages. If you
 are a partner: **these are not part of your integration surface.** Nothing you
 need is behind them.
 
+
+### SDK middleware defaults (Go, TS, Java)
+
+SDK `SPEC.md` §10 is the full text of these rules.
+
+- **The refresh cookie is `Secure` by default.** TS and Java: `cookieSecure`
+  defaults to `true`. Go: the cookie carries `Secure` unless you set
+  `CookieInsecure: true`, which is for local development over plain `http`
+  only. Go's `CookieSecure` field is deprecated and has no effect, so code that
+  sets it compiles. The rule covers every cookie the middleware writes: the
+  refresh cookie, the old-scope deletions and the logout clearing cookie.
+- **Origin enforcement follows your realm's policy.** With the default
+  `originEnforcement` of `auto`, a realm whose `origin_enforcement` is
+  `required` has the login, refresh, MFA-verify and recovery routes checked
+  against its origin allowlist: no `Origin` answers `403 missing_origin`, an
+  unlisted one `403 realm_origin_mismatch`. Set the mode to `off` only for a
+  non-browser deployment.
+- **"Sign out everywhere" ends every session.** The logout route forwards
+  `{"all": true}` (the boolean `true` only) to the issuer, so every session of
+  the user ends.
+- **`onAuthFailure` only observes.** The middleware calls it, then writes the
+  error envelope and ends the request exactly as it would without the hook.
+  Use it for logging and counters; it cannot change the response.
+- **Revocation checks two keys.** A token is refused when your
+  `RevocationCache` holds its session key or its `jti`.
+- **The expected audience comes from `audience` alone.** Discovery reads the
+  `audience` field of `GET /platforms/mine`; if it is missing or empty,
+  discovery fails.
 
 ## 6.7 Running your own BFF: refresh-token rotation
 
