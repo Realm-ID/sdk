@@ -324,8 +324,10 @@ public class RealmFilter implements Filter {
         // bearer is only a fallback and only if it verifies UNEXPIRED. Logout
         // never 401s.
         List<String> candidates = readRefreshCandidates(req);
+        Map<String, Object> lb = readJson(req);
+        // "Log out everywhere": only a JSON boolean true asks for it (SPEC 10.1 step 3).
+        boolean all = Boolean.TRUE.equals(lb.get("all"));
         if (cfg.tokenDelivery == TokenDelivery.BODY) {
-            Map<String, Object> lb = readJson(req);
             Object br = lb.get("refresh_token");
             if (br == null) br = lb.get("refreshToken");
             if (br instanceof String s && !s.isEmpty()) candidates = List.of(s);
@@ -337,7 +339,7 @@ public class RealmFilter implements Filter {
         // user could neither see nor clear.
         for (String refresh : candidates) {
             try {
-                cfg.realm.auth().logout(new LogoutRequest(refresh, null, bearer));
+                cfg.realm.auth().logout(new LogoutRequest(refresh, null, bearer, all));
             } catch (RuntimeException ignored) { /* best effort; logout() already tried the bearer fallback */ }
         }
         if (candidates.isEmpty()) cfg.realm.auth().revokeByVerifiedBearer(bearer);
