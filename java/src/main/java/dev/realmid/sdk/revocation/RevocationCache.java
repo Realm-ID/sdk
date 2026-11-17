@@ -47,7 +47,9 @@ public interface RevocationCache {
     void revoke(String jti, Instant expiresAt);
 
     /**
-     * True when {@code jti} is revoked and its TTL has not elapsed.
+     * True when {@code jti} is revoked and its TTL has not elapsed. The
+     * verifier asks twice per token: once with the session key (SPEC 6.7.6),
+     * once with the token's own {@code jti}.
      *
      * <p>Exceptions propagate to the verifier, which fails CLOSED (the request is
      * rejected). A partner running an unreliable backend should swallow transient

@@ -41,8 +41,8 @@ public record AuthorityChange(String subject, Intent intent, Duration accessToke
         public String wire() { return wire; }
     }
 
-    /** The issuer's service-level access-token lifetime, which sizes the entry under D6. */
-    public static final Duration DEFAULT_ACCESS_TTL = Duration.ofMinutes(15);
+    /** The issuer's access-TTL ceiling (24 h), which sizes the entry when the caller names no lifetime. */
+    public static final Duration DEFAULT_ACCESS_TTL = Duration.ofHours(24);
 
     /**
      * D8's allowance. The marker is stamped as {@code now − SKEW_ALLOWANCE},

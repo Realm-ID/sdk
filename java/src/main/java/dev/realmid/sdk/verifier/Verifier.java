@@ -124,7 +124,7 @@ public final class Verifier {
         if (token == null) {
             throw new RealmException(ErrorCode.MALFORMED, "token is null");
         }
-        String[] parts = token.split("\\.");
+        String[] parts = token.split("\\.", -1);
         if (parts.length != 3) {
             throw new RealmException(ErrorCode.MALFORMED, "expected 3 dot-separated parts");
         }
@@ -224,10 +224,13 @@ public final class Verifier {
         String jti = strOrNull(payload, "jti");
         String sid = strOrNull(payload, "sid");
         String sessionKey = dev.realmid.sdk.session.SessionKeys.sessionKey(sid, jti);
-        if (revocation != null && sessionKey != null) {
+        if (revocation != null) {
             boolean revoked;
             try {
-                revoked = revocation.isRevoked(sessionKey);
+                // Both keys: a revoked session denies every token of it, a
+                // revoked jti denies that token.
+                revoked = (sessionKey != null && revocation.isRevoked(sessionKey))
+                        || (jti != null && !jti.isEmpty() && !jti.equals(sessionKey) && revocation.isRevoked(jti));
             } catch (RuntimeException e) {
                 throw new RealmException(ErrorCode.UNAUTHORIZED, "revocation cache: " + e.getMessage());
             }
@@ -256,13 +259,13 @@ public final class Verifier {
             }
             if (notBefore != null) {
                 long iat = longOrZero(payload, "iat");
-                // D9: the same leeway exp/nbf already carry, so the verifier
-                // tells ONE skew story rather than inventing a second one here.
+                // A plain `iat < notBefore`: the skew allowance is applied once,
+                // when the marker is stamped, and not again here.
                 //
                 // A token with no `iat` cannot be shown to postdate the marker,
                 // so it is refused for as long as one stands. The issuer always
                 // mints `iat`; this is the fail-closed branch, not a live path.
-                if (iat == 0 || iat + lw < notBefore.getEpochSecond()) {
+                if (iat == 0 || iat < notBefore.getEpochSecond()) {
                     // The 401 is set HERE rather than left to a filter's
                     // default, so a partner verifying tokens by hand (no SDK
                     // filter in the path) still gets the status the ADR-107 D10

@@ -108,6 +108,56 @@ class VerifierTest {
     }
 
     @Test
+    void SPEC6_7_6_verifyChecksSessionKeyAndJti() throws Exception {
+        for (String[] tc : new String[][]{{"S1", "true"}, {"J1", "true"}, {"other", "false"}}) {
+            dev.realmid.sdk.revocation.MemRevocationCache cache =
+                    new dev.realmid.sdk.revocation.MemRevocationCache();
+            Verifier v = newVerifier(cache);
+            Map<String, Object> claims = baseClaims();
+            claims.put("sid", "S1");
+            claims.put("jti", "J1");
+            String token = signToken(claims, kid);
+            cache.revoke(tc[0], Instant.now().plusSeconds(900));
+            if (tc[1].equals("true")) {
+                RealmException ex = assertThrows(RealmException.class, () -> v.verify(token), tc[0]);
+                assertEquals(ErrorCode.UNAUTHORIZED, ex.getCode());
+            } else {
+                assertEquals("01HUSER", v.verify(token).subject());
+            }
+        }
+    }
+
+    @Test
+    void SPEC5_trailingDotTokenIsMalformed() throws Exception {
+        Verifier v = newVerifier();
+        String token = signToken(baseClaims(), kid);
+        assertEquals("01HUSER", v.verify(token).subject());
+        for (String bad : new String[]{token + ".", token + ".."}) {
+            RealmException ex = assertThrows(RealmException.class, () -> v.verify(bad));
+            assertEquals(ErrorCode.MALFORMED, ex.getCode());
+        }
+    }
+
+    @Test
+    void SPEC6_7_tokenMinted45sBeforeTheNotifyIsStale() throws Exception {
+        dev.realmid.sdk.authority.MemAuthorityCache cache =
+                new dev.realmid.sdk.authority.MemAuthorityCache();
+        Verifier v = newVerifier(cache);
+        long now = Instant.now().getEpochSecond();
+        // the marker as notifyAuthorityChanged stamps it: now - 30 s
+        cache.markStale("01HUSER", Instant.ofEpochSecond(now - 30), Instant.now().plusSeconds(900));
+
+        Map<String, Object> old = baseClaims();
+        old.put("iat", now - 45);
+        RealmException ex = assertThrows(RealmException.class, () -> v.verify(signToken(old, kid)));
+        assertEquals(ErrorCode.TOKEN_STALE, ex.getCode());
+
+        Map<String, Object> inside = baseClaims();
+        inside.put("iat", now - 20);
+        assertEquals("01HUSER", v.verify(signToken(inside, kid)).subject());
+    }
+
+    @Test
     void revocationCacheOutageFailsClosed() throws Exception {
         dev.realmid.sdk.revocation.RevocationCache broken =
                 new dev.realmid.sdk.revocation.RevocationCache() {

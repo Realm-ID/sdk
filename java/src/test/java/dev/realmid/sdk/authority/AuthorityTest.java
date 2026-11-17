@@ -158,6 +158,30 @@ class AuthorityTest {
     }
 
     @Test
+    void SPEC6_7_defaultMarkerOutlivesA3600sAccessTtl() {
+        Instant[] expiry = new Instant[1];
+        MemAuthorityCache inner = new MemAuthorityCache(FIXED);
+        dev.realmid.sdk.authority.AuthorityCache rec = new dev.realmid.sdk.authority.AuthorityCache() {
+            @Override
+            public void markStale(String sub, Instant notBefore, Instant expiresAt) {
+                expiry[0] = expiresAt;
+                inner.markStale(sub, notBefore, expiresAt);
+            }
+
+            @Override
+            public Instant staleSince(String sub) { return inner.staleSince(sub); }
+        };
+        realm().authority(rec).build()
+                .notifyAuthorityChanged(new AuthorityChange("sub-1", AuthorityChange.Intent.DEMOTED));
+
+        // A token minted just before the change on a realm whose
+        // access_ttl_seconds is 3600 is still live 3600 s later.
+        assertTrue(!expiry[0].isBefore(NOW.plusSeconds(3600).plus(AuthorityChange.SKEW_ALLOWANCE)),
+                "marker expires at " + expiry[0] + ", before a 3600 s token minted at the notify does");
+        assertEquals(NOW.plusSeconds(86400).plus(AuthorityChange.SKEW_ALLOWANCE), expiry[0]);
+    }
+
+    @Test
     void theConfiguredCacheIsReachable() {
         MemAuthorityCache cache = new MemAuthorityCache(FIXED);
         assertSame(cache, realm().authority(cache).build().authority());

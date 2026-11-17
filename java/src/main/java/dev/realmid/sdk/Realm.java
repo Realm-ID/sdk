@@ -407,10 +407,10 @@ public final class Realm {
             ttl = dev.realmid.sdk.authority.AuthorityChange.DEFAULT_ACCESS_TTL;
         }
         java.time.Instant now = java.time.Instant.now(clock);
-        // D8: stamped EARLY, never as bare now. D6: the entry outlives every
-        // token that could still carry the old authority — the access-token
-        // lifetime plus the same skew allowance, so a token minted just before
-        // the marker cannot outlive the marker itself.
+        // Stamped EARLY by the skew allowance, never as bare now. The entry
+        // outlives every token that could still carry the old authority: the
+        // access-TTL ceiling (24 h) unless the caller names one, plus the skew
+        // allowance, so a token minted just before the marker cannot outlive it.
         authority.markStale(
                 change.subject(),
                 now.minus(dev.realmid.sdk.authority.AuthorityChange.SKEW_ALLOWANCE),
