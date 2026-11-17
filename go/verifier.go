@@ -231,9 +231,9 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 			// unrelated dependency as the trigger.
 			return nil, v.fail(ErrCodeUnauthorized, "authority cache: %v", aerr)
 		}
-		// D9: the same leeway exp/nbf already carry, so the verifier tells ONE
-		// skew story rather than inventing a second one here.
-		if found && claims.IssuedAt+leeway < notBefore.Unix() {
+		// A plain `iat < notBefore`: the clock-skew allowance is applied once,
+		// when the marker is stamped, and `leeway` never enters this check.
+		if found && claims.IssuedAt < notBefore.Unix() {
 			return nil, v.failStale()
 		}
 		// A token with no `iat` cannot be shown to postdate the marker, so it

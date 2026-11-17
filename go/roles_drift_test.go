@@ -1,6 +1,7 @@
 package realmid
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -248,5 +249,64 @@ func TestNoPerRoleMFAFloorInTheIssuer(t *testing.T) {
 	if strings.Contains(body[i:], "FirstUnsatisfiableMFAMethod(") {
 		t.Errorf("the issuer's assignability gate applies a per-role MFA floor again; " +
 			"IsRoleAssignableTo in roles_authority.go does not and is now under-filtering")
+	}
+}
+
+// Shared role-predicate vectors: sdk/testdata/role-predicate-vectors/vectors.json
+// (outside go/ on purpose). Every case runs; the declared counts must match.
+func TestRolePredicateVectors(t *testing.T) {
+	raw, err := os.ReadFile("../testdata/role-predicate-vectors/vectors.json")
+	if err != nil {
+		t.Fatalf("vector file unreadable: %v", err)
+	}
+	var f struct {
+		ConfersCount    int                     `json:"confers_case_count"`
+		AssignableCount int                     `json:"assignable_case_count"`
+		Catalogs        map[string][]Permission `json:"catalogs"`
+		Confers         []struct {
+			ID          string          `json:"id"`
+			Permissions []string        `json:"permissions"`
+			Catalog     json.RawMessage `json:"catalog"`
+			Confers     bool            `json:"confers"`
+		} `json:"confers"`
+		Assignable []struct {
+			ID         string     `json:"id"`
+			Role       RoleObject `json:"role"`
+			Kind       string     `json:"kind"`
+			Assignable bool       `json:"assignable"`
+		} `json:"assignable"`
+	}
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatalf("vector file unparseable: %v", err)
+	}
+	c, a, failed := 0, 0, 0
+	for _, v := range f.Confers {
+		c++
+		var got bool
+		switch cat := strings.TrimSpace(string(v.Catalog)); {
+		case cat == "null":
+			got = ConfersAuthority(v.Permissions)
+		case strings.HasPrefix(cat, "["):
+			got = ConfersAuthorityWithCatalog(v.Permissions, nil)
+		default:
+			name, _ := strconv.Unquote(cat)
+			got = ConfersAuthorityWithCatalog(v.Permissions, f.Catalogs[name])
+		}
+		if got != v.Confers {
+			failed++
+			t.Errorf("%s: confers = %v, want %v", v.ID, got, v.Confers)
+		}
+	}
+	for _, v := range f.Assignable {
+		a++
+		role := v.Role
+		if got := IsRoleAssignableTo(&role, v.Kind); got != v.Assignable {
+			failed++
+			t.Errorf("%s: IsRoleAssignableTo(%q) = %v, want %v", v.ID, v.Kind, got, v.Assignable)
+		}
+	}
+	t.Logf("role-predicate-vectors go: ran %d confers + %d assignable cases, %d failed", c, a, failed)
+	if c == 0 || a == 0 || c != f.ConfersCount || a != f.AssignableCount {
+		t.Fatalf("ran %d/%d cases, file declares %d/%d", c, a, f.ConfersCount, f.AssignableCount)
 	}
 }

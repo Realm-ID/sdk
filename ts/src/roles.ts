@@ -435,7 +435,8 @@ export function confersAuthority(
   role: { permissions?: readonly string[] | null },
   opts?: ConfersAuthorityOptions,
 ): boolean {
-  const known = opts?.catalog
+  // An empty catalog gives the parse-form answer, as go and java do.
+  const known = opts?.catalog && opts.catalog.length > 0
     ? new Map(opts.catalog.map((p) => [p.key, p.action]))
     : undefined;
   for (const p of role.permissions ?? []) {

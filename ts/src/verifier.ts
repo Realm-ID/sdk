@@ -224,14 +224,14 @@ export class Verifier {
       }
       if (notBeforeMs !== null) {
         const notBefore = Math.floor(notBeforeMs / 1000);
-        // D9: the same leeway exp/nbf already carry, so the verifier tells ONE
-        // skew story rather than inventing a second one here.
+        // A plain `iat < notBefore`: the clock-skew allowance is applied once,
+        // when the marker is stamped, and `leewaySeconds` never enters here.
         //
         // A token with no `iat` cannot be shown to postdate the marker, so it
         // is refused for as long as one stands. The issuer always mints `iat`;
         // this is the fail-closed branch, not a live path.
         const iat = typeof claims.iat === "number" ? claims.iat : null;
-        if (iat === null || iat + leeway < notBefore) {
+        if (iat === null || iat < notBefore) {
           // The 401 is set HERE rather than left to the middleware's default,
           // so a partner verifying tokens by hand (no SDK middleware in the
           // path) still gets the status the ADR-107 D10 contract promises.

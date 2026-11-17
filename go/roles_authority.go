@@ -188,9 +188,6 @@ func IsRoleAssignableTo(role *RoleObject, kind string) bool {
 	if role == nil {
 		return false
 	}
-	if kind != PrincipalHuman && kind != PrincipalService {
-		return false
-	}
 	if _, blocked := systemUnassignable[role.Name]; blocked {
 		return false
 	}

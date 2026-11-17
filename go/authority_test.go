@@ -271,10 +271,9 @@ func TestVerify_RefreshedTokenPassesTheSameMarker(t *testing.T) {
 	}
 }
 
-// D9: the comparison carries the verifier's existing `leeway`, the same way
-// exp/nbf already do. One skew story for the whole verifier, not a second one
-// invented here.
-func TestVerify_StaleCheckCarriesTheVerifierLeeway(t *testing.T) {
+// The comparison is a plain `iat < notBefore`: the verifier's leeway applies to
+// exp and nbf only, so raising it does not move the stale cut-off.
+func TestVerify_StaleCheckIgnoresTheVerifierLeeway(t *testing.T) {
 	now := time.Now()
 	cache := NewMemAuthorityCache(func() time.Time { return now })
 	sign, pub := mintKey(t, "kid-1")
@@ -287,15 +286,76 @@ func TestVerify_StaleCheckCarriesTheVerifierLeeway(t *testing.T) {
 		Leeway:    60 * time.Second,
 	})
 
-	// iat sits 30s BEHIND the marker — inside the 60s leeway, so it passes.
+	// iat sits 30s BEHIND the marker; a 60s leeway does not rescue it.
 	_ = cache.MarkStale(context.Background(), "01HUSER", now, now.Add(15*time.Minute))
 	tok := sign(map[string]any{
 		"iss": srv.URL + "/" + testRealmID, "sub": "01HUSER", "aud": testAud,
 		"iat": now.Add(-30 * time.Second).Unix(), "exp": now.Add(15 * time.Minute).Unix(),
 	})
-	if _, err := r.Verify(context.Background(), tok, nil); err != nil {
-		t.Errorf("a token inside the configured 60s leeway was rejected: %v", err)
+	_, err := r.Verify(context.Background(), tok, nil)
+	if !IsCode(err, ErrCodeTokenStale) {
+		t.Errorf("iat before the marker with leeway 60s: err = %v, want token_stale", err)
 	}
+}
+
+// A token minted 45 s before the notify is refused with the default leeway;
+// one minted 15 s before it (inside the 30 s allowance) is not.
+func TestVerify_NotifiedDemotionRefusesTokenMinted45sEarlier(t *testing.T) {
+	now := time.Now()
+	cache := NewMemAuthorityCache(func() time.Time { return now })
+	r, sign, closeSrv := staleVerifierRealm(t, cache, now)
+	defer closeSrv()
+
+	if err := r.NotifyAuthorityChanged(context.Background(), AuthorityChange{
+		Subject: "01HUSER", Intent: AuthorityIntentDemoted,
+	}); err != nil {
+		t.Fatalf("NotifyAuthorityChanged: %v", err)
+	}
+	mint := func(ago time.Duration) string {
+		return sign(map[string]any{
+			"iss": r.BaseURL() + "/" + testRealmID, "sub": "01HUSER", "aud": testAud,
+			"iat": now.Add(-ago).Unix(), "exp": now.Add(15 * time.Minute).Unix(),
+		})
+	}
+	if _, err := r.Verify(context.Background(), mint(45*time.Second), nil); !IsCode(err, ErrCodeTokenStale) {
+		t.Errorf("token minted 45s before the notify: err = %v, want token_stale", err)
+	}
+	if _, err := r.Verify(context.Background(), mint(15*time.Second), nil); err != nil {
+		t.Errorf("token minted 15s before the notify (inside the 30s allowance): %v", err)
+	}
+}
+
+// The marker's default lifetime is the 24 h access-TTL ceiling plus the 30 s
+// allowance, so it outlives a token on a realm whose access TTL is 3600 s.
+func TestNotifyAuthorityChanged_DefaultLifetimeCoversTheCeiling(t *testing.T) {
+	now := time.Now()
+	var gotExp time.Time
+	cache := &captureAuthorityCache{onMark: func(e time.Time) { gotExp = e }}
+	srv := mwTestServer(t, nil, testAud, nil)
+	defer srv.Close()
+	r, _ := NewRealm(Config{SessionStore: NewMemorySessionStore(),
+		RealmID: testRealmID, APIKey: "rk", BaseURL: srv.URL,
+		Authority: cache,
+		Clock:     func() time.Time { return now },
+	})
+	if err := r.NotifyAuthorityChanged(context.Background(), AuthorityChange{
+		Subject: "sub-1", Intent: AuthorityIntentDemoted,
+	}); err != nil {
+		t.Fatalf("NotifyAuthorityChanged: %v", err)
+	}
+	if want := now.Add(24*time.Hour + 30*time.Second); !gotExp.Equal(want) {
+		t.Errorf("default marker lifetime = %v, want 24h30s", gotExp.Sub(now))
+	}
+}
+
+type captureAuthorityCache struct{ onMark func(time.Time) }
+
+func (c *captureAuthorityCache) MarkStale(_ context.Context, _ string, _, exp time.Time) error {
+	c.onMark(exp)
+	return nil
+}
+func (c *captureAuthorityCache) StaleSince(_ context.Context, _ string) (time.Time, bool, error) {
+	return time.Time{}, false, nil
 }
 
 // Fail-closed, exactly as the jti check does — but as `unauthorized`, NOT as

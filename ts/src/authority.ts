@@ -118,8 +118,8 @@ export interface AuthorityChange {
   accessTokenTtlMs?: number;
 }
 
-/** The issuer's service-level access-token lifetime, which sizes the entry under D6. */
-export const DEFAULT_ACCESS_TTL_MS = 15 * 60 * 1000;
+/** The issuer's `access_ttl_seconds` ceiling (24 h); the marker lives this long plus the allowance by default. */
+export const DEFAULT_ACCESS_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * D8's allowance. The marker is stamped as `now − AUTHORITY_STALE_SKEW_MS`,

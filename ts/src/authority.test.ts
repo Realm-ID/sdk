@@ -218,6 +218,53 @@ test("verify: the REFRESHED token passes the same marker (D3 self-heal)", async 
   assert.equal((await v.verify(fresh)).sub, "user-1");
 });
 
+test("verify: a notified demotion refuses a token minted 45s earlier, admits 15s earlier", async () => {
+  const { publicJwk, signToken } = await mintKey("kid-1");
+  const now = new Date("2026-04-01T00:00:00Z");
+  const sec = Math.floor(now.getTime() / 1000);
+  const cache = new MemAuthorityCache(() => now.getTime());
+  const realm = realmWith(cache, () => now);
+  await realm.notifyAuthorityChanged({ subject: "user-1", intent: "demoted" });
+  const v = new Verifier({ realmId: REALM_ID,
+    baseUrl: BASE_URL, audience: AUD, fetch: jwksFetch([publicJwk]),
+    now: () => now, authority: cache,
+  });
+  const mint = (ago: number) => signToken({
+    iss: `${BASE_URL}/${REALM_ID}`, sub: "user-1", aud: AUD,
+    iat: sec - ago, exp: sec + 900,
+  });
+  await assert.rejects(async () => v.verify(await mint(45)), (e: Error) => isTokenStale(e));
+  assert.equal((await v.verify(await mint(15))).sub, "user-1");
+});
+
+test("verify: the stale cut-off ignores leewaySeconds", async () => {
+  const { publicJwk, signToken } = await mintKey("kid-1");
+  const now = new Date("2026-04-01T00:00:00Z");
+  const sec = Math.floor(now.getTime() / 1000);
+  const cache = new MemAuthorityCache(() => now.getTime());
+  await cache.markStale("user-1", now.getTime(), now.getTime() + 900_000);
+  const v = new Verifier({ realmId: REALM_ID,
+    baseUrl: BASE_URL, audience: AUD, fetch: jwksFetch([publicJwk]),
+    now: () => now, authority: cache, leewaySeconds: 60,
+  });
+  const token = await signToken({
+    iss: `${BASE_URL}/${REALM_ID}`, sub: "user-1", aud: AUD,
+    iat: sec - 30, exp: sec + 900,
+  });
+  await assert.rejects(() => v.verify(token), (e: Error) => isTokenStale(e));
+});
+
+test("notifyAuthorityChanged: the marker's default lifetime is 24h plus the allowance", async () => {
+  const now = new Date("2026-04-01T00:00:00Z");
+  let expiresAt = 0;
+  const cache: AuthorityCache = {
+    markStale: (_sub, _nb, exp) => { expiresAt = exp; },
+    staleSince: () => null,
+  };
+  await realmWith(cache, () => now).notifyAuthorityChanged({ subject: "sub-1", intent: "demoted" });
+  assert.equal(expiresAt - now.getTime(), 24 * 3600 * 1000 + AUTHORITY_STALE_SKEW_MS);
+});
+
 test("verify: a cache outage fails closed as unauthorized, NOT token_stale", async () => {
   const { publicJwk, signToken } = await mintKey("kid-1");
   const now = new Date("2026-04-01T00:00:00Z");

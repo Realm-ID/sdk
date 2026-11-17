@@ -184,6 +184,41 @@ test("drift: PRINCIPAL_KINDS matches the pinned issuer set", () => {
   assert.deepEqual([...PRINCIPAL_KINDS].sort(), ISSUER_ASSIGNABLE_KINDS);
 });
 
+// Shared role-predicate vectors (sdk/testdata/role-predicate-vectors). The
+// assignable cases call `isRoleSeatable`, the picker predicate that carries the
+// name and disabled guards; the bare `isRoleAssignableTo` is not under test.
+test("drift: the shared role-predicate vectors", () => {
+  const vf = JSON.parse(readFileSync(
+    fileURLToPath(new URL("../../testdata/role-predicate-vectors/vectors.json", import.meta.url)), "utf8")) as {
+    confers_case_count: number;
+    assignable_case_count: number;
+    catalogs: Record<string, { key: string; action: string }[]>;
+    confers: { id: string; permissions: string[]; catalog: string | [] | null; confers: boolean }[];
+    assignable: { id: string; role: Parameters<typeof isRoleSeatable>[0]; kind: string; assignable: boolean }[];
+  };
+  let c = 0, a = 0, failed = 0;
+  for (const v of vf.confers) {
+    c++;
+    let got: boolean;
+    if (v.catalog === null) got = confersAuthority({ permissions: v.permissions });
+    else {
+      const cat = (Array.isArray(v.catalog) ? v.catalog : vf.catalogs[v.catalog]!)
+        .map((p) => ({ ...p, resource: p.key.split(":")[0]!, label: "" }));
+      got = confersAuthority({ permissions: v.permissions }, { catalog: cat });
+    }
+    if (got !== v.confers) { failed++; assert.fail(`${v.id}: confers = ${got}, want ${v.confers}`); }
+  }
+  for (const v of vf.assignable) {
+    a++;
+    const got = isRoleSeatable(v.role, v.kind as (typeof PRINCIPAL_KINDS)[number]);
+    if (got !== v.assignable) { failed++; assert.fail(`${v.id}: isRoleSeatable(${v.kind}) = ${got}, want ${v.assignable}`); }
+  }
+  console.log(`role-predicate-vectors ts: ran ${c} confers + ${a} assignable cases, ${failed} failed`);
+  assert.ok(c > 0 && a > 0);
+  assert.equal(c, vf.confers_case_count);
+  assert.equal(a, vf.assignable_case_count);
+});
+
 test("drift: the SSO domain vocabularies match the pinned issuer sets", () => {
   assert.deepEqual([...SSO_DOMAIN_METHODS].sort(), ISSUER_SSO_METHODS);
   assert.deepEqual([...SSO_DOMAIN_STATUSES].sort(), ISSUER_SSO_STATUSES);

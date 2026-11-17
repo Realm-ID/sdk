@@ -149,9 +149,10 @@ type AuthorityChange struct {
 	AccessTokenTTL time.Duration
 }
 
-// DefaultAccessTokenTTL mirrors the issuer's service-level access-token
-// lifetime, which sizes the cache entry under D6.
-const DefaultAccessTokenTTL = 15 * time.Minute
+// DefaultAccessTokenTTL is the issuer's access_ttl_seconds ceiling (24 h). The
+// marker lives this long, plus the skew allowance, unless the caller names a
+// shorter lifetime, so it outlives every token minted before the change.
+const DefaultAccessTokenTTL = 24 * time.Hour
 
 // authorityStaleSkew is D8's allowance. The marker is stamped as
 // localNow − authorityStaleSkew, NEVER as bare localNow.
