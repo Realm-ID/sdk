@@ -76,6 +76,10 @@ gate "workflow hygiene: self-test" ./scripts/workflow-hygiene.sh --self-test
 gate "workflow hygiene (third-party actions are SHA-pinned)" ./scripts/workflow-hygiene.sh
 marker pinned
 
+# Jobs holding `id-token: write` install with --ignore-scripts and a pinned npm. Self-test first.
+gate "id-token npm guard: self-test" python3 scripts/workflow-idtoken-guard.py --self-test
+gate "id-token npm guard" python3 scripts/workflow-idtoken-guard.py
+
 # workflow-hygiene.yml `lint` job: workflow-preflight lint (pinned actionlint + shellcheck, canary,
 # SHA pins) via the same make target CI runs. Its tools are not installable without network, so a
 # missing one is a hard FAIL (P6), unlike the ts/web loud skips below.

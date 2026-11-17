@@ -121,6 +121,7 @@ self-test:
 	@bash scripts/release-check.test.sh
 	@python3 scripts/contract-parity.test.py
 	@bash scripts/workflow-hygiene.sh --self-test
+	@python3 scripts/workflow-idtoken-guard.py --self-test
 	@bash scripts/pre-push.test.sh
 	@bash scripts/tag-hygiene.test.sh
 
