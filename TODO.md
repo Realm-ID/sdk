@@ -59,7 +59,7 @@ this is the SDK-side work.
   test-infra decision — add `vitest`/jsdom, or refactor firebase to inject its
   `signInWith*` seams — before either can be cleanly unit-tested.
 
-## Integration-guide improvements from the Traide exchange (2026-08-31)
+## Integration-guide improvements from the partner exchange (2026-08-31)
 
 Derived from a live partner incident and the two-round exchange that followed,
 NOT from a review pass. Each item is something a partner actually got wrong, or
@@ -67,7 +67,7 @@ that we got wrong answering them. Ordered by what would have prevented the most.
 
 1. **State that the `role` claim is a partner-visible CONTRACT.** The claim
    carries `users.role` verbatim (`issuer/internal/tokens/tokens.go:52`), and
-   partners key their own authorization off that string — Traide's GoFr RBAC
+   partners key their own authorization off that string — a partner's GoFr RBAC
    reads `jwtClaimPath: "role"` against their own catalog. The guide never says
    this, so a partner cannot know a role rename is a breaking change for them.
    **Say it, and say the corollary**: do NOT key product authorization off the
@@ -85,7 +85,7 @@ that we got wrong answering them. Ordered by what would have prevented the most.
    inside the partner's own wrapper, and carry a date plus a removal ticket in
    the same commit.
 
-3. **Warn that a partner's own test doubles can hide contract drift.** Traide's
+3. **Warn that a partner's own test doubles can hide contract drift.** A partner's
    `stubissuer` echoes any role name back as `active` with no catalog check, so
    their suite passes for a role RealmID would refuse; their Vitest suite mocks
    the SDK, so it stays green against a failed install. The guide's §9
@@ -432,7 +432,7 @@ module hash and demands a version bump (see the note at the top of this file).
 
 
 - [ ] **`RevocationCache` is revoke-by-jti only, so every partner builds the
-  same `user → jti` index to work around it.** (Traide, 2026-09-03. FEATURE —
+  same `user → jti` index to work around it.** (a partner, 2026-09-03. FEATURE —
   needs an owner decision before any code; do not implement on this note.)
   The interface is `Revoke(ctx, jti, expiresAt)` / `IsRevoked(ctx, jti)`
   (`go/platform_token.go:315`), and the only caller is `Logout`, which works
@@ -441,7 +441,7 @@ module hash and demands a version bump (see the note at the top of this file).
   colleague's token nor their jti.
   **Why it matters**: a role change lands only on the target's next refresh, so
   authority is stale for up to one `access_ttl_seconds` (default **900s**). The
-  sharp case Traide names is not data exposure — where `POST /users/{id}/role`
+  sharp case a partner names is not data exposure — where `POST /users/{id}/role`
   is callable by `admin`, a just-demoted admin can re-promote themselves inside
   that window. Bounded window, unbounded consequence.
   Same wall as `Auth.ListSessions`/`RevokeSession` since issuer `v0.66.0`: both
@@ -450,7 +450,7 @@ module hash and demands a version bump (see the note at the top of this file).
   a platform key must not be able to act as any user. The question is whether
   "revoke this user's authority now" gets a supported path that does not
   require impersonation.
-  Options Traide offered, in their order of preference: (1) `RevokeAllForUser(ctx,
+  Options a partner offered, in their order of preference: (1) `RevokeAllForUser(ctx,
   userID)` on the cache interface; (2) a way for a platform key to enumerate a
   target's live jtis without impersonating them; (3) if neither fits the model, a
   DOCUMENTED note that the index is the partner's job, so nobody assumes `Logout`
@@ -464,4 +464,3 @@ module hash and demands a version bump (see the note at the top of this file).
 
 - [ ] `ts/src/rotation.ts` (`splitExponent`, :38-46) — d_ri is drawn from `[0, lambda)` with no zero redraw; SPEC §14.14 wants uniform `[1, lambda)` and a redraw on a zero half. Held back (a constant-time measurement is queued against that file); also expose the pure split so check 1 can run in ts.
 - [ ] `ts/src/auth.ts`, `java/src/main/java/dev/realmid/sdk/auth/MfaVerifyOtpRequest.java` — `mfaVerifyOtp` has no `onBehalfOfIp` (Go `MFAVerifyOTPRequest` does); a direct OTP-MFA verify from a partner server shares its per-IP bucket on the issuer.
-- [ ] Public-text cleanup, owner to decide: public text names a partner and audit ids at `CHANGELOG.md:20`, `DECISIONS.md:211`, `SPEC.md:113`, `SPEC.md:3326`, `SPEC.md:4423`, `SPEC.md:6082`, `SPEC.md:6411`, `SPEC.md:6440` (and further partner-name lines in `CHANGELOG.md`, `DECISIONS.md`, `DECISIONS-ARCHIVE.md`, `OPEN-QUESTIONS.md`), and describes an earlier behaviour at `SPEC.md:4877` (§10.5 `onAuthFailure` note); reword each to rule-only.

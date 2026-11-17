@@ -41,7 +41,7 @@ tenant-choice route would let the two concerns separate.
 
 ## The reference BFF does not follow `BFF-SPEC.md` — ADR needed (filed 2026-08-30)
 
-> Given its own heading on 2026-09-13. It had been sitting under the Traide
+> Given its own heading on 2026-09-13. It had been sitting under the partner
 > partner-ask heading, which it has nothing to do with — it landed there only
 > because that section happened to be last in the file when this file was
 > split out of `TODO.md`.

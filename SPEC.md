@@ -3,9 +3,8 @@
 **Current as of 2026-10-17 — go `0.68.0` · ts `0.56.0` · java `0.52.0` · web `0.11.0` · web-admin `0.23.0` · web-bff-realmid `0.8.0`
 (tagged 2026-10-17: go/v0.68.0, ts-v0.56.0, java-v0.52.0; all three languages implement the ADR-115 phone-delivery surface and the v0.63 surface below)** (see §13 for the tag matrix).
 
-> ⚠️ **UNRELEASED, 2026-11-14 — audit fixes e-01..e-04 (go `0.78.0` · ts `0.65.0` · java `0.62.0`,
-> one combined release with issuer `v0.151.0`; owner rulings 2026-11-14, plan
-> `auth/plans/2026-11-14-audit-fixes.md`; why in `DECISIONS.md` 2026-11-14).** Specified ahead
+> ⚠️ **UNRELEASED, 2026-11-14 — claim and path-matching fixes (go `0.78.0` · ts `0.65.0` · java `0.62.0`,
+> one combined release with issuer `v0.151.0`; owner rulings 2026-11-14; why in `DECISIONS.md` 2026-11-14).** Specified ahead
 > of code. None of these tags exists yet; this note is deleted in the commit that releases them.
 >
 > | § | Surface | Visible to an existing partner? |
@@ -44,8 +43,7 @@
 
 > **RELEASED, 2026-10-16 — the v0.63 surface below is implemented in all three languages: go `0.63.0`, ts `0.55.0`, java `0.51.0` (and `@realm-id/web` `0.9.0`).** The behaviours were specified
 > here ahead of code (owner rulings Q1-Q4 and the same-day v0.63.0 widening,
-> 2026-10-01; why in `DECISIONS.md` 2026-10-01, both entries; plan
-> `auth/plans/2026-10-01-sdk-v063-sid-jti.md`). The table below is the record of what changed for an existing partner:
+> 2026-10-01; why in `DECISIONS.md` 2026-10-01, both entries). The table below is the record of what changed for an existing partner:
 >
 > | § | Behaviour | Visible to an existing partner? |
 > |---|---|---|
@@ -110,7 +108,7 @@
 >
 > Issuer A adds and changes nothing a v0.62 client observes; the atomic
 > refresh rotation and the issuer refusing older tokens on its own routes are
-> **Issuer B** (owner ruling 2026-10-01), gated on the BFF and Traide running
+> **Issuer B** (owner ruling 2026-10-01), gated on the BFF and a partner running
 > v0.63.0. Nothing in v0.63.0 requires Issuer A.
 >
 > **Release preconditions owned outside `sdk/` (ADR-109 D1.1).** Issuer A
@@ -3349,7 +3347,7 @@ Each row gets a red test in all three languages (`SPEC6_7_6`):
 Not readers: `go/authority.go:3-8` and `go/realmid.go:86-89,312` are comments
 describing the denylist; their wording is updated to "session key" with R2/R3.
 `api/` (the reference BFF), `ui/` and `cli/` read no `jti` through the SDK
-(ADR-109 § Blast radius). Traide's bridge is outside this workspace and is
+(ADR-109 § Blast radius). A partner's bridge is outside this workspace and is
 ADR-109 D8 precondition (b).
 
 **R3: two lookups, either one denies.** In every language, `verify()` MUST
@@ -4446,7 +4444,7 @@ For every inbound request, the middleware:
      token gets the new tokens. The issuer keeps no grace window. Its rotation
      becomes atomic (a losing racer at the issuer is reuse) only in **Issuer
      B** (owner ruling 2026-10-01: Issuer A is purely additive), which waits for
-     the BFF and Traide to run this serialization; against prod `v0.126.0` and
+     the BFF and a partner to run this serialization; against prod `v0.126.0` and
      Issuer A the issuer's rotation is not compare-and-swap, so two unserialized
      racers both mint and the session dies one refresh later — this step is
      what prevents that on every issuer.
@@ -4900,10 +4898,9 @@ the response. Each language's tests MUST cover a bearer failure with a hook
 registered and assert both that the hook ran and that the `401` envelope was
 written.
 
-> **Breaking change (ADR-065).** `onAuthFailure` was previously a
-> response-**owning** callback (`(req, err) => Response`). It is now
-> observe-only. Partners that wrote a custom error body must move that
-> logic elsewhere or request the planned `errorResponder` option.
+> **Rule (ADR-065).** `onAuthFailure` is an observe-only hook: it
+> cannot own or replace the response. A custom error body belongs
+> elsewhere, or in the planned `errorResponder` option.
 
 ### 10.4 MFA freshness model
 
@@ -5523,7 +5520,7 @@ gates them. *Example.* `globMatch("/admin/*", "/Admin/x")` is `false`;
    dot-segment resolution, no `;` stripping. Those belong to the path SOURCE
    (below), which hands the matcher the path its router routes on.
    *Planned, not current:* the step-up gate release (go `0.79.0` · ts `0.66.0`
-   · java `0.63.0`, root `plans/2026-11-13-stepup-gate-dedup.md` DR-1) cleans
+   · java `0.63.0`) cleans
    `//` and dot segments in the gate's input and supersedes this rule for the
    gate only, from that release; vector r15 (and r12/r13 in ts) changes then.
    The `matcher` cases do not: the gate cleans its input BEFORE calling
@@ -5862,9 +5859,7 @@ target. TS and Java use `ts-vX.Y.Z` / `java-vX.Y.Z`.
 > `SPEC14_4_trust`, `SPEC14_5_shares`, `SPEC14_6_handshake`, `SPEC14_7_metrics`,
 > `SPEC14_8_integration`, `SPEC14_10_actor`, `SPEC14_11_create_org`, `SPEC14_12_ci_rotation`,
 > `SPEC14_14_dealer`, `SPEC14_15_browser_dealer`.
-> Why: `DECISIONS.md` 2026-10-27; owner rulings R44-R58 in `plans/2026-10-27-split-signing-v2.md`
-> and R59-R76 in `plans/2026-10-27-split-signing-rulings-r19-r48.md` (latest wins; ONE release,
-> R62); the HTTP contract is `issuer/docs/swagger.yaml` (authoritative, wins over this text).
+> Why: `DECISIONS.md` 2026-10-27; owner rulings are recorded there (latest wins; ONE release); the HTTP contract is `issuer/docs/swagger.yaml` (authoritative, wins over this text).
 
 ### 14.1 Login → token everywhere (R44)
 
@@ -6105,7 +6100,7 @@ rights (a person's live role, a key's cap and the never-via-key list R55, an SA'
 needs a user or service account. Send its token in X-User-Token." (Go sentinel `ErrActorRequired` (carried in `RealmError.Cause`; also `ErrCodeActorRequired` and `IsActorRequired(err)`), ts `ActorRequiredError extends RealmError` (also `isActorRequired(e)`), java `ActorRequiredException extends RealmException` (also `RealmException.isActorRequired(t)`)). The SAME typed
 error covers the SDK's local refusal and the server's `403 actor_required`: each SDK's response decoder
 special-cases that code (the first code mapped to a subclass), and a cross-SDK parity test pins it. The
-web packages add nothing. A partner job that forgets the actor fails loudly. Traide's `auth.OnBehalfOf`
+web packages add nothing. A partner job that forgets the actor fails loudly. A partner's `auth.OnBehalfOf`
 fallback to a bare call becomes this error (R67 notice).
 
 **Administration (R64, R65).** `platform_api` is app-runtime only. Administration (identity
@@ -6331,8 +6326,7 @@ public key.
 
 **Contract:** issuer ADR-122 and swagger `0.66.0` (`/auth/device-authorizations`, `/inspect`, `/approve`,
 `/deny`, and grant `urn:ietf:params:oauth:grant-type:device_code` on `/auth/token` and
-`/auth/token/partial`). Rulings: umbrella `plans/2026-11-02-device-code-service-account.md` § 6 (Q1-Q8, T1,
-N1-N5) and § 5.3 (DQ1, DQ2), umbrella `DECISIONS.md` "2026-11-02 — Device login lives in the issuer once"
+`/auth/token/partial`). Rulings: `DECISIONS.md` "2026-11-02 — Device login lives in the issuer once"
 and its amendments. Where this section and ADR-122 disagree, ADR-122 wins and this section is fixed.
 **Version targets** (no tag, no publish in this work): go `0.73.0`, `@realm-id/web` `0.13.0`,
 `@realm-id/web-react` `0.6.0`; every other web package takes a PATCH bump that widens its peer range to
@@ -6434,7 +6428,7 @@ type DeviceOptions struct {
     CanApprove func(r *http.Request, approver DeviceApprover, req *DeviceRequest) bool
     // OnBeforeApprove (optional) runs after step-up and before ResolveSubject + the issuer approve.
     // A non-nil error aborts: nothing is sent to the issuer, the browser gets the error (a *RealmError
-    // is relayed as is; any other error is 500 server_error). Traide provisions its sync SA here.
+    // is relayed as is; any other error is 500 server_error). A partner provisions its sync SA here.
     OnBeforeApprove func(r *http.Request, approver DeviceApprover, req DeviceRequest) error
     // ResolveSubject (optional; nil = self case) names the account. It MUST be side-effect free: it is
     // called at INSPECT in preview (to fill subjectType/subjectLabel; Ref may be "" when the account
@@ -6463,7 +6457,7 @@ type DeviceOptions struct {
 Why twice: Q2 wants an early refusal the partner can show as "you cannot approve devices here", and N5
 wants `client_id` to reach the gate. Only the first call may answer with its own code, because it runs
 before the code is read; the second answers exactly what an unknown code would get. Its typical body is "is this person allowed to use the device page at all"
-(Traide: owner of the current tenant; RealmID: any signed-in console user).
+(partner: owner of the current tenant; RealmID: any signed-in console user).
 
 ### 15.4 Route behaviour
 

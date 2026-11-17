@@ -539,7 +539,7 @@ fact. It matters now in a way it did not before: `docs/integrator-sdk-pins.md`
 (Realm-ID/project, shipped 2026-08-03) asks partners to report this exact
 number back to us as their pin, and that register is what we diff against the
 ADR-089 hard floors to decide whether a breaking issuer change is safe to ship.
-A wrong const becomes a wrong row in the register built to prevent the Traide
+A wrong const becomes a wrong row in the register built to prevent the partner
 outage.
 
 **Root cause** — the const has **no in-module consumers**. Nothing reads it, so
@@ -781,14 +781,14 @@ is the same reason the integration codes were registered in ADR-082/083.
 
 ## 2026-07-28 — cookie shadowing: read every candidate, and evict the twin
 
-**Reported by Traide from a live incident.** Their analysis was correct on every
+**Reported by a partner from a live incident.** Their analysis was correct on every
 point; I re-verified it against `middleware.go` and `RealmFilter.java` before
 acting rather than taking the report on trust, and both SDKs had the defect
 exactly as described.
 
 ### RCA
 
-**Symptom** — after a partner set `REFRESH_COOKIE_DOMAIN=.traide.co.in` on a
+**Symptom** — after a partner set `REFRESH_COOKIE_DOMAIN=.example.com` on a
 deployment with live sessions, every page reload logged the user out. `POST
 /auth/token` returned `401 refresh_invalid` on every attempt, deterministically,
 from the moment the existing access token expired. Logging out and back in did
@@ -909,7 +909,7 @@ contradicted `SPEC.md` §190's own "there is no platform refresh step":
 **Why it matters more than a typo.** `sdk/CLAUDE.md` makes SPEC.md law — "if a
 language SDK and SPEC.md disagree, fix the SDK." A stale spec therefore doesn't
 just misinform, it authorizes re-implementing the withdrawn behaviour. And these
-are the paragraphs a partner reads while debugging exactly this path: Traide's
+are the paragraphs a partner reads while debugging exactly this path: a partner's
 2026-07-27 reply (§5) caught the same class of defect in the issuer's comments,
 having traced a live bug through them.
 
@@ -1558,7 +1558,7 @@ web-admin 0.8.3→0.8.4 (re-vendored into ui).
 the resolvable module tag (`go/vX.Y.Z`, source of truth for `go get`) and an
 in-code `const Version` (a hand-maintained semver that tracked ADR feature
 rounds). At `go/v0.29.0` the tag said `v0.29.0` but the const said `"0.20.0"`. The
-Traide team keyed off the const and concluded the ADR-071/072 service-account
+A partner team keyed off the const and concluded the ADR-071/072 service-account
 surface was **unreleased** — when it was live in `go/v0.29.0`. This is the second
 such drift (the const already "skipped 0.15.0" per its own doc comment).
 
@@ -1575,7 +1575,7 @@ reported version honest. Only the Go SDK is affected (TS/Java version from their
 own package manifests, which already match what's published).
 
 **Related (not built, by decision).** The service-session refresh **grace window**
-Traide asked about (single-previous-refresh tolerance for a lost rotation
+A partner asked about (single-previous-refresh tolerance for a lost rotation
 response) — decided **not** to build; on a lost `/auth/token` response the
 unattended agent re-provisions (owner re-issues a login OTP). Recorded because it
 was weighed and declined, not merely deferred. Note there is no reuse-detection

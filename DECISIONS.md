@@ -196,7 +196,7 @@ Newest first.
 
 ## 2026-11-17 — sdk unit tier runs Go on the host (owner ruling Q2)
 
-**Context.** `make check` runs `scripts/preflight-check.sh`, which runs `go vet` / `go test` for `go/` on the laptop. The workspace rule is "services run in Docker, never on the host". The issuer's unit tier already runs Go on the host; the sdk's did too, without a recorded ruling. Owner ruling Q2, 2026-11-17 (root `plans/2026-11-17-close-w1-dispatch-w2.md`).
+**Context.** `make check` runs `scripts/preflight-check.sh`, which runs `go vet` / `go test` for `go/` on the laptop. The workspace rule is "services run in Docker, never on the host". The issuer's unit tier already runs Go on the host; the sdk's did too, without a recorded ruling. Owner ruling, 2026-11-17.
 
 **Decision.** The sdk unit tier (`make check`, the pre-push gate) may run the Go toolchain on the laptop, the same as the issuer's unit tier. It starts no service, binds no port and touches no datastore, so the no-host-runtime rule (which is about running services) does not reach it. Anything that runs a service or a datastore still runs in Docker.
 
@@ -204,7 +204,7 @@ Newest first.
 
 ## 2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)
 
-**Context.** Owner rulings 37 (2026-11-15) and 43 (2026-11-16), and ruling 33 with issuer ADR-122 AF-122.4-.6 (issuer `e67835a`). Root `plans/2026-11-14-audit-fixes.md` § Decision summary.
+**Context.** Owner rulings 37 (2026-11-15) and 43 (2026-11-16), and ruling 33 with issuer ADR-122 AF-122.4-.6 (issuer `e67835a`). Owner rulings 2026-11-14 to 2026-11-16.
 
 **Decision.**
 1. **SPEC §4.2 `SPEC4_2_carry_all` rule 4 (`SPEC4_2_carry_all_web`).** In body mode, `@realm-id/web`'s token manager holds ONE carried refresh token, replaced by EVERY `/token` error reply whose body carries a string `refresh_token` / `refreshToken`: a `503 retry: true`, a second `503`, and a `400`/`403`/`409` the middleware relays under rule 2. It is presented on every later `/token` request until a success, a sibling tab's adopted result, sign-out or a lost session clears it. Ruling 37 named the second `503`; ruling 43 extends it to every error reply carrying the rotated token, because rule 2 relays the issuer's own status with that token, and dropping it there has the same effect. Retry behaviour is unchanged: one retry, only after a `503 retry: true`.
@@ -217,7 +217,7 @@ Newest first.
 
 **Decision.** The public SDK docs, SPEC, changelog and code comments state only the current custom-claims rule: custom claims are set by the partner's server code (the `customClaims` handler, or a direct server-side `token` call), and the middleware refuses them in request bodies (`400 custom_claims_not_accepted`).
 
-**Why general.** Owner ruling 39 (2026-11-15, after ruling 30): this repo is public, so it does not explain how the earlier behaviour could be misused. The detailed history of audit e-01 lives in the private issuer repo's DECISIONS. Normative SPEC rules (what the SDK MUST do) are unchanged; only narrative was removed. The earlier e-01 entries in this file keep their dates, with neutral Symptom/Root cause text.
+**Why general.** Owner ruling 39 (2026-11-15, after ruling 30): this repo is public, so it does not explain how the earlier behaviour could be misused. The detailed history lives in the private issuer repo's DECISIONS. Normative SPEC rules (what the SDK MUST do) are unchanged; only narrative was removed. The earlier e-01 entries in this file keep their dates, with neutral Symptom/Root cause text.
 
 ## 2026-11-14 — MFA verify and recovery forward the end user's IP (partner-notice HIGH 1; RCA)
 
@@ -385,7 +385,7 @@ Java unit S5 (owner rulings 3 and 8, spec SPEC10_1_4_no_client_claims, SPEC10_2_
 
 ## 2026-11-14 — Audit fixes e-01..e-04: server-only custom claims, ASCII claim fold, one canonical path matcher (SPEC first)
 
-**Context.** Audit 2026-11-13 (`auth/.scratch/audit/2026-11-13/e-sdks*.md`) confirmed e-01 (custom claims must be set by the partner's server code only, go/ts/java), e-02 (reserved claim names are compared by ASCII fold; `Sub`, `ſub`, `toKen_class` are refused), e-03 (java filters match the servlet path) and e-04 (ts matchers fold ASCII case and one trailing slash like Express). Per-finding history: private issuer DECISIONS (ruling 42). Owner rulings and adopted designer recommendations: root `plans/2026-11-14-audit-fixes.md` § Decision summary. SPEC text written first (Wave 0, unit D-sdk); code follows in go `0.78.0` · ts `0.65.0` · java `0.62.0`.
+**Context.** A review on 2026-11-13 confirmed that (custom claims must be set by the partner's server code only, go/ts/java), (reserved claim names are compared by ASCII fold; `Sub`, `ſub`, `toKen_class` are refused), (java filters match the servlet path) and (ts matchers fold ASCII case and one trailing slash like Express). Per-finding history: private issuer DECISIONS (ruling 42). Owner rulings and adopted designer recommendations: owner rulings, 2026-11-14. SPEC text written first (Wave 0, unit D-sdk); code follows in go `0.78.0` · ts `0.65.0` · java `0.62.0`.
 
 **Decision.**
 1. **e-01 (SPEC §4.2, §10.1 step 4 `SPEC10_1_4_no_client_claims`, §10.2 `SPEC10_2_custom_claims`).** Custom claims on an SDK-run mint come only from a new server-side `customClaims(tenantId, userId)` handler, wired like `productRoles` (§4.1.2) and with its retry/refuse rules. The refresh route answers `400 custom_claims_not_accepted` to a body carrying the key; it never forwards client claims. A direct `auth.token` call from partner server code keeps its `customClaims` field. The step 4a fingerprint drops `custom_claims`.
@@ -396,7 +396,7 @@ Java unit S5 (owner rulings 3 and 8, spec SPEC10_1_4_no_client_claims, SPEC10_2_
 
 **Consequences.** BREAKING for a SPA that sent claims through the refresh route, for a token with a fold-colliding key, and in java for a context-path-prefixed rule. More requests are step-up gated. Two v0.63 table rows change (m14, m18). Partner notice: root `PARTNER-NOTICE-SECURITY-2026-11.md` (Wave 5, R1).
 
-**Owner rulings 8-9 (2026-11-14, same day, after this entry was drafted; root `plans/2026-11-14-audit-fixes.md`).**
+**Owner rulings 8-9 (2026-11-14, same day, after this entry was drafted; root).**
 - **8: `acr` is reserved from issuer `v0.151.0`.** The SDKs read `amr`/`acr` as an MFA marker, so `acr` is reserved. Added to the SPEC §4.2 set, the claim-fold vectors (`k25`, `k26`, `p21`) and the docs' reserved lists. The issuer's drift test against the vectors stays red until I4 adds it.
 - **9: Go answers `400 invalid_path` when the raw path holds `%2F`, `%5C` or `%25`; ts keeps raw-path matching.** `r.URL.Path` decodes `%2F` into `/`, so the check cannot rest on it. The Go check reads the wire text, `r.RequestURI` (query and any absolute-form scheme/authority removed); only when that is empty does it scan BOTH `RawPath` and `EscapedPath()`, because `net/url` leaves `RawPath` empty whenever the raw text equals its default escaping and `EscapedPath()` re-escapes the decoded path when `RawPath` holds a character that fails `validEncoded`. A literal `\` is refused explicitly so the two branches agree (vectors r23-r25). Request vectors r07-r10, r22-r25 are `400` in Go. The reasoning history is in the private issuer repo's DECISIONS (ruling 42).
 - **Owner ruling 16: Go also refuses a `.`/`..` segment** (after `;params` are removed, as in Java). The test runs on the decoded `r.URL.Path`, so `%2e%2e` counts too. This is my reading of "in the raw request path": it refuses everything a raw-text test would, plus the encoded form, which Java already refuses as `%2E`. Go vectors r11-r14 are now `400`. Reason: a router that cleans the path must not see a different path from the gate, so a dot segment is never matched.
@@ -450,7 +450,7 @@ Java unit S5 (owner rulings 3 and 8, spec SPEC10_1_4_no_client_claims, SPEC10_2_
 
 **Problem.** `Token` (and so `TokenManager`) follows up to 3 hand-overs: when another request already rotated the session's refresh token, it retries on the winner's NEWER token rather than re-presenting the spent one. Only the 3-hop give-up carried that newer token back. Any error on hop 1 or 2 returned the bare error, so the caller kept its original token — already spent — and its next refresh was `refresh_invalid`, i.e. a logout caused by a transient failure.
 
-**Decision (SPEC §4.2 *An error after a hand-over carries the newest token*, §4.2.1 *Adopting a carried token*; plan `plans/2026-11-04-token-handover-and-turnstile.md`).** Owner rulings 2026-11-04. Q1: once `Token` has followed a hand-over, EVERY error it returns carries the newest token it held, except a token-level error (`refresh_invalid` or any 401), where that token is known dead. A hop-0 error is unchanged. Q2: the token rides on a NEW public type — Go `*RefreshHandedOverError`, ts `RefreshHandedOverError`, java `RefreshHandedOverException` — wrapping the original, accessor `RefreshToken()` / `refreshToken()`, redacted from every print and JSON path the way `RefreshSupersededError` is. Go unwraps to the original (`errors.As`, `IsCode`, `errors.Is(context.Canceled)` unchanged); ts/java extend the base error and copy code, message, status, details and retry-after, and the original is `cause` / `getCause()`. `TokenManager` adopts and persists the token from both carrying types.
+**Decision (SPEC §4.2 *An error after a hand-over carries the newest token*, §4.2.1 *Adopting a carried token*).** Owner rulings 2026-11-04. Q1: once `Token` has followed a hand-over, EVERY error it returns carries the newest token it held, except a token-level error (`refresh_invalid` or any 401), where that token is known dead. A hop-0 error is unchanged. Q2: the token rides on a NEW public type — Go `*RefreshHandedOverError`, ts `RefreshHandedOverError`, java `RefreshHandedOverException` — wrapping the original, accessor `RefreshToken()` / `refreshToken()`, redacted from every print and JSON path the way `RefreshSupersededError` is. Go unwraps to the original (`errors.As`, `IsCode`, `errors.Is(context.Canceled)` unchanged); ts/java extend the base error and copy code, message, status, details and retry-after, and the original is `cause` / `getCause()`. `TokenManager` adopts and persists the token from both carrying types.
 
 **Why every error and not only those that might follow a rotation.** A code comment (`go/token_lock.go:136-140`) says every issuer 4xx on `/auth/token` is refused before the rotation is written; that is unverified, and the rule must not depend on it. After a hand-over the presented token is certainly spent, and the held one is never worse, so carrying it can only help.
 
@@ -556,7 +556,7 @@ Two spec gaps found while writing: core `RealmError` has `body`, not `details`, 
 
 ## 2026-11-03 — Device login (ADR-122): SDK contract for the handler set, poll client, browser calls, hook and component
 
-**Context.** Issuer ADR-122 (swagger `0.66.0`) moves device login into the issuer (umbrella plan `plans/2026-11-02-device-code-service-account.md`, all § 6 questions and DQ1/DQ2 ruled 2026-11-02). The SDK carries only wiring. This entry records the SDK contract written in `SPEC.md` §3.1 + §15, `web/BFF-SPEC.md` § Device approval, `docs/device-approval-component.md` (new) and `docs/partner-integration-guide.md` § 6.10. NOT BUILT: waves W2-W4 test and build it; targets go `0.73.0`, `@realm-id/web` `0.13.0`, `@realm-id/web-react` `0.6.0`, peers patch-bumped.
+**Context.** Issuer ADR-122 (swagger `0.66.0`) moves device login into the issuer (all questions ruled 2026-11-02). The SDK carries only wiring. This entry records the SDK contract written in `SPEC.md` §3.1 + §15, `web/BFF-SPEC.md` § Device approval, `docs/device-approval-component.md` (new) and `docs/partner-integration-guide.md` § 6.10. NOT BUILT: waves W2-W4 test and build it; targets go `0.73.0`, `@realm-id/web` `0.13.0`, `@realm-id/web-react` `0.6.0`, peers patch-bumped.
 
 **Ruled by the owner (cited, not re-decided).** Q1 (issuer once), T1 (account named at approve), N3 (`realmid.DeviceHandlers`, Go only), N5 (`client_id` reaches `CanApprove` and `ResolveSubject`), Q2 (one `403` for unknown and ineligible; per-actor cap `429`), Q3 (`ReplaceExistingSessions` always sends `true`), Q5 (approve step-up ON by default), Q6 (partner-reported IP, labelled, never compared), Q7 + DQ1 A (deny until collected, then a SIXTH `signout` route over existing revoke routes), DQ2 (`409 subject_suspended`, request stays pending), Q8 (TS/Java get only the error codes), N1 + styling (rendered `<DeviceApproval/>`, stable classes, `className` per part, CSS-custom-property stylesheet, no Tailwind).
 
@@ -602,7 +602,7 @@ Two spec gaps found while writing: core `RealmError` has `body`, not `details`, 
 
 ## 2026-11-01 — realm_suspended and tenant_suspended (410) registered in go/ts/java
 
-Partner Traide (2026-10-30) could not branch on the issuer's 410 `realm_suspended` / `tenant_suspended`: the SDKs surfaced them under the status fallback. Registered both in go/ts/java, mirroring `tenant_disabled` (const + predicate + known-code list; java enum + static predicate). Issuer evidence: `issuer/internal/httpapi/auth.go:369,817` (realm_suspended, 410), `integration_mint_handler.go:68` and `integration_installations.go:87` (tenant_suspended, 410); both in swagger. Versions go 0.71.0, ts 0.59.0, java 0.55.0, web-admin 0.26.0 (it bundles the ts sdk and the publisher skips an already-published version, so without a bump partners would not get the codes through web-admin). No new typed-error class: neither code is raised locally. The sdk/TODO.md item this answers was not present in TODO.md at build time, so nothing was ticked.
+A partner (2026-10-30) could not branch on the issuer's 410 `realm_suspended` / `tenant_suspended`: the SDKs surfaced them under the status fallback. Registered both in go/ts/java, mirroring `tenant_disabled` (const + predicate + known-code list; java enum + static predicate). Issuer evidence: `issuer/internal/httpapi/auth.go:369,817` (realm_suspended, 410), `integration_mint_handler.go:68` and `integration_installations.go:87` (tenant_suspended, 410); both in swagger. Versions go 0.71.0, ts 0.59.0, java 0.55.0, web-admin 0.26.0 (it bundles the ts sdk and the publisher skips an already-published version, so without a bump partners would not get the codes through web-admin). No new typed-error class: neither code is raised locally. The sdk/TODO.md item this answers was not present in TODO.md at build time, so nothing was ticked.
 
 ## 2026-10-29 — Split modulus is λ(n), canonical (Q3); browser dealer in web-admin; base-trust withdrawn from SPEC (D3/D4)
 
@@ -677,7 +677,7 @@ ts and java add-ons are NOT built: there is no precedent for an optional second 
 
 ## 2026-10-28 — CI policy P3/P6: tests before publish, no lint skip
 
-Fleet CI trigger policy (`~/.claude/docs/plans/2026-10-28-ci-trigger-policy.md`, owner-approved 2026-10-28), preconditions P3 and P6. No trigger was removed or narrowed.
+Fleet CI trigger policy (owner-approved 2026-10-28), preconditions P3 and P6. No trigger was removed or narrowed.
 
 P3: `ci.yml` gained `workflow_call` with a `scope` input (comma list of job names; empty = all, so push/PR behaviour is unchanged). `publish-npm.yml` (taxonomy,go,ts,web), `publish-maven.yml` (java) and `verify-go-release.yml` (taxonomy,go) each gained a `tests` job calling ci.yml, and their publish/verify job `needs: tests`. Why: a red suite was first noticed by an immutable publish. Tests stay defined once, as in cli's release.yml/tests.yml. `changelogs` is excluded from the publisher scopes. Caveat: a `go/v*` tag is already served by the proxy when verify-go-release runs, so there the tests report rather than prevent.
 
@@ -736,7 +736,7 @@ out of the reference because swagger 0.65.0 says it is not in this spec version.
 
 Problem: the SDKs have login return a token and no way to hold half a signing key. Owner rulings R44-R52 (2026-10-27) stage a move to login-then-token and an opt-in 2-of-2 split signing for a realm's access tokens.
 
-Decision: SPEC.md gains an additive section 14 and the partner guide gains 6.8 (split signing, the handler mount) and 6.9 (login to token migration). SPEC.md has no version of its own, so the section carries a date, an UNRELEASED mark and SPEC14_* test tags; no existing clause was rewritten. Docs are written to the rulings: the handler finishes the signature on a split target and relays on a full one (R50); the platform-token key is never split (R49); release B has no flag and follows Traide on the new SDK (R52).
+Decision: SPEC.md gains an additive section 14 and the partner guide gains 6.8 (split signing, the handler mount) and 6.9 (login to token migration). SPEC.md has no version of its own, so the section carries a date, an UNRELEASED mark and SPEC14_* test tags; no existing clause was rewritten. Docs are written to the rulings: the handler finishes the signature on a split target and relays on a full one (R50); the platform-token key is never split (R49); release B has no flag and follows a partner on the new SDK (R52).
 
 Honesty stated in the docs: the base realm's protection is small (R46); RealmID cannot prove a destroyed key is gone from its backups (Q5); a partner with no alert finds out from its users (R37, with an example alert); the rotating process briefly holds the whole new key (R5).
 
@@ -1013,7 +1013,7 @@ refresh token; racing a refresh of the same session is a reuse and revokes it. T
 serialises them on a lock keyed on the refresh token; a direct `AuthClient` call carries only
 `{ChallengeToken, Code, ...}`, which resolves to a session only inside the issuer, so it had no key
 the refresh path also uses. Nobody live was exposed (our BFF holds its own Redis session lock;
-Traide uses the middleware route).
+A partner uses the middleware route).
 
 **Options.** (a) optional `RefreshToken` on the requests, lock when set; (b) key on a session id, which
 needs refresh re-keyed too; (c) export a lock helper callers must wrap around the call.
@@ -1148,7 +1148,7 @@ wrapper to return only an error, so the session-returning lanes stay visible to 
 ## 2026-10-02 (Go v0.64.1) — the middleware recovery route is opt-in
 
 **Problem.** `0.64.0` defaulted `RecoveryPath` to `/mfa/recovery` with no way to disable it. A partner
-that does not use recovery codes (Traide) got a route it never declared, and its openapi/rbac gates
+that does not use recovery codes (a partner) got a route it never declared, and its openapi/rbac gates
 refuse undeclared routes.
 
 **Decision (owner ruling 2026-10-02).** The middleware recovery route is OFF unless the partner sets
@@ -1186,7 +1186,7 @@ for the alerting distinction.
 
 **Context.** `IsRevoked` passed the request ctx to the session store; a client
 disconnect cancelled the read, the error took the documented fail-open branch, and a
-revoked bearer passed. Found by Traide, who had worked around it in its own store.
+revoked bearer passed. Found by a partner, who had worked around it in its own store.
 
 **Decision.** SPEC §6.7.2 now states the revocation path's store reads and writes are
 detached from caller cancellation and bounded by the existing 2 s `storeOutcomeTimeout`
@@ -1221,7 +1221,7 @@ body (H1; SPEC §10.1 step 3), implementing root DECISIONS 2cb2f23.
 
 **Context.** The owner widened v0.63.0 the same day as Q1-Q4 (root
 `DECISIONS.md` 2026-10-01, "SDK v0.63.0 widened"; plan
-`auth/plans/2026-10-01-sdk-v063-sid-jti.md`). This entry amends the draft
+the 2026-10-01 plan). This entry amends the draft
 `289f85f` in place, as ruled. SPEC sections: §5.1.1, §6.7, §10.1 steps 3a/4a/4b,
 §10.2 path syntax, BFF-SPEC § Refresh-token rotation.
 
@@ -2250,7 +2250,7 @@ is lost.
 
 ## 2026-09-05 (`OnIdentityResolved`) — the hook a partner could not build for themselves, and the two things everyone called it that were false
 
-**Problem.** A partner (Traide) resolves their authorization claim inside
+**Problem.** A partner resolves their authorization claim inside
 `Config.Scopes` by reading their own local `users` row, which their reconciler
 writes inside `OnAuthSuccess`. The mint runs first, so a brand-new user's first
 login resolves against a row that does not exist yet and receives a
@@ -2737,7 +2737,7 @@ so a broken walk fails as a broken walk rather than as a pass.
 **Also corrected here.** `TODO.md` carried this item as "Not started" while the
 refresh half of the same seam was already shipped and tested in all three
 languages. A stale TODO in that direction costs a rebuild of working code; it is
-replaced with its closed state. Traide reported the MFA lane and have not yet
+replaced with its closed state. A partner reported the MFA lane and have not yet
 been told it is fixed, nor that a second lane was found beside it.
 
 ## 2026-09-03 (pagination, later) — the two input codes, and proof that a re-packed tarball does not propagate

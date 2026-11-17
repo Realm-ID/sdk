@@ -17,14 +17,14 @@ that affect every SDK at once are recorded under a shared heading.
 
 Fixed (web): in body mode a second `503 retry:true`, or a relayed `400`/`403`/`409`, that carries the rotated refresh token is no longer dropped; the next refresh presents it. Detail: `web/packages/core/CHANGELOG.md`. Why: `DECISIONS.md` 2026-11-16.
 
-## go `0.78.0` · ts `0.65.0` · java `0.62.0` — custom claims are set by your server, one canonical path matcher, every post-rotation failure carries the rotated token (SPEC §4.2, §10.1, §10.2, §11.4.1; audit e-01..e-04; issuer `v0.151.0`) (2026-11-14)
+## go `0.78.0` · ts `0.65.0` · java `0.62.0` — custom claims are set by your server, one canonical path matcher, every post-rotation failure carries the rotated token (SPEC §4.2, §10.1, §10.2, §11.4.1; issuer `v0.151.0`) (2026-11-14)
 
 One combined release with issuer `v0.151.0` (owner rulings 2026-11-14). The security fixes below tighten what a middleware accepts, so read **Breaking** before upgrading. Spec: `SPEC.md` (each item cites its tag, e.g. `SPEC10_1_4_no_client_claims`). Why: `DECISIONS.md` 2026-11-14.
 
-- Fixed (go, ts, java; e-01, `SPEC10_1_4_no_client_claims`, `SPEC10_2_custom_claims`): the middleware's refresh, login, MFA-verify and recovery routes REFUSE a body carrying `custom_claims` / `customClaims` (`400 custom_claims_not_accepted`) and never forward client-supplied claims to the issuer. Custom claims are set by your server code. A refresh that sent no claims is unchanged.
+- Fixed (go, ts, java; `SPEC10_1_4_no_client_claims`, `SPEC10_2_custom_claims`): the middleware's refresh, login, MFA-verify and recovery routes REFUSE a body carrying `custom_claims` / `customClaims` (`400 custom_claims_not_accepted`) and never forward client-supplied claims to the issuer. Custom claims are set by your server code. A refresh that sent no claims is unchanged.
 - Added (go, ts, java; `SPEC10_2_custom_claims`): a server-side `customClaims(tenantId, userId)` handler, the ONLY source of custom claims on an SDK-run mint (`TokenManager` and direct `Token` calls fill an omitted value from it too). Unset means no custom claims. The handler's output is checked (printable-ASCII keys, no reserved name by ASCII fold) BEFORE it is sent; a bad key refuses the mint with a typed error (`*CustomClaimsError` in Go, with the key-check failure as its `Err`; Go has no separate key-error type).
-- Fixed (go, ts, java; e-02, `SPEC4_2_claim_fold`): reserved claim names are compared by ASCII fold, and `verify()` refuses (`malformed`) a token with a non-ASCII top-level key or two keys that fold together. The Go `peekSession` / `peekJWTUserFields` readers apply the same fold. Shared cases: `testdata/claim-fold-vectors/`. The issuer from `v0.151.0` mints none of these.
-- Fixed (go, ts, java; e-03 + e-04, `SPEC11_4_1_canon`, `SPEC10_4_match`): ONE canonical path matcher for `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths: ASCII case-insensitive, ONE trailing slash ignored. Java matches on `getServletPath() + getPathInfo()`. A raw `%2F`, `%5C`, `%25` or a dot segment answers `400 invalid_path` in go and java (java also `%2E`; go also a literal `\`). More requests are gated than before (`/Admin/x` and `/admin/x/` now hit a rule written for `/admin/x`). Shared cases: `testdata/path-match-vectors/`.
+- Fixed (go, ts, java; `SPEC4_2_claim_fold`): reserved claim names are compared by ASCII fold, and `verify()` refuses (`malformed`) a token with a non-ASCII top-level key or two keys that fold together. The Go `peekSession` / `peekJWTUserFields` readers apply the same fold. Shared cases: `testdata/claim-fold-vectors/`. The issuer from `v0.151.0` mints none of these.
+- Fixed (go, ts, java; `SPEC11_4_1_canon`, `SPEC10_4_match`): ONE canonical path matcher for `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths: ASCII case-insensitive, ONE trailing slash ignored. Java matches on `getServletPath() + getPathInfo()`. A raw `%2F`, `%5C`, `%25` or a dot segment answers `400 invalid_path` in go and java (java also `%2E`; go also a literal `\`). More requests are gated than before (`/Admin/x` and `/admin/x/` now hit a rule written for `/admin/x`). Shared cases: `testdata/path-match-vectors/`.
 - Fixed (go, ts, java; `SPEC4_2_rotate_handover`): a failure of the custom-claims fill after the first mint rotated the refresh token carries the rotated session instead of losing it.
 - Changed (go, ts, java; `SPEC4_2_carry_all`): EVERY failure after the first mint rotated the refresh token (a refused `OnIdentityResolved` hook, `productRoles`, `scopes`, `customClaims`, an unreadable `sub`, a second mint refused with any status) is a `RefreshHandedOverError` carrying the rotated session. On the middleware refresh route it answers `503` (or the issuer's own non-401 status and code), never `401`, and the carried `503` body includes `retry: true`. A carried second-mint `401 refresh_invalid` answers `503 server_error` in all three; java answers a carried `escort_suspended` as `503`. The refresh route never answers a carried failure with `401`, so a SPA does not read it as a logout.
 - Fixed (go, ts, java; SPEC §10.1 steps 5, 5a): the middleware's MFA-verify and recovery routes forward the end user's IP as `X-On-Behalf-Of-IP` (default: the connection's remote address; override with Go `MiddlewareOptions.ClientIP`, ts `clientIp`, java `clientIp(...)`; `X-Forwarded-For` is never trusted by default). The issuer rate-limits `/auth/mfa/verify` and `/auth/mfa/recovery` per client IP (`429 rate_limited`), so the SDK names the end user's IP, not the partner server's. ts `mfaVerify` / `redeemRecoveryCode` and java `MFAVerifyRequest` / `RedeemRecoveryCodeRequest` gain `onBehalfOfIp` (Go already had it).
@@ -98,7 +98,7 @@ go `rotation.go` and java `SigningKeysClient.rotateSplit` now draw `d_ri` unifor
 
 ## go `0.71.0` · ts `0.59.0` · java `0.55.0` — `realm_suspended` and `tenant_suspended` (410) are registered codes (2026-11-01)
 
-Additive. A partner (Traide, 2026-10-30) could not branch on the issuer's two 410 suspension refusals: the SDKs did not register them, so a decoded error fell back to the HTTP status and the specific code was lost. Both are now in all three taxonomies (`scripts/taxonomy-parity.py` holds), with a predicate each:
+Additive. A partner (2026-10-30) could not branch on the issuer's two 410 suspension refusals: the SDKs did not register them, so a decoded error fell back to the HTTP status and the specific code was lost. Both are now in all three taxonomies (`scripts/taxonomy-parity.py` holds), with a predicate each:
 - go: `ErrCodeRealmSuspended` / `IsRealmSuspended`, `ErrCodeTenantSuspended` / `IsTenantSuspended`.
 - ts: `"realm_suspended"` / `"tenant_suspended"` in `ErrorCode` and `ERROR_CODES`, `isRealmSuspended` / `isTenantSuspended` (exported from the entry point).
 - java: `ErrorCode.REALM_SUSPENDED` / `TENANT_SUSPENDED`, `RealmException.isRealmSuspended` / `isTenantSuspended`.
@@ -328,7 +328,7 @@ Go only; ts and java stay held. Patch, no API change, no new `Config` field.
   `RecordRefresh`, and the `Config.Revocation` writes on logout) is now detached from the
   caller's cancellation and bounded by the SDK's existing 2 s store timeout.
   - **Symptom:** a revoked bearer was let through when the request was cancelled
-    mid-check; Traide logged "session store read failed; failing open" 5 times in one
+    mid-check; a partner logged "session store read failed; failing open" 5 times in one
     e2e run. The fail-open path was client-triggerable. The same cancellation also dropped
     a logout's revoke write.
   - **Root cause:** `TokensClient.IsRevoked` passed the REQUEST ctx straight to
@@ -426,8 +426,7 @@ are NOT released here; their `@realm-id/web` peer ranges stop at `^0.8.0`.
   ts `0.54.0`.
 
 Both are additive; no existing caller is affected. From the 2026-09-24 SDK
-usage audit (`plans/2026-09-24-sdk-usage-audit-fixes.md` in the umbrella
-`Realm-ID/project` repo, items #6/#7).
+usage review (items #6/#7).
 
 ## go `0.62.0` — `SessionInfo.Origin` (2026-09-24)
 
@@ -2026,7 +2025,7 @@ SPEC §3.1, §4.1, §6.5 and the new §6.15 document the surface.
 
 ## go `v0.41.0` · java `0.30.0` — a `CookieDomain` change no longer strands live sessions
 
-**Bug fix. Reported by Traide (`traide.co.in`) from a live production incident,
+**Bug fix. Reported by a partner from a live production incident,
 2026-07-28.** Verified against the source before acting; every claim in the
 report held.
 
@@ -2350,7 +2349,7 @@ is server-side; absent the query param, delete is unchanged. No BFF change
 
 **Go SDK only, no functional change.** `realmid.Version` had drifted from the
 resolvable module tag: `go/v0.29.0` shipped with `const Version = "0.20.0"`, which
-led the Traide integration team to read the ADR-071/072 service-account surface as
+led the partner integration team to read the ADR-071/072 service-account surface as
 "unreleased" (it was live in `go/v0.29.0`). Realigned the const to the module-tag
 scheme — `go/v0.30.0` now reports `Version = "0.30.0"` — and documented that the two
 MUST stay in lockstep every release. The value you `go get` is the source of truth.
