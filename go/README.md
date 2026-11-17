@@ -138,8 +138,9 @@ mw := realm.Middleware(realmid.MiddlewareOptions{
     ExemptPaths:       []string{"/health", "/public/*"},
     MFAProtectedPaths: []realmid.MFARule{{Path: "/admin/*"}},
     TokenDelivery:     "cookie", // or "body" for native / mobile clients
-    // CookieName/Domain/Secure/SameSite all configurable; defaults are
-    // realmid_refresh, HttpOnly, Secure=true, SameSite=Lax.
+    // CookieName/Domain/Insecure/SameSite all configurable; defaults are
+    // realmid_refresh, HttpOnly, Secure, SameSite=Lax. Set CookieInsecure: true
+    // only for local http development.
 })
 
 mux := http.NewServeMux()

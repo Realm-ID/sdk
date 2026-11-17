@@ -139,7 +139,7 @@ type MiddlewareOptions struct {
 	// it inline in the JSON response.
 	TokenDelivery string
 
-	// CookieName, CookieDomain, CookieSecure, CookieSameSite control
+	// CookieName, CookieDomain, CookieInsecure, CookieSameSite control
 	// the refresh-token cookie when TokenDelivery == "cookie".
 	//
 	// CHANGING CookieDomain ON A LIVE DEPLOYMENT STRANDS EXISTING SESSIONS
@@ -151,7 +151,8 @@ type MiddlewareOptions struct {
 	// CookieDomainMigrateFrom.
 	CookieName     string        // default "realmid_refresh"
 	CookieDomain   string        // optional
-	CookieSecure   bool          // default true
+	CookieSecure   bool          // Deprecated: no effect; use CookieInsecure.
+	CookieInsecure bool          // zero value = Secure; true only for local http development
 	CookieSameSite http.SameSite // default http.SameSiteLaxMode
 
 	// CookieDomainMigrateFrom lists cookie scopes this deployment PREVIOUSLY
@@ -239,10 +240,8 @@ func (o *MiddlewareOptions) applyDefaults() {
 	if o.CookieSameSite == 0 {
 		o.CookieSameSite = http.SameSiteLaxMode
 	}
-	// CookieSecure default: true. We can't distinguish "unset" from
-	// "false" on a bool — partners explicitly opt out for local dev.
-	// Honour whatever the caller passed; this matches Go-idiomatic
-	// "zero value is not magic" expectations.
+	// Secure is the default: the cookie omits Secure only when
+	// CookieInsecure is set.
 }
 
 // ctxKey is the typed context key the middleware uses to attach
@@ -1057,7 +1056,7 @@ func setRefreshCookie(w http.ResponseWriter, opts *MiddlewareOptions, value stri
 		Path:     "/",
 		Domain:   opts.CookieDomain,
 		HttpOnly: true,
-		Secure:   opts.CookieSecure,
+		Secure:   !opts.CookieInsecure,
 		SameSite: opts.CookieSameSite,
 	})
 }
@@ -1093,7 +1092,7 @@ func evictShadowRefreshCookies(w http.ResponseWriter, opts *MiddlewareOptions) {
 			Path:     "/",
 			Domain:   d,
 			HttpOnly: true,
-			Secure:   opts.CookieSecure,
+			Secure:   !opts.CookieInsecure,
 			SameSite: opts.CookieSameSite,
 			Expires:  time.Unix(0, 0),
 			MaxAge:   -1,
@@ -1112,7 +1111,7 @@ func clearRefreshCookie(w http.ResponseWriter, opts *MiddlewareOptions) {
 		Path:     "/",
 		Domain:   opts.CookieDomain,
 		HttpOnly: true,
-		Secure:   opts.CookieSecure,
+		Secure:   !opts.CookieInsecure,
 		SameSite: opts.CookieSameSite,
 		Expires:  time.Unix(0, 0),
 		MaxAge:   -1,

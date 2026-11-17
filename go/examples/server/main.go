@@ -59,7 +59,7 @@ func main() {
 	mw := realm.Middleware(realmid.MiddlewareOptions{
 		ExemptPaths:       []string{"/health"},
 		MFAProtectedPaths: []realmid.MFARule{{Path: "/admin/*"}},
-		CookieSecure:      false, // local dev — flip to true behind TLS
+		CookieInsecure:    true, // local http development only; omit behind TLS
 	})
 
 	addr := envOr("ADDR", ":3000")
