@@ -39,7 +39,7 @@ function rig() {
     issuerCalls,
     async post(path: string, body: Record<string, unknown>) {
       const res = new MockRes();
-      await realm.middleware({ recoveryPath: "/mfa/recovery" })({ url: path, method: "POST", headers: { cookie: "realmid_refresh=rtok" }, body } as never,
+      await realm.middleware({ recoveryPath: "/mfa/recovery", originEnforcement: "off" })({ url: path, method: "POST", headers: { cookie: "realmid_refresh=rtok" }, body } as never,
         res as never, ((e?: unknown) => { throw new Error("fell through " + String(e)); }) as never);
       return res;
     },

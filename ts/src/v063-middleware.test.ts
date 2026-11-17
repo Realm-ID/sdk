@@ -16,7 +16,7 @@ async function setup(opts: { store?: SessionStateStore; tokenDelivery?: "cookie"
     fetch: f.fetch, clock: () => new Date(NOW * 1000), sessionStore: store,
   });
   const mw = realm.middleware({
-    tokenDelivery: opts.tokenDelivery ?? "cookie", exemptPaths: ["/health"],
+    tokenDelivery: opts.tokenDelivery ?? "cookie", exemptPaths: ["/health"], originEnforcement: "off",
     ...(opts.mfaPaths ? { mfaProtectedPaths: opts.mfaPaths } : {}),
   });
   const protectedGet = (token: string, url = "/api/x") => drive(mw as never, { url, headers: { authorization: `Bearer ${token}` } });

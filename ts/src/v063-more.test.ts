@@ -16,7 +16,7 @@ async function setup(opts: { store?: SessionStateStore; mw?: Record<string, unkn
     realmId: REALM, apiKey: "rk_live_x", baseUrl: BASE, origin: "https://app.test", audience: AUD,
     fetch: f.fetch, clock: () => new Date(NOW * 1000), sessionStore: store,
   });
-  const mw = realm.middleware({ exemptPaths: ["/health"], ...(opts.mw ?? {}) });
+  const mw = realm.middleware({ exemptPaths: ["/health"], originEnforcement: "off", ...(opts.mw ?? {}) });
   const get = (token: string, url = "/api/x") => drive(mw as never, { url, headers: { authorization: `Bearer ${token}` } });
   return { f, sign, realm, mw, store, get };
 }

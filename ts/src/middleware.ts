@@ -94,7 +94,12 @@ export interface MiddlewareConfig {
   cookieDomainMigrateFrom?: string[];
   cookieSecure?: boolean;
   cookieSameSite?: "lax" | "strict" | "none";
-  /** Override the default 401/412 response. */
+  /**
+   * Origin guard on the login, refresh, MFA-verify and recovery routes (SPEC §10.5).
+   * "auto" (default) enforces iff `realm.info().origin_enforcement` is "required".
+   */
+  originEnforcement?: "auto" | "on" | "off";
+  /** Observe-only: called on every auth failure; the SDK always writes the error envelope (SPEC §10.5). */
   onAuthFailure?: (req: ConnectReq, err: RealmError) => void | Promise<void>;
   /** Logger override; falls back to the realm handle's logger. */
   logger?: Logger;
@@ -156,6 +161,13 @@ interface Resolved {
   cookieDomainMigrateFrom: string[];
   cookieSecure: boolean;
   cookieSameSite: "lax" | "strict" | "none";
+  originEnforcement: "auto" | "on" | "off";
+}
+
+function requireFiniteMaxAge(v: number | undefined, what: string): void {
+  if (v !== undefined && !(typeof v === "number" && Number.isFinite(v))) {
+    throw new RealmError({ code: "bad_request", message: `realmid: ${what} maxAge must be a finite number` });
+  }
 }
 
 function normalizeMfaRule(entry: string | MFARule): NormalizedMFARule {
@@ -177,6 +189,7 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
       return r;
     }),
     mfaDefaultMaxAgeSeconds: cfg.mfaDefaultMaxAgeSeconds ?? DEFAULT_MFA_MAX_AGE_SECONDS,
+    originEnforcement: cfg.originEnforcement ?? "auto",
     loginPath: cfg.loginPath ?? "/login",
     logoutPath: cfg.logoutPath ?? "/logout",
     refreshPath: cfg.refreshPath ?? "/token",
@@ -191,6 +204,8 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
     cookieSecure: cfg.cookieSecure ?? true,
     cookieSameSite: cfg.cookieSameSite ?? "lax",
   };
+  requireFiniteMaxAge(cfg.mfaDefaultMaxAgeSeconds, "mfaDefaultMaxAgeSeconds");
+  for (const r of merged.mfaRules) requireFiniteMaxAge(r.maxAgeSeconds, `mfa rule ${r.path}`);
   const onFail = cfg.onAuthFailure;
   const logger: Logger = cfg.logger ?? NOOP_LOGGER;
 
@@ -204,6 +219,13 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
         if (canonicalMatch(pat, "exempt", path)) {
           return next();
         }
+      }
+
+      // 1a (SPEC §10.5): Origin guard on the unauthenticated ingress routes. Logout is not guarded.
+      if (method === "POST" && (path === merged.loginPath || path === merged.refreshPath || path === merged.mfaVerifyPath
+        || (merged.recoveryPath !== undefined && path === merged.recoveryPath))) {
+        const refusal = await checkOrigin(realm, req, merged, logger);
+        if (refusal) return void await respondAuthFailure(res, refusal, req, onFail);
       }
 
       // 2-5. Auth ingress routes.
@@ -327,7 +349,9 @@ function unwrapMintError(e: unknown): unknown {
 }
 
 async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg: Resolved) {
-  const candidates = readRefreshCandidates(req, cfg, await readJsonBody(req).catch(() => ({} as Record<string, unknown>)));
+  const body = await readJsonBody(req).catch(() => ({} as Record<string, unknown>));
+  const candidates = readRefreshCandidates(req, cfg, body);
+  const all = body["all"] === true; // boolean true only (SPEC §10.1 step 3)
   // §10.1 step 3a: `auth.logout` revokes the session the ISSUER names; the
   // bearer is only the fallback, and is VERIFIED there (expiry included).
   const auth = headerStr(req.headers["authorization"]);
@@ -335,7 +359,7 @@ async function handleLogout(realm: Realm, req: ConnectReq, res: ConnectRes, cfg:
   // Every candidate is revoked, not just the first (SPEC §10.2).
   for (const refreshToken of candidates) {
     try {
-      await realm.auth.logout({ refreshToken, accessToken });
+      await realm.auth.logout({ refreshToken, accessToken, ...(all ? { all: true } : {}) });
     } catch {
       // best-effort logout — clear cookie regardless; logout never 401s
     }
@@ -731,10 +755,39 @@ async function respondMfaRequired(
 
 // ---- response helpers ----
 
+/** SPEC §10.5 origin guard: null when the request may proceed, else the refusal to write. */
+async function checkOrigin(realm: Realm, req: ConnectReq, cfg: Resolved, logger: Logger): Promise<RealmError | null> {
+  if (cfg.originEnforcement === "off") return null;
+  if (cfg.originEnforcement === "auto") {
+    try {
+      const info = await realm.info();
+      if (info["origin_enforcement"] !== "required") return null;
+    } catch (e) {
+      logger.warn("realmid: origin policy unreadable; not enforcing", { error: (e as Error).message });
+      return null; // auto fails open on a discovery error
+    }
+  }
+  const origin = headerStr(req.headers["origin"])?.trim();
+  if (!origin) {
+    return new RealmError({ code: "missing_origin", message: "Origin header required", httpStatus: 403 });
+  }
+  let ok: boolean;
+  try {
+    ok = await realm.origins.validate({ realmId: realm.realmId, origin });
+  } catch (e) {
+    logger.warn("realmid: origin allowlist unreadable", { error: (e as Error).message });
+    return new RealmError({ code: "server_error", message: "origin allowlist unavailable", httpStatus: 502 });
+  }
+  return ok ? null : new RealmError({ code: "realm_origin_mismatch", message: "Origin not allowed for this realm", httpStatus: 403 });
+}
+
 async function respondAuthFailure(res: ConnectRes, err: RealmError, req: ConnectReq, hook?: MiddlewareConfig["onAuthFailure"]) {
   if (hook) {
-    await hook(req, err);
-    return;
+    try {
+      await hook(req, err);
+    } catch {
+      // observe-only: a hook error never changes the response
+    }
   }
   const revoked = err.details?.["revoked"] === true;
   sendJson(res, relayStatus(err, 401), {
