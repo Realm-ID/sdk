@@ -114,14 +114,14 @@ jobs:
           echo "node $(node --version) / npm $have"
           if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; then
             echo "npm $have is older than $need — upgrading"
-            npm install -g "npm@>=$need"
+            npm install -g npm@11.5.1   # exact pin; keep equal to $need
             echo "npm now $(npm --version)"
           fi
 
       - name: Publish @realm-id/sdk (ts)
         working-directory: ts
         run: |
-          npm ci
+          npm ci --ignore-scripts
           # prepublishOnly runs `npm run build`
           if npm publish --access public 2>err.log; then
             echo "published @realm-id/sdk"
@@ -134,11 +134,11 @@ jobs:
       - name: Publish web packages (core, react, bff-realmid, admin)
         working-directory: web
         run: |
-          npm ci
+          npm ci --ignore-scripts
           # web-admin bundles @realm-id/sdk (bundledDependencies) so partners
           # get a self-contained tarball. Build ts once here so it can be staged
           # into packages/admin below.
-          ( cd ../ts && npm ci && npm run build )
+          ( cd ../ts && npm ci --ignore-scripts && npm run build )
           # Build + publish in dependency order — core first, so react and
           # bff-realmid can resolve @realm-id/web's freshly-built .d.ts. A bare
           # `npm run build --workspaces` builds in listed order, not topological,
