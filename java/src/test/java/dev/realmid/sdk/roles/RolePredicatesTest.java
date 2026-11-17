@@ -114,12 +114,13 @@ class RolePredicatesTest {
                 "action `b:read` is not `read`");
     }
 
-    /** No grants at all is read-only, not unparseable. Empty entries are skipped. */
+    /** No grants at all is read-only, not unparseable. Empty entries are skipped; strings are used as given. */
     @Test
     void emptyGrantsConferNothing() {
         assertFalse(RolePredicates.confersAuthority((List<String>) null));
         assertFalse(RolePredicates.confersAuthority(List.of()));
-        assertFalse(RolePredicates.confersAuthority(List.of("", "  ")));
+        assertFalse(RolePredicates.confersAuthority(List.of("", "")));
+        assertTrue(RolePredicates.confersAuthority(List.of("  ")));
     }
 
     // ── isRoleAssignableTo ───────────────────────────────────────────────────

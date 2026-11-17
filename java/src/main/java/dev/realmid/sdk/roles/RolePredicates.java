@@ -115,7 +115,8 @@ public final class RolePredicates {
      */
     public static boolean confersAuthority(List<String> permissions,
                                            java.util.Collection<Permission> catalog) {
-        if (catalog == null) {
+        // An empty catalog gives the parse-form answer.
+        if (catalog == null || catalog.isEmpty()) {
             return confersAuthority(permissions);
         }
         if (permissions == null) {
@@ -131,7 +132,7 @@ public final class RolePredicates {
             if (p == null) {
                 return true;
             }
-            String s = p.trim();
+            String s = p;
             if (s.isEmpty()) {
                 continue;
             }
@@ -176,7 +177,7 @@ public final class RolePredicates {
             if (p == null) {
                 return true;
             }
-            String s = p.trim();
+            String s = p;
             if (s.isEmpty()) {
                 continue;
             }
