@@ -99,6 +99,16 @@ public class RealmFilter implements Filter {
             }
         }
 
+        // 1a (SPEC 10.5): Origin guard on the login, refresh, MFA-verify and recovery routes. Logout is not guarded.
+        if ("POST".equals(method) && (ingressMatch(req, path, "loginPath", cfg.loginPath)
+                || ingressMatch(req, path, "refreshPath", cfg.refreshPath)
+                || ingressMatch(req, path, "mfaVerifyPath", cfg.mfaVerifyPath)
+                || (cfg.recoveryPath != null && !cfg.recoveryPath.isEmpty()
+                    && ingressMatch(req, path, "recoveryPath", cfg.recoveryPath)))
+                && refuseOrigin(req, res)) {
+            return;
+        }
+
         // 2-5. Auth ingress.
         if ("POST".equals(method) && ingressMatch(req, path, "loginPath", cfg.loginPath)) { handleLogin(req, res); return; }
         if ("POST".equals(method) && ingressMatch(req, path, "logoutPath", cfg.logoutPath)) { handleLogout(req, res); return; }
@@ -903,6 +913,42 @@ public class RealmFilter implements Filter {
      * release (java 0.62.0, removed in the next minor) the old full {@code getRequestURI()} form
      * (query removed, no folding) also matches, with a deprecation warning once per route.
      */
+    /** SPEC 10.5 Origin guard: writes the refusal and returns true when the request must not proceed. */
+    private boolean refuseOrigin(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        OriginEnforcement mode = cfg.originEnforcement;
+        if (mode == OriginEnforcement.OFF) return false;
+        var logger = cfg.realm.logger();
+        if (mode == OriginEnforcement.AUTO) {
+            try {
+                if (!"required".equals(cfg.realm.info().originEnforcement())) return false;
+            } catch (RuntimeException e) {
+                // AUTO fails open on a discovery error rather than bricking login on an outage.
+                if (logger != null && logger.isLoggable(Level.WARNING)) {
+                    logger.log(Level.WARNING, "origin policy unreadable; not enforcing: " + e.getMessage());
+                }
+                return false;
+            }
+        }
+        String origin = req.getHeader("Origin");
+        if (origin == null || origin.trim().isEmpty()) {
+            sendError(res, 403, "missing_origin", "Origin header required", null);
+            return true;
+        }
+        boolean ok;
+        try {
+            ok = cfg.realm.origins().validate(cfg.realm.realmId(), origin.trim());
+        } catch (RuntimeException e) {
+            if (logger != null && logger.isLoggable(Level.WARNING)) {
+                logger.log(Level.WARNING, "origin allowlist unreadable: " + e.getMessage());
+            }
+            sendError(res, 502, "server_error", "origin allowlist unavailable", null);
+            return true;
+        }
+        if (ok) return false;
+        sendError(res, 403, "realm_origin_mismatch", "Origin not allowed for this realm", null);
+        return true;
+    }
+
     private boolean ingressMatch(HttpServletRequest req, String path, String name, String configured) {
         if (configured == null) return false;
         if (path.equals(configured)) return true;

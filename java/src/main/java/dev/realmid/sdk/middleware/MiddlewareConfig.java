@@ -25,6 +25,8 @@ public final class MiddlewareConfig {
     /** The end user's IP for X-On-Behalf-Of-IP on MFA verify/recovery (SPEC 10.1 steps 5, 5a); null = getRemoteAddr(). */
     final Function<jakarta.servlet.http.HttpServletRequest, String> clientIp;
     final TokenDelivery tokenDelivery;
+    /** SPEC 10.5 Origin guard mode; never null. */
+    final OriginEnforcement originEnforcement;
     final String cookieName;
     /**
      * Cookie Domain attribute for the refresh cookie, or null for host-only.
@@ -68,6 +70,7 @@ public final class MiddlewareConfig {
         this.recoveryPath = b.recoveryPath;
         this.clientIp = b.clientIp;
         this.tokenDelivery = b.tokenDelivery;
+        this.originEnforcement = b.originEnforcement;
         this.cookieName = b.cookieName;
         this.cookieDomain = b.cookieDomain;
         this.cookieDomainMigrateFrom =
@@ -89,6 +92,7 @@ public final class MiddlewareConfig {
     /** The end-user IP hook, or null for the container's {@code getRemoteAddr()}. */
     public Function<jakarta.servlet.http.HttpServletRequest, String> clientIp() { return clientIp; }
     public TokenDelivery tokenDelivery() { return tokenDelivery; }
+    public OriginEnforcement originEnforcement() { return originEnforcement; }
     public String cookieName() { return cookieName; }
     public String cookieDomain() { return cookieDomain; }
     public List<String> cookieDomainMigrateFrom() { return cookieDomainMigrateFrom; }
@@ -107,6 +111,7 @@ public final class MiddlewareConfig {
         private String recoveryPath;
         private Function<jakarta.servlet.http.HttpServletRequest, String> clientIp;
         private TokenDelivery tokenDelivery = TokenDelivery.COOKIE;
+        private OriginEnforcement originEnforcement = OriginEnforcement.AUTO;
         private String cookieName = "realmid_refresh";
         private String cookieDomain;
         private List<String> cookieDomainMigrateFrom = new ArrayList<>();
@@ -177,6 +182,11 @@ public final class MiddlewareConfig {
          */
         public Builder clientIp(Function<jakarta.servlet.http.HttpServletRequest, String> v) { this.clientIp = v; return this; }
         public Builder tokenDelivery(TokenDelivery v) { this.tokenDelivery = v; return this; }
+        /** SPEC 10.5: the Origin guard mode; default {@link OriginEnforcement#AUTO}. */
+        public Builder originEnforcement(OriginEnforcement v) {
+            this.originEnforcement = v == null ? OriginEnforcement.AUTO : v;
+            return this;
+        }
         public Builder cookieName(String v) { this.cookieName = v; return this; }
         public Builder cookieDomain(String v) { this.cookieDomain = v; return this; }
         public Builder cookieDomainMigrateFrom(List<String> v) {

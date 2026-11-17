@@ -43,7 +43,7 @@ class CustomClaimsIngressRoutesTest {
     private RealmFilterTest.FakeRes post(String path, String body) throws Exception {
         Realm realm = Realm.builder().sessionStore(new dev.realmid.sdk.session.MemorySessionStore())
                 .realmId("01HREALM").apiKey("rk_live_test").baseUrl(fs.baseUrl).audience("acme.test").build();
-        RealmFilter f = realm.middleware().recoveryPath("/mfa/recovery").buildFilter();
+        RealmFilter f = realm.middleware().recoveryPath("/mfa/recovery").originEnforcement(OriginEnforcement.OFF).buildFilter();
         RealmFilterTest.FakeReq req = new RealmFilterTest.FakeReq("POST", path);
         req.body = body.getBytes(StandardCharsets.UTF_8);
         RealmFilterTest.FakeRes res = new RealmFilterTest.FakeRes();

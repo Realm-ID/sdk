@@ -62,7 +62,10 @@ public final class RealmInfoClient {
                     String dn = node.has("display_name") && node.get("display_name").isTextual()
                             ? node.get("display_name").asText()
                             : null;
-                    return new RealmInfo(wantedId, aud.asText(), dn);
+                    String oe = node.has("origin_enforcement") && node.get("origin_enforcement").isTextual()
+                            ? node.get("origin_enforcement").asText()
+                            : null;
+                    return new RealmInfo(wantedId, aud.asText(), dn, oe);
                 }
             }
             Iterator<Map.Entry<String, JsonNode>> it = node.fields();
