@@ -2729,6 +2729,19 @@ the invitee accepts → user record is provisioned.
   and `joinedViaDomain` (wire `joined_via_domain`; present only when `joinedVia`
   is `sso_domain`). Go: `User.JoinedVia` / `JoinedViaDomain`,
   `UserListOpts.JoinedVia` / `EmailDomain`.
+  On `list` items only, `User` also carries `kind` (`human | service`; wire `kind`)
+  and `verifiedEmailState` (`verified | unverified | unverified_required`; wire
+  `verified_email_state`), the issuer's password-action rule for that member stated
+  in advance: `verified` means `sendPasswordReset` can send a link and
+  `setCredentials` with a `password` answers `409 reset_link_required`;
+  `unverified` means `setCredentials` can set a temporary password and a link
+  cannot be sent; `unverified_required` means neither works until the member
+  verifies an email. It is absent on a `service` row, on a `human` row whose state
+  the issuer could not read, and from an issuer that predates it; absent never
+  means `unverified`. It does not say whether password sign-in is on for the realm,
+  and the write still re-checks. Go: `User.Kind` / `VerifiedEmailState`; Java:
+  `User.kind()` / `verifiedEmailState()`; ts: `User.kind` /
+  `verified_email_state`, with the type `VerifiedEmailState` exported.
 - `get(tenantId, userId)`
 - `bulkUpdateStatus(tenantId, userIds, status)` — `POST
   /tenants/{id}/users/bulk-status`; 1..500 ids, `status` is `"suspended" |
@@ -2800,11 +2813,24 @@ the invitee accepts → user record is provisioned.
       `password_policy.require_verified_email` is on and the member has no verified
       email: they may be given neither a password nor a username.
     - `409 identifier_collision` (username taken in this org), `400 invalid_username`,
-      `password_too_short`, `password_too_long`, `unknown_method`, `bad_request` —
-      pre-existing, via `details.server_code` (§3.3) where not registered.
+      `password_too_short`, `password_too_long`, `bad_request` — pre-existing, via
+      `details.server_code` (§3.3) where not registered.
+    - `400 unknown_method` — no credential store, or the realm's
+      `password_login_enabled` is off (the same rule as `sendPasswordReset`). A
+      realm whose setting cannot be read counts as off, on both routes. It
+      applies to every body, one that only sets a `username` included, and it is
+      answered before the owner check, before `invalid_username` and before both
+      `409`s above, so on such a realm a member with a verified email also gets
+      `400 unknown_method`, not `409 reset_link_required`.
+    - `403 forbidden` — the member is the tenant's owner and the caller is a
+      `users:manage` holder inside the tenant who is not the owner: only the owner
+      sets the owner's username or password. Nothing is written. The same code also
+      answers a caller without `users:manage`.
     The SDK does not pre-check the member's contacts to choose a path: the issuer
     decides at write time, and a member can become verified between a read and the
-    call. A console that offers "Set temporary password" MUST handle
+    call. A console may choose which action to offer from a `list` item's
+    `verifiedEmailState`, but must still handle every answer above. A console that
+    offers "Set temporary password" MUST handle
     `reset_link_required` by switching to the link action.
 - `importUsers(tenantId, rows)` — **bulk user import** (ADR-073
   Release B), `POST /tenants/{id}/users/import`, owner/admin. Two-phase,
