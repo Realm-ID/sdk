@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-180 entries total — 125 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+181 entries total — 126 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-17 — sdk unit tier runs Go on the host (owner ruling Q2)](#2026-11-17--sdk-unit-tier-runs-go-on-the-host-owner-ruling-q2)
 - [2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)](#2026-11-16--web-sdk-keeps-a-refresh-token-carried-by-any-error-reply-device-poll-rfc-8628-codes-rulings-3743-33)
 - [2026-11-16 — Custom-claims rule stated without the history (ruling 39)](#2026-11-16--custom-claims-rule-stated-without-the-history-ruling-39)
 - [2026-11-14 — MFA verify and recovery forward the end user's IP (partner-notice HIGH 1; RCA)](#2026-11-14--mfa-verify-and-recovery-forward-the-end-users-ip-partner-notice-high-1-rca)
@@ -192,6 +193,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-17 — sdk unit tier runs Go on the host (owner ruling Q2)
+
+**Context.** `make check` runs `scripts/preflight-check.sh`, which runs `go vet` / `go test` for `go/` on the laptop. The workspace rule is "services run in Docker, never on the host". The issuer's unit tier already runs Go on the host; the sdk's did too, without a recorded ruling. Owner ruling Q2, 2026-11-17 (root `plans/2026-11-17-close-w1-dispatch-w2.md`).
+
+**Decision.** The sdk unit tier (`make check`, the pre-push gate) may run the Go toolchain on the laptop, the same as the issuer's unit tier. It starts no service, binds no port and touches no datastore, so the no-host-runtime rule (which is about running services) does not reach it. Anything that runs a service or a datastore still runs in Docker.
+
+**Rejected.** Moving the Go half of the gate into a container: slower pre-push for no isolation gain, and it would diverge from the issuer's gate.
 
 ## 2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)
 
