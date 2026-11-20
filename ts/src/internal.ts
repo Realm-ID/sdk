@@ -27,6 +27,7 @@ export {
   type Invitation,
   type InvitationCreate,
   type User,
+  type VerifiedEmailState,
   type UserStatus,
   type UpdateUserRoleResult,
   type DriftReview,

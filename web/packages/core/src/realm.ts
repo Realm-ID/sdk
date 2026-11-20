@@ -7,6 +7,7 @@ import { Transport } from "./transport.js";
 import {
   buildAuthorizeUrl,
   exchangeCode,
+  idTokenNonceMatches,
   isOidcProvider,
   readCallback,
   readCallbackError,
@@ -351,6 +352,10 @@ export class Realm {
       redirectUri: pending.redirectUri,
       fetchImpl: this.transport.fetchImpl,
     });
+    if (!idTokenNonceMatches(idToken, pending.nonce)) {
+      stripOidcParams();
+      throw new RealmError("oidc_state_mismatch", "OIDC nonce did not match");
+    }
     stripOidcParams();
     return this.login({
       method: pending.type as LoginRequest["method"],

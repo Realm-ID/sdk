@@ -1,5 +1,9 @@
 # @realm-id/web-admin — changelog
 
+## 0.29.0 — re-exports `User.kind` and `User.verified_email_state` (2026-11-20)
+
+**Added.** The package entry point re-exports the `VerifiedEmailState` type from `@realm-id/sdk`, so a console can type the two new member-list fields: `User.kind` (`human` | `service`) and `User.verified_email_state` (`verified` | `unverified` | `unverified_required`). Both are sent on list items only and are absent from an issuer that predates them. No other source change.
+
 ## 0.28.0 — `email_otp_login_enabled`, the `email_otp` group, `acknowledgeMailboxRisk` (ADR-123) (2026-11-04)
 
 **Added.** `RealmConfigPatch.email_otp_login_enabled` and `.email_otp` (`Partial<EmailOtpConfig>`), and the same two on `RealmConfigView` (`email_otp` optional for an older issuer). `EmailOtpConfig` is re-exported from `@realm-id/sdk`. `platforms.updateConfig(id, patch, { acknowledgeMailboxRisk: true })` adds `acknowledge_mailbox_risk: true` to the sent body; it is a request-only field (swagger `allOf`), so it is deliberately NOT on `RealmConfigPatch`. Without it, turning emailed codes on is `400 acknowledgement_required`. Only the realm owner may turn it on (`403` for anyone else). Bundles `@realm-id/sdk` 0.63.0, which registers the five new error codes.

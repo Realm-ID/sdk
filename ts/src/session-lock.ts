@@ -69,6 +69,8 @@ export interface RefreshOutcome {
   mode?: string;
   status?: number;
   body?: unknown;
+  /** The issuer's `Retry-After` (whole seconds) on a stored error, relayed to every caller that adopts it. */
+  retryAfterSeconds?: number;
 }
 
 export function stableJson(v: unknown): string {
@@ -109,6 +111,7 @@ export function errorOutcome(fp: string, e: unknown): RefreshOutcome {
     // SPEC4_2_rotate_handover rule 5: a failure AFTER the rotation stores the rotated token, so a retry
     // within the window and every loser presents it, never the spent one.
     if (e instanceof RefreshHandedOverError && e.refreshToken() !== "") o.refreshToken = e.refreshToken();
+    if (e.retryAfterSeconds !== undefined) o.retryAfterSeconds = e.retryAfterSeconds;
     return o;
   }
   return { fp, ok: false, status: 500, body: { error: { code: "server_error", message: (e as Error).message ?? "unknown" } } };
@@ -122,6 +125,7 @@ function errorOfOutcome(o: RefreshOutcome): RealmError {
     message: error?.message ?? "refresh failed",
     httpStatus: o.status,
     details: Object.keys(details).length > 0 ? details : undefined,
+    retryAfterSeconds: o.retryAfterSeconds,
   });
   return o.refreshToken ? new RefreshHandedOverError(e, o.refreshToken) : e;
 }

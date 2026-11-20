@@ -87,11 +87,11 @@ function findRealmIn(raw: unknown, realmId: string): RealmInfo | undefined {
       return undefined;
     }
     const obj = node as Record<string, unknown>;
-    if (
-      obj["id"] === realmId &&
-      (typeof obj["audience"] === "string" || typeof obj["domain"] === "string")
-    ) {
-      const aud = (obj["audience"] ?? obj["domain"]) as string;
+    if (obj["id"] === realmId && ("audience" in obj || "domain" in obj)) {
+      // A realm always has an audience; it is never derived from the domain.
+      // A row without one is a failed discovery.
+      const aud = obj["audience"];
+      if (typeof aud !== "string" || aud === "") return undefined;
       return { ...(obj as RealmInfo), audience: aud };
     }
     for (const v of Object.values(obj)) {

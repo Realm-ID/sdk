@@ -10,8 +10,19 @@ Newest first.
 
 ## Index
 
-182 entries total — 127 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+193 entries total — 138 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-20 — Middlewares relay the issuer's Retry-After](#2026-11-20--middlewares-relay-the-issuers-retry-after)
+- [2026-11-20 — Verifier: concurrent callers share one in-flight JWKS fetch](#2026-11-20--verifier-concurrent-callers-share-one-in-flight-jwks-fetch)
+- [2026-11-20 — JWKS response shape: what is parsed, skipped and refused](#2026-11-20--jwks-response-shape-what-is-parsed-skipped-and-refused)
+- [2026-11-20 — JWKS fetch or parse failure is `jwks_fetch_failed`](#2026-11-20--jwks-fetch-or-parse-failure-is-jwks_fetch_failed)
+- [2026-11-19 — JWKS refetch window gates only a missing kid in a fresh set](#2026-11-19--jwks-refetch-window-gates-only-a-missing-kid-in-a-fresh-set)
+- [2026-11-19 — Every `malformed` verifier error carries 401](#2026-11-19--every-malformed-verifier-error-carries-401)
+- [2026-11-19 — `User` list items carry `kind` and `verified_email_state`](#2026-11-19--user-list-items-carry-kind-and-verified_email_state)
+- [2026-11-19 — Role predicates take the permission string as given; web `completeSignIn` nonce check](#2026-11-19--role-predicates-take-the-permission-string-as-given-web-completesignin-nonce-check)
+- [2026-11-19 — Verifier: at most one JWKS fetch attempt per realm per 5 seconds](#2026-11-19--verifier-at-most-one-jwks-fetch-attempt-per-realm-per-5-seconds)
+- [2026-11-19 — Glob patterns: a leading `**/` keeps the segment boundary](#2026-11-19--glob-patterns-a-leading--keeps-the-segment-boundary)
+- [2026-11-19 — Realm discovery: failed results are not cached](#2026-11-19--realm-discovery-failed-results-are-not-cached)
 - [2026-11-17 — a failed realm discovery is not cached; auto origin enforcement retries (ts, go; RCA)](#2026-11-17--a-failed-realm-discovery-is-not-cached-auto-origin-enforcement-retries-ts-go-rca)
 - [2026-11-17 — sdk unit tier runs Go on the host (owner ruling Q2)](#2026-11-17--sdk-unit-tier-runs-go-on-the-host-owner-ruling-q2)
 - [2026-11-16 — Web SDK keeps a refresh token carried by any error reply; device poll RFC 8628 codes (rulings 37/43, 33)](#2026-11-16--web-sdk-keeps-a-refresh-token-carried-by-any-error-reply-device-poll-rfc-8628-codes-rulings-3743-33)
@@ -194,6 +205,52 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-20 — Middlewares relay the issuer's Retry-After
+
+The go, ts and java middlewares relay the issuer's `Retry-After` header to the browser on every response they answer from an issuer refusal that carries it (login, MFA, refresh including a shared stored outcome), with the status and code they relay, even when the status shown differs from the issuer's. The SDK's own JWKS key fetch is not relayed. A refusal with no `Retry-After` produces none.
+
+## 2026-11-20 — Verifier: concurrent callers share one in-flight JWKS fetch
+
+Callers of a verifier that need a JWKS fetch share one in-flight fetch and receive its outcome, success or failure. The fetch is bounded by the SDK's own HTTP timeout (go: the client's timeout, capped at 30 s; java: 5 s), never by one caller's deadline; each caller waits only until its own cancellation (go ctx, java interrupt), which returns to that caller alone and records nothing.
+
+## 2026-11-20 — JWKS response shape: what is parsed, skipped and refused
+
+JWKS response shape (go 0.79.0; next ts and java): any 2xx is parsed; a non-2xx or unparseable body is `jwks_fetch_failed`; a 2xx with absent or empty `keys` is `unknown_kid`; a key without a `kid` (or a non-RSA key) is skipped; a key with a `kid` but a missing, empty or undecodable RSA `n`/`e` fails the whole set as `jwks_fetch_failed`. ts validates `n`/`e` itself because WebCrypto imports empty members without error.
+
+## 2026-11-20 — JWKS fetch or parse failure is `jwks_fetch_failed`
+
+A failure to fetch or parse the JWKS (transport error, non-2xx, a body that is not JSON, an unusable key) is `jwks_fetch_failed` and a recorded attempt; one unusable key fails the whole key set; an empty `keys` array is `unknown_kid`.
+
+## 2026-11-19 — JWKS refetch window gates only a missing kid in a fresh set
+
+The unknown-kid JWKS refetch window (5 s per realm) gates only the refetch triggered by a kid missing from a still-fresh key set; a refetch because the set expired or was never fetched is never refused by it and stays single-flight. A fetch failure caused by the caller's own cancellation (go ctx canceled or past its deadline, java interrupted thread) is returned to that caller only and starts no window. A token header that is not a JSON object (null, array, scalar) is `malformed` with httpStatus 401.
+
+## 2026-11-19 — Every `malformed` verifier error carries 401
+
+Every `malformed` verifier error carries `httpStatus` 401 in go, ts and java, whatever the cause (SPEC §3.1). Each verifier builds malformed errors through one constructor.
+
+## 2026-11-19 — `User` list items carry `kind` and `verified_email_state`
+
+`User` list items carry `kind` (`human` | `service`) and `verified_email_state` (`verified` | `unverified` | `unverified_required`) in the go, ts and java SDKs; an absent field decodes to the zero value.
+
+## 2026-11-19 — Role predicates take the permission string as given; web `completeSignIn` nonce check
+
+Role predicates use a permission string exactly as given in every language (shared vector `ra15`). The web SDK's `completeSignIn` refuses an id_token whose `nonce` claim does not equal the one sent on the authorize request.
+
+## 2026-11-19 — Verifier: at most one JWKS fetch attempt per realm per 5 seconds
+
+The verifier makes at most one JWKS fetch attempt per realm per 5 seconds, a failed attempt counting like a successful one (inside the window the caller gets the last attempt's error, or `unknown_kid`, with no new request); concurrent callers share one fetch, and the 10-minute TTL still applies. A `malformed` error from the ts verifier carries `httpStatus` 401.
+
+Superseded in part by the later 2026-11-19 entry "JWKS refetch window gates only a missing kid in a fresh set": the 5-second window applies only to a kid missing from a still-fresh key set, not to every attempt, so a failed fetch no longer blocks the next caller for 5 seconds.
+
+## 2026-11-19 — Glob patterns: a leading `**/` keeps the segment boundary
+
+A pattern starting with `**/` is read as `/**/`: it keeps the segment boundary, so `**/health` matches `/health` and `/api/health`, never `/api/nothealth`; validateScopePolicy reports a malformed `{...}` placeholder.
+
+## 2026-11-19 — Realm discovery: failed results are not cached
+
+Realm discovery: a successful result is cached for the life of the handle; a failed discovery (transport error, non-2xx, no realm row, or a realm row without a non-empty `audience`) is never cached and is retried at most once per 30 s, in go, ts and java. The audience is never derived from `domain`.
 
 ## 2026-11-17 — a failed realm discovery is not cached; auto origin enforcement retries (ts, go; RCA)
 

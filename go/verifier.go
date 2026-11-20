@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/http"
 	"strings"
@@ -34,6 +35,25 @@ type jwk struct {
 	E   string `json:"e"`
 }
 
+// UnmarshalJSON reads a kid that is present but not a JSON string as absent
+// (SPEC §2): such a key is skipped, it does not fail the set.
+func (j *jwk) UnmarshalJSON(b []byte) error {
+	type plain jwk
+	aux := struct {
+		*plain
+		Kid json.RawMessage `json:"kid"`
+	}{plain: (*plain)(j)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	j.Kid = ""
+	var kid string
+	if json.Unmarshal(aux.Kid, &kid) == nil {
+		j.Kid = kid
+	}
+	return nil
+}
+
 type jwksDoc struct {
 	Keys []jwk `json:"keys"`
 }
@@ -52,6 +72,20 @@ type verifier struct {
 
 	mu    sync.RWMutex
 	cache map[string]*cachedJWKS // realmID -> keys
+	// attempts is the last fetch attempt per realm, success or failure.
+	attempts map[string]jwksAttempt
+
+	// flights is the in-flight JWKS fetch per realm; guarded by mu.
+	flights map[string]*jwksFlight
+	// fetchCap bounds a shared fetch; zero means jwksFetchCap.
+	fetchCap time.Duration
+}
+
+// jwksFlight is one in-flight JWKS fetch shared by every caller that needs it.
+type jwksFlight struct {
+	done chan struct{}
+	set  map[string]*rsa.PublicKey
+	err  *RealmError
 }
 
 func newVerifier(r *Realm) *verifier {
@@ -68,6 +102,9 @@ func newVerifier(r *Realm) *verifier {
 		leeway: leeway,
 		now:    now,
 		cache:  make(map[string]*cachedJWKS),
+
+		attempts: make(map[string]jwksAttempt),
+		flights:  make(map[string]*jwksFlight),
 	}
 }
 
@@ -75,9 +112,7 @@ func newVerifier(r *Realm) *verifier {
 func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions) (*Claims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		err := newErr(ErrCodeMalformed, "expected 3 dot-separated parts")
-		v.realm.logger.Error("realmid verify failed", slog.String("code", string(err.Code)))
-		return nil, err
+		return nil, v.fail(ErrCodeMalformed, "expected 3 dot-separated parts")
 	}
 	hdrBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
@@ -90,6 +125,10 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 	}
 	if err := json.Unmarshal(hdrBytes, &hdr); err != nil {
 		return nil, v.fail(ErrCodeMalformed, "header json: %v", err)
+	}
+	// JSON `null` decodes into a struct without error; it is not an object.
+	if strings.TrimSpace(string(hdrBytes)) == "null" {
+		return nil, v.fail(ErrCodeMalformed, "header json: not an object")
 	}
 	if hdr.Alg != "RS256" {
 		return nil, v.fail(ErrCodeWrongAlgorithm, "unexpected alg: %s", hdr.Alg)
@@ -145,6 +184,10 @@ func (v *verifier) Verify(ctx context.Context, token string, opts *VerifyOptions
 
 	pub, kerr := v.resolveKey(ctx, realmID, hdr.Kid)
 	if kerr != nil {
+		if errors.Is(kerr.Cause, context.Canceled) || errors.Is(kerr.Cause, context.DeadlineExceeded) {
+			// The caller's own cancellation reaches it intact, so errors.Is sees it.
+			return nil, kerr
+		}
 		return nil, v.fail(kerr.Code, "%s", kerr.Message)
 	}
 
@@ -260,6 +303,11 @@ func (v *verifier) failStale() error {
 
 func (v *verifier) fail(code ErrorCode, format string, args ...any) error {
 	err := newErr(code, format, args...)
+	// SPEC §3.1: every `malformed` verifier error carries 401. One choke
+	// point, so a new malformed path cannot omit it.
+	if code == ErrCodeMalformed {
+		err.HTTPStatus = http.StatusUnauthorized
+	}
 	v.realm.logger.Error("realmid verify failed", slog.String("code", string(code)))
 	return err
 }
@@ -286,31 +334,128 @@ func (v *verifier) resolveKey(ctx context.Context, realmID, kid string) (*rsa.Pu
 		// SPEC §14.4 / R39: a split realm never consults RealmID's JWKS.
 		return v.realm.split.publicKey(ctx, kid)
 	}
-	v.mu.RLock()
-	cached, ok := v.cache[realmID]
-	v.mu.RUnlock()
-	if ok {
-		if k, hasKid := cached.keys[kid]; hasKid && v.now().Sub(cached.fetchedAt) < jwksTTL {
-			return k, nil
-		}
+	if k, hit := v.cachedKey(realmID, kid); hit {
+		return k, nil
 	}
 
-	keys, err := v.fetchJWKS(ctx, realmID)
-	if err != nil {
-		return nil, err
+	if err := ctx.Err(); err != nil {
+		// The caller's own cancellation is returned to it alone: no flight starts, no window.
+		return nil, &RealmError{Code: ErrCodeJWKSFetchFailed, Message: "fetch jwks: " + err.Error(), Cause: err}
 	}
+
 	v.mu.Lock()
-	v.cache[realmID] = &cachedJWKS{keys: keys, fetchedAt: v.now()}
+	// The set may have been refreshed since the lock-free read above.
+	if k, hit := v.cachedKeyLocked(realmID, kid); hit {
+		v.mu.Unlock()
+		return k, nil
+	}
+	f := v.flights[realmID]
+	if f == nil {
+		// The window gates only the refetch a kid missing from a still-fresh
+		// set triggers: inside it the caller gets the last answer without a
+		// new outbound call. A refetch because the set expired, or none was
+		// ever fetched, is never refused by it.
+		cached := v.cache[realmID]
+		last, attempted := v.attempts[realmID]
+		setFresh := cached != nil && v.now().Sub(cached.fetchedAt) < jwksTTL
+		if setFresh && attempted && v.now().Sub(last.at) < jwksUnknownKidInterval {
+			v.mu.Unlock()
+			if last.err != nil {
+				return nil, last.err
+			}
+			return nil, newErr(ErrCodeUnknownKID, "kid %s not in JWKS", kid)
+		}
+		f = &jwksFlight{done: make(chan struct{})}
+		v.flights[realmID] = f
+		go v.runFlight(ctx, realmID, f)
+	}
 	v.mu.Unlock()
 
-	k, hasKid := keys[kid]
+	// Every caller, the one that started the fetch included, waits only until
+	// its own cancellation.
+	select {
+	case <-f.done:
+	case <-ctx.Done():
+		err := ctx.Err()
+		return nil, &RealmError{Code: ErrCodeJWKSFetchFailed, Message: "fetch jwks: " + err.Error(), Cause: err}
+	}
+	if f.err != nil {
+		return nil, f.err
+	}
+	k, hasKid := f.set[kid]
 	if !hasKid {
 		return nil, newErr(ErrCodeUnknownKID, "kid %s not in JWKS", kid)
 	}
 	return k, nil
 }
 
+// jwksFetchCap bounds a shared JWKS fetch whatever the configured client's own
+// timeout is (SPEC §2).
+const jwksFetchCap = 30 * time.Second
+
+// runFlight performs the realm's one shared fetch, detached from every
+// caller's cancellation, and records its outcome once: the window start, the
+// cached set or the error. It never holds mu across the HTTP call.
+func (v *verifier) runFlight(ctx context.Context, realmID string, f *jwksFlight) {
+	limit := v.fetchCap
+	if limit <= 0 {
+		limit = jwksFetchCap
+	}
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), limit)
+	defer cancel()
+	keys, err := v.fetchJWKSRecovered(fctx, realmID)
+
+	v.mu.Lock()
+	v.attempts[realmID] = jwksAttempt{at: v.now(), err: err}
+	if err == nil {
+		v.cache[realmID] = &cachedJWKS{keys: keys, fetchedAt: v.now()}
+	}
+	f.set, f.err = keys, err
+	delete(v.flights, realmID)
+	v.mu.Unlock()
+	close(f.done)
+}
+
+// fetchJWKSRecovered is fetchJWKS for the detached flight goroutine: net/http
+// recovers a panic on a request goroutine but not on this one, so a panic is
+// turned into the flight's error rather than killing the process.
+func (v *verifier) fetchJWKSRecovered(ctx context.Context, realmID string) (keys map[string]*rsa.PublicKey, err *RealmError) {
+	defer func() {
+		if r := recover(); r != nil {
+			keys, err = nil, newErr(ErrCodeJWKSFetchFailed, "fetch jwks: panic: %v", r)
+		}
+	}()
+	return v.fetchJWKS(ctx, realmID)
+}
+
 const jwksTTL = 10 * time.Minute
+
+// jwksUnknownKidInterval is the shortest gap between two JWKS fetches that an
+// unknown kid may trigger (SPEC §2).
+const jwksUnknownKidInterval = 5 * time.Second
+
+// jwksAttempt is the most recent JWKS fetch attempt for a realm and its result.
+type jwksAttempt struct {
+	at  time.Time
+	err *RealmError
+}
+
+// cachedKey reads the cache; hit means the key is present and within the TTL.
+func (v *verifier) cachedKey(realmID, kid string) (*rsa.PublicKey, bool) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.cachedKeyLocked(realmID, kid)
+}
+
+// cachedKeyLocked is cachedKey for a caller already holding mu.
+func (v *verifier) cachedKeyLocked(realmID, kid string) (*rsa.PublicKey, bool) {
+	cached, ok := v.cache[realmID]
+	if !ok || v.now().Sub(cached.fetchedAt) >= jwksTTL {
+		return nil, false
+	}
+	k, has := cached.keys[kid]
+	return k, has
+}
 
 func (v *verifier) fetchJWKS(ctx context.Context, realmID string) (map[string]*rsa.PublicKey, *RealmError) {
 	url := fmt.Sprintf("%s/%s/.well-known/jwks.json", strings.TrimRight(v.realm.baseURL, "/"), realmID)
@@ -323,7 +468,7 @@ func (v *verifier) fetchJWKS(ctx context.Context, realmID string) (map[string]*r
 		return nil, newErr(ErrCodeJWKSFetchFailed, "fetch jwks: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return nil, newErr(ErrCodeJWKSFetchFailed, "jwks fetch returned %d: %s", resp.StatusCode, string(body))
 	}
@@ -333,7 +478,7 @@ func (v *verifier) fetchJWKS(ctx context.Context, realmID string) (map[string]*r
 	}
 	out := make(map[string]*rsa.PublicKey, len(doc.Keys))
 	for _, j := range doc.Keys {
-		if j.Kty != "RSA" {
+		if j.Kty != "RSA" || j.Kid == "" {
 			continue
 		}
 		nBytes, err := base64.RawURLEncoding.DecodeString(j.N)
@@ -344,10 +489,12 @@ func (v *verifier) fetchJWKS(ctx context.Context, realmID string) (map[string]*r
 		if err != nil {
 			return nil, newErr(ErrCodeJWKSFetchFailed, "decode e for kid %s: %v", j.Kid, err)
 		}
-		out[j.Kid] = &rsa.PublicKey{
-			N: new(big.Int).SetBytes(nBytes),
-			E: int(new(big.Int).SetBytes(eBytes).Int64()),
+		n := new(big.Int).SetBytes(nBytes)
+		e := new(big.Int).SetBytes(eBytes)
+		if n.Sign() == 0 || e.Sign() == 0 || !e.IsInt64() || e.Int64() > math.MaxInt32 {
+			return nil, newErr(ErrCodeJWKSFetchFailed, "unusable key material for kid %s", j.Kid)
 		}
+		out[j.Kid] = &rsa.PublicKey{N: n, E: int(e.Int64())}
 	}
 	return out, nil
 }

@@ -265,7 +265,8 @@ export function createMiddleware(realm: Realm, cfg: MiddlewareConfig = {}): Conn
           ? e
           : new RealmError({ code: "unauthorized", message: (e as Error).message ?? "verify failed", cause: e });
         logger.warn("realmid: auth failure", { path, code: err.code });
-        return void await respondAuthFailure(res, err, req, onFail);
+        // Verification's own key fetch is not a call made for this request: no Retry-After.
+        return void await respondAuthFailure(res, err, req, onFail, false);
       }
 
       // 6a (SPEC §10.1): the §6.7 logout / superseded check, on the realm's own
@@ -399,6 +400,7 @@ function respondOutcome(res: ConnectRes, cfg: Resolved, fp: string, o: RefreshOu
     // SPEC4_2_rotate_handover rule 5: a failure after the rotation answers the error AND hands over the
     // rotated token exactly like the 503 retry below (Set-Cookie, or `refresh_token` in the body).
     const handed = handOver(res, cfg, o.refreshToken);
+    if (o.retryAfterSeconds !== undefined) res.setHeader("retry-after", String(o.retryAfterSeconds));
     const status = outcomeRelayStatus(o);
     // SPEC.md:1447-1449: the carried 503 body says `retry: true`.
     const retry = o.refreshToken && status === 503 ? { retry: true } : {};
@@ -558,6 +560,7 @@ async function handleMfaLike(
     if (rotated) {
       if (cfg.tokenDelivery === "cookie") setRefreshCookie(res, cfg, rotated);
       else if (inner instanceof RealmError) {
+        relayRetryAfter(res, inner);
         sendJson(res, relayStatus(inner, 500), { ...(inner.details ?? {}), error: { code: inner.code, message: inner.message }, refresh_token: rotated });
         return;
       }
@@ -781,7 +784,7 @@ async function checkOrigin(realm: Realm, req: ConnectReq, cfg: Resolved, logger:
   return ok ? null : new RealmError({ code: "realm_origin_mismatch", message: "Origin not allowed for this realm", httpStatus: 403 });
 }
 
-async function respondAuthFailure(res: ConnectRes, err: RealmError, req: ConnectReq, hook?: MiddlewareConfig["onAuthFailure"]) {
+async function respondAuthFailure(res: ConnectRes, err: RealmError, req: ConnectReq, hook?: MiddlewareConfig["onAuthFailure"], relay = true) {
   if (hook) {
     try {
       await hook(req, err);
@@ -790,10 +793,16 @@ async function respondAuthFailure(res: ConnectRes, err: RealmError, req: Connect
     }
   }
   const revoked = err.details?.["revoked"] === true;
+  if (relay) relayRetryAfter(res, err);
   sendJson(res, relayStatus(err, 401), {
     error: { code: err.code, message: err.message },
     ...(revoked ? { revoked: true } : {}),
   });
+}
+
+/** The issuer's `Retry-After` (whole seconds) goes to the browser; an error with none produces no header. */
+function relayRetryAfter(res: ConnectRes, err: RealmError): void {
+  if (err.retryAfterSeconds !== undefined && !res.headersSent) res.setHeader("retry-after", String(err.retryAfterSeconds));
 }
 
 function sendJson(res: ConnectRes, status: number, body: unknown): void {
@@ -806,6 +815,7 @@ function sendJson(res: ConnectRes, status: number, body: unknown): void {
 
 function sendError(res: ConnectRes, err: unknown): void {
   if (err instanceof RealmError) {
+    relayRetryAfter(res, err);
     sendJson(res, relayStatus(err, 500), {
       ...(err.details ?? {}),
       error: { code: err.code, message: err.message }, // the envelope wins over a details key
@@ -990,6 +1000,11 @@ function globToRegex(pat: string, braces = false): RegExp {
   if (braces) assertBracesWellFormed(pat);
   let re = "^";
   let i = 0;
+  // A leading `**/` reads as `/**/`: zero or more whole segments, the boundary stays.
+  if (pat.startsWith("**/")) {
+    re += "(?:/.*)?/";
+    i = 3;
+  }
   while (i < pat.length) {
     const c = pat[i]!;
     if (c === "/" && pat[i + 1] === "*" && pat[i + 2] === "*" && (i + 3 === pat.length || pat[i + 3] === "/")) {
@@ -1000,9 +1015,15 @@ function globToRegex(pat: string, braces = false): RegExp {
       // must not match `/ab` or `/a/xb` (that failed OPEN for exemptPaths).
       if (pat[i] === "/") { re += "/"; i++; }
     } else if (c === "*" && pat[i + 1] === "*") {
-      re += ".*";
-      i += 2;
-      if (pat[i] === "/") i++;
+      if (pat[i + 2] === "/" && pat[i - 1] === "/") {
+        // A whole-segment `**/` (after `/**/`): zero or more segments.
+        re += "(?:.*/)?";
+        i += 3;
+      } else {
+        // `**` shares its segment with a literal: the `/` written after it stays.
+        re += ".*";
+        i += 2;
+      }
     } else if (c === "*") {
       re += "[^/]*";
       i++;

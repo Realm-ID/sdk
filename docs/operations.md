@@ -68,10 +68,14 @@ rotation, version policy, hosted environments, roadmap commitments.
 > The two rotations share a word and nothing else.
 
 
-- **Verifier cache TTL:** 10 minutes (SDK default; not configurable).
-- **Unknown-`kid` behavior:** any verify against a JWT whose `kid` is
-  not in cache forces an immediate JWKS refetch. Rotation never causes
-  more than one cache-miss-latency spike per process.
+- **Verifier cache TTL:** 10 minutes by default (ts `cacheTtlMs` and java
+  `cacheTtl` can change it; go's is not configurable).
+- **Unknown-`kid` behavior:** a verify against a JWT whose `kid` is not in
+  a fresh cache refetches the JWKS, at most once per 5 seconds per realm
+  and with concurrent callers sharing one fetch (SPEC §2; go `0.79.0`, ts
+  and java the next release after ts `0.65.0` / java `0.62.0`; earlier
+  versions refetch on every unknown `kid`). Rotation never causes more than
+  one cache-miss-latency spike per process.
 - **Rotation cadence:** quarterly (every 90 days) in steady state,
   plus immediate emergency rotation on suspected key compromise or
   algorithm upgrade. Planned rotations carry 30 days' advance notice

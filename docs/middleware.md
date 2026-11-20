@@ -100,6 +100,12 @@ calls `realm.verify(token)`, and:
 - **On verify failure** (bad signature, expired, malformed, unknown
   kid, missing header): returns **`401`** with
   `{ error: { code, message } }`.
+- **On an issuer response that carries `Retry-After`** (for example a
+  `429`) to a call the middleware makes for the browser request: it relays
+  that header to the browser, with the same value even when it maps the
+  status to another one, in go, ts and java. The SDK's own JWKS key fetch
+  is excluded (its failure is a `401 jwks_fetch_failed` without the header). Go `0.79.0`; ts and
+  java: the next release after ts `0.65.0` / java `0.62.0`.
 - **On a path that requires MFA** (`mfaProtectedPaths` glob list)
   where the token verifies but its MFA proof is absent **or stale**:
   returns **`412`** with

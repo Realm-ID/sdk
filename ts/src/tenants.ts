@@ -5,6 +5,7 @@
 
 import type { HttpClient } from "./http.js";
 import { unwrapData } from "./envelope.js";
+import type { PrincipalKind } from "./roles.js";
 import { paginate, readPage, type Paginated, type PageOpts } from "./pagination.js";
 
 /** Tenant lifecycle status (issuer swagger `Tenant.status`). */
@@ -157,8 +158,18 @@ export interface User {
   joined_via?: JoinedVia;
   /** The verified domain whose SSO grant provisioned the row; only when `joined_via` is `sso_domain`. */
   joined_via_domain?: string;
+  /** `human` or `service`; sent on list items only. Absent from an issuer that predates it. */
+  kind?: PrincipalKind;
+  /**
+   * The issuer's password-action rule for this member, sent on list items only.
+   * Absent means "not stated" (a service row, an unreadable state, or an older issuer), never `unverified`.
+   */
+  verified_email_state?: VerifiedEmailState;
   [k: string]: unknown;
 }
+
+/** Whether a link can be sent (`verified`), a temporary password can be set (`unverified`), or neither (`unverified_required`). */
+export type VerifiedEmailState = "verified" | "unverified" | "unverified_required";
 
 export type JoinedVia =
   | "invitation" | "sso_domain" | "open_signup" | "import"

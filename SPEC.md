@@ -180,7 +180,7 @@ The SDK exposes a single handle. Configuration is minimal:
 | `origin`   | no       | Origin host the SDK announces on auth calls. If unset, derived from the realm's claimed domain via `realm.info()`. Override per-call on `auth.login()`. |
 | `logger`   | no       | A `Logger` instance (see §9). No-op by default.                             |
 | `tokenDelivery` | no  | `"cookie" \| "body"`. How the middleware returns refresh tokens (see §10.2). Default `"cookie"`. |
-| `httpClient` / `cacheTtl` / `leeway` / `clock` | no | Standard infrastructure overrides for tests and tuning. |
+| `httpClient` / `cacheTtl` (java) / `cacheTtlMs` (ts; go: not configurable) / `leeway` / `clock` | no | Standard infrastructure overrides for tests and tuning. |
 
 ```ts
 const realm = createRealm({ realmId: "01HXYZ...", apiKey: "rk_live_..." });
@@ -201,9 +201,63 @@ const realm = createRealm({ realmId: "01HXYZ...", apiKey: "rk_live_..." });
 
 ## 2. Caching
 
-Only **JWKS** are cached (10 min TTL, unknown-kid forces refetch). All
-other responses (realm metadata, tenants, users, etc.) are returned
-fresh on every call. There is no in-SDK request coalescing.
+The **JWKS** is cached per realm: 10 min by default (ts `cacheTtlMs` and java
+`cacheTtl` can change it; go's is not configurable). An unknown `kid` forces a
+refetch, bounded as below. Other caches are described where their feature is:
+the origin allowlist (§6.6 "Origin allowlist"), `realm.info()` (§1, §6.5), the
+org-session mode (§6.7.3) and the platform access token (§4.0). The revocation and authority caches you
+supply are in §6.7 and §5.3.
+
+Request coalescing is per feature and described in each feature's section.
+
+**JWKS refetch bound** (go `0.79.0`; ts and java: the next release after ts
+`0.65.0` / java `0.62.0`. Earlier versions refetch on every unknown `kid`).
+A verify whose `kid` is not in a still-fresh cached key set fetches the JWKS at
+most **once per 5 seconds per realm**:
+
+- Any fetch attempt, successful or failed, starts the 5-second window (go and
+  java start it when the fetch finishes; ts starts it when the fetch starts, so
+  a slow ts fetch leaves less of the window). Inside
+  the window there is no new fetch: the caller gets the last attempt's answer,
+  which is that attempt's `jwks_fetch_failed` error if it failed, or
+  `unknown_kid` if it succeeded and the set lacked the `kid`.
+- A `kid` already present in a set still within the TTL (10 min by default) is served
+  from the cache and never touches the window.
+- An EXPIRED (older than the TTL) or absent set is never gated by the window:
+  every verify that needs it refetches. When that fetch FAILS there is no
+  stale-set fallback (the expired set is not served). A failure surfaces as
+  `jwks_fetch_failed` (401 through the SDK middlewares).
+- ANY JWKS fetch, whether an unknown `kid` or an expired or absent set started
+  it, is shared: callers that need a fetch while one is in flight join it and
+  receive its outcome, success or failure, in go, ts and java, and none starts
+  a fetch of its own (go `0.79.0`; ts and java: the next release after ts
+  `0.65.0` / java `0.62.0`).
+- Any status other than a `2xx`, or a response that cannot be parsed as a key
+  set, is `jwks_fetch_failed` and is the recorded attempt. A `2xx` with an
+  empty or absent `keys` list is `unknown_kid`. A key whose `kty` is not `RSA`
+  is skipped, and so is a key without a `kid`. A key whose `kid` is present
+  but is not a JSON string (a number, boolean, object, array or `null`) is
+  skipped exactly like a key without a `kid`, and the rest of the set is used.
+  An RSA `n` or `e` that carries base64url padding (a trailing `=`) is not
+  decodable, so the whole set is `jwks_fetch_failed`, as for a missing, empty
+  or otherwise undecodable `n` or `e`. A key that HAS a `kid` but
+  unusable key material (an RSA `n` or `e` that is missing, empty or not
+  decodable, or a key the runtime cannot import) makes the whole response
+  unparseable, so `jwks_fetch_failed`: one unusable key fails the whole set.
+  This bullet is the rule from go `0.79.0` and, for ts and java, from the next
+  release after ts `0.65.0` / java `0.62.0`; earlier versions differ in these
+  edge cases (for example unusable key material may be skipped, or surface a
+  raw runtime error instead of `jwks_fetch_failed`).
+- A caller's own cancellation (go: `ctx` canceled or past its deadline; java:
+  an interrupted thread) is returned to that caller only and starts no window.
+  ts takes no abort signal. A cancelling caller that started the shared fetch
+  does not fail the others waiting on it (go `0.79.0`; ts and java: the next
+  release after ts `0.65.0` / java `0.62.0`). Go runs the shared fetch
+  detached from every caller's deadline and cancels it after 30 seconds, or
+  sooner when the configured HTTP client's own timeout is shorter (go
+  `0.79.0`). java's JWKS request has a 5-second timeout. ts sets no timeout on
+  the JWKS fetch: a hung JWKS endpoint holds every ts verify waiting on the
+  shared fetch, so bound it with your own `fetch` or agent timeout.
 
 ## 3. Errors
 
@@ -225,7 +279,7 @@ SDK failure. It carries:
 
 - `code` — a stable, machine-readable identifier (see §3.1 for the full taxonomy).
 - `message` — human-readable diagnostic.
-- `httpStatus?` — set when the failure originated from an API response.
+- `httpStatus?` — set when the failure came from an API response, and on the verifier's `malformed` and `token_stale` refusals (`401`, §3.1, §5.3).
 - `details?` — server-supplied envelope siblings (e.g. `revocation_token`,
   `mfa_challenge_token`, `active_sessions`, `tenant_id`).
 - `cause?` — wrapped underlying error.
@@ -237,7 +291,7 @@ SDK failure. It carries:
   (whole seconds, `undefined` = no hint). Java: `RealmException.getRetryAfter()` →
   `Optional<Duration>` (empty = no hint). No other response header is carried, and the value is
   NOT copied into `details`. A BFF relaying a rate-limit refusal reads this field and sends it on
-  as its own `Retry-After` (issuer ADR-116 A8). Not yet released (go `0.69.0`).
+  as its own `Retry-After` (issuer ADR-116 A8); the SDK middlewares do this for you (§10).
 
 ### 3.1 Error code taxonomy
 
@@ -246,6 +300,18 @@ SDK failure. It carries:
 `malformed`, `wrong_algorithm`, `bad_signature`, `wrong_issuer`,
 `wrong_audience`, `expired`, `not_yet_valid`, `unknown_kid`,
 `jwks_fetch_failed`.
+
+Every `malformed` verifier error carries `httpStatus` `401`, in every
+language, whatever the cause: not three parts, an undecodable header, payload
+or signature, a header or payload that is not a JSON object, a missing `kid`
+or `iss`, a registered claim of the wrong JSON type (go), a null token (java),
+the claim-key fold refusal (§4.2), or the `sub`, `typ` and `events` refusals
+of §5.1 / §5.1.1 (from go `0.79.0` and the next ts and java releases every
+`malformed` error carries `401`; earlier versions set it on only some causes). This covers errors from `verify()` and the middlewares; go's
+`ParseClaimsUnverified` and java's split `CoSigner` also raise `malformed`, without
+a status, because they are not verify results. A malformed token
+authenticates no one, and the SDK middlewares already answer `401` for it.
+Branch on `code`, not on `httpStatus`.
 
 **Auth-flow codes** (used by `auth.*`):
 
@@ -2354,7 +2420,9 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 - `aud` must match the realm's auto-discovered audience, or the per-call
   override.
 - `exp` / `nbf` checked with leeway (default 30s).
-- JWKS fetched per-realm, cached 10m, unknown-kid forces refetch.
+- JWKS fetched per-realm, cached (10m default), unknown-kid forces refetch, at most once per 5s per
+  realm, concurrent callers sharing one in-flight fetch and its outcome, success or failure, a failed fetch counting as the attempt (§2;
+  go `0.79.0`, ts and java the next release).
 - `sub` must be present and non-blank (§5.1).
 
 ### 5.1 `sub` is required — a blank subject is refused (owner ruling 2026-10-01)
@@ -2380,7 +2448,7 @@ const claims = await realm.verify(accessToken /*, { audience? } */);
 | configurable? | **No.** No `Config` field, no `VerifyOptions` field, no middleware option, no per-realm knob |
 
 **Why `malformed` and not a new code.** The taxonomy has no per-claim codes;
-a missing `iss` is already `malformed` (go `verifier.go:118-120`), and a missing
+a missing `iss` is already `malformed`, and a missing
 `sub` is the same kind of defect. A new code would be one more case every
 partner `switch` has to learn, for a refusal whose remedy is identical (there
 is none — no caller can fix a token by retrying), and `scripts/taxonomy-parity.py`
@@ -2421,7 +2489,7 @@ refuses are ones the issuer did not mint in that shape.
 | `""` | `malformed`, 401 |
 | `" "` | `malformed`, 401 |
 | `"\t\n"` | `malformed`, 401 |
-| `42` (a number) | `malformed`. ts/java: 401 on the error. Go: already refused today by the claims decode (`verifier.go:115-116`, before the cryptographic checks), whose error carries no status; the middleware still answers 401, and that existing path is acceptable |
+| `42` (a number) | `malformed`. ts/java: 401 on the error. Go: refused by the claims decode before the cryptographic checks; the error carries 401 from go `0.79.0` (earlier go: no status, the middleware still answers 401), §3.1 |
 | `""`, with an `AuthorityCache` configured | `malformed`, 401; `staleSince` is **never called** |
 | `""`, and the token is expired | `expired` |
 | `" u1 "` | accepted; `sub` is `" u1 "` |
@@ -2485,7 +2553,7 @@ Issuer A reserves `events` and `sid` from custom claims (ADR-109 D1.1); prod
 `v0.126.0` reserves neither, which is why the header makes the issuer's prod
 query a release precondition.
 
-**Unaffected:** `ParseClaimsUnverified` (§6.6) and the §6.7 cache's claim peek,
+**Unaffected:** `ParseClaimsUnverified` and the §6.7 cache's claim peek,
 which never verify.
 
 ### 5.3 Authority-change propagation — the `AuthorityCache` (ADR-107)
@@ -3148,9 +3216,10 @@ a different wire, and stays.
   bearer request whose session has a live not-before mark. (b) The login,
   refresh and MFA-verify routes (§10.1 steps 2, 4, 5), whose success bodies
   report the mode — a login has no mark, so (a) alone could never serve it.
-  Both read one per-realm cache, keyed by the token's `iss` realm, **TTL 10
-  minutes** — the JWKS TTL (`go/verifier.go:276`, `jwksTTL`) — with the same
-  refresh policy as that realm's JWKS (§2). So a mode change reaches an SDK
+  Both read one per-realm cache, keyed by the token's `iss` realm, **TTL a fixed 10
+  minutes** (the JWKS default; ts `cacheTtlMs` and java `cacheTtl` do not change it), with no refetch bound and no single flight (§2's
+  window does not apply here), and a failed fetch is cached as `concurrent` for
+  the whole TTL. So a mode change reaches an SDK
   within 10 minutes (ADR-109 D10.3 requires the SPEC to state this). Never
   fetched by `verify()`, and never by a bearer request whose session has no
   mark.
@@ -4259,6 +4328,16 @@ or `verify` directly; the middleware does that for them.
 > Spring-native adapter (the SDK takes zero external dependencies). §11.5 was
 > right; this row was corrected to match it.
 
+**`Retry-After` relay.** The go, ts and java (`RealmFilter`) middlewares relay
+the issuer's `Retry-After` header to the browser on every response they answer
+from an issuer response that carries it, for the calls the middleware makes to
+the issuer for that browser request (for example a `429`). The browser
+response carries the same value even when the middleware maps the status to
+another one (for example `401` to `503` on the refresh route). The SDK's own
+JWKS key fetch is excluded: its failure is a `401 jwks_fetch_failed` without the
+header. Go `0.79.0`; ts and java: the next release after ts `0.65.0` / java
+`0.62.0`. An issuer answer with no `Retry-After` produces none.
+
 ### 10.1 Behavior
 
 For every inbound request, the middleware:
@@ -4701,8 +4780,10 @@ const middleware = realm.middleware({
   | `**/health` | `/health`, `/api/health`, `/a/b/health` | `/api/nothealth`, `/users/42health`, `/healthz` |
   | `/a/**b` | `/a/b`, `/a/xb`, `/a/x/yb` | `/ab` |
   | `/static/**.js` | `/static/app.js`, `/static/js/app.js` | `/static.js`, `/staticapp.js` |
+  | `/a/x**/b` | `/a/xfoo/b`, `/a/x/b` | `/a/xb`, `/a/xfoob` |
+  | `/a/**/**/b` | `/a/b`, `/a/x/b`, `/a/x/y/b` | `/a/xb` |
 
-  Normative cases: `testdata/glob-boundary-vectors/vectors.json` (25 cases, in
+  Normative cases: `testdata/glob-boundary-vectors/vectors.json` (33 cases, in
   the `path-match-vectors` matcher format); each language's drift test MUST
   run every case in it and report the count (its README).
 

@@ -274,6 +274,7 @@ export type {
   Invitation,
   InvitationCreate,
   User,
+  VerifiedEmailState,
   UserStatus,
   DriftReview,
   DriftAcceptResult,

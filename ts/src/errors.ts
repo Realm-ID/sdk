@@ -491,7 +491,7 @@ export function isChannelNotConfigured(e: unknown): boolean {
 /**
  * True when `e` is the issuer's 429 `phone_otp_rate_limited` (this number was
  * sent the realm's limit of phone codes within the window). The wait is the
- * `Retry-After` header, which this SDK does not surface.
+ * `Retry-After` header, surfaced as `retryAfterSeconds`.
  */
 export function isPhoneOtpRateLimited(e: unknown): boolean {
   return e instanceof RealmError && e.code === "phone_otp_rate_limited";

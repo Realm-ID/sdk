@@ -28,7 +28,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 /**
@@ -120,13 +122,22 @@ public final class Verifier {
         }
     }
 
+    /** Every `malformed` verifier error carries 401 (SPEC 3.1); one constructor so no path can omit it. */
+    private static RealmException malformed(String message) {
+        return new RealmException(ErrorCode.MALFORMED, message, 401, null);
+    }
+
+    private static RealmException malformed(String message, Throwable cause) {
+        return new RealmException(ErrorCode.MALFORMED, message, 401, null, cause);
+    }
+
     private Claims doVerify(String token, String audienceOverride) {
         if (token == null) {
-            throw new RealmException(ErrorCode.MALFORMED, "token is null");
+            throw malformed("token is null");
         }
         String[] parts = token.split("\\.", -1);
         if (parts.length != 3) {
-            throw new RealmException(ErrorCode.MALFORMED, "expected 3 dot-separated parts");
+            throw malformed("expected 3 dot-separated parts");
         }
 
         JsonNode header;
@@ -137,9 +148,13 @@ public final class Verifier {
             payload = mapper.readTree(b64urlDecode(parts[1]));
             signature = b64urlDecode(parts[2]);
         } catch (IOException | IllegalArgumentException e) {
-            throw new RealmException(ErrorCode.MALFORMED, "could not parse: " + e.getMessage(), e);
+            throw malformed("could not parse: " + e.getMessage(), e);
         }
 
+        // JSON null, an array or a scalar parses without error but is not a header object.
+        if (!header.isObject()) {
+            throw malformed("header is not a JSON object");
+        }
         String alg = strOrNull(header, "alg");
         if (!"RS256".equals(alg)) {
             throw new RealmException(ErrorCode.WRONG_ALGORITHM, "unexpected alg: " + alg);
@@ -151,20 +166,20 @@ public final class Verifier {
         // fold-colliding top-level keys, read from the RAW payload (a decoded map hides duplicates).
         try {
             if (!ClaimFold.payloadAcceptable(b64urlDecode(parts[1]))) {
-                throw new RealmException(ErrorCode.MALFORMED,
-                        "payload carries a non-ASCII, duplicate or reserved-fold claim key", 401, null);
+                throw malformed(
+                        "payload carries a non-ASCII, duplicate or reserved-fold claim key");
             }
         } catch (IllegalArgumentException e) {
-            throw new RealmException(ErrorCode.MALFORMED, "could not parse: " + e.getMessage(), e);
+            throw malformed("could not parse: " + e.getMessage(), e);
         }
         String kid = strOrNull(header, "kid");
         if (kid == null || kid.isEmpty()) {
-            throw new RealmException(ErrorCode.MALFORMED, "kid missing from header");
+            throw malformed("kid missing from header");
         }
 
         String iss = strOrNull(payload, "iss");
         if (iss == null || iss.isEmpty()) {
-            throw new RealmException(ErrorCode.MALFORMED, "iss missing");
+            throw malformed("iss missing");
         }
         String realmId = extractRealmId(iss);
         // SPEC §5: iss must start with ${issuerUrl}/${realmId}. Checked before any
@@ -212,7 +227,7 @@ public final class Verifier {
         // SPEC 5.1.1: an `events` member (any value, null included) marks a
         // non-access token (ADR-110 Logout Token) or a poisoned custom claim.
         if (payload.has("events")) {
-            throw new RealmException(ErrorCode.MALFORMED, "token carries an events claim", 401, null);
+            throw malformed("token carries an events claim");
         }
 
         // ADR-041: session denylist. Runs AFTER signature + claim verification so
@@ -310,7 +325,7 @@ public final class Verifier {
             ok = lower.equals("jwt") || lower.equals("at+jwt") || lower.equals("application/at+jwt");
         }
         if (!ok) {
-            throw new RealmException(ErrorCode.MALFORMED, "unexpected token type: " + shown, 401, null);
+            throw malformed("unexpected token type: " + shown);
         }
     }
 
@@ -335,7 +350,7 @@ public final class Verifier {
             }
         }
         if (blank) {
-            throw new RealmException(ErrorCode.MALFORMED, "sub missing or blank", 401, null);
+            throw malformed("sub missing or blank");
         }
     }
 
@@ -368,20 +383,47 @@ public final class Verifier {
     private PublicKey resolveKey(String realmId, String kid) {
         java.util.function.BiFunction<String, String, PublicKey> hook = keyResolver;
         if (hook != null) return hook.apply(realmId, kid);
-        CachedJwks cached = cache.get(realmId);
-        Instant now = Instant.now(clock);
-        if (cached != null && cached.keys.containsKey(kid)
-                && cached.fetchedAt.plus(cacheTtl).isAfter(now)) {
-            if (logger.isLoggable(Level.DEBUG)) {
-                logger.log(Level.DEBUG, "realmid: jwks cache hit realmId={0} kid={1}", realmId, kid);
-            }
-            return cached.keys.get(kid);
-        }
+        PublicKey hit = cachedKey(realmId, kid);
+        if (hit != null) return hit;
         if (logger.isLoggable(Level.DEBUG)) {
             logger.log(Level.DEBUG, "realmid: jwks cache miss realmId={0} kid={1}", realmId, kid);
         }
-        Map<String, PublicKey> fresh = fetchJwks(realmId);
-        cache.put(realmId, new CachedJwks(fresh, Instant.now(clock)));
+        if (Thread.currentThread().isInterrupted()) {
+            // The caller's own interrupt is returned to it alone: no flight starts, no window.
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: interrupted",
+                    new InterruptedException());
+        }
+        CompletableFuture<Map<String, PublicKey>> flight;
+        // Short critical section: it reads and decides, and never spans the HTTP fetch or a wait.
+        synchronized (stateLock) {
+            hit = cachedKey(realmId, kid);
+            if (hit != null) return hit;
+            flight = flights.get(realmId);
+            if (flight == null) {
+                // The window gates only the refetch a kid missing from a still-fresh set triggers:
+                // inside it the caller gets the last answer with no new outbound call. A refetch
+                // because the set expired, or none was ever fetched, is never refused by it.
+                Attempt last = attempts.get(realmId);
+                CachedJwks held = cache.get(realmId);
+                boolean setFresh = held != null && withinTtl(held);
+                if (setFresh && last != null && last.at.plus(UNKNOWN_KID_REFETCH).isAfter(Instant.now(clock))) {
+                    if (last.failure != null) throw last.failure;
+                    throw new RealmException(ErrorCode.UNKNOWN_KID, "kid " + kid + " not in JWKS");
+                }
+                flight = startFlight(realmId);
+            }
+        }
+        Map<String, PublicKey> fresh;
+        try {
+            // Interruptible wait: an interrupted caller returns at once; the fetch carries on for the rest.
+            fresh = flight.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: interrupted", e);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RealmException re) throw re;
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: " + e.getCause(), e.getCause());
+        }
         PublicKey k = fresh.get(kid);
         if (k == null) {
             throw new RealmException(ErrorCode.UNKNOWN_KID, "kid " + kid + " not in JWKS");
@@ -389,17 +431,107 @@ public final class Verifier {
         return k;
     }
 
+    /**
+     * Starts the realm's one shared fetch on its own thread, so no caller's interrupt reaches it.
+     * The fetch records its outcome (window start, cached set or failure) once, then completes the
+     * flight. Called with {@code stateLock} held; it only registers and spawns.
+     */
+    private CompletableFuture<Map<String, PublicKey>> startFlight(String realmId) {
+        CompletableFuture<Map<String, PublicKey>> f = new CompletableFuture<>();
+        flights.put(realmId, f);
+        Thread t = new Thread(() -> {
+            Map<String, PublicKey> fresh = null;
+            RealmException failure = null;
+            try {
+                fresh = fetchJwks(realmId);
+            } catch (RealmException e) {
+                failure = e;
+            } catch (Throwable e) {
+                // Errors too (OOM, linkage): the flight must always end, or every later caller blocks on it.
+                failure = new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: " + e, e);
+            } finally {
+                RealmException outcome = failure;
+                Map<String, PublicKey> keys = fresh;
+                if (outcome == null && keys == null) {
+                    outcome = new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: aborted");
+                }
+                try {
+                    synchronized (stateLock) {
+                        attempts.put(realmId, new Attempt(Instant.now(clock), outcome));
+                        if (outcome == null) cache.put(realmId, new CachedJwks(keys, Instant.now(clock)));
+                        flights.remove(realmId, f);
+                    }
+                } finally {
+                    if (outcome == null) f.complete(keys);
+                    else f.completeExceptionally(outcome);
+                }
+            }
+        }, "realmid-jwks-fetch");
+        t.setDaemon(true);
+        try {
+            t.start();
+        } catch (Throwable e) {
+            // "unable to create native thread": nothing will ever complete this flight.
+            RealmException failure = new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: " + e, e);
+            flights.remove(realmId, f);
+            f.completeExceptionally(failure);
+            throw failure;
+        }
+        return f;
+    }
+
+    /** Shortest gap between two JWKS fetches that an unknown kid may trigger. */
+    private static final Duration UNKNOWN_KID_REFETCH = Duration.ofSeconds(5);
+
+    private final Object stateLock = new Object();
+
+    /** The in-flight JWKS fetch per realm; guarded by {@code stateLock}. */
+    private final ConcurrentHashMap<String, CompletableFuture<Map<String, PublicKey>>> flights = new ConcurrentHashMap<>();
+
+    private boolean withinTtl(CachedJwks c) {
+        return c.fetchedAt.plus(cacheTtl).isAfter(Instant.now(clock));
+    }
+
+    /** The latest JWKS fetch attempt for a realm; {@code failure} is null when it succeeded. */
+    private record Attempt(Instant at, RealmException failure) {}
+
+    private final ConcurrentHashMap<String, Attempt> attempts = new ConcurrentHashMap<>();
+
+    private PublicKey cachedKey(String realmId, String kid) {
+        CachedJwks cached = cache.get(realmId);
+        if (cached != null && withinTtl(cached)) {
+            PublicKey k = cached.keys.get(kid);
+            if (k != null && logger.isLoggable(Level.DEBUG)) {
+                logger.log(Level.DEBUG, "realmid: jwks cache hit realmId={0} kid={1}", realmId, kid);
+            }
+            return k;
+        }
+        return null;
+    }
+
+    private static final Duration FETCH_BOUND = Duration.ofSeconds(5);
+
     private Map<String, PublicKey> fetchJwks(String realmId) {
         URI uri = URI.create(baseUrl + "/" + realmId + "/.well-known/jwks.json");
-        HttpRequest req = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(5)).GET().build();
+        // HttpRequest.timeout bounds only the wait for headers; a body that stalls after them would hold
+        // the shared flight (and every waiter) forever. One deadline covers headers and body.
+        HttpRequest req = HttpRequest.newBuilder(uri).timeout(FETCH_BOUND).GET().build();
+        CompletableFuture<HttpResponse<String>> call = http.sendAsync(req, HttpResponse.BodyHandlers.ofString());
         HttpResponse<String> resp;
         try {
-            resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            resp = call.get(FETCH_BOUND.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            call.cancel(true);
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: timed out after " + FETCH_BOUND, e);
+        } catch (ExecutionException e) {
+            Throwable c = e.getCause() == null ? e : e.getCause();
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: " + c.getMessage(), c);
+        } catch (InterruptedException e) {
+            call.cancel(true);
+            Thread.currentThread().interrupt();
             throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "fetch jwks: " + e.getMessage(), e);
         }
-        if (resp.statusCode() != 200) {
+        if (resp.statusCode() < 200 || resp.statusCode() > 299) {
             throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "jwks fetch returned " + resp.statusCode());
         }
         JsonNode doc;
@@ -408,25 +540,35 @@ public final class Verifier {
         } catch (IOException e) {
             throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "decode jwks: " + e.getMessage(), e);
         }
+        // A top-level value that is not an object (empty body, `[]`, `"x"`, `5`) cannot be a key set; `null` is an absent `keys`.
+        if (!doc.isObject() && !doc.isNull()) {
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "decode jwks: top-level value is not an object");
+        }
         JsonNode keys = doc.get("keys");
-        if (keys == null || !keys.isArray()) {
-            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "jwks missing keys[]");
+        if (keys == null || keys.isNull()) return new HashMap<>();
+        if (!keys.isArray()) {
+            throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "decode jwks: keys is not a list");
         }
         Map<String, PublicKey> out = new HashMap<>();
         for (JsonNode jwk : keys) {
             String kty = strOrNull(jwk, "kty");
             if (!"RSA".equals(kty)) continue;
-            String kid = strOrNull(jwk, "kid");
+            JsonNode kidNode = jwk.get("kid");
+            String kid = kidNode != null && kidNode.isTextual() ? kidNode.asText() : null;
             String n = strOrNull(jwk, "n");
             String e = strOrNull(jwk, "e");
-            if (kid == null || n == null || e == null) continue;
+            if (kid == null || kid.isEmpty()) continue;
+            // base64url padding is "not decodable" (SPEC §2); the JDK decoder would accept it.
+            if (n == null || n.isEmpty() || e == null || e.isEmpty() || n.indexOf('=') >= 0 || e.indexOf('=') >= 0) {
+                throw new RealmException(ErrorCode.JWKS_FETCH_FAILED, "unusable key material for kid " + kid);
+            }
             try {
                 BigInteger modulus = new BigInteger(1, b64urlDecode(n));
                 BigInteger exponent = new BigInteger(1, b64urlDecode(e));
                 PublicKey pub = KeyFactory.getInstance("RSA")
                         .generatePublic(new RSAPublicKeySpec(modulus, exponent));
                 out.put(kid, pub);
-            } catch (GeneralSecurityException ex) {
+            } catch (GeneralSecurityException | IllegalArgumentException ex) {
                 throw new RealmException(ErrorCode.JWKS_FETCH_FAILED,
                         "decode key " + kid + ": " + ex.getMessage(), ex);
             }

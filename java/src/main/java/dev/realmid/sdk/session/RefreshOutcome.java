@@ -21,7 +21,22 @@ import java.util.Map;
 public record RefreshOutcome(String fp, boolean ok, int status, String code, String message,
                              Map<String, Object> details, String accessToken, Object expiresIn,
                              String tenantId, String role, String refreshToken, String minted,
-                             long refreshExp, long idleTtl, String subjectType) {
+                             long refreshExp, long idleTtl, String subjectType, long retryAfterSeconds) {
+
+    /** Without a stored {@code Retry-After}. */
+    public RefreshOutcome(String fp, boolean ok, int status, String code, String message,
+                          Map<String, Object> details, String accessToken, Object expiresIn,
+                          String tenantId, String role, String refreshToken, String minted,
+                          long refreshExp, long idleTtl, String subjectType) {
+        this(fp, ok, status, code, message, details, accessToken, expiresIn, tenantId, role, refreshToken,
+                minted, refreshExp, idleTtl, subjectType, 0L);
+    }
+
+    /** This outcome carrying the issuer's {@code Retry-After} (whole seconds; zero or less means none). */
+    public RefreshOutcome withRetryAfter(long seconds) {
+        return new RefreshOutcome(fp, ok, status, code, message, details, accessToken, expiresIn, tenantId, role,
+                refreshToken, minted, refreshExp, idleTtl, subjectType, Math.max(0L, seconds));
+    }
 
     /** Never prints a credential. */
     @Override
@@ -96,6 +111,7 @@ public record RefreshOutcome(String fp, boolean ok, int status, String code, Str
         o.put("refresh_exp", refreshExp);
         o.put("idle_ttl", idleTtl);
         o.put("subject_type", subjectType);
+        o.put("retry_after", retryAfterSeconds);
         try {
             return m.writeValueAsBytes(o);
         } catch (IOException e) {
@@ -113,6 +129,7 @@ public record RefreshOutcome(String fp, boolean ok, int status, String code, Str
                 (String) o.get("role"), (String) o.get("refresh_token"), (String) o.get("minted"),
                 o.get("refresh_exp") instanceof Number n ? n.longValue() : 0L,
                 o.get("idle_ttl") instanceof Number n ? n.longValue() : 0L,
-                (String) o.get("subject_type"));
+                (String) o.get("subject_type"),
+                o.get("retry_after") instanceof Number n ? n.longValue() : 0L);
     }
 }

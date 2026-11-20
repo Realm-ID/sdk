@@ -2,7 +2,7 @@
   "spec": "sdk/SPEC.md §6.3 'Role predicates — one vector file'",
   "version": 1,
   "confers_case_count": 15,
-  "assignable_case_count": 14,
+  "assignable_case_count": 15,
   "catalogs": {
     "served": [
       {"key": "users:read",   "action": "read"},
@@ -47,6 +47,7 @@
     {"id": "ra11", "role": {"name": "member",    "disabled": true, "assignable_to": ["human"], "permissions": ["users:read"]}, "kind": "human",   "assignable": false, "why": "disabled"},
     {"id": "ra12", "role": {"name": "ops",       "assignable_to": ["human", "service"], "permissions": ["domains:manage"]}, "kind": "service", "assignable": false, "why": "human-only grant on a non-system role"},
     {"id": "ra13", "role": {"name": "ops",       "assignable_to": ["human", "service"], "permissions": ["domains:manage"]}, "kind": "human",   "assignable": true,  "why": "the human-only floor applies to service principals only"},
-    {"id": "ra14", "role": {"name": "realm_bot", "is_system": true, "assignable_to": ["service"], "permissions": ["domains:manage"]}, "kind": "service", "assignable": true,  "why": "is_system exempts the human-only floor"}
+    {"id": "ra14", "role": {"name": "realm_bot", "is_system": true, "assignable_to": ["service"], "permissions": ["domains:manage"]}, "kind": "service", "assignable": true,  "why": "is_system exempts the human-only floor"},
+    {"id": "ra15", "role": {"name": "ops",       "assignable_to": ["human", "service"], "permissions": [" domains:manage "]}, "kind": "service", "assignable": true,  "why": "a permission string is used as given: not a human-only key"}
   ]
 }

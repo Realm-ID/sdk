@@ -1,19 +1,9 @@
 package realmid
 
-import (
-	"errors"
-	"net/http"
-)
-
-// failMalformed401 builds a `malformed` refusal that carries the 401 itself,
-// so a partner verifying by hand gets the status the SPEC promises (§5.1).
+// failMalformed401 builds a `malformed` refusal; fail itself stamps the 401
+// SPEC §3.1 promises, so this is the same call under its older name.
 func (v *verifier) failMalformed401(format string, args ...any) error {
-	err := v.fail(ErrCodeMalformed, format, args...)
-	var re *RealmError
-	if errors.As(err, &re) {
-		re.HTTPStatus = http.StatusUnauthorized
-	}
-	return err
+	return v.fail(ErrCodeMalformed, format, args...)
 }
 
 // accessTokenTyp is the issuer's own ADR-109 D9 allowlist: ASCII

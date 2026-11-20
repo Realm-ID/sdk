@@ -73,6 +73,43 @@ class V063VerifierTest {
         return new Verifier(baseUrl, AUDIENCE, null, null, null, null, null, null, null, a, r, null, REALM_ID);
     }
 
+    // ---- SPEC 3.1: every malformed verifier error carries 401 ------------------
+
+    @Test
+    void everyMalformedCauseCarries401() throws Exception {
+        String okHdr = "{\"alg\":\"RS256\",\"typ\":\"JWT\",\"kid\":\"kid-1\"}";
+        String okPay = "{\"iss\":\"" + baseUrl + "/" + REALM_ID + "\",\"sub\":\"u1\"}";
+        String s = b64("s".getBytes());
+        Map<String, String> cases = new LinkedHashMap<>();
+        cases.put("two parts", "a.b");
+        cases.put("header b64", "!!!." + b64(okPay.getBytes()) + "." + s);
+        cases.put("header json", b64("{".getBytes()) + "." + b64(okPay.getBytes()) + "." + s);
+        for (String nonObject : new String[] {"null", "[]", "\"x\"", "1"}) {
+            cases.put("header " + nonObject, b64(nonObject.getBytes()) + "." + b64(okPay.getBytes()) + "." + s);
+        }
+        cases.put("payload b64", b64(okHdr.getBytes()) + ".!!!." + s);
+        cases.put("sig b64", b64(okHdr.getBytes()) + "." + b64(okPay.getBytes()) + ".!!!");
+        cases.put("payload json", b64(okHdr.getBytes()) + "." + b64("{".getBytes()) + "." + s);
+        cases.put("kid missing", b64("{\"alg\":\"RS256\",\"typ\":\"JWT\"}".getBytes()) + "." + b64(okPay.getBytes()) + "." + s);
+        cases.put("iss missing", b64(okHdr.getBytes()) + "." + b64("{\"sub\":\"u1\"}".getBytes()) + "." + s);
+        cases.put("claim fold", b64(okHdr.getBytes()) + "." + b64("{\"iss\":\"x\",\"Sub\":\"u1\",\"sub\":\"u1\"}".getBytes()) + "." + s);
+        Map<String, Object> ev = claims();
+        ev.put("events", Map.of());
+        cases.put("events claim", sign(header("JWT"), ev));
+        Map<String, Object> blank = claims();
+        blank.put("sub", "");
+        cases.put("blank sub", sign(header("JWT"), blank));
+        cases.put("typ not access", sign(header("refresh+jwt"), claims()));
+        for (Map.Entry<String, String> c : cases.entrySet()) {
+            RealmException ex = assertThrows(RealmException.class, () -> verifier().verify(c.getValue()), c.getKey());
+            assertEquals(ErrorCode.MALFORMED, ex.getCode(), c.getKey());
+            assertEquals(401, ex.getHttpStatus(), c.getKey());
+        }
+        RealmException nul = assertThrows(RealmException.class, () -> verifier().verify(null));
+        assertEquals(ErrorCode.MALFORMED, nul.getCode());
+        assertEquals(401, nul.getHttpStatus(), "null token");
+    }
+
     // ---- SPEC5_1: blank sub ----------------------------------------------------
 
     private void assertMalformed401(String token) {

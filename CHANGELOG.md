@@ -13,12 +13,31 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go `0.79.0` · ts (unreleased, no version bump yet) — the refresh cookie is Secure by default; a failed realm discovery is not cached (SPEC §6.5, §10.5) (UNRELEASED, 2026-11-17)
+## go `0.79.0` · ts · java (unreleased, no version bump yet) — bounded shared JWKS refetch, Retry-After relay, the refresh cookie is Secure by default (SPEC §2, §6.5, §10, §10.5) (UNRELEASED, 2026-11-17)
 
-Minor, because a default changes. Pending: no `go/v0.79.0` tag exists yet.
+Minor, because a default changes. Pending: no `go/v0.79.0` tag exists yet, and no `ts-v*` or `java-v*` release is cut for these items.
 
-- **Changed (go): the refresh cookie is `Secure` by default.** A deployment that serves the middleware over plain `http` (local development) sets `CookieInsecure` to opt out. The stale-token cut-off is a plain `iat < notBefore`, and the revocation marker lives 24 h by default.
-- **Fixed (go, ts): a FAILED realm discovery is no longer cached.** `realm.Info()` / `realm.info()` cached the empty stub for the life of the handle, so with `originEnforcement: "auto"` one issuer error on the first guarded request switched the Origin guard off until the process restarted, even for a realm that requires it. A success is still cached for the life of the handle. A failure is not: the call that hit it still fails open, and a later call retries discovery, at most once per 30 s. Java's `RealmInfoClient` caches its stub the same way and is not yet fixed.
+**Added**
+
+- **(go, ts, java; SPEC §2): the unknown-kid JWKS refetch is bounded and shared.** A kid missing from a still-fresh key set triggers at most one refetch per realm per 5 seconds; a refetch because the 10-minute set expired, or because none was ever fetched, is never refused by that window. In go and java concurrent verifies that need a fetch share ONE in-flight fetch and receive its outcome, success or failure; it is not bound to any caller's context (go: the configured HTTP client's timeout, capped at 30 seconds; java: a 5 second request timeout on its own thread), and a caller's own cancellation or interrupt returns to that caller only. Earlier versions refetched on every unknown kid.
+- **(go, ts, java; SPEC §10): the middleware relays the issuer's `Retry-After` header to the browser** on the responses it answers from an issuer refusal that carries it (login, MFA, refresh including a shared stored outcome), whatever status the browser is shown. The SDK's own JWKS fetch is not relayed. A refusal with no `Retry-After` produces none.
+- **(go, ts, java): `User.kind` (`human` | `service`) and `User.verified_email_state` (`verified` | `unverified` | `unverified_required`) are typed** on member list items. Absent decodes to the zero value (an older issuer, or a row that does not state it). The nine-argument Java `User` constructor is kept.
+
+**Changed**
+
+- **(go): the refresh cookie is `Secure` by default.** A deployment that serves the middleware over plain `http` (local development) sets `CookieInsecure` to opt out. The stale-token cut-off is a plain `iat < notBefore`, and the revocation marker lives 24 h by default.
+- **(go, ts, java): a `**` in a route or scope glob keeps its segment boundary.** A leading `**/` (ts, java) reads as `/**/`, and a `**` that shares a segment with a literal (go) keeps the preceding `/`, so `/a/**/b` never matches `/ab`. The same holds for a `**` that shares its segment with a literal and is followed by a `/` (`/a/x**/b` never matches `/a/xb` in go, nor `/a/xfoob` in ts and java, which used to drop that `/`), and for a second `**/` after `/**/` (`/a/**/**/b` never matches `/a/xb`). This changes which paths `exemptPaths`, `mfaProtectedPaths` and scope policies match; an `exemptPaths` pattern no longer exempts the extra paths it used to over-match. ts `validateScopePolicy` now reports a malformed path placeholder.
+- **(go; SPEC §2): a JWKS key whose `kid` is present but not a JSON string is skipped**, like a key without a `kid`, and the rest of the set is used. It used to fail the whole set as `jwks_fetch_failed`.
+- **(java; SPEC §2): an RSA `n` or `e` with base64url padding (a trailing `=`) now fails the whole set as `jwks_fetch_failed`**, as go and ts already did. Java used to accept it. Java also skips a non-string `kid` instead of reading it as text.
+- **(java): a permission string is used as given.** `RolePredicates` no longer trims it before the human-only check, matching go and ts.
+- **(web): `completeSignIn` refuses an `id_token` whose `nonce` differs from the one sent** with the authorize request (`oidc_state_mismatch`). Detail: `web/packages/core/CHANGELOG.md`.
+- **(go, ts, java; SPEC §2): the JWKS response shape is read the same way everywhere.** Any 2xx is a response to parse and a non-2xx is `jwks_fetch_failed`; an absent or null `keys`, or an empty array, is `unknown_kid`; a key without a `kid` is ignored; a key with a `kid` and a missing, empty or undecodable RSA `n`/`e` fails the whole set as `jwks_fetch_failed`. A transport error or a 200 whose body is not JSON is `jwks_fetch_failed` too, and a recorded attempt, and so is a body whose top level is not an object (empty, `[]`, `"x"`, `5`; ts and java used to answer `unknown_kid`).
+
+**Fixed**
+
+- **(go, java; SPEC §3.1): every `malformed` verifier error carries `httpStatus` 401.** The structural causes (part count, header or payload decoding, `kid`, `iss`, claim JSON) now set it, as ts already did; one constructor in each verifier stamps it, so a new malformed path cannot omit it.
+- **(go, ts, java; SPEC §3.1): a token header that is not a JSON object (`null`, an array, a scalar) is `malformed` with `httpStatus` 401.** ts threw a `TypeError` for a `null` header; go and java answered `wrong_algorithm` for `null`.
+- **(go, ts, java): a FAILED realm discovery is no longer cached, and a realm row without an audience is a failed discovery.** `realm.Info()` / `realm.info()` cached the empty stub for the life of the handle, so with `originEnforcement: "auto"` one issuer error on the first guarded request switched the Origin guard off until the process restarted, even for a realm that requires it. A success is still cached for the life of the handle. A failure is not: the call that hit it still fails open, and a later call retries discovery, at most once per 30 s. Java's `RealmInfoClient` behaves the same way.
 
 ## web `0.13.1` — the browser core keeps the newest refresh token carried by any `/token` error reply (SPEC §4.2 `SPEC4_2_carry_all_web`) (2026-11-16)
 

@@ -131,6 +131,7 @@ public class RealmFilter implements Filter {
             claims = cfg.realm.verify(token);
         } catch (RealmException e) {
             warnAuth(req, "verify failed: " + e.getCode().wire());
+            // Verification's own key fetch is not a call made for this request: no Retry-After.
             sendError(res, 401, e.getCode().wire(), e.getMessage(), null);
             return;
         }
@@ -308,6 +309,7 @@ public class RealmFilter implements Filter {
                 sendJson(res, 200, out);
                 return;
             }
+            relayRetryAfter(res, e);
             sendError(res, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         }
@@ -503,7 +505,7 @@ public class RealmFilter implements Filter {
         if (t == null) {
             RealmException e = firstErr;
             return RefreshOutcome.error(fp, relayStatus(e),
-                    e.getCode().wire(), e.getMessage(), e.getDetails());
+                    e.getCode().wire(), e.getMessage(), e.getDetails()).withRetryAfter(retryAfterSeconds(e));
         }
         // The derived claims (ADR-102 product_roles, ADR-097 scope) are resolved
         // PER MINT, and a REFRESH IS A MINT. A handler failure REFUSES the
@@ -517,10 +519,10 @@ public class RealmFilter implements Filter {
             // A 401 cause is answered as 503 server_error (example: second mint 401 refresh_invalid).
             String carriedCode = e.getHttpStatus() == 401 ? ErrorCode.SERVER_ERROR.wire() : e.getCode().wire();
             return RefreshOutcome.errorCarrying(fp, carriedStatus(e), carriedCode, e.getMessage(),
-                    e.getDetails(), e.accessToken(), e.refreshToken(), minted);
+                    e.getDetails(), e.accessToken(), e.refreshToken(), minted).withRetryAfter(retryAfterSeconds(e));
         } catch (RealmException e) {
             return RefreshOutcome.error(fp, relayStatus(e),
-                    e.getCode().wire(), e.getMessage(), e.getDetails());
+                    e.getCode().wire(), e.getMessage(), e.getDetails()).withRetryAfter(retryAfterSeconds(e));
         } catch (RuntimeException e) {
             // ProductRolesException / ScopesException are deliberately NOT
             // RealmExceptions, so they surface as a server_error.
@@ -588,6 +590,7 @@ public class RealmFilter implements Filter {
     }
 
     private void respond(HttpServletResponse res, RefreshOutcome o) throws IOException {
+        if (!o.ok() && o.retryAfterSeconds() > 0) res.setHeader("Retry-After", Long.toString(o.retryAfterSeconds()));
         if (o.carriesSession()) {
             // SPEC4_2_rotate_handover rule 5: answer the error AND hand over the rotated token,
             // exactly as the step 4a 503 retry does (cookie, or refresh_token in the body).
@@ -690,6 +693,7 @@ public class RealmFilter implements Filter {
                 }
                 Throwable cause = e.getCause();
                 if (cause instanceof RealmException re) {
+                    relayRetryAfter(res, re);
                     sendError(res, relayStatus(re), re.getCode().wire(), re.getMessage(),
                             extra != null ? extra : re.getDetails());
                     return;
@@ -711,6 +715,7 @@ public class RealmFilter implements Filter {
             deliverRefresh(res, out, s.refreshToken());
             sendJson(res, 200, out);
         } catch (RealmException e) {
+            relayRetryAfter(res, e);
             sendError(res, relayStatus(e),
                     e.getCode().wire(), e.getMessage(), e.getDetails());
         } finally {
@@ -891,6 +896,15 @@ public class RealmFilter implements Filter {
     private static int relayStatus(RealmException e) {
         if (e.getCode() == ErrorCode.ESCORT_SUSPENDED) return 503;
         return e.getHttpStatus() > 0 ? e.getHttpStatus() : 500;
+    }
+
+    private static long retryAfterSeconds(RealmException e) {
+        return e.getRetryAfter().map(java.time.Duration::toSeconds).orElse(0L);
+    }
+
+    /** The issuer's {@code Retry-After} (whole seconds) goes to the browser; an error with none produces no header. */
+    private static void relayRetryAfter(HttpServletResponse res, RealmException e) {
+        e.getRetryAfter().ifPresent(d -> res.setHeader("Retry-After", Long.toString(d.toSeconds())));
     }
 
     private void sendError(HttpServletResponse res, int status, String code, String msg, Map<String, Object> sib) throws IOException {

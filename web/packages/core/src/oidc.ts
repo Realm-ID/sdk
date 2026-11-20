@@ -42,10 +42,33 @@ export const OIDC_STORAGE_KEY = "realmid:oidc:pending";
 export interface PendingOidc {
   verifier: string;
   state: string;
+  nonce: string;
   type: string;
   clientId: string;
   redirectUri: string;
   tenantId?: string;
+}
+
+/**
+ * Whether `idToken`'s `nonce` claim equals `expected`. The signature is not
+ * checked here (the issuer verifies it at login); this only binds the token to
+ * the authorize request that started this sign-in. An empty `expected`, a
+ * missing claim or an undecodable token all answer false.
+ */
+export function idTokenNonceMatches(idToken: string, expected: string): boolean {
+  if (!expected) return false;
+  const part = idToken.split(".")[1];
+  if (!part) return false;
+  try {
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = new TextDecoder().decode(
+      Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "=")), (c) => c.charCodeAt(0)),
+    );
+    const claims = JSON.parse(json) as { nonce?: unknown };
+    return typeof claims.nonce === "string" && claims.nonce === expected;
+  } catch {
+    return false;
+  }
 }
 
 function base64url(buf: ArrayBuffer | Uint8Array): string {
@@ -94,6 +117,7 @@ export async function buildAuthorizeUrl(args: {
   const pending: PendingOidc = {
     verifier,
     state,
+    nonce,
     type: args.type,
     clientId: args.clientId,
     redirectUri: args.redirectUri,

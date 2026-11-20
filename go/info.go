@@ -2,6 +2,7 @@ package realmid
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -21,6 +22,11 @@ type RealmInfo struct {
 	OriginEnforcement string         `json:"origin_enforcement,omitempty"`
 	Extra             map[string]any `json:"-"`
 }
+
+// errNoAudience: the realm's row carries no audience. A realm always has one
+// and it is never derived from the routing domain, so this is a failed
+// discovery.
+var errNoAudience = errors.New("realm discovery: the realm row has no audience")
 
 // infoRetryWindow is the minimum gap between two FAILED discovery attempts.
 const infoRetryWindow = 30 * time.Second
@@ -86,7 +92,11 @@ func (c *infoClient) discover(ctx context.Context) (*RealmInfo, error) {
 	}, &raw); err != nil {
 		return nil, err
 	}
-	return findRealmIn(raw, c.realm.realmID), nil
+	found := findRealmIn(raw, c.realm.realmID)
+	if found != nil && found.Audience == "" {
+		return nil, errNoAudience
+	}
+	return found, nil
 }
 
 // invalidate clears the cached info and any failure memory; useful after a
@@ -105,10 +115,7 @@ func findRealmIn(node any, realmID string) *RealmInfo {
 	case map[string]any:
 		if id, ok := v["id"].(string); ok && id == realmID {
 			aud, _ := v["audience"].(string)
-			if aud == "" {
-				aud, _ = v["domain"].(string)
-			}
-			if aud != "" || hasAnyDomainHint(v) {
+			if hasAnyDomainHint(v) {
 				ri := &RealmInfo{ID: id, Audience: aud}
 				if d, ok := v["domain"].(string); ok {
 					ri.Domain = d
@@ -138,11 +145,7 @@ func findRealmIn(node any, realmID string) *RealmInfo {
 }
 
 func hasAnyDomainHint(m map[string]any) bool {
-	if _, ok := m["audience"].(string); ok {
-		return true
-	}
-	if _, ok := m["domain"].(string); ok {
-		return true
-	}
-	return false
+	_, hasAud := m["audience"]
+	_, hasDomain := m["domain"]
+	return hasAud || hasDomain
 }

@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -492,7 +493,10 @@ func (r *Realm) buildMiddleware(opts MiddlewareOptions) func(http.Handler) http.
 				if re.HTTPStatus == 0 {
 					re.HTTPStatus = 401
 				}
-				r.respondAuthFail(w, req, &opts, stageVerify, re)
+				// Verification's own key fetch is not a call made for this request: no Retry-After.
+				shown := *re
+				shown.RetryAfter = 0
+				r.respondAuthFail(w, req, &opts, stageVerify, &shown)
 				return
 			}
 
@@ -838,7 +842,16 @@ func (r *Realm) respondAuthFail(w http.ResponseWriter, req *http.Request, opts *
 			body[k] = v
 		}
 	}
+	relayRetryAfter(w, err)
 	writeJSON(w, status, body)
+}
+
+// relayRetryAfter sends the issuer's Retry-After (RealmError.RetryAfter, whole seconds) to the
+// browser; an error with none produces no header.
+func relayRetryAfter(w http.ResponseWriter, err *RealmError) {
+	if err.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(err.RetryAfter.Seconds())))
+	}
 }
 
 // enforceOrigin runs the confused-deputy Origin guard when policy is active
@@ -948,6 +961,7 @@ func writeRealmError(w http.ResponseWriter, err *RealmError) {
 		}
 		body[k] = v
 	}
+	relayRetryAfter(w, err)
 	writeJSON(w, status, body)
 }
 
@@ -1239,10 +1253,18 @@ func globToRegex(pat string) *regexp.Regexp {
 		// Detect `/**` so the leading slash is optional too. A `/` that
 		// follows is KEPT, so `/a/**/b` stays segment-bounded (never `/ab`).
 		if c == '/' && i+2 < len(pat) && pat[i+1] == '*' && pat[i+2] == '*' {
-			sb.WriteString("(?:/.*)?")
 			i += 3
+			if i >= len(pat) || pat[i] == '/' {
+				sb.WriteString("(?:/.*)?")
+			} else {
+				// `**` shares its segment with a literal: the `/` stays.
+				sb.WriteString("/.*")
+			}
 		} else if c == '*' && i+1 < len(pat) && pat[i+1] == '*' {
-			if i+2 < len(pat) && pat[i+2] == '/' {
+			if i+2 < len(pat) && pat[i+2] == '/' && (i == 0 || pat[i-1] == '/') {
+				// A whole-segment `**/`: zero or more segments. A `**` that
+				// shares its segment with a literal (`x**/b`) falls through to
+				// `.*` and the `/` written after it stays.
 				sb.WriteString("(?:.*/)?")
 				i += 3
 			} else {

@@ -76,3 +76,9 @@ tenant-choice route would let the two concerns separate.
 
 The text of a partner's `customClaims` / `productRoles` / `scopes` handler error or `OnIdentityResolved` hook error reaches the browser as `error.message` of the middleware's `server_error` body (e.g. "...failed after 3 attempts for tenant t1: handler down"). Pre-existing in go, ts and java. SPEC `SPEC4_2_rotate_handover` rule 2 redacts the TOKEN only and §10.2 rule 3 is about partner logs; the spec is silent on the SPA body. Owner ruling needed: send a generic message for a `server_error` built from a partner error and keep the full text in the log only? Not decided by the dispatcher.
 
+## Should a verifier serve the expired JWKS set when its refetch fails? (filed 2026-11-20, parked, not yet decided)
+
+When a realm's cached key set passes its TTL (10 minutes by default; ts and java let the partner set it, go's is fixed), the next verify refetches it. If that fetch fails (the issuer is briefly unreachable), the verifier today returns `jwks_fetch_failed` and every token in that realm is refused (401 through the middlewares) until a fetch succeeds. It does NOT fall back to the expired set. Current behaviour: no fallback, in go, ts and java.
+
+The trade-off, in plain words. Serving the expired set would keep signed-in users working through a short issuer blip (availability). But a key the issuer has rotated out would stay accepted until a refetch succeeds, so a leaked or retired key keeps working for as long as the blip lasts (security). Parked: not yet decided, and no code change is planned until it is.
+

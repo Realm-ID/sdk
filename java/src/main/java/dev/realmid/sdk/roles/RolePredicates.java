@@ -241,7 +241,7 @@ public final class RolePredicates {
         List<String> perms = role.permissions();
         if (perms != null) {
             for (String p : perms) {
-                if (p != null && HUMAN_ONLY_PERMISSIONS.contains(p.trim())) {
+                if (p != null && HUMAN_ONLY_PERMISSIONS.contains(p)) {
                     return false;
                 }
             }

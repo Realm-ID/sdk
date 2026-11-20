@@ -41,10 +41,13 @@ type storedErr struct {
 	Message string         `json:"message"`
 	Status  int            `json:"status"`
 	Details map[string]any `json:"details,omitempty"`
+	// RetryAfterSeconds is the issuer's Retry-After, relayed to every caller that adopts the outcome.
+	RetryAfterSeconds int `json:"retry_after,omitempty"`
 }
 
 func (s *storedErr) realmError() *RealmError {
-	return &RealmError{Code: ErrorCode(s.Code), Message: s.Message, HTTPStatus: s.Status, Details: s.Details}
+	return &RealmError{Code: ErrorCode(s.Code), Message: s.Message, HTTPStatus: s.Status, Details: s.Details,
+		RetryAfter: time.Duration(s.RetryAfterSeconds) * time.Second}
 }
 
 // refreshFingerprint is tenant_id alone (SPEC10_1_4a_fingerprint): a request
@@ -197,7 +200,8 @@ func (r *Realm) mintRefresh(req *http.Request, candidates []string, tenantID str
 }
 
 func toStoredErr(e *RealmError) *storedErr {
-	return &storedErr{Code: string(e.Code), Message: e.Message, Status: e.HTTPStatus, Details: e.Details}
+	return &storedErr{Code: string(e.Code), Message: e.Message, Status: e.HTTPStatus, Details: e.Details,
+		RetryAfterSeconds: int(e.RetryAfter / time.Second)}
 }
 
 func (r *Realm) handleRefresh(w http.ResponseWriter, req *http.Request, opts *MiddlewareOptions) {

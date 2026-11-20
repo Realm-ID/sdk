@@ -11,6 +11,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *                        {@link #joinedViaKind()} for the forward-compatible enum.
  * @param joinedViaDomain the verified domain whose SSO grant provisioned the
  *                        row; only present when {@code joinedVia} is {@code sso_domain}.
+ * @param kind            {@code human} or {@code service}; list items only, null when absent.
+ * @param verifiedEmailState {@code verified}, {@code unverified} or {@code unverified_required};
+ *                        list items only. Null means "not stated", never "unverified".
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record User(
@@ -22,12 +25,20 @@ public record User(
         @JsonProperty("mfa_enabled") @JsonAlias("mfaEnabled") Boolean mfaEnabled,
         String role,
         @JsonProperty("joined_via") String joinedVia,
-        @JsonProperty("joined_via_domain") String joinedViaDomain
+        @JsonProperty("joined_via_domain") String joinedViaDomain,
+        String kind,
+        @JsonProperty("verified_email_state") String verifiedEmailState
 ) {
+    /** The shape before {@code kind} and {@code verifiedEmailState}, kept so existing callers still compile. */
+    public User(String id, String email, String phone, String displayName, String status,
+                Boolean mfaEnabled, String role, String joinedVia, String joinedViaDomain) {
+        this(id, email, phone, displayName, status, mfaEnabled, role, joinedVia, joinedViaDomain, null, null);
+    }
+
     /** Pre-0.51 shape, kept so existing callers still compile. */
     public User(String id, String email, String phone, String displayName, String status,
                 Boolean mfaEnabled, String role) {
-        this(id, email, phone, displayName, status, mfaEnabled, role, null, null);
+        this(id, email, phone, displayName, status, mfaEnabled, role, null, null, null, null);
     }
 
     /** {@link #joinedVia()} as an enum; unknown or absent values are {@link JoinedVia#UNKNOWN}. */

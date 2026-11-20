@@ -267,6 +267,13 @@ export function validateScopePolicy(policy: ScopePolicy): ScopeConfigError[] {
         message: "rule lists no scopes and is not public; mark it public or give it a scope",
       });
     }
+    if (path) {
+      try {
+        canonicalMatch(path, "scope", "/");
+      } catch (e) {
+        errs.push({ index, path, message: e instanceof Error ? e.message : String(e) });
+      }
+    }
     for (const s of scopes) {
       if (!isRfc6749ScopeToken(s)) {
         errs.push({

@@ -184,7 +184,7 @@ test("verify: unknown kid triggers refetch", async () => {
     return new Response(JSON.stringify({ keys }), { status: 200 });
   }) as typeof fetch;
 
-  const now = new Date("2026-04-01T00:00:00Z");
+  let now = new Date("2026-04-01T00:00:00Z");
   const v = new Verifier({ realmId: REALM_ID, baseUrl: BASE_URL, audience: AUD, fetch, now: () => now });
 
   const tokOld = await a.signToken({
@@ -194,6 +194,7 @@ test("verify: unknown kid triggers refetch", async () => {
   await v.verify(tokOld);
   assert.equal(call, 1);
 
+  now = new Date(now.getTime() + 5000); // an unknown kid refetches once the 5s window has passed
   const tokNew = await b.signToken({
     iss: `${BASE_URL}/${REALM_ID}`, sub: "u", aud: AUD,
     exp: Math.floor(now.getTime() / 1000) + 900,

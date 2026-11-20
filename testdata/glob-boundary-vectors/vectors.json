@@ -1,7 +1,7 @@
 {
   "spec": "sdk/SPEC.md §10.2 (path syntax, the boundary table) and §11.4.1 (SPEC11_4_1_canon)",
   "version": 1,
-  "matcher_case_count": 25,
+  "matcher_case_count": 33,
   "notes": [
     "matcher: canonicalMatch(pattern, kind, path) -> bool, the same function and argument order as testdata/path-match-vectors. Every SDK MUST give exactly 'match'; there are no per-language columns.",
     "The rule under test: a '**' never drops a '/' written in the pattern. A '**' that fills a whole segment stands for zero or more whole segments; a '**' that shares its segment with a literal matches any run of characters, '/' included, and the '/' before it stays.",
@@ -33,6 +33,14 @@
     {"id": "gb22", "kind": "mfa",    "pattern": "**/health",        "path": "/api/nothealth",     "match": false, "why": "same answer for every kind"},
     {"id": "gb23", "kind": "scope",  "pattern": "/a/**b",           "path": "/ab",                "match": false, "why": "same answer for every kind"},
     {"id": "gb24", "kind": "exempt", "pattern": "/a/**/b",          "path": "/ab",                "match": false, "why": "control: the whole-segment rule"},
-    {"id": "gb25", "kind": "exempt", "pattern": "/x/**",            "path": "/xy",                "match": false, "why": "control: a trailing /** keeps its boundary"}
+    {"id": "gb25", "kind": "exempt", "pattern": "/x/**",            "path": "/xy",                "match": false, "why": "control: a trailing /** keeps its boundary"},
+    {"id": "gb26", "kind": "exempt", "pattern": "/a/x**/b",       "path": "/a/xfoob",           "match": false, "why": "the / after a shared-segment ** stays"},
+    {"id": "gb27", "kind": "exempt", "pattern": "/a/x**/b",       "path": "/a/xb",              "match": false, "why": "the / written after ** is not optional when ** shares its segment"},
+    {"id": "gb28", "kind": "exempt", "pattern": "/a/x**/b",       "path": "/a/xfoo/b",          "match": true,  "why": "** in a shared segment crosses '/'"},
+    {"id": "gb29", "kind": "exempt", "pattern": "/a/x**/b",       "path": "/a/x/b",             "match": true,  "why": "** matches the empty run"},
+    {"id": "gb30", "kind": "exempt", "pattern": "/a/**/**/b",     "path": "/a/xb",              "match": false, "why": "two whole-segment ** keep both slashes"},
+    {"id": "gb31", "kind": "exempt", "pattern": "/a/**/**/b",     "path": "/a/b",               "match": true,  "why": "both ** match zero segments"},
+    {"id": "gb32", "kind": "exempt", "pattern": "/a/**/**/b",     "path": "/a/x/b",             "match": true,  "why": "one segment"},
+    {"id": "gb33", "kind": "exempt", "pattern": "/a/**/**/b",     "path": "/a/x/y/b",           "match": true,  "why": "several segments"}
   ]
 }

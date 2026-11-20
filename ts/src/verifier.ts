@@ -2,7 +2,8 @@
  * Verifier: parses a Realm-ID-issued JWT, resolves kid -> public key from the
  * realm's JWKS, validates the RSA signature, and checks issuer/audience/exp.
  *
- * SPEC §5: only JWKS are cached (10 min TTL, unknown-kid forces refetch).
+ * SPEC §2 lists what is cached (the JWKS: 10 min TTL, unknown-kid forces a
+ * bounded refetch; other caches are described where their feature is).
  * Audience can be auto-discovered (realm metadata) when not pinned in config.
  */
 
@@ -70,6 +71,9 @@ interface CachedKeys {
   fetchedAt: number;
 }
 
+/** Shortest gap between two JWKS fetches that an unknown kid may trigger. */
+const UNKNOWN_KID_REFETCH_MS = 5000;
+
 export class Verifier {
   private readonly baseUrl: string;
   private readonly issuerUrl: string;
@@ -81,6 +85,8 @@ export class Verifier {
   private readonly leewaySeconds: number;
   private readonly now: () => Date;
   private readonly cache = new Map<string, CachedKeys>();
+  private readonly attempts = new Map<string, { at: number; err?: unknown }>();
+  private readonly inflight = new Map<string, Promise<Map<string, CryptoKey>>>();
   private readonly audCache = new Map<string, string>();
   private readonly logger: Logger;
   private readonly revocation?: import("./revocation.js").RevocationCache;
@@ -264,12 +270,40 @@ export class Verifier {
     if (this.keyResolver) return this.keyResolver(realmId, kid);
     const cached = this.cache.get(realmId);
     const now = this.now().getTime();
-    if (cached && cached.keys.has(kid) && now - cached.fetchedAt < this.cacheTtlMs) {
-      return cached.keys.get(kid)!;
+    if (cached && now - cached.fetchedAt < this.cacheTtlMs) {
+      const hit = cached.keys.get(kid);
+      if (hit) return hit;
     }
 
-    const keys = await this.fetchJwks(realmId);
-    this.cache.set(realmId, { keys, fetchedAt: now });
+    // The window gates only the refetch a kid missing from a still-fresh set triggers: inside it
+    // the caller gets the last answer with no new outbound call. A refetch because the set
+    // expired, or none was ever fetched, is never refused by it.
+    let flight = this.inflight.get(realmId);
+    const last = this.attempts.get(realmId);
+    const setFresh = cached !== undefined && now - cached.fetchedAt < this.cacheTtlMs;
+    if (!flight && setFresh && last && now - last.at < UNKNOWN_KID_REFETCH_MS) {
+      if (last.err) throw last.err;
+      throw rerr("unknown_kid", `kid ${kid} not in JWKS`);
+    }
+
+    // Single flight: callers that miss the cache share one fetch.
+    if (!flight) {
+      flight = this.fetchJwks(realmId)
+        .then(
+          (fetched) => {
+            this.cache.set(realmId, { keys: fetched, fetchedAt: now });
+            this.attempts.set(realmId, { at: now });
+            return fetched;
+          },
+          (err: unknown) => {
+            this.attempts.set(realmId, { at: now, err });
+            throw err;
+          },
+        )
+        .finally(() => this.inflight.delete(realmId));
+      this.inflight.set(realmId, flight);
+    }
+    const keys = await flight;
     const key = keys.get(kid);
     if (!key) throw rerr("unknown_kid", `kid ${kid} not in JWKS`);
     return key;
@@ -290,18 +324,42 @@ export class Verifier {
     if (!resp.ok) {
       throw rerr("jwks_fetch_failed", `jwks fetch returned ${resp.status}`);
     }
-    const doc = (await resp.json()) as { keys: JWK[] };
+    // Any failure past the status check is the same error as a failed fetch, and one bad key
+    // fails the whole set (as in go and java).
+    const bad = (what: string, cause: unknown) =>
+      new RealmError({ code: "jwks_fetch_failed", message: `${what}: ${(cause as Error)?.message ?? cause}`, cause });
+    let doc: { keys?: JWK[] } | null;
+    try {
+      doc = (await resp.json()) as { keys?: JWK[] } | null;
+    } catch (e) {
+      throw bad("decode jwks", e);
+    }
+    // A top-level value that is not an object (`[]`, `"x"`, `5`) cannot be a key set; `null` is an absent `keys`.
+    if (doc !== null && (typeof doc !== "object" || Array.isArray(doc))) {
+      throw rerr("jwks_fetch_failed", "decode jwks: top-level value is not an object");
+    }
+    const keys = doc?.keys ?? [];
+    if (!Array.isArray(keys)) throw rerr("jwks_fetch_failed", "decode jwks: keys is not a list");
     const out = new Map<string, CryptoKey>();
-    for (const jwk of doc.keys ?? []) {
-      if (jwk.kty !== "RSA") continue;
-      const key = await globalThis.crypto.subtle.importKey(
-        "jwk",
-        { ...jwk, alg: "RS256", ext: true },
-        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-        false,
-        ["verify"],
-      );
-      out.set(jwk.kid, key);
+    for (const jwk of keys) {
+      if (jwk?.kty !== "RSA" || typeof jwk.kid !== "string" || jwk.kid === "") continue;
+      // The runtime's importer accepts an empty or non-base64url member; an unusable key fails the set.
+      const b64u = /^[A-Za-z0-9_-]+$/;
+      if (typeof jwk.n !== "string" || typeof jwk.e !== "string" || !b64u.test(jwk.n) || !b64u.test(jwk.e)) {
+        throw rerr("jwks_fetch_failed", `unusable key material for kid ${jwk.kid}`);
+      }
+      try {
+        const key = await globalThis.crypto.subtle.importKey(
+          "jwk",
+          { ...jwk, alg: "RS256", ext: true },
+          { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+          false,
+          ["verify"],
+        );
+        out.set(jwk.kid, key);
+      } catch (e) {
+        throw bad(`decode key ${jwk.kid}`, e);
+      }
     }
     return out;
   }
@@ -320,7 +378,8 @@ export function createVerifier(cfg: VerifierConfig): Verifier {
 // ---- helpers ----
 
 function rerr(code: ErrorCode, message: string): RealmError {
-  return new RealmError({ code, message });
+  // A malformed token is a 401, set on the error itself.
+  return new RealmError({ code, message, httpStatus: code === "malformed" ? 401 : undefined });
 }
 
 interface JWK {
@@ -360,6 +419,10 @@ function parseToken(token: string) {
     throw rerr("malformed", `could not parse: ${(e as Error).message}`);
   }
 
+  // JSON `null`, an array or a scalar parses without error but is not a header object.
+  if (typeof header !== "object" || header === null || Array.isArray(header)) {
+    throw rerr("malformed", "header is not a JSON object");
+  }
   if (!header.kid) {
     throw rerr("malformed", "kid missing from header");
   }

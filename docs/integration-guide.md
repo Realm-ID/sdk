@@ -377,7 +377,7 @@ What the middleware does:
 
 1. Pulls the bearer token from `Authorization: Bearer …`.
 2. Verifies signature against the realm's JWKS (cached 10 min,
-   unknown-kid forces refetch).
+   unknown-kid forces a bounded refetch; SPEC §2).
 3. Verifies `iss`, `aud`, `exp`, `nbf`.
 4. Mounts the four proxy routes the SPA will call: `POST /login`,
    `/token`, `/logout`, `/mfa/verify` (defaults — override with

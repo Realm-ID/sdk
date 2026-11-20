@@ -160,6 +160,9 @@ in the same repo.
 
 - [ ] **ts: the direct-call lock bound does not cancel the issuer call (critic, 2026-10-16).** `HttpClient` takes no `AbortSignal`, so at the 10s bound the per-session lock is released while the issuer call may still be in flight; Go cancels it. A rotation that lands late is still stored, but a waiter can mint on the old token in that window. Thread an `AbortSignal` through `ts/src/http.ts` and the lock path.
 - [ ] **go/ts/java: the `token\0` outcome fingerprint can collide with a crafted middleware refresh (critic, 2026-10-16).** A middleware refresh with `tenant_id:"token"` and matching `custom_claims` produces the same fingerprint string; self-session only, ends in a 500 (`ts/src/middleware.ts` `o.mint!`). Prefix the two namespaces so they cannot meet.
+- [ ] **ts JWKS fetch has no timeout:** a hung JWKS endpoint holds every ts verify waiting on the shared fetch (SPEC §2 states it); decide a bound (go caps 30 s, java 5 s) — `ts/src/verifier.ts`.
+- [ ] **java `AuthClient.tokenLocked` stores refresh outcomes without `Retry-After`,** so the SDK token API (not the middleware route) drops it — `java/src/main/java/dev/realmid/sdk/auth/AuthClient.java`.
+- [ ] **ts/java: no test pins that the SDK's own JWKS fetch failure does not relay `Retry-After`** (go has one) — `ts/test`, `java/src/test`.
 
 
 - [ ] **`web-admin`'s browser transport keeps a SEPARATE, much smaller error
@@ -211,6 +214,8 @@ in the same repo.
       ABSENCE of a per-role MFA floor are asserted by unit tests, so they would
       not go red if the ISSUER changed its mind. `sdk/java`'s gate does parse
       those from the Go source; ts should match. *(Filed 2026-08-30 from W1b.)*
+- `sdk/java/src/main/java/dev/realmid/sdk/Realm.java:162` pass the realm's `clock` to `new RealmInfoClient(http, realmId, true, clock)` so the 30 s discovery retry window follows the injected clock.
+- ts verifier option is `cacheTtlMs` but SPEC §1 says `cacheTtl` generically — align the SPEC wording (sdk/SPEC.md §1)
 
 ## Web packages (`@realm-id/web*`)
 

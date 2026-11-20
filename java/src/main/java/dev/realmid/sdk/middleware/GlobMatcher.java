@@ -102,6 +102,11 @@ public final class GlobMatcher {
         if (placeholders && validateBraces(pat) != null) return NEVER;
         StringBuilder re = new StringBuilder("^");
         int i = 0;
+        // A leading `**/` reads as `/**/`: zero or more whole segments, the boundary stays.
+        if (pat.startsWith("**/")) {
+            re.append("(?:/.*)?/");
+            i = 3;
+        }
         while (i < pat.length()) {
             char c = pat.charAt(i);
             if (c == '/' && pat.startsWith("**", i + 1)) {
@@ -115,9 +120,15 @@ public final class GlobMatcher {
                     re.append("/.*");
                 }
             } else if (c == '*' && i + 1 < pat.length() && pat.charAt(i + 1) == '*') {
-                re.append(".*");
-                i += 2;
-                if (i < pat.length() && pat.charAt(i) == '/') i++;
+                if (i + 2 < pat.length() && pat.charAt(i + 2) == '/' && i > 0 && pat.charAt(i - 1) == '/') {
+                    // A whole-segment `**/` (after `/**/`): zero or more segments.
+                    re.append("(?:.*/)?");
+                    i += 3;
+                } else {
+                    // `**` shares its segment with a literal: the `/` written after it stays.
+                    re.append(".*");
+                    i += 2;
+                }
             } else if (c == '*') {
                 re.append("[^/]*");
                 i++;

@@ -127,7 +127,21 @@ type User struct {
 	// JoinedViaDomain is the verified domain whose SSO grant provisioned the
 	// row; present only when JoinedVia is JoinedViaSSODomain.
 	JoinedViaDomain string `json:"joined_via_domain,omitempty"`
+	// Kind is PrincipalHuman or PrincipalService; sent on list items only,
+	// empty from an issuer that predates it.
+	Kind string `json:"kind,omitempty"`
+	// VerifiedEmailState is one of the VerifiedEmailState* constants; sent on
+	// list items only. Empty means "not stated", never "unverified".
+	VerifiedEmailState string `json:"verified_email_state,omitempty"`
 }
+
+// The VerifiedEmailState values: a reset link can be sent, a temporary
+// password can be set, or neither works until the member verifies an email.
+const (
+	VerifiedEmailStateVerified           = "verified"
+	VerifiedEmailStateUnverified         = "unverified"
+	VerifiedEmailStateUnverifiedRequired = "unverified_required"
+)
 
 // JoinedVia is how a user's membership was created.
 type JoinedVia string
