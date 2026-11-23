@@ -303,6 +303,11 @@ export const realmidBffRequestAdapters: RequestAdapters = {
     if (canonical.method) body.method = canonical.method;
     return body;
   },
+  mfaRecovery: (canonical) => {
+    const body: Record<string, unknown> = { code: canonical.code };
+    if (canonical.challengeToken) body.mfa_challenge_token = canonical.challengeToken;
+    return body;
+  },
 };
 
 /** Default gates the reference BFF emits. Partners can extend or override per-realm. */
@@ -360,6 +365,7 @@ export const realmidBffEndpoints: Partial<Endpoints> = {
   token: "/token",
   switchTenant: "/switch-tenant",
   mfaVerify: "/auth/mfa/verify",
+  mfaRecovery: "/api/auth/mfa/recovery",
   logout: "/logout",
   me: "/me",
 };

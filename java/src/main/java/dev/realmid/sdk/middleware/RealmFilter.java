@@ -922,11 +922,6 @@ public class RealmFilter implements Filter {
         sendJson(res, status, body);
     }
 
-    /**
-     * SPEC11_4_1_ingress: an ingress route matches on the context-relative servlet path; for ONE
-     * release (java 0.62.0, removed in the next minor) the old full {@code getRequestURI()} form
-     * (query removed, no folding) also matches, with a deprecation warning once per route.
-     */
     /** SPEC 10.5 Origin guard: writes the refusal and returns true when the request must not proceed. */
     private boolean refuseOrigin(HttpServletRequest req, HttpServletResponse res) throws IOException {
         OriginEnforcement mode = cfg.originEnforcement;
@@ -963,31 +958,10 @@ public class RealmFilter implements Filter {
         return true;
     }
 
+    /** SPEC11_4_1_ingress: an ingress route matches the context-relative servlet path only. */
     private boolean ingressMatch(HttpServletRequest req, String path, String name, String configured) {
-        if (configured == null) return false;
-        if (path.equals(configured)) return true;
-        String uri = req.getRequestURI();
-        if (uri == null) return false;
-        int q = uri.indexOf('?');
-        if (q >= 0) uri = uri.substring(0, q);
-        if (!uri.equals(configured)) return false;
-        if (INGRESS_DEPRECATED.add(name)) {
-            var logger = cfg.realm.logger();
-            if (logger != null && logger.isLoggable(Level.WARNING)) {
-                logger.log(Level.WARNING, name + " '" + configured + "' matched the full request URI; use '"
-                        + path + "' (context-path relative); the full-URI form is removed in the next minor");
-            }
-        }
-        return true;
+        return configured != null && path.equals(configured);
     }
-
-    // SPEC11_4_1_ingress: routes that matched only through the old full-request-URI form (one release).
-    private static final java.util.Set<String> INGRESS_DEPRECATED =
-            java.util.concurrent.ConcurrentHashMap.newKeySet();
-
-    static java.util.Set<String> ingressDeprecationsForTest() { return INGRESS_DEPRECATED; }
-
-    static void resetIngressDeprecationsForTest() { INGRESS_DEPRECATED.clear(); }
 
     private void warnAuth(HttpServletRequest req, String msg) {
         var logger = cfg.realm.logger();

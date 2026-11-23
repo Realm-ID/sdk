@@ -244,6 +244,8 @@ export interface RequestAdapters {
   /** Body for POST /mfa/verify. SDK passes the canonical
    *  `{ challengeId?, challengeToken?, code, method? }`. */
   mfaVerify?: (canonical: { challengeId?: string; challengeToken?: string; code: string; method?: string }) => unknown;
+  /** Body for POST /mfa/recovery. SDK passes the canonical `{ challengeToken?, code }`. */
+  mfaRecovery?: (canonical: { challengeToken?: string; code: string }) => unknown;
 }
 
 /* -------------------------------------------------- gate layer */
@@ -332,6 +334,8 @@ export interface Endpoints {
   switchTenant: string | null;
   mfaChallenge: string;
   mfaVerify: string;
+  /** Recovery-code redeem (SPEC §4.3b). Opt-in on the backend: a 404 surfaces as a `RealmError`. */
+  mfaRecovery: string;
   logout: string;
   me: string;
   /** Device approval (SPEC §15.8; BFF-SPEC § Device approval). */
@@ -348,6 +352,7 @@ export const DEFAULT_ENDPOINTS: Endpoints = {
   switchTenant: "/switch-tenant",
   mfaChallenge: "/mfa/challenge",
   mfaVerify: "/mfa/verify",
+  mfaRecovery: "/mfa/recovery",
   logout: "/logout",
   me: "/me",
   deviceInspect: "/device/inspect",

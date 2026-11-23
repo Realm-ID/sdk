@@ -13,7 +13,21 @@ that affect every SDK at once are recorded under a shared heading.
 > **not** a resolvable module version. TS and Java are not subdirectory
 > Go modules, so their `ts-vX.Y.Z` / `java-vX.Y.Z` labels are fine as-is.
 
-## go `0.79.0` · ts · java (unreleased, no version bump yet) — bounded shared JWKS refetch, Retry-After relay, the refresh cookie is Secure by default (SPEC §2, §6.5, §10, §10.5) (UNRELEASED, 2026-11-17)
+## web-bff-realmid `0.9.0` · web-admin `0.30.0` — recovery-code adapter and route; `ContactVerification` masked fields (SPEC §4.3b) (2026-11-20)
+
+- **web-bff-realmid `0.9.0`:** the preset sends `{ mfa_challenge_token, code }` for `realm.mfa.recover(code)` and sets `Endpoints.mfaRecovery` to `/api/auth/mfa/recovery`.
+- **web-admin `0.30.0`:** `ContactVerification` carries the optional masked contact fields and `asserted_identity`; the entry point re-exports `AssertedIdentity`.
+
+## web `0.14.0` — `realm.mfa.recover(code)` and the OIDC nonce check (SPEC §4.3b) (2026-11-23)
+
+- **`realm.mfa.recover(code)` completes the pending MFA challenge with a single-use recovery code.** It resolves to the login response plus `reenrollRequired` (true on a successful redeem) and posts `{ challengeToken, code }` to `Endpoints.mfaRecovery` (default `/mfa/recovery`).
+- **`completeSignIn` accepts an `id_token` only when its nonce equals the one sent with the authorize request.** Otherwise it throws `RealmError` `oidc_state_mismatch` and clears the OIDC parameters from the URL.
+
+## web-admin `0.30.1` · web-react `0.6.1` · web-firebase `0.6.4` · web-google `0.6.4` — peer range accepts `@realm-id/web` 0.14 (2026-11-23)
+
+- The `@realm-id/web` peer range accepts 0.14 in all four packages. No source change.
+
+## go `0.79.0` · ts · java `0.63.0` (unreleased; `java/build.gradle.kts` still reads `0.62.0`, no ts bump yet) — bounded shared JWKS refetch, Retry-After relay, the refresh cookie is Secure by default (SPEC §2, §6.5, §10, §10.5) (UNRELEASED, 2026-11-17)
 
 Minor, because a default changes. Pending: no `go/v0.79.0` tag exists yet, and no `ts-v*` or `java-v*` release is cut for these items.
 
@@ -21,7 +35,14 @@ Minor, because a default changes. Pending: no `go/v0.79.0` tag exists yet, and n
 
 - **(go, ts, java; SPEC §2): the unknown-kid JWKS refetch is bounded and shared.** A kid missing from a still-fresh key set triggers at most one refetch per realm per 5 seconds; a refetch because the 10-minute set expired, or because none was ever fetched, is never refused by that window. In go and java concurrent verifies that need a fetch share ONE in-flight fetch and receive its outcome, success or failure; it is not bound to any caller's context (go: the configured HTTP client's timeout, capped at 30 seconds; java: a 5 second request timeout on its own thread), and a caller's own cancellation or interrupt returns to that caller only. Earlier versions refetched on every unknown kid.
 - **(go, ts, java; SPEC §10): the middleware relays the issuer's `Retry-After` header to the browser** on the responses it answers from an issuer refusal that carries it (login, MFA, refresh including a shared stored outcome), whatever status the browser is shown. The SDK's own JWKS fetch is not relayed. A refusal with no `Retry-After` produces none.
+- **(go, ts, java): `ContactVerification` carries the optional `contact_kind` (`email` | `phone` | `username`), `contact_value_masked`, `user_display_name`, `user_email_masked` and `asserted_identity` (`email_masked`, `phone_masked`, `display_name`)**, so an approver's list names the account and the address. Absent decodes to the zero value. The eight-argument Java `ContactVerification` constructor is kept.
+- **(go, ts, java; SPEC §4.0.1): the token exchange sends `platform_id`.** The platform-token manager adds the handle's `RealmID` to every token-exchange request, whichever credential source produced the assertion, so no new configuration is needed. A credential may name another platform: go `Credential.PlatformID`, ts `Credential.platformId`, java `Credential.ofWorkloadToken(subjectToken, platformId)`; empty or absent means the default. The `platform_api_key` grant does not send it. The three-argument Java `Credential` constructor is kept.
 - **(go, ts, java): `User.kind` (`human` | `service`) and `User.verified_email_state` (`verified` | `unverified` | `unverified_required`) are typed** on member list items. Absent decodes to the zero value (an older issuer, or a row that does not state it). The nine-argument Java `User` constructor is kept.
+- Docs: `docs/error-reference.md` gains `binding_requires_repository_ids` (401): a GitHub federation exchange that matched only a name-only binding after the realm stopped accepting them; re-create the binding with `repository_id` and `repository_owner_id`. No new typed error.
+
+**Breaking**
+
+- **(java `0.63.0`; SPEC §11.4.1): ingress routes match the context-relative servlet path only.** `loginPath`, `logoutPath`, `refreshPath`, `mfaVerifyPath` and `recoveryPath` written as the full request URI (`/app/auth/login` under context path `/app`) no longer match; configure `/auth/login`. `0.62.0` accepted that form with a warning.
 
 **Changed**
 

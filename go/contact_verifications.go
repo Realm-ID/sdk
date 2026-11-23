@@ -20,6 +20,27 @@ type ContactVerification struct {
 	State       string `json:"state"`
 	CreatedAt   int64  `json:"created_at"`
 	ExpiresAt   int64  `json:"expires_at,omitempty"`
+
+	// ContactKind is "email", "phone" or "username": the kind of the contact slot
+	// being taken up again. Empty when the issuer does not state it.
+	ContactKind string `json:"contact_kind,omitempty"`
+	// ContactValueMasked is the contact's value, masked (j***@example.com).
+	ContactValueMasked string `json:"contact_value_masked,omitempty"`
+	// UserDisplayName and UserEmailMasked name the account the slot belongs to;
+	// each is empty when the account has none.
+	UserDisplayName string `json:"user_display_name,omitempty"`
+	UserEmailMasked string `json:"user_email_masked,omitempty"`
+	// AssertedIdentity is what the identity provider asserted at the held
+	// sign-in; nil when not stated.
+	AssertedIdentity *AssertedIdentity `json:"asserted_identity,omitempty"`
+}
+
+// AssertedIdentity is the identity provider's assertion on a held sign-in.
+// Every field is optional and contact values are masked.
+type AssertedIdentity struct {
+	EmailMasked string `json:"email_masked,omitempty"`
+	PhoneMasked string `json:"phone_masked,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // ContactVerificationListOpts filters ContactVerificationsClient.List.

@@ -206,6 +206,13 @@ func (m *sessionManager) exchange(ctx ctxpkg.Context, cred Credential) (string, 
 		}
 		body["subject_token"] = cred.SubjectToken
 		body["subject_token_type"] = subjectTokenTypeJWT
+		platformID := cred.PlatformID
+		if platformID == "" {
+			platformID = m.realmID
+		}
+		if platformID != "" {
+			body["platform_id"] = platformID
+		}
 		redacted = redactCredential(cred.SubjectToken)
 	default:
 		return "", &RealmError{Code: ErrCodeBadRequest, Message: "unsupported credential grant_type: " + cred.GrantType}

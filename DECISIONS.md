@@ -10,8 +10,9 @@ Newest first.
 
 ## Index
 
-193 entries total — 138 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
+194 entries total — 139 here, 55 in [`DECISIONS-ARCHIVE.md`](DECISIONS-ARCHIVE.md). Newest first; archived entries link across to that file.
 
+- [2026-11-23 — Token exchange sends platform_id; masked ContactVerification fields; web 0.14.0 mfa.recover](#2026-11-23--token-exchange-sends-platform_id-masked-contactverification-fields-web-0140-mfarecover)
 - [2026-11-20 — Middlewares relay the issuer's Retry-After](#2026-11-20--middlewares-relay-the-issuers-retry-after)
 - [2026-11-20 — Verifier: concurrent callers share one in-flight JWKS fetch](#2026-11-20--verifier-concurrent-callers-share-one-in-flight-jwks-fetch)
 - [2026-11-20 — JWKS response shape: what is parsed, skipped and refused](#2026-11-20--jwks-response-shape-what-is-parsed-skipped-and-refused)
@@ -205,6 +206,14 @@ Newest first.
 - [2026-07-04 — Purge partner identifiers + private-repo references from the public SDK repo (working tree + history)](DECISIONS-ARCHIVE.md#2026-07-04--purge-partner-identifiers--private-repo-references-from-the-public-sdk-repo-working-tree--history)
 - [2026-07-01 — `restore()` must send the session bearer; tokenless sessions outlive the access-TTL (web/v0.4.4)](DECISIONS-ARCHIVE.md#2026-07-01--restore-must-send-the-session-bearer-tokenless-sessions-outlive-the-access-ttl-webv044)
 - [2026-06 — session-limit 412 gate: collect the issuer's nested-error siblings](DECISIONS-ARCHIVE.md#2026-06--session-limit-412-gate-collect-the-issuers-nested-error-siblings)
+
+## 2026-11-23 — Token exchange sends platform_id; masked ContactVerification fields; web 0.14.0 mfa.recover
+
+The token exchange sends `platform_id` (go, ts, java; SPEC 4.0.1). The default is the handle's `RealmID`, so a caller configures nothing; a credential may name another platform (go `Credential.PlatformID`, ts `Credential.platformId`, java `Credential.ofWorkloadToken(subjectToken, platformId)`). Why: the issuer scopes a federated binding lookup to one platform, so the exchange has to say which one. SPEC 4.0.1 lists the `platform_id` errors by target.
+
+`ContactVerification` carries the masked contact fields and `asserted_identity` (go, ts, java, web-admin; SPEC 6.9), so an approver can see who is asking without the raw address.
+
+`@realm-id/web` 0.14.0 adds `realm.mfa.recover(code)` (SPEC 4.3b): a pending MFA challenge is completed with a single-use recovery code and the result carries `reenrollRequired`. With nothing pending it throws `RealmError("mfa_failed", "no challenge pending")`, as SPEC 4.3b states; the status that error carries (0, which the SPEC does not state) is the open point in TODO.md. The web-admin, web-react, web-firebase and web-google peer range now accepts web 0.14 (version bumps only).
 
 ## 2026-11-20 — Middlewares relay the issuer's Retry-After
 

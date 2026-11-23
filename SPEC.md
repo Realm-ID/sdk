@@ -14,7 +14,7 @@
 > | **§4.2 claim fold** | Reserved claim names are compared by ASCII fold; custom-claim keys must be printable ASCII; `verify()` refuses a token with a non-ASCII top-level key or two keys that fold together. | **Yes** — a token carrying `Sub`, `Token_class`, `ſub` or a duplicate key that verified before is now `malformed`. The issuer from `v0.151.0` mints none. |
 > | **§11.4.1 canonical matcher** | `exemptPaths`, `mfaProtectedPaths` and `ScopeRule` paths match ASCII case-insensitively and ignore ONE trailing slash; java matches `getServletPath()+getPathInfo()` and answers `400 invalid_path` to a raw `%2F %5C %25 %2E` or dot segment; go answers `400 invalid_path` to a raw `%2F %5C %25`, a literal `\`, or a dot segment. | **Yes** — more requests are gated (`/Admin/x`, `/admin/x/`); in java, a context path no longer prefixes the matched path; in go and java, encoded separators (`%2F %5C %25`, plus `%2E` in java) and dot segments get `400`, and in go so does a literal `\`. |
 > | **§4.2 `SPEC4_2_carry_all`** (dispatcher decision 2026-11-14) | EVERY failure after the first mint rotated the refresh token (hook refusal, productRoles, scopes, customClaims, unreadable `sub`, a second mint refused with any status) surfaces as `RefreshHandedOverError` carrying the rotated session; on the middleware refresh route it answers `503` (or the issuer's own non-401 status and code), never `401`. | **Yes** — a hook refusal on the refresh route now answers `503` with the rotated token delivered (before: a bare error and no token in java, `401` in go); a refused second mint's `401` becomes `503`. |
-> | **§11.4.1 `SPEC11_4_1_ingress`** (java, dispatcher decision 2026-11-14) | `loginPath`/`logoutPath`/`refreshPath`/`mfaVerifyPath`/`recoveryPath` are compared on the servlet path; the old full-request-URI form still matches for one release with a deprecation warning. | **Yes, java under a context path** — `0.62.0` config written as the full URI keeps working, with a warning, until the next minor. |
+> | **§11.4.1 `SPEC11_4_1_ingress`** (java) | `loginPath`/`logoutPath`/`refreshPath`/`mfaVerifyPath`/`recoveryPath` are compared on the context-relative servlet path only; a configured full request URI does not match. | **Yes, java under a context path** — a path configured with the context prefix (`/app/auth/login`) is written `/auth/login`. |
 > | **§4.2 `SPEC4_2_carry_all` rule 4** (web, owner rulings 37 and 43, 2026-11-15/16; ships in web `0.13.1`, dispatcher decision 2026-11-16: no API change, so the five web packages' `^0.13.0` peer ranges stay valid) | `@realm-id/web` body mode keeps the newest refresh token carried by ANY `/token` error reply (a `503 retry`, a second `503`, or a `400`/`403`/`409` relayed under rule 2), presents it on the next refresh, and clears it on success. The token stays in the receiving tab's memory. | **Yes, as a fix** — a second `503`, or a relayed `400`/`403`/`409`, no longer leaves the next refresh re-presenting a spent token (reuse, session revoked). Cookie mode unchanged. |
 > | **§11.4.1 `SPEC11_4_1_ts_exports`** (ts) | `canonicalMatch` is exported; `globMatch` is `@deprecated`. | No — additive; `globMatch` stays exported. |
 >
@@ -834,6 +834,33 @@ The response shape is identical to the `platform_api_key` exchange —
 including ADR-089's absence of `refresh_token`. Steps 2 (user-session
 mint) and 3 (re-mint) are unchanged; a workload re-mints by exchanging a
 fresh assertion.
+
+**`platform_id` on the exchange (ADDED 2026-11-20, UNRELEASED).**
+The exchange body carries an optional `platform_id`: the id of the platform
+whose federation binding the workload authenticates against (the `{id}` the
+binding was created under). When it is sent, the issuer considers only that
+platform's bindings. A later issuer release makes it required, announced in
+advance, so every SDK sends it from the release that implements this
+paragraph:
+
+- **Default, zero-config.** The platform-token manager (§4.0) adds
+  `platform_id` = the handle's configured `RealmID` to every token-exchange
+  body it sends, whichever `CredentialSource` produced the assertion
+  (`GoogleWorkloadIdentity`, `GitHubActionsOIDC`, auto-detect or a custom
+  source). `RealmID` is already required, so no new configuration is needed.
+- **Override.** A `Credential` may carry its own platform id, which wins over
+  the default: Go `Credential.PlatformID string`; ts `Credential.platformId?:
+  string`; java `Credential.ofWorkloadToken(subjectToken, platformId)` beside
+  the existing one-argument form. Empty or absent means "use the default".
+- **`platform_api_key` grant.** Unchanged: `platform_id` is sent only with
+  the token-exchange grant.
+- **Errors.** A `platform_id` that names no platform, or a platform with no
+  matching binding, is the same `401` as no matching binding. On a
+  `service_account` or `platform_mgmt` target, whose exchange carries a
+  platform token, one that names another realm than that token is
+  `401 bff_bearer_realm_mismatch`; the default `platform` target reads no
+  platform token. Neither is retried, and a refused exchange has used up its
+  assertion: a later attempt fetches a fresh one.
 
 **`CredentialSource` (SDK).** The per-handle session manager's credential
 is generalized from a fixed API-key string to a `CredentialSource` that
@@ -2174,6 +2201,43 @@ security-relevant and applications alert on it, so a handler switching on
 `Flow` (`OnAuthSuccess`, `OnIdentityResolved`) must be able to tell it apart
 from an ordinary second factor. ts and java mirror the value (`recovery`
 lane).
+
+### 4.3b `@realm-id/web`: `realm.mfa.recover(code)` (ADDED 2026-11-20, UNRELEASED)
+
+The browser counterpart of §4.3a. A person who has lost their second factor
+completes a pending MFA challenge with one of their single-use recovery codes,
+from the browser, through the application's backend.
+
+- **Signature.** `realm.mfa.recover(code: string): Promise<LoginResponse & { reenrollRequired: boolean }>`,
+  beside `realm.mfa.verify`. It completes the challenge `realm.mfa.pending()`
+  holds; with none pending it throws `RealmError("mfa_failed", "no challenge pending")`,
+  exactly as `mfa.verify` does, and sends nothing.
+- **Request.** The canonical body is `{ challengeToken, code }`, taken from the
+  pending challenge and the argument. `RequestAdapters` gains
+  `mfaRecovery?: (canonical: { challengeToken?: string; code: string }) => unknown`;
+  with no adapter the canonical body is sent. The `@realm-id/web-bff-realmid`
+  adapter sends `{ mfa_challenge_token, code }`. The call goes through the same
+  transport and gates as `mfa.verify`, never through a generic proxy route.
+- **Endpoint.** `Endpoints` gains `mfaRecovery`. `DEFAULT_ENDPOINTS.mfaRecovery`
+  is `"/mfa/recovery"`, the path §10's middleware mounts when `recoveryPath` is
+  set (that route is opt-in; a backend that did not mount it answers `404`,
+  surfaced as a `RealmError`). `@realm-id/web-bff-realmid` sets it to the
+  reference backend's typed recovery route, `"/api/auth/mfa/recovery"`.
+- **Response.** On success the response is handled exactly like `mfa.verify`'s
+  (same login-response adaptation, same token and tenant handling, the
+  pending challenge cleared), and the result carries `reenrollRequired`, read
+  from the backend's `reenroll_required`. It is `true` on a successful redeem:
+  the code is spent and the old authenticator is cleared, so the application
+  should send the user to enroll a new second factor.
+- **Errors.** Mapped like `mfa.verify`: an invalid challenge or code is the
+  same error `mfa.verify` raises for a wrong code, and once the shared MFA
+  attempt counter trips the call fails like `mfa.verify` does on lockout
+  (`429 mfa_too_many_fails`, with its retry delay). A failed recovery attempt
+  counts toward that same lock. On failure the pending challenge is kept, so
+  the user may retry or fall back to `mfa.verify`.
+- **Not a primary credential.** A recovery code is accepted only together with
+  the challenge token the MFA gate minted for this sign-in; `recover` never
+  starts a sign-in.
 
 ### 4.4 `logout(req?)`
 
@@ -3760,7 +3824,12 @@ until a tenant admin approves it. ADR-042.
   `ContactVerification` rows: `{ id, contactId, userId, method,
   providerUid, state, createdAt, expiresAt? }`. `state` ∈
   `"pending" | "active" | "rejected" | "revoked"`; `expiresAt` is
-  present only while `pending`.
+  present only while `pending`. A row also carries the optional, masked
+  fields `contact_kind` (`email` | `phone` | `username`),
+  `contact_value_masked`, `user_display_name`, `user_email_masked` and
+  `asserted_identity` (`{ email_masked?, phone_masked?, display_name? }`);
+  each is absent from an issuer that predates it and decodes to the
+  language's zero value.
 - `approve(tenantId, verificationId)` — admit the login; the contact
   becomes verified/active. Returns `{ id, state: "active" }`. Already
   resolved, or the active slot is taken → `RealmError(conflict)` (409).
@@ -5653,30 +5722,19 @@ the languages differ.
   servlet path, never the raw `getRequestURI()`, so `;params`, percent-decoding
   and the context path cannot make the gate and the router disagree.
 - **`SPEC11_4_1_ingress` — Java compares the INGRESS routes on the same servlet
-  path (dispatcher decision 2026-11-14, owner may overrule; critic row 4).** The
-  middleware's own routes (`loginPath`, `logoutPath`, `refreshPath`,
+  path.** The middleware's own routes (`loginPath`, `logoutPath`, `refreshPath`,
   `mfaVerifyPath`, `recoveryPath`, §10.2) are compared in `RealmFilter` on
   `getServletPath() + (getPathInfo() ?? "")`, context-path relative, the path the
   gate rules above use, so the DEFAULTS (`/login`, `/token`, ...) work under a
-  context path. This was unspecified for the ingress routes (the table above and
-  the breaking table named only exempt, mfa and scope matching), and a java
-  `0.62.0` change moved them without saying so: a partner under context path
-  `/app` who had configured `loginPath="/app/auth/login"` (the only form that
-  matched before) would see login, refresh and logout fall through to the bearer
-  check and answer `401`. So, for ONE release (java `0.62.0`; removed in the next
-  minor): when the servlet-path comparison does not match, `RealmFilter` ALSO
-  accepts the old form, a `getRequestURI()` that equals the configured path
-  (query removed, no folding), and logs a deprecation warning ONCE per route per
-  process naming the configured value and the context-relative value to use.
-  The compat match changes nothing else: it is subject to the same `invalid_path`
-  refusal and the same rule ordering. *Example.* Context path `/app`, request
+  context path. A configured path is context-relative only: a configured value
+  that is the full `getRequestURI()` (context path included) does not match. The
+  comparison is subject to the same `invalid_path` refusal and the same rule
+  ordering as every other rule. *Example.* Context path `/app`, request
   `POST /app/auth/login`: the servlet path is `/auth/login`. A config of
   `loginPath="/auth/login"` matches. A config of `loginPath="/app/auth/login"`
-  also matches this release, with one warning "loginPath '/app/auth/login' matched
-  the full request URI; use '/auth/login' (context-path relative); the full-URI
-  form is removed in the next minor". Go and ts are unaffected (neither has a
-  context path). Java gets a context-path test (`getContextPath()` non-empty) and
-  a **Breaking** CHANGELOG line naming the ingress paths.
+  does not match, so the request falls through to the bearer check. Go and ts have
+  no context path and are unaffected. Java gets a context-path test
+  (`getContextPath()` non-empty).
 - **Go refuses, in the middleware and the `ScopePolicy` adapter, with the same
   `400 invalid_path` body, before any rule or exemption (owner rulings 9 and
   16, 2026-11-14):**

@@ -93,6 +93,7 @@ export type {
   UserListOpts,
   JoinedVia,
   VerifiedEmailState,
+  AssertedIdentity,
   DetachOptions,
   BulkStatusOutcome,
   BulkStatusResult,

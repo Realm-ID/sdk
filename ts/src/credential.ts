@@ -15,6 +15,8 @@ export interface Credential {
   apiKey?: string;
   /** Set for grant_type=token-exchange (a workload OIDC JWT). */
   subjectToken?: string;
+  /** Overrides the platform id sent with a token exchange; absent means the handle's realm id. */
+  platformId?: string;
 }
 
 export interface CredentialSource {

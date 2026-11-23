@@ -4,6 +4,10 @@ All notable changes to the Java SDK. Ships with a language-prefixed tag
 (`java-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records cross-cutting
 items affecting every SDK at once.
 
+## 0.63.0 — ingress routes match the context-relative servlet path only (SPEC §11.4.1) (UNRELEASED)
+
+**Changed (breaking).** `loginPath`, `logoutPath`, `refreshPath`, `mfaVerifyPath` and `recoveryPath` are compared with the context-relative servlet path only. Under context path `/app`, configure `/auth/login`; a value written as the full request URI (`/app/auth/login`) no longer matches.
+
 ## 0.62.0 — browsers can no longer supply custom claims, one canonical path matcher on the servlet path, every post-rotation failure carries the rotated token (SPEC §4.2, §10.1, §10.2, §11.4.1) (2026-11-14)
 
 Combined release with go `0.78.0` and ts `0.65.0` and issuer `v0.151.0`. The full entry, with the **Breaking** list, is in the root `../CHANGELOG.md`; the java-specific points:

@@ -597,7 +597,24 @@ export interface ContactVerification {
   state: string;
   created_at: number;
   expires_at?: number;
+  /** Kind of the contact slot being taken up again. */
+  contact_kind?: "email" | "phone" | "username";
+  /** The contact's value, masked (`j***@example.com`). */
+  contact_value_masked?: string;
+  /** Display name of the account the slot belongs to; absent when it has none. */
+  user_display_name?: string;
+  /** The account's email, masked; absent when it has none. */
+  user_email_masked?: string;
+  /** What the identity provider asserted at the held sign-in. Every field is optional and masked. */
+  asserted_identity?: AssertedIdentity;
   [k: string]: unknown;
+}
+
+/** The identity provider's assertion on a held sign-in (`ContactVerification.asserted_identity`). */
+export interface AssertedIdentity {
+  email_masked?: string;
+  phone_masked?: string;
+  display_name?: string;
 }
 
 export interface ContactVerificationResult {

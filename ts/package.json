@@ -26,7 +26,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --test --import tsx --test-reporter=spec src/*.test.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "dudect": "node --import tsx src/ctexp.dudect.ts",
     "prepublishOnly": "npm run build"
   },

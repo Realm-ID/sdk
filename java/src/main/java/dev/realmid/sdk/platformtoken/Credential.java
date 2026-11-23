@@ -5,7 +5,12 @@ package dev.realmid.sdk.platformtoken;
  * for a platform session (ADR-057). Exactly one of {@code apiKey} /
  * {@code subjectToken} is populated, selected by {@code grantType}.
  */
-public record Credential(String grantType, String apiKey, String subjectToken) {
+public record Credential(String grantType, String apiKey, String subjectToken, String platformId) {
+
+    /** A credential with no platform id override (the handle's realm id is used). */
+    public Credential(String grantType, String apiKey, String subjectToken) {
+        this(grantType, apiKey, subjectToken, null);
+    }
 
     /** Never prints a credential. */
     @Override
@@ -30,6 +35,15 @@ public record Credential(String grantType, String apiKey, String subjectToken) {
 
     /** Builds a token-exchange credential from a workload OIDC JWT. */
     public static Credential ofWorkloadToken(String subjectToken) {
-        return new Credential(GRANT_TOKEN_EXCHANGE, null, subjectToken);
+        return new Credential(GRANT_TOKEN_EXCHANGE, null, subjectToken, null);
+    }
+
+    /**
+     * Builds a token-exchange credential that names the platform whose
+     * federation binding the workload authenticates against. A null or empty
+     * {@code platformId} means the handle's realm id.
+     */
+    public static Credential ofWorkloadToken(String subjectToken, String platformId) {
+        return new Credential(GRANT_TOKEN_EXCHANGE, null, subjectToken, platformId);
     }
 }

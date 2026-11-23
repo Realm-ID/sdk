@@ -640,6 +640,27 @@ export class Realm {
       this.mfaPending = null;
       return this.handleLoginResponse(adapted);
     },
+    /**
+     * Completes the pending challenge with a single-use recovery code (SPEC §4.3b).
+     * Handled like `verify`; `reenrollRequired` is the backend's `reenroll_required`
+     * (true on a successful redeem unless the backend says otherwise). A failed
+     * attempt leaves the challenge pending.
+     */
+    recover: async (code: string): Promise<LoginResponse & { reenrollRequired: boolean }> => {
+      if (!this.mfaPending) throw new RealmError("mfa_failed", "no challenge pending");
+      const canonical = { challengeToken: this.mfaPending.challengeToken, code };
+      const wireBody = this.requestAdapters.mfaRecovery ? this.requestAdapters.mfaRecovery(canonical) : canonical;
+      const res = await this.transport.request<unknown>("POST", this.transport.endpoints.mfaRecovery, {
+        body: wireBody,
+        gates: this.gates,
+      });
+      const raw = (res.body ?? {}) as { reenroll_required?: unknown };
+      const reenrollRequired = raw.reenroll_required !== false;
+      const adapted = this.adaptLogin(res.body, res.status, res.headers);
+      this.mfaPending = null;
+      const out = await this.handleLoginResponse(adapted);
+      return { ...out, reenrollRequired };
+    },
   };
 
   /* -------------------------------------------------- fetch */

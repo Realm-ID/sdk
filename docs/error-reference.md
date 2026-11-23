@@ -396,6 +396,7 @@ Signing in with a workload's OIDC token, and managing trust bindings
 | `invalid_mapped_role` | [400] The role a binding maps to does not exist, is disabled, or cannot be held by a service principal (or the realm's role catalog cannot be resolved). | Map to an enabled role that service accounts may hold. |
 | `binding_exists` | [409] An active binding with these `match_claims` already exists. | Use the existing one, or revoke it first. |
 | `binding_not_found` | [404] No such binding. | Re-list the bindings. |
+| `binding_requires_repository_ids` | [401] A GitHub federation exchange matched only a binding that names the repository but not its `repository_id` and `repository_owner_id`, and the realm has stopped accepting such bindings. | Re-create the binding with both `repository_id` and `repository_owner_id`, then retry the exchange. |
 
 ## Platform-token and authorization codes
 

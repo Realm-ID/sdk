@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "declaration": false, "rootDir": "src", "types": ["node"] },
+  "include": ["src/**/*"],
+  "exclude": [
+    "**/*.dudect.ts", "dist", "node_modules",
+    "src/admin.test.ts", "src/auth-scope-mint.test.ts", "src/auth-sendlogin-email.test.ts",
+    "src/auth-sendlogin.test.ts", "src/auth.test.ts", "src/authority.test.ts",
+    "src/binding-sessions.test.ts", "src/custom-claims.test.ts", "src/derived-claims-lanes.test.ts",
+    "src/escort.test.ts", "src/identity-provider-config.test.ts", "src/integration.test.ts",
+    "src/issuer-url.test.ts", "src/me.test.ts", "src/messaging.test.ts",
+    "src/mfa-challenge-accessor.test.ts", "src/middleware-spec-rules.test.ts", "src/middleware.test.ts",
+    "src/otp.test.ts", "src/platform-token-manager.test.ts", "src/r9-contacts.test.ts",
+    "src/retry-after.test.ts", "src/role-templates.test.ts", "src/rolescope.test.ts",
+    "src/scope.test.ts", "src/token-manager.test.ts", "src/user-token.test.ts",
+    "src/v063-middleware.test.ts", "src/v063-units.test.ts", "src/verifier-jwks-failure.test.ts",
+    "src/verifier-jwks-shape.test.ts", "src/verifier-kid-refetch.test.ts", "src/verifier.test.ts"
+  ]
+}

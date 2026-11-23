@@ -16,6 +16,10 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
+## 0.9.0 — recovery-code adapter and route (SPEC §4.3b) (2026-11-20)
+
+**Added.** The preset sends `{ mfa_challenge_token, code }` for `realm.mfa.recover(code)` and sets `Endpoints.mfaRecovery` to the reference backend's typed route, `/api/auth/mfa/recovery`. The `@realm-id/web` peer range gains `^0.14.0`.
+
 ## 0.8.2 — peer range accepts @realm-id/web 0.13 (2026-11-03)
 
 The `@realm-id/web` peer range gains `^0.13.0`. No source change.

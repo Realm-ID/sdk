@@ -196,6 +196,8 @@ export class PlatformTokenManager {
       }
       payload["subject_token"] = cred.subjectToken;
       payload["subject_token_type"] = SUBJECT_TOKEN_TYPE_JWT;
+      const platformId = cred.platformId || this.opts.realmId;
+      if (platformId) payload["platform_id"] = platformId;
       redacted = redactCredential(cred.subjectToken);
     } else {
       throw new RealmError({

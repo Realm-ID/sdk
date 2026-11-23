@@ -14,7 +14,11 @@ records cross-cutting items affecting every SDK at once.
 > A release can no longer skip this file: `scripts/changelog-hygiene.sh npm`
 > refuses to publish a version with no `## <version>` heading below.
 
-## Unreleased — `completeSignIn` refuses an `id_token` whose nonce differs from the one sent (2026-11-19)
+## 0.14.0 — `realm.mfa.recover(code)` (SPEC §4.3b) and the OIDC nonce check (2026-11-23)
+
+**Added.** `realm.mfa.recover(code)` completes the pending MFA challenge with a single-use recovery code and resolves to the login response plus `reenrollRequired`, the backend's `reenroll_required` (true on a successful redeem). It posts `{ challengeToken, code }` to the new `Endpoints.mfaRecovery` (default `/mfa/recovery`); `RequestAdapters.mfaRecovery` reshapes the body. With no challenge pending it throws `RealmError("mfa_failed", "no challenge pending")` and sends nothing; a failed attempt keeps the challenge pending, and errors and lockout are the ones `mfa.verify` raises.
+
+**`completeSignIn` refuses an `id_token` whose nonce differs from the one sent (2026-11-19).**
 
 - Changed: the nonce sent with the authorize request is kept with the pending sign-in, and `completeSignIn` compares it with the `nonce` claim of the returned `id_token`. A mismatch, a missing claim, an undecodable token or an empty expected nonce throws `RealmError` `oidc_state_mismatch` ("OIDC nonce did not match") and strips the OIDC parameters from the URL. The signature is not checked in the browser; the issuer verifies it at login.
 

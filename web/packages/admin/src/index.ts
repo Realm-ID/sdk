@@ -279,6 +279,7 @@ export type {
   DriftReview,
   DriftAcceptResult,
   ContactVerification,
+  AssertedIdentity,
   ContactVerificationResult,
   Role,
   RoleObject,

@@ -14,12 +14,10 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * SPEC11_4_1_ingress (critic row 4): the ingress routes compare on the context-relative servlet
- * path; for ONE release the old full-request-URI form is also accepted, with a once-per-route
- * deprecation warning. Context path "/app": request POST /app/auth/x has servlet path /auth/x.
+ * SPEC11_4_1_ingress: the ingress routes compare on the context-relative servlet path only.
+ * Context path "/app": request POST /app/auth/x has servlet path /auth/x.
  */
 class IngressContextPathTest {
 
@@ -28,7 +26,6 @@ class IngressContextPathTest {
     @BeforeEach
     void setUp() throws IOException {
         fs = new FakeServer();
-        RealmFilter.resetIngressDeprecationsForTest();
     }
 
     @AfterEach
@@ -63,25 +60,20 @@ class IngressContextPathTest {
             "mfaVerifyPath", "/auth/mfa", "recoveryPath", "/auth/recover");
 
     @Test
-    void SPEC11_4_1_ingress_contextRelativeFormMatchesWithoutWarning() throws Exception {
+    void SPEC11_4_1_ingress_contextRelativeFormMatches() throws Exception {
         for (var e : ROUTES.entrySet()) {
             int s = drive(e.getKey(), e.getValue(), "/app" + e.getValue(), e.getValue());
             assertNotEquals(401, s, e.getKey() + " context-relative form must route, got " + s);
         }
-        assertTrue(RealmFilter.ingressDeprecationsForTest().isEmpty(),
-                "the correct form must not warn: " + RealmFilter.ingressDeprecationsForTest());
     }
 
     @Test
-    void SPEC11_4_1_ingress_oldFullUriFormStillMatchesAndWarnsOncePerRoute() throws Exception {
+    void SPEC11_4_1_ingress_aFullRequestUriConfigDoesNotMatch() throws Exception {
         for (var e : ROUTES.entrySet()) {
             String full = "/app" + e.getValue();
-            int s = drive(e.getKey(), full, full, e.getValue());
-            assertNotEquals(401, s, e.getKey() + " old full-URI form must still route this release, got " + s);
-            drive(e.getKey(), full, full, e.getValue());
+            assertEquals(401, drive(e.getKey(), full, full, e.getValue()),
+                    e.getKey() + " configured with the context prefix must not route");
         }
-        assertEquals(5, RealmFilter.ingressDeprecationsForTest().size(),
-                "one warning per route: " + RealmFilter.ingressDeprecationsForTest());
     }
 
     @Test

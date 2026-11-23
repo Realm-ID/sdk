@@ -1,5 +1,13 @@
 # @realm-id/web-admin — changelog
 
+## 0.30.1 — peer range accepts `@realm-id/web` 0.14 (2026-11-23)
+
+**Changed.** The `@realm-id/web` peer range accepts 0.14. No source change.
+
+## 0.30.0 — `ContactVerification` names the account and the address (2026-11-20)
+
+**Added.** `ContactVerification` carries the optional `contact_kind` (`email` | `phone` | `username`), `contact_value_masked`, `user_display_name`, `user_email_masked` and `asserted_identity` (`email_masked`, `phone_masked`, `display_name`), and the package entry point re-exports the `AssertedIdentity` type from `@realm-id/sdk`. Every field is absent from an issuer that predates it. No other source change.
+
 ## 0.29.0 — re-exports `User.kind` and `User.verified_email_state` (2026-11-20)
 
 **Added.** The package entry point re-exports the `VerifiedEmailState` type from `@realm-id/sdk`, so a console can type the two new member-list fields: `User.kind` (`human` | `service`) and `User.verified_email_state` (`verified` | `unverified` | `unverified_required`). Both are sent on list items only and are absent from an issuer that predates them. No other source change.

@@ -18,6 +18,9 @@ type Credential struct {
 	GrantType    string
 	APIKey       string // grant_type=platform_api_key
 	SubjectToken string // grant_type=token-exchange (a workload OIDC JWT)
+	// PlatformID overrides the platform id sent with a token exchange; empty
+	// means the handle's RealmID.
+	PlatformID string
 }
 
 // CredentialSource supplies the bootstrap credential the SDK exchanges once at

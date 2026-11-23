@@ -187,6 +187,9 @@ public final class PlatformTokenManager {
             }
             body.put("subject_token", cred.subjectToken());
             body.put("subject_token_type", Credential.SUBJECT_TOKEN_TYPE_JWT);
+            String platformId = cred.platformId() == null || cred.platformId().isEmpty()
+                    ? realmId : cred.platformId();
+            if (platformId != null) body.put("platform_id", platformId);
             redacted = Logging.redact(cred.subjectToken());
         } else {
             throw new RealmException(ErrorCode.BAD_REQUEST, "unsupported credential grant_type: " + cred.grantType());

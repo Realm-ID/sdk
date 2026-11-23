@@ -477,3 +477,24 @@ test("realmid preset: providers without password_policy leaves passwordPolicy ab
   assert.ok(!("passwordPolicy" in out), "absent means the server did not say");
   realm.close();
 });
+
+test("realmid preset: mfa.recover posts { mfa_challenge_token, code } to the typed recovery route", async () => {
+  const { fetch, calls } = mockFetch((call) => {
+    if (call.url.endsWith("/me")) return { status: 401 };
+    if (call.url.endsWith("/login")) {
+      return { status: 412, body: { code: "mfa_required", mfa_challenge_token: "ch-1", method: "totp" } };
+    }
+    if (call.url.endsWith("/api/auth/mfa/recovery")) {
+      return { status: 200, body: { session_token: "sid-1", expires_at: 4102444800, user: { id: "u1" }, reenroll_required: true } };
+    }
+    return { status: 404 };
+  });
+  const realm = createRealm({ baseUrl: "https://bff.test", fetch, ...realmidBffPreset() });
+  await realm.ready();
+  await assert.rejects(() => realm.login({ method: "google", providerToken: "g" }));
+  const out = await realm.mfa.recover("abcd-efgh");
+  const sent = calls.find((c) => c.url.endsWith("/api/auth/mfa/recovery"));
+  assert.deepEqual(sent?.body, { mfa_challenge_token: "ch-1", code: "abcd-efgh" });
+  assert.equal(out.reenrollRequired, true);
+  realm.close();
+});
