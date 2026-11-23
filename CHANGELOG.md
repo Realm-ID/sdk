@@ -27,9 +27,9 @@ that affect every SDK at once are recorded under a shared heading.
 
 - The `@realm-id/web` peer range accepts 0.14 in all four packages. No source change.
 
-## go `0.79.0` · ts · java `0.63.0` (unreleased; `java/build.gradle.kts` still reads `0.62.0`, no ts bump yet) — bounded shared JWKS refetch, Retry-After relay, the refresh cookie is Secure by default (SPEC §2, §6.5, §10, §10.5) (UNRELEASED, 2026-11-17)
+## go `0.79.0` · ts `0.66.0` · java `0.63.0` — bounded shared JWKS refetch, Retry-After relay, the refresh cookie is Secure by default (SPEC §2, §6.5, §10, §10.5) (2026-11-23)
 
-Minor, because a default changes. Pending: no `go/v0.79.0` tag exists yet, and no `ts-v*` or `java-v*` release is cut for these items.
+Minor, because a default changes.
 
 **Added**
 

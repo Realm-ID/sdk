@@ -4,6 +4,13 @@ All notable changes to the TypeScript SDK. Ships with a language-prefixed
 tag (`ts-vX.Y.Z`). The monorepo-level `../CHANGELOG.md` records
 cross-cutting items affecting every SDK at once.
 
+## 0.66.0 — bounded shared JWKS refetch, Retry-After relay, a failed realm discovery is not cached, masked `ContactVerification` fields, `platform_id` on the token exchange (SPEC §2, §4.0.1, §6.5, §10, §10.5) (2026-11-23)
+
+Combined release with go `0.79.0` and java `0.63.0`. The full entry is in the root `../CHANGELOG.md`; the ts-specific points:
+- Added: the unknown-kid JWKS refetch is bounded (one per realm per 5 seconds); the middleware relays the issuer's `Retry-After`; `ContactVerification` carries the masked contact and account fields; `User.kind` and `User.verified_email_state` are typed; the token exchange sends `platform_id` and `Credential.platformId` names another platform.
+- Changed: a `**` in a route or scope glob keeps its segment boundary; the JWKS response shape is read the same way as go and java.
+- Fixed: every `malformed` verifier error carries `httpStatus` 401; a token header that is not a JSON object is `malformed`; a failed realm discovery is no longer cached.
+
 ## 0.65.0 — browsers can no longer supply custom claims, one canonical path matcher, every post-rotation failure carries the rotated token (SPEC §4.2, §10.1, §10.2, §11.4.1) (2026-11-14)
 
 Combined release with go `0.78.0` and java `0.62.0` and issuer `v0.151.0`. The full entry, with the **Breaking** list, is in the root `../CHANGELOG.md`; the ts-specific points:
