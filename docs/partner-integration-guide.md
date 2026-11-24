@@ -2194,8 +2194,9 @@ the other `/platforms/{id}/...` routes):
 authenticator (TOTP) code, per operation.** The issuer itself enforces this; a
 platform key alone is refused. Binding setup is not operational work, so no user
 API key, user-API-key session, service account or CI job can do it
-(`403 not_available_to_api_keys`), and a platform API key or any bare platform
-bearer with no `X-User-Token` is refused `403 actor_required`. The flow for a
+(`403 not_available_to_api_keys`), and a platform API key, a workload session
+whose binding targets `platform` or `platform_mgmt`, or any bare platform bearer
+with no `X-User-Token` is refused `403 actor_required`. The flow for a
 signed-in person:
 
 1. Send the create or revoke as usual (platform token in `Authorization`, the
@@ -2205,7 +2206,8 @@ signed-in person:
    `412 mfa_required` with an `mfa_challenge_token` (inside the `error` object,
    see the envelope in §5.1) bound to this one request. A person with no
    authenticator gets `412 mfa_registration_required` and must enrol one before
-   retrying.
+   retrying (its body has `methods: ["totp"]` and an `mfa_challenge_token` key
+   that is present but empty: there is nothing to verify).
 3. Answer the challenge with `POST /auth/mfa/verify` (body `mfa_challenge_token`,
    `code`, `method: "totp"`; platform token, no actor; see §5.1), using a
    current code. The approval is valid for 120 seconds from that answer and is
@@ -2217,13 +2219,16 @@ signed-in person:
    token, obtain a new access token for the person (§5.1 step 3), then repeat
    the same method, path and body with that NEW token as `X-User-Token`. A retry
    with the pre-verify token answers `401` and does not spend the approval. A
-   `409` (`binding_exists`, `last_machine_credential`) returns the approval
+   write that does not happen (`409 binding_exists`,
+   `409 last_machine_credential`, a store error) returns the approval
    unspent, so an identical request within its remaining 120 seconds needs no
    new code.
 
 A `412` is never cached: resending with the same `Idempotency-Key` after
-verifying reaches the handler. `503` means the approval store (or the person's
-MFA state) could not be read; retry. For these two operations the enrolment
+verifying reaches the handler. `503 store_unavailable` means the approval
+store (or the person's MFA state) could not be read or written, and it can also
+answer `POST /auth/mfa/verify` itself; nothing was rotated or created, so retry.
+Revoking a binding that is already revoked is `404` and asks for no code. For these two operations the enrolment
 step of `412 mfa_registration_required` is described by that 412 response, not
 by §5.1's general text. `realm-id federation-bindings create|revoke` runs this
 loop and asks for the code (or pass `--totp <code>`). Some existing bindings
