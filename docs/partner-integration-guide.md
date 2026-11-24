@@ -2190,6 +2190,33 @@ the other `/platforms/{id}/...` routes):
 - `POST   /platforms/{id}/federation-bindings` — create → `201`.
 - `DELETE /platforms/{id}/federation-bindings/{bid}` — revoke → `200`.
 
+**Create and revoke need a person with a fresh authenticator (TOTP) code, per
+operation (Ruling 64).** The issuer itself enforces this; a platform key alone
+is refused. Binding setup is not operational work, so no API key, user-API-key
+session, service account or CI job can do it, and a bare platform bearer with no
+`X-User-Token` is refused `403 actor_required`. The flow for a signed-in person:
+
+1. Send the create or revoke as usual (platform token in `Authorization`, the
+   person's token in `X-User-Token`). A request that would fail validation,
+   authorization or lookup answers that error first; no code is asked for it.
+2. With no approval on file for this exact request, the issuer answers
+   `412 mfa_required` with an `mfa_challenge_token` bound to this one request.
+   A person with no authenticator enrolled gets `412 mfa_registration_required`
+   and must enrol first.
+3. Answer the challenge with `POST /auth/mfa/verify`, `method: "totp"`, using a
+   current code. The approval is valid for 120 seconds and is spent by one
+   matching retry. A code typed at sign-in does not count, nor does an SMS or
+   email code, and a retry with a different body needs a new code.
+4. Repeat the original request unchanged. A `409` (`binding_exists`,
+   `last_machine_credential`) returns the approval unspent.
+
+A `412` is never cached: resending with the same `Idempotency-Key` after
+verifying reaches the handler. Refusals: `403 not_available_to_api_keys` for any
+key-derived or service principal; `503` if the approval store is unavailable
+(retry). `realm-id federation-bindings create|revoke` runs this loop and asks
+for the code (or pass `--totp <code>`). Existing bindings created without a
+person will be disabled; details in the release notice.
+
 Every call below sends your platform token in `Authorization` and the owner
 as the actor in `X-User-Token` (R60, R65): bindings are administration, done
 by a person. After the actor-model release there are three binding kinds
