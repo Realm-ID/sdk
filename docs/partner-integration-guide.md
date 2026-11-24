@@ -2190,32 +2190,44 @@ the other `/platforms/{id}/...` routes):
 - `POST   /platforms/{id}/federation-bindings` — create → `201`.
 - `DELETE /platforms/{id}/federation-bindings/{bid}` — revoke → `200`.
 
-**Create and revoke need a person with a fresh authenticator (TOTP) code, per
-operation (Ruling 64).** The issuer itself enforces this; a platform key alone
-is refused. Binding setup is not operational work, so no API key, user-API-key
-session, service account or CI job can do it, and a bare platform bearer with no
-`X-User-Token` is refused `403 actor_required`. The flow for a signed-in person:
+**From issuer v0.153.0, create and revoke need a person with a fresh
+authenticator (TOTP) code, per operation.** The issuer itself enforces this; a
+platform key alone is refused. Binding setup is not operational work, so no user
+API key, user-API-key session, service account or CI job can do it
+(`403 not_available_to_api_keys`), and a platform API key or any bare platform
+bearer with no `X-User-Token` is refused `403 actor_required`. The flow for a
+signed-in person:
 
 1. Send the create or revoke as usual (platform token in `Authorization`, the
    person's token in `X-User-Token`). A request that would fail validation,
    authorization or lookup answers that error first; no code is asked for it.
 2. With no approval on file for this exact request, the issuer answers
-   `412 mfa_required` with an `mfa_challenge_token` bound to this one request.
-   A person with no authenticator enrolled gets `412 mfa_registration_required`
-   and must enrol first.
-3. Answer the challenge with `POST /auth/mfa/verify`, `method: "totp"`, using a
-   current code. The approval is valid for 120 seconds and is spent by one
-   matching retry. A code typed at sign-in does not count, nor does an SMS or
-   email code, and a retry with a different body needs a new code.
-4. Repeat the original request unchanged. A `409` (`binding_exists`,
-   `last_machine_credential`) returns the approval unspent.
+   `412 mfa_required` with an `mfa_challenge_token` (inside the `error` object,
+   see the envelope in §5.1) bound to this one request. A person with no
+   authenticator gets `412 mfa_registration_required` and must enrol one before
+   retrying.
+3. Answer the challenge with `POST /auth/mfa/verify` (body `mfa_challenge_token`,
+   `code`, `method: "totp"`; platform token, no actor; see §5.1), using a
+   current code. The approval is valid for 120 seconds from that answer and is
+   spent by one matching retry. A code typed at sign-in does not count, nor
+   does an SMS or email code, nor a recovery code (a recovery code also clears
+   the authenticator, so the person must enrol again), and a retry with a
+   different body needs a new code.
+4. A successful verify rotates the session's tokens, so adopt the new refresh
+   token, obtain a new access token for the person (§5.1 step 3), then repeat
+   the same method, path and body with that NEW token as `X-User-Token`. A retry
+   with the pre-verify token answers `401` and does not spend the approval. A
+   `409` (`binding_exists`, `last_machine_credential`) returns the approval
+   unspent, so an identical request within its remaining 120 seconds needs no
+   new code.
 
 A `412` is never cached: resending with the same `Idempotency-Key` after
-verifying reaches the handler. Refusals: `403 not_available_to_api_keys` for any
-key-derived or service principal; `503` if the approval store is unavailable
-(retry). `realm-id federation-bindings create|revoke` runs this loop and asks
-for the code (or pass `--totp <code>`). Existing bindings created without a
-person will be disabled; details in the release notice.
+verifying reaches the handler. `503` means the approval store (or the person's
+MFA state) could not be read; retry. For these two operations the enrolment
+step of `412 mfa_registration_required` is described by that 412 response, not
+by §5.1's general text. `realm-id federation-bindings create|revoke` runs this
+loop and asks for the code (or pass `--totp <code>`). Some existing bindings
+will be disabled; the release notice lists which.
 
 Every call below sends your platform token in `Authorization` and the owner
 as the actor in `X-User-Token` (R60, R65): bindings are administration, done
