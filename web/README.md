@@ -31,7 +31,10 @@ management, refresh dedupe, tenant switching, MFA, and multi-tab sync.
 > **`-firebase` is NOT dead code**: `Realm-ID/ui`'s console imports
 > `createFirebaseProvider` from it (`ui/web/src/auth-providers.ts`), consuming
 > it as a **vendored `file:` tarball** rather than from the registry.
-> `-google` has no consumer at all.
+> **`-google` is consumed the same way** since 2026-11-26: the console offers
+> direct Google sign-in (GIS One Tap/FedCM, `method: "google"`) next to
+> Firebase, picked by the realm's discovery list (`ui/web/src/auth-providers.ts`,
+> staging plan `plans/2026-11-25-staging-build.md` Q7).
 >
 > **New integrations should use `realm.signIn(type)`** in the core package
 > (added `0.4.2`, completed `0.4.5`) rather than either adapter: it fetches the
